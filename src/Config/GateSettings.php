@@ -54,7 +54,7 @@ final class GateSettings {
     'mutation' => ['msi_min' => 'percent'],
     'playwright' => [],
     'coverage' => ['min' => 'percent'],
-    'rendered_check' => [],
+    'rendered_check' => ['routes' => 'string'],
   ];
 
   /**

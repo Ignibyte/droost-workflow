@@ -24,10 +24,10 @@ Early. This package is being built ticket by ticket:
 | Step | What | State |
 |---|---|---|
 | P6.1 | Config spine — the lever file, presets, run state | **shipped** |
-| P6.2 | The five phases as a `.claude/` pack | **this release** |
-| P6.3 | Gate runner + honest degradation | planned |
-| P6.4 | Automated / pair modes and the mid-run swap | planned |
-| P6.5 | The drush + MCP live-site surface and the standalone CLI | planned |
+| P6.2 | The five phases as a `.claude/` pack | **shipped** |
+| P6.3 | Gate runner + honest degradation | **shipped** |
+| P6.4 | Automated / pair modes and the mid-run swap | **shipped** |
+| P6.5 | The drush live-site surface and the standalone CLI | **this release** |
 
 ## The lever file
 
@@ -154,6 +154,38 @@ directories and nothing else; a directory without the marker belongs to you
 and is refused rather than overwritten. Your `droost.workflow.yml` is never
 refreshed at all — it is version-controlled intent you wrote, and resetting
 your gates on an unrelated re-install would be an unpleasant surprise.
+
+## Two surfaces, one pipeline
+
+The same run, the same levers, the same report — whether or not there is a
+site.
+
+```bash
+# Standalone. Any Drupal repo, no booted site, nothing running.
+vendor/bin/droost-workflow init
+vendor/bin/droost-workflow status
+vendor/bin/droost-workflow run
+
+# Against a live site.
+drush droost:workflow:status
+drush droost:workflow:run
+drush droost:workflow:answer "yes, continue"
+drush droost:workflow:swap automated
+```
+
+The only thing that differs is what the site-dependent gates can say. Verified
+on a real Drupal 11.4.4 site:
+
+| Surface | `rendered_check` |
+|---|---|
+| live (drush) | **passed** — "1 route(s) rendered", a real sub-request to `/` |
+| standalone | **skipped, no site** — with the reason recorded |
+
+That difference is the entire point. The CLI surface is not a degraded live
+run pretending otherwise; it is a run that tells you exactly which checks it
+could not perform. Everything else — which gates ran, their verdicts, the
+phase, the advance decision — is identical, because both surfaces call one
+facade and differ only in which site driver they inject.
 
 ## Requirements
 

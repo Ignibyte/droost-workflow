@@ -1,0 +1,54 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * @file
+ * The standalone Droost Workflow surface.
+ *
+ * Runs the same pipeline as the live-site surface, in any Drupal repo, with
+ * no booted site. Site-dependent gates report "skipped, no site" rather than
+ * being quietly left out of the result.
+ */
+
+declare(strict_types=1);
+
+use Drupal\droost_workflow\Cli\ArgvDispatcher;
+
+// Works both from this package's own vendor/ and from a consuming project's,
+// so the bin behaves the same whether it was installed as a dependency or is
+// being developed in place.
+$autoloaders = [
+  __DIR__ . '/../vendor/autoload.php',
+  __DIR__ . '/../../../autoload.php',
+];
+$loaded = FALSE;
+foreach ($autoloaders as $autoloader) {
+  if (is_file($autoloader)) {
+    require_once $autoloader;
+    $loaded = TRUE;
+    break;
+  }
+}
+if (!$loaded) {
+  fwrite(STDERR, "Could not find vendor/autoload.php — run composer install.\n");
+  exit(2);
+}
+
+$root = getcwd();
+if ($root === FALSE) {
+  fwrite(STDERR, "Could not determine the working directory.\n");
+  exit(2);
+}
+
+$dispatcher = new ArgvDispatcher(
+  static function (string $line): void {
+    fwrite(STDOUT, $line . "\n");
+  },
+  static function (string $line): void {
+    fwrite(STDERR, $line . "\n");
+  },
+  static fn (): string => date('c'),
+  static fn (): string => 'run-' . bin2hex(random_bytes(6)),
+);
+
+exit($dispatcher->dispatch(array_slice($argv, 1), $root));
