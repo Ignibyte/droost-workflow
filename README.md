@@ -187,6 +187,50 @@ could not perform. Everything else — which gates ran, their verdicts, the
 phase, the advance decision — is identical, because both surfaces call one
 facade and differ only in which site driver they inject.
 
+## The MCP submodule (optional)
+
+`modules/droost_workflow_mcp` exposes the same engine over MCP, as a third and
+fourth front onto the one `WorkflowFacade`:
+
+- **`droost_workflow_status`** — read-only. The resolved levers (which preset,
+  which gates, and where that came from), the phase order with each phase's
+  status, the latest tally, and whether the run is awaiting an answer.
+- **`droost_workflow_run`** — drives the run: gates the current phase and
+  advances when they pass. `answer` and `swap` are ARGUMENTS of this one tool
+  rather than separate tools, because they are sub-operations of driving a run
+  and every extra destructive tool is another separately allow-listed surface.
+
+Both take an optional `project` (absolute path to the repository); omit it for
+the site's own root. A root that is not a directory comes back as a failure
+envelope naming the path — never an exception, which over JSON-RPC would tell the
+caller nothing it could act on.
+
+It is a SUBMODULE so a plain consumer of this package never pulls the alpha
+`mcp_server`: enable it only if you want the MCP surface. It depends on
+`droost:droost`, `mcp_server:mcp_server` and this module.
+
+`droost_workflow_run` is **STDIO/Drush-only** — gated on the transport alone, no
+`allow_*` flag, the same posture `droost_verify` has for the same risk class (it
+spawns the project's own analysis binaries). Its whole body runs inside droost's
+Fiber shield, because a run can reach the rendered check and Drupal's renderer
+suspends the fiber in a way the MCP SDK misreads as a dropped response.
+
+**Analysing it.** `./scripts/lint` does NOT type-check this submodule, and says
+so on every run. Its types come from three packages this checkout cannot have
+(`drupal/droost` is unpublished; `mcp_server` and `mcp/sdk` exist only inside a
+site), so no portable `scanDirectories` list can resolve them. Analyse it where
+they live:
+
+```bash
+ddev exec "cd /var/www/contrib/droost/droost_workflow && \
+  php vendor/bin/phpstan analyse -c phpstan-mcp-site.neon \
+  --autoload-file /var/www/html/vendor/autoload.php"
+```
+
+That reaches everything except `$container->get()`'s return type, which needs
+`phpstan-drupal`; droost's own Tool plugins carry the identical gap for the
+identical reason.
+
 ## Requirements
 
 PHP 8.3+. The engine's only runtime dependency is `symfony/yaml` — no Drupal

@@ -30,7 +30,8 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "Drupal\\Tests\\droost_workflow\\": "tests/src/"
+            "Drupal\\Tests\\droost_workflow\\": "tests/src/",
+            "Drupal\\droost_workflow_mcp\\": "modules/droost_workflow_mcp/src/"
         }
     },
     "config": {

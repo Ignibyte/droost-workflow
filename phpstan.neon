@@ -9,6 +9,30 @@ parameters:
     - tests
   excludePaths:
     - vendor/*
+  # TICKET-136 — WHY modules/ IS NOT ANALYSED HERE, and where it IS.
+  #
+  # `modules/droost_workflow_mcp` is two MCP Tool plugins. Their types come from
+  # THREE packages this checkout cannot have: `drupal/droost` (1.0.x, unpublished,
+  # so require-dev cannot fetch it), the `mcp_server` contrib module (which owns
+  # the `#[Tool]` attribute), and the `mcp/sdk` library (which owns
+  # `ClientGateway`). Only the first is a sibling checkout; the other two exist
+  # only inside a real site's tree, so NO portable `scanDirectories` list can
+  # resolve them — a hard path into a dev site would fail phpstan outright on any
+  # other machine, which is worse than not analysing.
+  #
+  # So the submodule is analysed WHERE ITS SYMBOLS LIVE — from the site that has
+  # them installed, the same CI-authoritative arrangement droost itself uses
+  # (`PR-druplit-cross-repo-droost-gate-001`). The command is in the README and is
+  # run at validate:
+  #
+  #   ddev exec "cd web && ../vendor/bin/phpstan analyse --level=max \
+  #     modules/contrib/droost_workflow/modules"
+  #
+  # This is deliberately NOT an `excludePaths` entry. An exclusion reads identical
+  # to a green run and is a permanent silent gap
+  # (`PR-druplit-install-the-framework-in-dev-rather-than-excluding-its-code-001`);
+  # `scripts/lint` therefore PRINTS that the submodule was not analysed locally,
+  # so a green local gate never claims coverage it does not have.
   # A phpdoc type is a claim, not a proof: keep the analyser sceptical of
   # annotations so a wrong @var cannot silence a real finding.
   treatPhpDocTypesAsCertain: false
