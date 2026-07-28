@@ -280,6 +280,76 @@ final class RunState {
   }
 
   /**
+   * This run with a phase's gate report recorded.
+   *
+   * Until this existed, `gate_results` was a field the writer emitted, the
+   * reader round-tripped, and nothing ever populated — which meant any
+   * instruction to "read the gate results from run state" pointed at a
+   * permanently empty array, and anyone following it would fill the gap from
+   * memory. Reporting checks that never ran is the one failure this package
+   * exists to prevent, so the field needed a writer or it needed removing.
+   *
+   * @param string $phase
+   *   The phase the report belongs to.
+   * @param array<string, mixed> $report
+   *   The serialized PhaseReport. Kept as plain data so State does not depend
+   *   on Gate.
+   *
+   * @return self
+   *   A new instance.
+   */
+  public function withGateReport(string $phase, array $report): self {
+    $results = $this->gateResults;
+    $results[$phase] = $report;
+    return new self(
+      $this->runId,
+      $this->startedAt,
+      $this->mode,
+      $this->modeOverride,
+      $this->preset,
+      $this->maxGateRetries,
+      $this->provenance,
+      $this->resolvedGates,
+      $this->phases,
+      $this->currentPhase,
+      $results,
+      $this->awaiting,
+      $this->qaHistory,
+      $this->feedbackAttempts,
+    );
+  }
+
+  /**
+   * This run with one more feedback-loop attempt counted against a gate.
+   *
+   * @param string $gate
+   *   The gate that failed.
+   *
+   * @return self
+   *   A new instance.
+   */
+  public function withFeedbackAttempt(string $gate): self {
+    $attempts = $this->feedbackAttempts;
+    $attempts[$gate] = ($attempts[$gate] ?? 0) + 1;
+    return new self(
+      $this->runId,
+      $this->startedAt,
+      $this->mode,
+      $this->modeOverride,
+      $this->preset,
+      $this->maxGateRetries,
+      $this->provenance,
+      $this->resolvedGates,
+      $this->phases,
+      $this->currentPhase,
+      $this->gateResults,
+      $this->awaiting,
+      $this->qaHistory,
+      $attempts,
+    );
+  }
+
+  /**
    * This run with a mid-run mode swap applied.
    *
    * @param \Drupal\droost_workflow\Config\Mode $to
