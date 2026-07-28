@@ -1,0 +1,64 @@
+---
+name: workflow-plan
+description: Phase 1 of the Droost Workflow. Ground in the site, understand the request, and produce a spec with EARS acceptance criteria before any code is written.
+---
+
+# Plan
+
+The first phase. Nothing gets built until there is a spec that says what
+"built" means.
+
+This phase absorbs what other pipelines split into solutions, architecture
+and design. One phase, one artefact: a spec the later phases are measured
+against.
+
+## Entry gate
+
+- `droost.workflow.yml` loads. If it does not, stop and report the error —
+  it names the key that is wrong.
+- No run is already in progress, or you are deliberately resuming one. Check
+  `.droost-workflow/run.json`.
+
+## Work
+
+**Ground first, propose second.** The most expensive mistake in this phase is
+describing a site that does not exist — a content type that is already there
+under another name, a route that is taken, a field you were about to
+duplicate. Ask the site before you assume:
+
+- `droost_capabilities` — what this site can actually do right now.
+- `droost_architecture` — how it is put together.
+- `droost_entities` and `droost_routes` — what already exists.
+- `droost_module_docs` — what an installed module already gives you.
+- `droost_guidelines` — the conventions this project expects you to follow.
+
+Then produce the spec:
+
+1. **The request, restated.** What the user asked for, in your words. If your
+   restatement and their request differ, you have found the real work.
+2. **The Drupal constructs to build** — content types, fields, views, pages,
+   blocks, custom code. Name each one.
+3. **The approach**, including what you are deliberately NOT doing.
+4. **Acceptance criteria in EARS form** — "When <trigger>, the <system> shall
+   <observable response>", one observable behaviour per row, each with a way
+   to check it. A criterion nobody can check is not a criterion.
+
+## Exit gate
+
+The spec exists, and every acceptance criterion is observable. If you cannot
+say how a criterion would be checked, rewrite it until you can.
+
+In pair mode the run pauses here and asks before continuing. That is the
+cheapest moment in the whole pipeline to be told you understood the request
+wrong.
+
+## Without a site
+
+Every tool above reaches a running Drupal site. With no site — a plain
+checkout, or one that is mid-build — none of them answer.
+
+Say so in the spec. Write what you could not verify as an explicit
+assumption, so the code phase knows which of its foundations are guesses.
+Do not substitute a plausible answer for a fact you could not check: a spec
+that quietly invents the site's current state is worse than one that admits
+it is working blind.

@@ -23,8 +23,8 @@ Early. This package is being built ticket by ticket:
 
 | Step | What | State |
 |---|---|---|
-| P6.1 | Config spine — the lever file, presets, run state | **this release** |
-| P6.2 | The five phases as a `.claude/` pack | next |
+| P6.1 | Config spine — the lever file, presets, run state | **shipped** |
+| P6.2 | The five phases as a `.claude/` pack | **this release** |
 | P6.3 | Gate runner + honest degradation | planned |
 | P6.4 | Automated / pair modes and the mid-run swap | planned |
 | P6.5 | The drush + MCP live-site surface and the standalone CLI | planned |
@@ -128,6 +128,32 @@ skipped phase is refused outright — clearing a failure has to be a deliberate
 act, not a side effect of moving on. Advancing backward, or advancing a run
 that has already reached its terminal gate, is refused for the same reason: a
 report has to be able to describe the run honestly.
+
+## The pack
+
+The five phases ship as a `.claude/` pack — one skill per phase, two
+commands, and a shared partial on using droost. Installing it into a repo
+writes:
+
+```
+.claude/skills/workflow-{plan,code,test,document,complete}/SKILL.md
+.claude/commands/workflow/{run,status}.md
+.claude/partials/droost-usage.md
+droost.workflow.yml          # only if you don't already have one
+```
+
+Each skill states four things: its entry gate, the work, its exit gate, and
+**what it can and cannot check without a booted site**. That last section is
+the point. Nearly every droost tool needs a running site, so a CLI run has
+real blind spots — and a run that hides them produces a report nobody should
+trust.
+
+**Ownership is explicit.** Every directory the pack owns gets a
+`.droost-workflow-pack` marker. Re-running the installer refreshes those
+directories and nothing else; a directory without the marker belongs to you
+and is refused rather than overwritten. Your `droost.workflow.yml` is never
+refreshed at all — it is version-controlled intent you wrote, and resetting
+your gates on an unrelated re-install would be an unpleasant surprise.
 
 ## Requirements
 

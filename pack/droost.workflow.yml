@@ -1,0 +1,50 @@
+# Droost Workflow levers for this repo.
+#
+# This file is the source of truth for how the workflow runs here. It is a
+# file rather than Drupal configuration on purpose: the agent has to be able
+# to read it while the site is mid-build or broken, a plain Claude Code or
+# Codex user has to get the same answers with no site at all, and loosening a
+# gate should show up in review as a diff.
+#
+# Everything below is written out explicitly. That is deliberate — a file
+# that named no preset would resolve to `factory` (strictest), because a repo
+# that has said nothing has not opted out of anything. Naming `custom` is how
+# you choose the gentler set on purpose.
+
+# automated | pair
+#   automated — run plan through complete unattended.
+#   pair      — pause at every phase gate and ask before advancing.
+mode: automated
+
+# custom | factory | fast
+#   factory — everything on, strict. The software factory.
+#   fast    — standards and a shallow analysis; nothing that costs minutes.
+#   custom  — the values spelled out below.
+preset: custom
+
+# Drop code, test or document if you must. plan and complete are endpoints.
+phases: [plan, code, test, document, complete]
+
+gates:
+  # "on" is the only switch a gate has. A threshold does NOT turn one on:
+  # setting coverage.min without coverage.on leaves coverage where the preset
+  # put it.
+  phpcs:          { on: true,  standard: "Drupal,DrupalPractice" }
+
+  # level: 0-9, "max", or "off". "off" disables the gate; pairing it with
+  # on: true is refused rather than silently resolved.
+  phpstan:        { on: true,  level: 6 }
+
+  phpunit:        { on: true }
+
+  mutation:       { on: false, msi_min: 0 }
+  playwright:     { on: false }
+  coverage:       { on: false, min: 0 }
+
+  # Artifacts are truth. Recommended on even in a fast run: a run that stops
+  # checking whether the page renders is not fast, it is blind.
+  rendered_check: { on: true }
+
+# How many times a failing gate may drive the feedback loop before the run
+# fails. 0 means a gate gets one attempt and no retry.
+max_gate_retries: 2
