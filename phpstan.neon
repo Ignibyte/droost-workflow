@@ -1,0 +1,14 @@
+includes:
+  - vendor/phpstan/phpstan-phpunit/extension.neon
+  - vendor/phpstan/phpstan-phpunit/rules.neon
+
+parameters:
+  level: max
+  paths:
+    - src
+    - tests
+  excludePaths:
+    - vendor/*
+  # A phpdoc type is a claim, not a proof: keep the analyser sceptical of
+  # annotations so a wrong @var cannot silence a real finding.
+  treatPhpDocTypesAsCertain: false

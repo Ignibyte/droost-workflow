@@ -1,0 +1,38 @@
+{
+    "name": "drupal/droost_workflow",
+    "type": "drupal-module",
+    "description": "The phased, gated pipeline an agent runs to build or change a Drupal site: plan, code, test, document, complete.",
+    "keywords": ["Drupal", "droost", "agent", "workflow", "pipeline"],
+    "homepage": "https://www.drupal.org/project/droost",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": "^8.3",
+        "symfony/yaml": "^6.4 || ^7.0 || ^8.0"
+    },
+    "require-dev": {
+        "drupal/coder": "^8.3",
+        "phpstan/phpstan": "^2.1",
+        "phpstan/phpstan-phpunit": "^2.0",
+        "phpunit/phpunit": "^10.5 || ^11.5 || ^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Drupal\\droost_workflow\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Drupal\\Tests\\droost_workflow\\": "tests/src/"
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": true
+        },
+        "sort-packages": true
+    },
+    "scripts": {
+        "lint": "./scripts/lint",
+        "test": "./vendor/bin/phpunit"
+    }
+}

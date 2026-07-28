@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ruleset name="droost_workflow">
+  <description>
+    Drupal + DrupalPractice for droost_workflow.
+
+    DrupalPractice is deliberate, matching the droost repo: the drupal.org
+    template leaves it commented out, so a package that only runs "Drupal"
+    never sees the practice-level findings.
+  </description>
+
+  <rule ref="Drupal"/>
+  <rule ref="DrupalPractice"/>
+
+  <arg name="extensions" value="php,module,inc,install,yml"/>
+  <arg value="s"/>
+
+  <file>src</file>
+  <file>tests</file>
+
+  <exclude-pattern>vendor/*</exclude-pattern>
+  <exclude-pattern>.droost-workflow/*</exclude-pattern>
+</ruleset>

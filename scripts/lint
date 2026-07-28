@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+#
+# The droost_workflow gate: phpcs, phpstan (level max), phpunit.
+#
+# All three legs are HARD. droost's equivalent script skips phpstan and
+# phpunit when their binaries are absent, because that repo has no vendor/ of
+# its own and those gates are CI-authoritative. This package requires nothing
+# but PHP, so a missing binary means the environment is wrong, not that the
+# gate is inapplicable — it fails, and it says which invocation it could not
+# run.
+#
+# Usage:
+#   scripts/lint              # every leg over the whole package
+#   scripts/lint src/Config   # scope phpcs to a subset (a fast pre-commit)
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+TARGETS=("$@")
+FAIL=0
+
+require_bin() {
+  local bin="$1"
+  if [ ! -x "$bin" ]; then
+    printf '  \033[31mFAIL\033[0m  %s is missing — run: composer install\n' "$bin"
+    return 1
+  fi
+  return 0
+}
+
+run_leg() {
+  local label="$1"
+  shift
+  if "$@"; then
+    printf '  \033[32mPASS\033[0m  %s\n' "$label"
+  else
+    printf '  \033[31mFAIL\033[0m  %s (%s)\n' "$label" "$*"
+    FAIL=1
+  fi
+}
+
+echo "droost_workflow gate"
+
+if require_bin vendor/bin/phpcs; then
+  if [ ${#TARGETS[@]} -gt 0 ]; then
+    run_leg "phpcs (Drupal,DrupalPractice)" \
+      vendor/bin/phpcs --standard=./phpcs.xml.dist -s "${TARGETS[@]}"
+  else
+    run_leg "phpcs (Drupal,DrupalPractice)" \
+      vendor/bin/phpcs --standard=./phpcs.xml.dist -s
+  fi
+else
+  FAIL=1
+fi
+
+if require_bin vendor/bin/phpstan; then
+  run_leg "phpstan (level max)" \
+    vendor/bin/phpstan analyse -c ./phpstan.neon --no-progress --memory-limit=1G
+else
+  FAIL=1
+fi
+
+if require_bin vendor/bin/phpunit; then
+  run_leg "phpunit" vendor/bin/phpunit --no-progress
+else
+  FAIL=1
+fi
+
+if [ "$FAIL" -eq 0 ]; then
+  printf '\033[32mGATE GREEN\033[0m — 3 legs run, 0 skipped\n'
+else
+  printf '\033[31mGATE RED\033[0m — fix at the source (no baselines, §0)\n'
+fi
+
+exit "$FAIL"

@@ -1,0 +1,6 @@
+/vendor/
+/composer.phar
+/.phpunit.cache/
+/.phpunit.result.cache
+/.droost-workflow/
+.DS_Store

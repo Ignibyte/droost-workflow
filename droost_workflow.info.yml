@@ -1,0 +1,9 @@
+name: Droost Workflow
+type: module
+description: 'The phased, gated pipeline an agent runs to build or change a site.'
+package: Droost
+core_version_requirement: ^10.3 || ^11 || ^12
+# Drupal 10.3 itself runs on PHP 8.1, but this package's engine requires 8.3
+# (see composer.json). Declaring it here too means a non-Composer install is
+# refused by Drupal rather than fataling at the first typed property.
+php: 8.3.0

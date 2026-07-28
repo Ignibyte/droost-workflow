@@ -1,0 +1,411 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Drupal\droost_workflow\Config;
+
+use Drupal\droost_workflow\Support\DataError;
+use Drupal\droost_workflow\Support\TypedArray;
+use Symfony\Component\Yaml\Exception\ParseException;
+use Symfony\Component\Yaml\Yaml;
+
+/**
+ * The resolved levers for a workflow run.
+ *
+ * Read from a repo-root droost.workflow.yml with no Drupal in the picture: the
+ * agent must be able to read its own levers while the site is mid-build or
+ * broken, and a plain Claude Code or Codex user must get the same answers from
+ * the same file with no site at all. Nothing in this class, or anything it
+ * calls, touches the Drupal container.
+ *
+ * Unknown keys are errors. A config loader that shrugs at "phpstain:" hands
+ * back a run with static analysis quietly disabled and a report that says
+ * everything passed.
+ */
+final class WorkflowConfig {
+
+  /**
+   * The lever file's name at the project root.
+   */
+  public const FILENAME = 'droost.workflow.yml';
+
+  /**
+   * The top-level keys the file may contain.
+   */
+  private const KNOWN_SETTINGS = [
+    'mode',
+    'phases',
+    'preset',
+    'gates',
+    'max_gate_retries',
+  ];
+
+  /**
+   * The largest retry bound a run may configure.
+   */
+  private const MAX_RETRIES_CEILING = 10;
+
+  /**
+   * Constructs a WorkflowConfig.
+   *
+   * @param \Drupal\droost_workflow\Config\Mode $mode
+   *   Automated or pair.
+   * @param list<\Drupal\droost_workflow\Config\Phase> $phases
+   *   The phases this run executes, in canonical relative order.
+   * @param array<string, \Drupal\droost_workflow\Config\GateSettings> $gates
+   *   Every known gate, keyed by name — resolved, not merely as written.
+   * @param string $preset
+   *   The preset these levers were resolved from.
+   * @param int $maxGateRetries
+   *   How many times a failing gate may drive the feedback loop.
+   * @param \Drupal\droost_workflow\Config\Provenance $provenance
+   *   Whether a file was read or the built-in defaults are in force.
+   */
+  private function __construct(
+    public readonly Mode $mode,
+    public readonly array $phases,
+    public readonly array $gates,
+    public readonly string $preset,
+    public readonly int $maxGateRetries,
+    public readonly Provenance $provenance,
+  ) {}
+
+  /**
+   * Loads the levers for a project.
+   *
+   * @param string $projectRoot
+   *   The repo root to look in.
+   *
+   * @return self
+   *   The resolved configuration; built-in factory defaults when no file
+   *   exists.
+   *
+   * @throws \Drupal\droost_workflow\Config\ConfigError
+   *   When the file exists but cannot be read or understood.
+   * @throws \InvalidArgumentException
+   *   When the project root is empty, is the filesystem root, or is not a
+   *   directory.
+   */
+  public static function load(string $projectRoot): self {
+    $path = TypedArray::requireProjectRoot($projectRoot)
+      . '/' . self::FILENAME;
+
+    // is_link() first: file_exists() FOLLOWS a symlink, so a dangling one
+    // reads as "no file" and would hand back the built-in levers — the exact
+    // silent substitution the checks below exist to refuse.
+    if (!is_link($path) && !file_exists($path)) {
+      return self::builtIn();
+    }
+
+    // Everything below is the same principle: something IS there, so silently
+    // substituting the built-in levers would swap the repo's gates for
+    // different ones and call that normal. Only genuine absence is allowed to
+    // fall back.
+    if (!is_file($path)) {
+      throw ConfigError::notRegularFile(self::FILENAME);
+    }
+    if (!is_readable($path)) {
+      throw ConfigError::unreadable(self::FILENAME);
+    }
+
+    try {
+      $parsed = Yaml::parseFile($path);
+    }
+    catch (ParseException $e) {
+      throw ConfigError::unparseable(self::FILENAME, $e, $path);
+    }
+
+    // An empty file is a legitimate statement: "the defaults, and I have
+    // committed that choice".
+    if ($parsed === NULL) {
+      $parsed = [];
+    }
+    if (!is_array($parsed)) {
+      throw ConfigError::notMapping(self::FILENAME, get_debug_type($parsed));
+    }
+    // A YAML sequence decodes to a PHP array too, so is_array() alone lets a
+    // list through to be reported as an unknown setting called "0" — true, but
+    // useless. An empty array is exempt: that is the empty file above.
+    if ($parsed !== [] && array_is_list($parsed)) {
+      throw ConfigError::notMapping(self::FILENAME, 'a list');
+    }
+
+    return self::fromArray($parsed, self::FILENAME, Provenance::File);
+  }
+
+  /**
+   * The configuration in force when a project ships no lever file.
+   *
+   * @return self
+   *   The factory defaults, marked as built-in.
+   */
+  public static function builtIn(): self {
+    return self::fromArray([], '<built-in defaults>', Provenance::BuiltIn);
+  }
+
+  /**
+   * Resolves a decoded mapping into a configuration.
+   *
+   * @param array<array-key, mixed> $raw
+   *   The decoded document.
+   * @param string $source
+   *   The document label, for error messages.
+   * @param \Drupal\droost_workflow\Config\Provenance $provenance
+   *   Where the document came from.
+   *
+   * @return self
+   *   The resolved configuration.
+   *
+   * @throws \Drupal\droost_workflow\Config\ConfigError
+   *   When the document names anything the vocabulary does not contain, or a
+   *   value has the wrong type.
+   */
+  public static function fromArray(
+    array $raw,
+    string $source,
+    Provenance $provenance = Provenance::File,
+  ): self {
+    $root = TypedArray::authored($raw);
+
+    foreach ($root->keys() as $key) {
+      if (!in_array($key, self::KNOWN_SETTINGS, TRUE)) {
+        throw ConfigError::unknownSetting($source, $key, self::KNOWN_SETTINGS);
+      }
+    }
+
+    try {
+      $preset = $root->optionalString(
+        'preset',
+        PresetResolver::DEFAULT_PRESET,
+      ) ?? PresetResolver::DEFAULT_PRESET;
+      if (!PresetResolver::isKnown($preset)) {
+        throw ConfigError::unknownPreset(
+          $source,
+          $preset,
+          PresetResolver::KNOWN_PRESETS,
+        );
+      }
+      $base = PresetResolver::resolve($preset);
+
+      return new self(
+        self::readMode($root, $source, $base->mode),
+        self::readPhases($root, $source),
+        self::readGates($root, $source, $base->gates),
+        $base->name,
+        $root->has('max_gate_retries')
+          ? $root->intInRange(
+            'max_gate_retries',
+            0,
+            self::MAX_RETRIES_CEILING,
+          )
+          : $base->maxGateRetries,
+        $provenance,
+      );
+    }
+    catch (DataError $e) {
+      throw ConfigError::fromData($source, $e);
+    }
+  }
+
+  /**
+   * One gate's resolved levers.
+   *
+   * @param string $name
+   *   A name from GateSettings::KNOWN_GATES.
+   *
+   * @return \Drupal\droost_workflow\Config\GateSettings
+   *   The gate.
+   *
+   * @throws \InvalidArgumentException
+   *   When the name is not a known gate — a programming error, not a config
+   *   one, since every known gate is always present.
+   */
+  public function gate(string $name): GateSettings {
+    if (!isset($this->gates[$name])) {
+      throw new \InvalidArgumentException(
+        sprintf('No such gate: %s', $name),
+      );
+    }
+    return $this->gates[$name];
+  }
+
+  /**
+   * Whether this run executes a phase.
+   *
+   * @param \Drupal\droost_workflow\Config\Phase $phase
+   *   The phase.
+   *
+   * @return bool
+   *   TRUE when configured.
+   */
+  public function hasPhase(Phase $phase): bool {
+    return in_array($phase, $this->phases, TRUE);
+  }
+
+  /**
+   * Every gate's resolved levers as plain data.
+   *
+   * This is what a run records and a report renders, so that "which levers
+   * was this run actually held to" is answerable from the artefacts alone.
+   *
+   * @return array<string, array<string, int|string|bool>>
+   *   Gate name to its "on" flag and options.
+   */
+  public function resolvedGates(): array {
+    $out = [];
+    foreach ($this->gates as $name => $gate) {
+      $out[$name] = $gate->toArray();
+    }
+    return $out;
+  }
+
+  /**
+   * The phase names this run executes.
+   *
+   * @return list<string>
+   *   The backing values, in execution order.
+   */
+  public function phaseNames(): array {
+    return array_map(
+      static fn (Phase $p): string => $p->value,
+      $this->phases,
+    );
+  }
+
+  /**
+   * Reads the mode.
+   *
+   * @param \Drupal\droost_workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   * @param \Drupal\droost_workflow\Config\Mode $default
+   *   The preset's mode.
+   *
+   * @return \Drupal\droost_workflow\Config\Mode
+   *   The mode.
+   *
+   * @throws \Drupal\droost_workflow\Config\ConfigError
+   *   When the name is not a known mode.
+   * @throws \Drupal\droost_workflow\Support\DataError
+   *   When the value is not a string.
+   */
+  private static function readMode(
+    TypedArray $root,
+    string $source,
+    Mode $default,
+  ): Mode {
+    if (!$root->has('mode')) {
+      return $default;
+    }
+    $name = $root->string('mode');
+    $mode = Mode::tryFrom($name);
+    if ($mode === NULL) {
+      throw ConfigError::unknownMode($source, $name, Mode::names());
+    }
+    return $mode;
+  }
+
+  /**
+   * Reads the phase sequence.
+   *
+   * @param \Drupal\droost_workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   *
+   * @return list<\Drupal\droost_workflow\Config\Phase>
+   *   The phases, in execution order.
+   *
+   * @throws \Drupal\droost_workflow\Config\ConfigError
+   *   When a name is unknown, a required phase is dropped, or the order is
+   *   not a subsequence of the canonical one.
+   * @throws \Drupal\droost_workflow\Support\DataError
+   *   When the value is not a list of strings.
+   */
+  private static function readPhases(
+    TypedArray $root,
+    string $source,
+  ): array {
+    if (!$root->has('phases')) {
+      return Phase::canonical();
+    }
+
+    $names = $root->stringList('phases');
+    $phases = [];
+    foreach ($names as $name) {
+      $phase = Phase::tryFrom($name);
+      if ($phase === NULL) {
+        throw ConfigError::unknownPhase($source, $name, Phase::names());
+      }
+      $phases[] = $phase;
+    }
+
+    foreach (Phase::REQUIRED as $required) {
+      if (!in_array($required, $phases, TRUE)) {
+        throw ConfigError::missingRequiredPhase($source, $required);
+      }
+    }
+
+    // Duplicates are checked before ordering. The subsequence test rejects
+    // both, but telling someone their phases are "out of order" when they
+    // merely repeated one sends them looking in the wrong place.
+    $seen = [];
+    foreach ($names as $name) {
+      if (isset($seen[$name])) {
+        throw ConfigError::duplicatePhase($source, $name);
+      }
+      $seen[$name] = TRUE;
+    }
+
+    if (!Phase::isSubsequence($phases)) {
+      throw ConfigError::phasesOutOfOrder($source, $names);
+    }
+
+    return $phases;
+  }
+
+  /**
+   * Reads the gate overrides onto the preset's base set.
+   *
+   * @param \Drupal\droost_workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   * @param array<string, \Drupal\droost_workflow\Config\GateSettings> $base
+   *   The preset's gate set.
+   *
+   * @return array<string, \Drupal\droost_workflow\Config\GateSettings>
+   *   Every known gate, resolved.
+   *
+   * @throws \Drupal\droost_workflow\Config\ConfigError
+   *   When a gate or one of its options is unknown.
+   * @throws \Drupal\droost_workflow\Support\DataError
+   *   When a value has the wrong type or falls outside its range.
+   */
+  private static function readGates(
+    TypedArray $root,
+    string $source,
+    array $base,
+  ): array {
+    $node = $root->optionalChild('gates');
+    if ($node === NULL) {
+      return $base;
+    }
+
+    $gates = $base;
+    foreach ($node->keys() as $name) {
+      if (!GateSettings::isKnown($name)) {
+        throw ConfigError::unknownGate(
+          $source,
+          $name,
+          GateSettings::KNOWN_GATES,
+        );
+      }
+      $gates[$name] = $gates[$name]->overlay($node->child($name), $source);
+    }
+
+    return $gates;
+  }
+
+}
