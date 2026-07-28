@@ -135,9 +135,11 @@ class PackContentLintTest extends TestCase {
       if ($found === FALSE || $found === 0) {
         continue;
       }
-      foreach (array_unique($matches[0]) as $tool) {
-        if (!in_array($tool, PackManifest::CITABLE_TOOLS, TRUE)) {
-          $unknown[] = $relative . ': ' . $tool;
+      foreach (array_unique($matches[0]) as $identifier) {
+        // Tools and modules both match droost_*; both vocabularies are real
+        // and both are checked, so naming either wrongly still fails.
+        if (!in_array($identifier, PackManifest::citableIdentifiers(), TRUE)) {
+          $unknown[] = $relative . ': ' . $identifier;
         }
       }
     }
@@ -236,6 +238,64 @@ class PackContentLintTest extends TestCase {
           $phrase,
         ));
       }
+    }
+  }
+
+  /**
+   * The pack never presents the wiki tools as somewhere it can write.
+   *
+   * WikiPages and WikiFactsheet both declare readOnly: TRUE, and no MCP tool
+   * writes the wiki at all — the only path is `drush droost:wiki:generate`.
+   * An earlier draft called them "where durable knowledge belongs", which
+   * invites an agent to attempt a write, fail to find one, and record the
+   * wiki as updated.
+   */
+  public function testWikiToolsArePresentedAsReadOnly(): void {
+    $body = $this->read('skills/workflow-document/SKILL.md');
+
+    $this->assertStringContainsString('read-only', strtolower($body));
+    $this->assertStringContainsString('droost:wiki:generate', $body);
+    $this->assertStringNotContainsString(
+      'where durable knowledge belongs',
+      $body,
+    );
+  }
+
+  /**
+   * The pack does not send an agent to a run-state file nothing writes.
+   *
+   * RunState and RunStateStore have no production caller yet — the engine
+   * that records state ships later. Prose that tells an agent to read
+   * `.droost-workflow/run.json` for progress, or to report per-gate results
+   * from it, invites it to reconstruct results from memory, which is a
+   * verification report for checks that never ran.
+   */
+  public function testPackDoesNotPromiseUnwrittenRunState(): void {
+    foreach (['commands/workflow/run.md', 'commands/workflow/status.md'] as $source) {
+      $body = $this->read($source);
+      if (str_contains($body, '.droost-workflow/run.json')) {
+        $this->assertMatchesRegularExpression(
+          '/no(thing)? writes|has no producer|does not exist yet/i',
+          $body,
+          $source . ' names the run-state file without saying nothing '
+          . 'writes it yet',
+        );
+      }
+    }
+  }
+
+  /**
+   * Installed paths are named as they exist after installation.
+   */
+  public function testPackReferencesInstalledPaths(): void {
+    $body = $this->read('commands/workflow/run.md');
+
+    if (str_contains($body, 'droost-usage.md')) {
+      $this->assertStringContainsString(
+        '.claude/partials/droost-usage.md',
+        $body,
+        'run.md points at the pack-relative path, not the installed one',
+      );
     }
   }
 

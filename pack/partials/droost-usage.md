@@ -28,7 +28,8 @@ what you ask for**:
 
 | Call | Legs that run |
 |---|---|
-| `droost_verify` with no `checks` | **phpcs and phpstan only** |
+| no `module` and no `path` | **none at all** — it returns an inventory of what could run. Useful, but it is not a run and must never be reported as one |
+| a target, no `checks` | **phpcs and phpstan only** |
 | `checks: [deprecations]` | deprecations — it is opt-in, never a default |
 | `checks: [phpunit], confirm: true` | phpunit — it needs `confirm` as well, because the suite creates and drops databases |
 
@@ -41,6 +42,32 @@ and does not check that the site works. It checks that the code is
 well-formed, well-typed, and — when asked — that its tests pass. Those are
 valuable, they are not "the site works", and a report that blurs the two
 misleads in the direction that matters.
+
+## Three ways a tool is present but will not help you
+
+Having a site is necessary and not sufficient. Each of these produces a
+result that is easy to misread:
+
+**1. Some tools need an index that may never have been built.**
+`droost_capabilities` and `droost_architecture` fail cleanly and tell you to
+run `drush droost:brain:build`. `droost_search` does not fail — it returns
+**empty**, which reads exactly like "this project has no documentation". If a
+search comes back empty, check whether `drush droost:search:index` was ever
+run before you conclude anything from it.
+
+**2. Every write tool is switched off until the site opts in.**
+`droost_scaffold`, `droost_structure_create`, the entity writers and
+`droost_config_set` each refuse unless their flag is set in droost's settings
+(`allow_scaffold`, `allow_entity_write`, `allow_config_write`, or the master
+`allow_destructive`). The refusal names the flag. That is a configuration
+answer, not a broken site and not something to work around — report it and
+stop.
+
+**3. Several tools live in submodules that may not be installed.** droost
+itself depends only on `mcp_server`; `droost_capabilities` and
+`droost_architecture` come from droost_brain, `droost_symbol` /
+`droost_graph` / `droost_search` from droost_search, and the wiki tools from
+droost_wiki. A perfectly healthy site can be missing any of them.
 
 ## When a tool is unavailable
 

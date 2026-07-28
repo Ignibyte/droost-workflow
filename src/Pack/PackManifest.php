@@ -94,6 +94,35 @@ final class PackManifest {
   ];
 
   /**
+   * Every droost MODULE a pack file is allowed to name.
+   *
+   * Kept apart from the tool list because `droost_brain` and `droost_verify`
+   * look identical to a scanner and are different kinds of thing. Several
+   * tools live in submodules that a healthy site may not have installed, so
+   * the pack has to be able to name the module a missing tool comes from —
+   * but naming a module that does not exist would mislead just as badly as
+   * naming a tool that does not.
+   *
+   * @var list<string>
+   */
+  public const CITABLE_MODULES = [
+    'droost_brain',
+    'droost_search',
+    'droost_wiki',
+    'droost_workflow',
+  ];
+
+  /**
+   * Every droost identifier a pack file may name, of either kind.
+   *
+   * @return list<string>
+   *   Tool ids and module names.
+   */
+  public static function citableIdentifiers(): array {
+    return [...self::CITABLE_TOOLS, ...self::CITABLE_MODULES];
+  }
+
+  /**
    * The directories under a project root that this package owns.
    *
    * Derived from FILES so the two cannot disagree.

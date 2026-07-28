@@ -43,6 +43,12 @@ gates:
 
   # Artifacts are truth. Recommended on even in a fast run: a run that stops
   # checking whether the page renders is not fast, it is blind.
+  #
+  # No droost MCP tool renders a page, so this gate is implemented by the
+  # live-site surface rather than by droost — which means a run with no
+  # booted site records it "skipped, no site" rather than passed. That is the
+  # intended behaviour and the reason it ships on: the gate you most want is
+  # the one whose absence must be visible in the report.
   rendered_check: { on: true }
 
 # How many times a failing gate may drive the feedback loop before the run

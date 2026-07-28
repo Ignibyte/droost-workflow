@@ -1,34 +1,42 @@
 ---
 title: Droost Workflow — status
-purpose: Report where the current run stands, which levers it is held to, and what it has and has not checked. Read-only.
+purpose: Report which levers this repo resolves to and, within a session, how far the run has got. Read-only.
 ---
 
-Report where the run stands. This command changes nothing.
+Report where things stand. This command changes nothing.
 
-## What to report
+## What you can actually report
 
-Read `.droost-workflow/run.json` and `droost.workflow.yml`, then say:
+**In this release there is no run-state file.** Nothing writes
+`.droost-workflow/run.json` yet — the engine that records it ships later — so
+there is no persisted history to read, and a status check from a fresh
+session has nothing to recover.
 
-1. **Where the run is** — the current phase, and the status of every phase
-   the run configured. A phase this run dropped is absent, not skipped;
-   report it as not part of this run.
-2. **What it is held to** — the resolved gate set recorded when the run
-   began, the preset it came from, and whether that came from a committed
-   `droost.workflow.yml` or the built-in defaults. Those are different
-   situations and a reader should not have to guess which one this is.
-3. **What has been checked so far** — per gate: passed, failed, skipped for
-   lack of a site, or tool missing. Report skips as prominently as passes.
-4. **Whether anything is waiting** — in pair mode a run can be paused at a
-   gate with a question outstanding. Show the question.
+That leaves two honest things to report, and one to refuse.
 
-## If there is no run
+**1. What a run here would be held to.** Read `droost.workflow.yml` and
+report the resolved result: the mode, the phases, and every gate with its
+switch and thresholds. Say whether the file exists or whether these are the
+built-in defaults — those are different situations, and a reader should not
+have to guess which. A repo with no lever file gets `factory`, the strictest
+set, because a repo that has said nothing has not opted out of anything.
 
-Say there is no run in progress, and report which levers a new one would
-start under. That is useful on its own: it is how someone checks what
-`droost.workflow.yml` actually resolves to before committing to a run.
+This is useful on its own: it is how someone checks what their configuration
+actually resolves to before committing to a run.
+
+**2. Where the run in THIS session has got to**, if one is in progress —
+which phases are done, which is current, and what each gate reported when you
+ran it. You know this because you did it, not because it was recorded.
+
+**3. What not to do.** Do not report per-gate results for a run you did not
+perform in this session. There is no store to read them from, and
+reconstructing them from memory produces a verification report for checks
+that were never run. If you were not there, say the run is not recoverable
+and why.
 
 ## Report honestly
 
-The temptation is to summarise a run with skipped gates as "on track".
-Whether it is on track depends entirely on which gates were skipped, so give
-the reader the list rather than your conclusion.
+The temptation is to summarise as "on track". Whether a run is on track
+depends entirely on which gates ran and which were skipped, so give the
+reader the list rather than your conclusion — and be equally plain when the
+answer is that nothing was recorded.

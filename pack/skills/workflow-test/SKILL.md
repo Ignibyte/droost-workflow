@@ -14,10 +14,10 @@ What the gates report about the artefact is.
 ## Entry gate
 
 - The code phase passed.
-- You know which gates this run is held to. Read the RESOLVED set recorded in
-  the run state when the run began, not the config file as it stands now — a
-  run is held to the levers it started under, and reading the file instead
-  would silently apply an edit made mid-run.
+- You know which gates this run is held to — the resolved set from
+  `droost.workflow.yml` as read at the start of the run. (A later release
+  records that set in run state so it survives a restart; nothing writes that
+  file yet, so hold the values you read at the beginning.)
 
 ## Work
 
@@ -44,10 +44,11 @@ executed. None of the legs render a page or fetch a URL — do not describe
 `droost_last_error` and `droost_logs` tell you what the site actually said
 when something failed, rather than guessing from an exit code.
 
-When a gate fails, the run enters a bounded feedback loop: read the finding,
-fix the cause, run the gate again. `max_gate_retries` in the lever file is
-the bound. When it is exhausted, the run fails — a legitimate outcome, and
-worth more than a success the run cannot support.
+When a gate fails, enter a bounded feedback loop: read the finding, fix the
+cause, run the gate again. `max_gate_retries` in the lever file is the bound
+— **count your own attempts against it**, because nothing counts them for you
+in this release. When you reach it, the run fails. That is a legitimate
+outcome, and worth more than a success the run cannot support.
 
 ## Exit gate
 
