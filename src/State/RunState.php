@@ -350,6 +350,117 @@ final class RunState {
   }
 
   /**
+   * This run paused at a gate, waiting on a question.
+   *
+   * @param array<string, string> $question
+   *   The serialized pending question.
+   *
+   * @return self
+   *   A new instance.
+   */
+  public function awaiting(array $question): self {
+    return $this->rebuild(awaiting: $question, clearAwaiting: FALSE);
+  }
+
+  /**
+   * This run with its pending question answered.
+   *
+   * The exchange is appended to the history, never replacing it: what was
+   * asked and what was decided is part of the run's record, and the complete
+   * phase presents it. Clearing the question but keeping no trace of it would
+   * make a pair-mode run indistinguishable from an unattended one after the
+   * fact.
+   *
+   * @param string $answer
+   *   What the human said.
+   * @param string $answeredAt
+   *   When, as a caller-supplied ISO-8601 string.
+   *
+   * @return self
+   *   A new instance, no longer awaiting.
+   */
+  public function answered(string $answer, string $answeredAt): self {
+    $history = $this->qaHistory;
+    $history[] = [
+      'asked' => $this->awaiting,
+      'answer' => $answer,
+      'answered_at' => $answeredAt,
+    ];
+    return $this->rebuild(
+      awaiting: NULL,
+      clearAwaiting: TRUE,
+      qaHistory: $history,
+    );
+  }
+
+  /**
+   * This run with any pending question dropped, unanswered.
+   *
+   * Used by a swap to automated: the point of that swap is to finish without
+   * asking, so leaving the question outstanding would defeat it. The exchange
+   * is still recorded, marked as released rather than answered, because a
+   * question that was asked and then bypassed is a fact about the run.
+   *
+   * @param string $releasedAt
+   *   When, as a caller-supplied ISO-8601 string.
+   *
+   * @return self
+   *   A new instance, no longer awaiting.
+   */
+  public function released(string $releasedAt): self {
+    if ($this->awaiting === NULL) {
+      return $this;
+    }
+    $history = $this->qaHistory;
+    $history[] = [
+      'asked' => $this->awaiting,
+      'answer' => NULL,
+      'released_at' => $releasedAt,
+    ];
+    return $this->rebuild(
+      awaiting: NULL,
+      clearAwaiting: TRUE,
+      qaHistory: $history,
+    );
+  }
+
+  /**
+   * A copy with the pause-related fields replaced.
+   *
+   * @param array<string, string>|null $awaiting
+   *   The new pending question.
+   * @param bool $clearAwaiting
+   *   Whether a NULL $awaiting means "clear it" rather than "leave it".
+   * @param list<mixed>|null $qaHistory
+   *   The new history, or NULL to keep the current one.
+   *
+   * @return self
+   *   A new instance.
+   */
+  private function rebuild(
+    ?array $awaiting,
+    bool $clearAwaiting,
+    ?array $qaHistory = NULL,
+  ): self {
+    return new self(
+      $this->runId,
+      $this->startedAt,
+      $this->mode,
+      $this->modeOverride,
+      $this->preset,
+      $this->maxGateRetries,
+      $this->provenance,
+      $this->resolvedGates,
+      $this->phases,
+      $this->currentPhase,
+      $this->gateResults,
+      $clearAwaiting ? NULL : ($awaiting ?? $this->awaiting),
+      $qaHistory ?? $this->qaHistory,
+      $this->feedbackAttempts,
+    );
+  }
+
+  /**
    * This run with a mid-run mode swap applied.
    *
    * @param \Drupal\droost_workflow\Config\Mode $to
