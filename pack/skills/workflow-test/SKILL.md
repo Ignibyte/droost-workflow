@@ -14,10 +14,9 @@ What the gates report about the artefact is.
 ## Entry gate
 
 - The code phase passed.
-- You know which gates this run is held to — the resolved set from
-  `droost.workflow.yml` as read at the start of the run. (A later release
-  records that set in run state so it survives a restart; nothing writes that
-  file yet, so hold the values you read at the beginning.)
+- You know which gates this run is held to — the resolved set was frozen
+  into `.droost-workflow/run.json` (`resolved_gates`) when the run began,
+  and survives any restart. The engine reads it from there; so should you.
 
 ## Work
 
@@ -25,6 +24,10 @@ Run the gates the run is configured for. **You do not decide what passes.**
 Thresholds, which gates are on, how many retries a failure gets — all of that
 was resolved before this phase began. Your job is to run them and report,
 not to re-derive a verdict.
+
+This is the phase where the engine runs the functional gates — phpunit,
+coverage, mutation, playwright and the rendered check. The static pair
+already gated the code phase, and everything enabled re-runs at complete.
 
 `droost_verify` runs the static and test legs — **but only the ones you ask
 for**, and the default is narrower than people expect:
@@ -45,10 +48,11 @@ executed. None of the legs render a page or fetch a URL — do not describe
 when something failed, rather than guessing from an exit code.
 
 When a gate fails, enter a bounded feedback loop: read the finding, fix the
-cause, run the gate again. `max_gate_retries` in the lever file is the bound
-— **count your own attempts against it**, because nothing counts them for you
-in this release. When you reach it, the run fails. That is a legitimate
-outcome, and worth more than a success the run cannot support.
+cause, invoke `run` again. **The engine counts the attempts** — each blocking
+gate spends budget per failing invocation, recorded in run state as
+`feedback_attempts` against `max_gate_retries` — and when the budget is
+spent it records the phase failed and refuses to continue. That is a
+legitimate outcome, and worth more than a success the run cannot support.
 
 ## Exit gate
 

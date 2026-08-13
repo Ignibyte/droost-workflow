@@ -10,27 +10,59 @@ Start a run, or advance the one in progress.
 Reads `droost.workflow.yml` for the levers and works the phases in order,
 using the matching `workflow-*` skill for each.
 
-## What does not exist yet — read this before looking for it
+## How the engine drives this
 
-**Nothing writes `.droost-workflow/run.json` in this release.** The engine
-that records run state is the gate runner, which ships later; today the file
-has no producer, so it will not be there and you should not go looking for
-it or invent one.
+Every surface — `vendor/bin/droost-workflow run`, `drush droost:workflow:run`,
+or the MCP run tool — drives one engine, and the engine writes run state to
+`.droost-workflow/run.json` on every invocation. One phase per invocation, so
+the loop is:
 
-Concretely, until it lands:
+1. `status` — see the levers and where the run stands.
+2. Do the current phase's work, per its `workflow-<phase>` skill.
+3. Invoke `run` — the engine executes the gates due at this phase, records
+   the report into run state, and advances, pauses (pair mode), or fails.
+4. Repeat until `complete`.
 
-- The run is held to `droost.workflow.yml` **as you read it at the start**.
-  Read it once, at the beginning, and work from that. If someone edits it
-  mid-run you will not see the change, which is the correct behaviour.
-- There is no resume. A run is one session's work from `plan` to `complete`.
-- Nothing counts your gate retries. `max_gate_retries` is still the bound —
-  count your own attempts against it and stop when you reach it.
-- Pair mode's pause-and-ask transport is not built either. If the lever file
-  says `mode: pair`, ask the human directly at each phase gate.
+**Resume exists.** Re-invoking `run` picks the run up exactly where run.json
+says it is — a fresh session recovers a run's position by reading the engine's
+record, never by remembering. A paused run re-presents its question rather
+than re-running its gates.
 
-None of that makes the pipeline unusable; it makes it a single-session
-pipeline. What it must not do is make you improvise a state file or report
-progress from one that does not exist.
+**The levers are frozen into the run when it begins** — `resolved_gates` in
+run.json. A mid-run edit to `droost.workflow.yml` does not retarget a run in
+flight; the run is held to the levers it started under.
+
+**Retries are engine-counted.** Each blocking gate spends one attempt per
+failing invocation (`feedback_attempts`, measured against
+`max_gate_retries`); when the budget is spent the phase is recorded failed
+and `run` refuses to execute anything further. The envelope's
+`retries.exhausted` tells you which failure you are looking at — retryable
+(fix the cause, invoke `run` again) or terminal. Recovery from a terminal
+failure is a deliberate act: remove `.droost-workflow/run.json` and begin
+again. Exit codes stay simple: paused is not failed, and retryable and
+terminal failures share the non-zero exit — the distinction lives in the
+envelope.
+
+**Pair mode works end to end.** The run pauses at each phase gate — the
+pause is written to run state before anything is notified — and
+`answer "<text>"` or `swap automated`, on any surface, resumes it.
+
+## Which gates run when
+
+WHEN a gate runs is the engine's phase map. WHETHER it runs, and with what
+thresholds, is the lever file's business:
+
+| phase | gates due |
+|---|---|
+| plan | none |
+| code | phpcs, phpstan |
+| test | phpunit, mutation, playwright, coverage, rendered_check |
+| document | none |
+| complete | the full set, re-run — the terminal safety net |
+
+Complete re-running everything is what makes dropped phases safe: a run
+configured without a test phase still meets every enabled gate once, at the
+end.
 
 ## Before you start
 
@@ -42,11 +74,12 @@ check.
 ## The rules that apply to every phase
 
 1. **The levers are not yours to reinterpret.** Which gates run and what
-   counts as passing come from `droost.workflow.yml` as read at the start of
-   the run. Apply them; do not re-derive them, and do not soften one because
-   it is inconvenient.
-2. **A phase that fails is failed.** Do not advance past it. Clearing a
-   failure to retry is a deliberate, separate act.
+   counts as passing were frozen into the run when it began. Apply them; do
+   not re-derive them, and do not soften one because it is inconvenient.
+2. **A phase that fails is failed.** The engine refuses to advance past it,
+   and once the retry budget is spent it refuses to re-run it at all.
+   Clearing a terminal failure is a deliberate act — removing the run file —
+   not something that happens on the way past.
 3. **Report what could not be checked.** Every phase's skill has a "Without a
    site" section; it is not optional prose.
 

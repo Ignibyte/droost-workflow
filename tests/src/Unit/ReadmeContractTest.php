@@ -7,6 +7,7 @@ namespace Drupal\Tests\droost_workflow\Unit;
 use Drupal\droost_workflow\Config\ConfigError;
 use Drupal\droost_workflow\Config\Mode;
 use Drupal\droost_workflow\Config\Phase;
+use Drupal\droost_workflow\Config\PhaseGateMap;
 use Drupal\droost_workflow\Config\WorkflowConfig;
 
 /**
@@ -57,6 +58,29 @@ class ReadmeContractTest extends WorkflowTestCase {
     catch (ConfigError $e) {
       $this->assertSame($expected, $e->getMessage());
     }
+  }
+
+  /**
+   * The README's phase map is the engine's, line for line.
+   *
+   * The map is prose in the README and a constant in the engine; nothing
+   * else holds the two together. Parsed from the fenced block rather than
+   * quoted here, so editing either side alone fails the build.
+   */
+  public function testTheReadmePhaseMapMatchesTheEngine(): void {
+    $block = $this->extractBlock('text');
+    $this->assertStringStartsWith('plan:', trim($block));
+
+    $documented = [];
+    foreach (explode("\n", trim($block)) as $line) {
+      [$phase, $gates] = explode(':', $line, 2);
+      $gates = trim($gates);
+      $documented[trim($phase)] = $gates === 'none'
+        ? []
+        : array_map(trim(...), explode(',', $gates));
+    }
+
+    $this->assertSame(PhaseGateMap::DEFAULT, $documented);
   }
 
   /**

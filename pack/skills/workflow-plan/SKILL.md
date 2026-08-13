@@ -48,9 +48,12 @@ Then produce the spec:
 The spec exists, and every acceptance criterion is observable. If you cannot
 say how a criterion would be checked, rewrite it until you can.
 
-In pair mode the run pauses here and asks before continuing. That is the
-cheapest moment in the whole pipeline to be told you understood the request
-wrong.
+The engine runs no shell gates at this phase — the spec is the gate. Static
+analysis first fires at code, on code that exists.
+
+In pair mode the run pauses here and asks before continuing — even though no
+gates ran. That is the cheapest moment in the whole pipeline to be told you
+understood the request wrong.
 
 ## Without a site
 

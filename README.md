@@ -19,7 +19,7 @@ Clean-room GPL. A sibling of, not a fork of, any proprietary pipeline.
 
 ## Status
 
-Early. This package is being built ticket by ticket:
+Built ticket by ticket, and past its skeleton:
 
 | Step | What | State |
 |---|---|---|
@@ -27,7 +27,10 @@ Early. This package is being built ticket by ticket:
 | P6.2 | The five phases as a `.claude/` pack | **shipped** |
 | P6.3 | Gate runner + honest degradation | **shipped** |
 | P6.4 | Automated / pair modes and the mid-run swap | **shipped** |
-| P6.5 | The drush live-site surface and the standalone CLI | **this release** |
+| P6.5 | The drush live-site surface and the standalone CLI | **shipped** |
+| P6.6 | The MCP surface (optional submodule) | **shipped** |
+| — | Hardening: the phase→gate map, engine-counted retries, a coverage gate that can pass | **shipped** |
+| — | `droost/workflow` published on Packagist | **this release** |
 
 ## The lever file
 
@@ -88,6 +91,14 @@ Three details worth knowing:
   unreadable file would otherwise swap your gates for the built-in ones and
   report nothing unusual.
 
+### Gate options
+
+Most gates carry their thresholds inline — `phpcs.standard`,
+`phpstan.level`, `coverage.min`, `mutation.msi_min`. One is easy to miss:
+`rendered_check.routes` is a comma-separated list of internal paths the
+live surface renders (`routes: "/,/pricing"`); omitted, it renders `/`.
+The option vocabulary is closed per gate — anything else is refused by name.
+
 ### Unknown keys are errors
 
 A loader that shrugs at `phpstain:` hands back a run with static analysis
@@ -98,6 +109,43 @@ setting, gate, option, phase, mode and preset is refused by name:
 droost.workflow.yml: unknown gate "phpstain" (known: phpcs, phpstan, phpunit,
 mutation, playwright, coverage, rendered_check)
 ```
+
+## Which gates run when
+
+WHETHER a gate runs is the lever file's business. WHEN it runs is the
+engine's phase map, frozen into each run when it begins:
+
+```text
+plan: none
+code: phpcs, phpstan
+test: phpunit, mutation, playwright, coverage, rendered_check
+document: none
+complete: phpcs, phpstan, phpunit, mutation, playwright, coverage, rendered_check
+```
+
+Plan and document run nothing — there is nothing yet to measure, and prose
+needs no linter. Code gates the diff with static analysis. Test runs the
+functional gates. Complete re-runs the full enabled set as the terminal
+safety net — which is what makes dropped phases safe: a run configured
+without a test phase still meets every enabled gate once, at the end.
+
+## The feedback loop
+
+A blocking gate does not end a run; it starts a bounded loop. Each failing
+invocation spends one attempt per blocking gate — recorded in run state as
+`feedback_attempts`, measured against `max_gate_retries` — and the agent
+fixes the cause between invocations. `max_gate_retries: 2` means one attempt
+plus two retries; `0` means one attempt and no retry. A missing tool spends
+budget exactly like a failure, because a missing binary re-invoked forever
+is the worst infinite loop of all.
+
+When the budget is spent, the phase is recorded **failed** — terminal — and
+`run` refuses to execute anything further. Every surface renders the same
+envelope: `{outcome, current_phase, report, awaiting, retries}`, where
+`retries.exhausted` separates "fix it and run again" from "this run is
+over". Exit codes stay simple — paused is not failed, and both kinds of
+failure exit non-zero. Recovery from a terminal failure is deliberate:
+remove `.droost-workflow/run.json` and begin again.
 
 ## Run state
 
@@ -154,6 +202,23 @@ directories and nothing else; a directory without the marker belongs to you
 and is refused rather than overwritten. Your `droost.workflow.yml` is never
 refreshed at all — it is version-controlled intent you wrote, and resetting
 your gates on an unrelated re-install would be an unpleasant surprise.
+
+## Install
+
+One package, two ways to consume it:
+
+- **As a library / CLI** — any PHP project, no Drupal required:
+  `composer require --dev droost/workflow`, then `vendor/bin/droost-workflow
+  init` writes the pack and a default lever file. This is all the standalone
+  surface needs.
+- **As a Drupal module** — in a composer-built Drupal project the same
+  require lands it at `modules/contrib/droost_workflow`; enable the module
+  for the drush commands, and the `droost_workflow_mcp` submodule (which is
+  what depends on `mcp_server`) for the MCP surface.
+
+The lever file's `preset` is a scalar (`preset: custom`) — there is no
+`presets:` block to configure; a preset is a base the `gates:` entries
+overlay.
 
 ## Two surfaces, one pipeline
 

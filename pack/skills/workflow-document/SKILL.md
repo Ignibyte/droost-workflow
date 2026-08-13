@@ -51,6 +51,9 @@ one is how a run's record stops being worth reading.
 Someone who was not present can read what you wrote and understand what
 changed and why.
 
+The engine runs no shell gates at this phase; the full set re-runs at
+complete, immediately after.
+
 ## Without a site
 
 `droost_search`, `droost_guidelines`, `droost_wiki_pages` and

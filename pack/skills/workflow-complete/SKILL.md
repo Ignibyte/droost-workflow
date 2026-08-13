@@ -14,6 +14,11 @@ finished when the work has been *reported*.
 
 ## Work
 
+This phase's `run` re-executes the FULL enabled gate set — the terminal
+safety net. A run configured without a test phase still meets every enabled
+gate here, and a regression introduced since the test phase is caught now
+rather than shipped.
+
 **Present the gate report before you say anything is done.** Not a summary
 of it — the report: every gate the run was configured for, and what happened
 to each one. There are four outcomes and they are not interchangeable:

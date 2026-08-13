@@ -49,6 +49,10 @@ Then the rules that do not bend:
 Every construct the spec named exists, and nothing exists that the spec did
 not name. Custom code and configuration only.
 
+At this phase's `run`, the engine gates the diff with phpcs and phpstan —
+static analysis only. The functional gates belong to the test phase, where
+there is behaviour to verify.
+
 ## Without a site
 
 **Every tool above is unavailable** — including `droost_scaffold`. They are

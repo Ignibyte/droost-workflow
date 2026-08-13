@@ -262,26 +262,46 @@ class PackContentLintTest extends TestCase {
   }
 
   /**
-   * The pack does not send an agent to a run-state file nothing writes.
+   * The pack describes the real engine, not the pre-engine era.
    *
-   * RunState and RunStateStore have no production caller yet — the engine
-   * that records state ships later. Prose that tells an agent to read
-   * `.droost-workflow/run.json` for progress, or to report per-gate results
-   * from it, invites it to reconstruct results from memory, which is a
-   * verification report for checks that never ran.
+   * The inversion of a lint that once pointed the other way: before
+   * TICKET-131/132 shipped run state and pair mode, the pack correctly said
+   * "nothing writes run.json / count your own attempts / pair is not
+   * built" — and then the engine landed and the prose was never un-said,
+   * leaving the canonical pack contradicting the shipped behaviour. These
+   * phrases are now forbidden pack-wide, so the claim cannot regress
+   * without this failing.
    */
-  public function testPackDoesNotPromiseUnwrittenRunState(): void {
-    foreach (['commands/workflow/run.md', 'commands/workflow/status.md'] as $source) {
-      $body = $this->read($source);
-      if (str_contains($body, '.droost-workflow/run.json')) {
-        $this->assertMatchesRegularExpression(
-          '/no(thing)? writes|has no producer|does not exist yet/i',
-          $body,
-          $source . ' names the run-state file without saying nothing '
-          . 'writes it yet',
-        );
+  public function testPackDescribesTheRealEngine(): void {
+    $stale = [
+      'nothing writes',
+      'has no producer',
+      'does not exist yet',
+      'count your own attempts',
+      'no resume',
+      'transport is not built',
+      'nothing counts them for you',
+    ];
+
+    foreach ($this->allPackFiles() as $relative) {
+      $body = strtolower($this->read($relative));
+      foreach ($stale as $phrase) {
+        $this->assertStringNotContainsString($phrase, $body, sprintf(
+          '%s still carries pre-engine prose ("%s")',
+          $relative,
+          $phrase,
+        ));
       }
     }
+
+    // And the positive half: the two commands must send an agent to the
+    // engine's record, by name.
+    $run = $this->read('commands/workflow/run.md');
+    $this->assertStringContainsString('.droost-workflow/run.json', $run);
+    $this->assertStringContainsString('resolved_gates', $run);
+    $status = $this->read('commands/workflow/status.md');
+    $this->assertStringContainsString('.droost-workflow/run.json', $status);
+    $this->assertStringContainsString('phase_gates', $status);
   }
 
   /**

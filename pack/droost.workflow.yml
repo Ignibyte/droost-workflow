@@ -25,6 +25,10 @@ preset: custom
 # Drop code, test or document if you must. plan and complete are endpoints.
 phases: [plan, code, test, document, complete]
 
+# WHETHER a gate runs is this file's business; WHEN it runs is the engine's
+# phase map — plan/document run none, code runs the static pair, test runs
+# the functional gates, complete re-runs everything enabled. The run command
+# documents the map.
 gates:
   # "on" is the only switch a gate has. A threshold does NOT turn one on:
   # setting coverage.min without coverage.on leaves coverage where the preset
@@ -49,6 +53,10 @@ gates:
   # booted site records it "skipped, no site" rather than passed. That is the
   # intended behaviour and the reason it ships on: the gate you most want is
   # the one whose absence must be visible in the report.
+  #
+  # It takes one option: which internal paths to render, comma-separated.
+  #   rendered_check: { on: true, routes: "/,/pricing" }
+  # Omitted, the live surface renders "/".
   rendered_check: { on: true }
 
 # How many times a failing gate may drive the feedback loop before the run
