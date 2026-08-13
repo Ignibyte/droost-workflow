@@ -7,6 +7,7 @@ namespace Drupal\droost_workflow;
 use Drupal\droost_workflow\State\StateError;
 use Drupal\droost_workflow\Config\Mode;
 use Drupal\droost_workflow\Config\Phase;
+use Drupal\droost_workflow\Config\PhaseGateMap;
 use Drupal\droost_workflow\Config\WorkflowConfig;
 use Drupal\droost_workflow\Gate\GateExecutorInterface;
 use Drupal\droost_workflow\Gate\GateRunner;
@@ -96,6 +97,9 @@ final class WorkflowFacade {
         'mode' => $config->mode->value,
         'phases' => $config->phaseNames(),
         'gates' => $config->resolvedGates(),
+        // WHEN each enabled gate runs — so "why did plan run nothing" is
+        // answerable from status alone.
+        'phase_gates' => PhaseGateMap::forPhases($config->phaseNames()),
         'max_gate_retries' => $config->maxGateRetries,
       ],
       'run' => NULL,
@@ -116,6 +120,9 @@ final class WorkflowFacade {
         static fn ($s): string => $s->value,
         $state->phases,
       ),
+      // The run's own frozen map, which may lawfully differ from the
+      // levers' current one above.
+      'phase_gates' => $state->phaseGates,
       'gate_reports' => $state->gateResults,
       'awaiting' => $question?->toArray(),
       'answered' => count($state->qaHistory),

@@ -41,6 +41,12 @@ class SurfaceParityTest extends WorkflowTestCase {
     $levers = $cli['levers'];
     $this->assertIsArray($levers);
     $this->assertSame('fast', $levers['preset']);
+    // Status explains WHEN each gate runs, so "why did plan run nothing"
+    // is answerable without reading the engine.
+    $phaseGates = $levers['phase_gates'];
+    $this->assertIsArray($phaseGates);
+    $this->assertSame([], $phaseGates['plan']);
+    $this->assertSame(['phpcs', 'phpstan'], $phaseGates['code']);
   }
 
   /**
@@ -49,13 +55,28 @@ class SurfaceParityTest extends WorkflowTestCase {
    * Everything else — which gates ran, their verdicts, the phase, the
    * advance decision — must be identical. If any other field diverges, the
    * facade has stopped being the single orchestration point.
+   *
+   * Two invocations per surface: the first works plan, which the phase map
+   * leaves gateless (asserted, since that is itself new behavior); the
+   * second works test, where the site gate is due and the surfaces may
+   * lawfully differ.
    */
   public function testOnlyTheSiteGateDiffersBetweenSurfaces(): void {
-    $cliRoot = $this->makeRootWithConfig("preset: custom\n");
-    $liveRoot = $this->makeRootWithConfig("preset: custom\n");
+    $config = "preset: custom\nphases: [plan, test, complete]\n";
+    $cliRoot = $this->makeRootWithConfig($config);
+    $liveRoot = $this->makeRootWithConfig($config);
+    $cliFacade = $this->facade(new NullSiteDriver());
+    $liveFacade = $this->facade($this->fakeSiteDriver());
 
-    $cli = $this->facade(new NullSiteDriver())->run($cliRoot);
-    $live = $this->facade($this->fakeSiteDriver())->run($liveRoot);
+    $cliPlan = $cliFacade->run($cliRoot);
+    $livePlan = $liveFacade->run($liveRoot);
+    $this->assertNotNull($cliPlan->report);
+    $this->assertNotNull($livePlan->report);
+    $this->assertSame([], $cliPlan->report->results, 'plan ran a gate');
+    $this->assertSame([], $livePlan->report->results, 'plan ran a gate');
+
+    $cli = $cliFacade->run($cliRoot);
+    $live = $liveFacade->run($liveRoot);
 
     $this->assertNotNull($cli->report);
     $this->assertNotNull($live->report);
@@ -83,9 +104,15 @@ class SurfaceParityTest extends WorkflowTestCase {
    * The CLI surface names every gate it could not run, and passes none.
    */
   public function testTheCliSurfaceReportsItsSkipsRatherThanOmittingThem(): void {
-    $root = $this->makeRootWithConfig("preset: custom\n");
+    $root = $this->makeRootWithConfig(
+      "preset: custom\nphases: [plan, test, complete]\n",
+    );
+    $facade = $this->facade(new NullSiteDriver());
 
-    $outcome = $this->facade(new NullSiteDriver())->run($root);
+    // Advance past the gateless plan phase to test, where the site gate is
+    // due.
+    $facade->run($root);
+    $outcome = $facade->run($root);
 
     $this->assertNotNull($outcome->report);
     $skipped = $outcome->report->skipped();

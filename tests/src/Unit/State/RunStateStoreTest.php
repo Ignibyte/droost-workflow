@@ -228,7 +228,79 @@ class RunStateStoreTest extends WorkflowTestCase {
         $valid(['run_id' => 12]),
         'run_id must be a string',
       ],
+      'unknown phase in phase_gates' => [
+        $valid(['phase_gates' => ['plna' => []]]),
+        'unknown phase "plna" in phase_gates',
+      ],
+      'unknown gate in phase_gates' => [
+        $valid(['phase_gates' => ['plan' => ['bogus']]]),
+        'unknown gate "bogus" in phase_gates',
+      ],
+      'phase_gates entry as a mapping' => [
+        $valid(['phase_gates' => ['plan' => ['phpcs' => TRUE]]]),
+        'phase_gates.plan must be a list',
+      ],
     ];
+  }
+
+  /**
+   * A document from before the phase map existed synthesizes the default.
+   *
+   * Those runs WERE executing under "the engine decides", so the engine
+   * default is the only honest reconstruction — and without it every pre-map
+   * run.json would become unreadable, which is a migration this schema
+   * promised not to need.
+   */
+  public function testAbsentPhaseGatesSynthesizeTheDefaultMap(): void {
+    $root = $this->makeRoot();
+    $store = new RunStateStore($root);
+    mkdir($root . '/.droost-workflow', 0755, TRUE);
+    $document = [
+      'v' => 1,
+      'run_id' => 'r',
+      'started_at' => 't',
+      'mode' => 'automated',
+      'mode_override' => NULL,
+      'preset' => 'factory',
+      'max_gate_retries' => 2,
+      'provenance' => 'built-in',
+      'resolved_gates' => [],
+      'phases' => ['plan' => 'passed', 'code' => 'active'],
+      'current_phase' => 'code',
+      'gate_results' => [],
+      'awaiting' => NULL,
+      'qa_history' => [],
+      'feedback_attempts' => [],
+    ];
+    file_put_contents($store->path(), json_encode($document));
+
+    $loaded = $store->load();
+
+    $this->assertNotNull($loaded);
+    $this->assertSame(
+      ['plan' => [], 'code' => ['phpcs', 'phpstan']],
+      $loaded->phaseGates,
+    );
+  }
+
+  /**
+   * A present phase_gates field is the run's record, never second-guessed.
+   *
+   * Only genuine absence synthesizes; an explicitly empty map stays empty,
+   * for the same reason an edited lever file does not retarget a running
+   * run.
+   */
+  public function testPresentPhaseGatesAreNeverSynthesized(): void {
+    $root = $this->makeRoot();
+    $store = new RunStateStore($root);
+    $ended = $this->buildRun('ended');
+    $this->assertSame([], $ended->phaseGates);
+
+    $store->save($ended);
+    $loaded = $store->load();
+
+    $this->assertNotNull($loaded);
+    $this->assertSame([], $loaded->phaseGates);
   }
 
   /**

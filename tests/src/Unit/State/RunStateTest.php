@@ -6,6 +6,7 @@ namespace Drupal\Tests\droost_workflow\Unit\State;
 
 use Drupal\droost_workflow\Config\Mode;
 use Drupal\droost_workflow\Config\Phase;
+use Drupal\droost_workflow\Config\PhaseGateMap;
 use Drupal\droost_workflow\Config\Provenance;
 use Drupal\droost_workflow\Config\WorkflowConfig;
 use Drupal\droost_workflow\State\PhaseStatus;
@@ -231,6 +232,90 @@ class RunStateTest extends TestCase {
 
     $this->assertSame(5, $document['max_gate_retries']);
     $this->assertArrayHasKey('feedback_attempts', $document);
+  }
+
+  /**
+   * Beginning a run freezes the phase map for its configured phases.
+   */
+  public function testBeginFreezesThePhaseMapForConfiguredPhases(): void {
+    $this->assertSame(
+      PhaseGateMap::DEFAULT,
+      $this->begin()->phaseGates,
+    );
+
+    $partial = RunState::begin('r', 't', WorkflowConfig::fromArray(
+      ['phases' => ['plan', 'code', 'complete']],
+      'test',
+    ));
+    $this->assertSame(
+      ['plan', 'code', 'complete'],
+      array_keys($partial->phaseGates),
+      'the frozen map must carry only the phases this run executes',
+    );
+  }
+
+  /**
+   * The due set is the intersection of the levers and the phase map.
+   */
+  public function testGatesDueForIntersectsLeversAndMap(): void {
+    $state = $this->begin();
+
+    $this->assertSame([], $state->gatesDueFor(Phase::Plan));
+    $this->assertSame(
+      ['phpcs', 'phpstan'],
+      array_keys($state->gatesDueFor(Phase::Code)),
+    );
+    // Order comes from the resolved levers, so reports stay stably ordered.
+    $this->assertSame(
+      ['phpunit', 'mutation', 'playwright', 'coverage', 'rendered_check'],
+      array_keys($state->gatesDueFor(Phase::Test)),
+    );
+    $this->assertSame(
+      array_keys($state->resolvedGates),
+      array_keys($state->gatesDueFor(Phase::Complete)),
+    );
+  }
+
+  /**
+   * Every wither threads the frozen phase map through.
+   *
+   * The constructors in with(), rebuild(), withGateReport() and
+   * withFeedbackAttempt() are positional; any of them forgetting the field
+   * would silently drop it on the first state transition, and the next
+   * invocation would gate the wrong set. This walks every transition the
+   * class offers.
+   */
+  public function testEveryWitherPreservesThePhaseGates(): void {
+    $state = $this->begin();
+    $frozen = $state->phaseGates;
+    $this->assertNotSame([], $frozen);
+
+    $transitions = [
+      'withPhaseStatus' => static fn (RunState $s): RunState =>
+      $s->withPhaseStatus(Phase::Plan, PhaseStatus::Failed),
+      'advanceTo' => static fn (RunState $s): RunState =>
+      $s->advanceTo(Phase::Code),
+      'withGateReport' => static fn (RunState $s): RunState =>
+      $s->withGateReport('plan', ['advance' => TRUE]),
+      'withFeedbackAttempt' => static fn (RunState $s): RunState =>
+      $s->withFeedbackAttempt('phpcs'),
+      'awaiting' => static fn (RunState $s): RunState =>
+      $s->awaiting(['question' => 'go on?']),
+      'answered' => static fn (RunState $s): RunState =>
+      $s->awaiting(['question' => 'go on?'])->answered('yes', 't2'),
+      'released' => static fn (RunState $s): RunState =>
+      $s->awaiting(['question' => 'go on?'])->released('t2'),
+      'withModeOverride' => static fn (RunState $s): RunState =>
+      $s->withModeOverride(Mode::Automated),
+    ];
+
+    foreach ($transitions as $name => $transition) {
+      $this->assertSame(
+        $frozen,
+        $transition($state)->phaseGates,
+        $name . '() dropped the frozen phase map',
+      );
+    }
   }
 
   /**

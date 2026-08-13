@@ -16,6 +16,7 @@ use Drupal\droost_workflow\Gate\NullSiteDriver;
 use Drupal\droost_workflow\Gate\SiteDriverInterface;
 use Drupal\droost_workflow\State\RunState;
 use Drupal\droost_workflow\State\RunStateStore;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Executing a phase's gates.
@@ -23,23 +24,96 @@ use Drupal\droost_workflow\State\RunStateStore;
 class GateRunnerTest extends WorkflowTestCase {
 
   /**
-   * REQ-001: exactly the resolved set runs, nothing more or less.
+   * REQ-001: exactly the due-and-enabled set runs, nothing more or less.
    */
-  public function testExecutesExactlyTheResolvedSet(): void {
+  public function testExecutesExactlyTheDueResolvedSet(): void {
     $executor = $this->recordingExecutor();
     $runner = new GateRunner($executor, new NullSiteDriver());
     $state = $this->beginWith(['preset' => 'custom']);
 
     $report = $runner->run($state, Phase::Test, '/tmp');
 
-    // custom: phpcs, phpstan, phpunit on; mutation, playwright, coverage off;
-    // rendered_check on but site-dependent.
+    // Due at test: phpunit, mutation, playwright, coverage, rendered_check.
+    // custom: phpunit on; mutation, playwright, coverage off; rendered_check
+    // on but site-dependent. phpcs and phpstan are on but belong to the code
+    // phase, so the executor must not see them here.
     $this->assertSame(
-      ['phpcs', 'phpstan', 'phpunit'],
+      ['phpunit'],
       $executor->ran,
-      'the executor saw a different set than the levers named',
+      'the executor saw a different set than the phase map named',
+    );
+    $this->assertCount(5, $report->results);
+  }
+
+  /**
+   * Plan and document run no gates: there is nothing yet to measure.
+   *
+   * The regression guard for the defect this map fixed — a live run's PLAN
+   * phase executed phpunit, mutation and a browser suite before any code
+   * existed.
+   *
+   * @param \Drupal\droost_workflow\Config\Phase $phase
+   *   The gateless phase.
+   */
+  #[DataProvider('gatelessPhases')]
+  public function testPlanAndDocumentRunNoGates(Phase $phase): void {
+    $executor = $this->recordingExecutor();
+    $runner = new GateRunner($executor, new NullSiteDriver());
+
+    $report = $runner->run($this->beginWith([]), $phase, '/tmp');
+
+    $this->assertSame([], $executor->ran, 'a gateless phase ran a tool');
+    $this->assertSame([], $report->results);
+    $this->assertTrue($report->advance());
+    $this->assertSame(
+      $phase->value . ': no gates configured',
+      $report->summaryLine(),
+    );
+  }
+
+  /**
+   * The phases at which nothing is due.
+   *
+   * @return array<string, array{\Drupal\droost_workflow\Config\Phase}>
+   *   Case name to phase.
+   */
+  public static function gatelessPhases(): array {
+    return [
+      'plan' => [Phase::Plan],
+      'document' => [Phase::Document],
+    ];
+  }
+
+  /**
+   * Code runs static analysis and nothing functional.
+   */
+  public function testCodeRunsOnlyStaticAnalysis(): void {
+    $executor = $this->recordingExecutor();
+    $runner = new GateRunner($executor, new NullSiteDriver());
+
+    $report = $runner->run($this->beginWith([]), Phase::Code, '/tmp');
+
+    $this->assertSame(['phpcs', 'phpstan'], $executor->ran);
+    $this->assertCount(2, $report->results);
+  }
+
+  /**
+   * Complete re-runs the full resolved set — the terminal safety net.
+   */
+  public function testCompleteRunsTheFullResolvedSet(): void {
+    $executor = $this->recordingExecutor();
+    $runner = new GateRunner($executor, new NullSiteDriver());
+
+    // factory: everything on.
+    $report = $runner->run($this->beginWith([]), Phase::Complete, '/tmp');
+
+    $this->assertSame(
+      ['phpcs', 'phpstan', 'phpunit', 'mutation', 'playwright', 'coverage'],
+      $executor->ran,
+      'every non-site gate must execute at complete',
     );
     $this->assertCount(7, $report->results);
+    $this->assertCount(1, $report->skipped());
   }
 
   /**
@@ -78,9 +152,10 @@ class GateRunnerTest extends WorkflowTestCase {
     $this->assertCount(1, $skipped);
     $this->assertSame('rendered_check', $skipped[0]->gate);
     $this->assertSame(NullSiteDriver::REASON, $skipped[0]->skipReason);
-    // Non-blocking, but never counted among the passes.
+    // Non-blocking, but never counted among the passes. Under custom at the
+    // test phase, phpunit is the one gate that both runs and passes.
     $this->assertTrue($report->advance());
-    $this->assertSame(3, $report->tally()['passed']);
+    $this->assertSame(1, $report->tally()['passed']);
   }
 
   /**

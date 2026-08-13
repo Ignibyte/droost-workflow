@@ -7,6 +7,7 @@ namespace Drupal\droost_workflow\State;
 use Drupal\droost_workflow\Config\GateSettings;
 use Drupal\droost_workflow\Config\Mode;
 use Drupal\droost_workflow\Config\Phase;
+use Drupal\droost_workflow\Config\PhaseGateMap;
 use Drupal\droost_workflow\Config\PresetResolver;
 use Drupal\droost_workflow\Config\Provenance;
 use Drupal\droost_workflow\Config\WorkflowConfig;
@@ -74,6 +75,10 @@ final class RunState {
    *   Reserved for pair mode's answered questions; round-tripped verbatim.
    * @param array<string, int> $feedbackAttempts
    *   How many times each gate has driven the feedback loop.
+   * @param array<string, list<string>> $phaseGates
+   *   Which gates are due at which configured phase — the PhaseGateMap as it
+   *   stood when the run began, frozen for the same reason the resolved
+   *   levers are: a run is held to the map it started under.
    */
   public function __construct(
     public readonly string $runId,
@@ -90,6 +95,7 @@ final class RunState {
     public readonly ?array $awaiting = NULL,
     public readonly array $qaHistory = [],
     public readonly array $feedbackAttempts = [],
+    public readonly array $phaseGates = [],
   ) {}
 
   /**
@@ -128,7 +134,34 @@ final class RunState {
       $config->resolvedGates(),
       $phases,
       $config->phases[0] ?? NULL,
+      phaseGates: PhaseGateMap::forPhases($config->phaseNames()),
     );
+  }
+
+  /**
+   * The resolved gates due at one phase, in resolved order.
+   *
+   * The intersection of the two frozen records: the levers say whether each
+   * gate runs at all, this run's phase map says when. The runner iterates
+   * this instead of the whole resolved set, which is what stops a plan phase
+   * from running a browser suite.
+   *
+   * @param \Drupal\droost_workflow\Config\Phase $phase
+   *   The phase being gated.
+   *
+   * @return array<string, array<string, int|string|bool>>
+   *   Gate name to its recorded levers, for the gates due at this phase,
+   *   preserving resolved-gate order so reports stay stably ordered.
+   */
+  public function gatesDueFor(Phase $phase): array {
+    $due = $this->phaseGates[$phase->value] ?? [];
+    $gates = [];
+    foreach ($this->resolvedGates as $name => $levers) {
+      if (in_array($name, $due, TRUE)) {
+        $gates[$name] = $levers;
+      }
+    }
+    return $gates;
   }
 
   /**
@@ -316,6 +349,7 @@ final class RunState {
       $this->awaiting,
       $this->qaHistory,
       $this->feedbackAttempts,
+      $this->phaseGates,
     );
   }
 
@@ -346,6 +380,7 @@ final class RunState {
       $this->awaiting,
       $this->qaHistory,
       $attempts,
+      $this->phaseGates,
     );
   }
 
@@ -457,6 +492,7 @@ final class RunState {
       $clearAwaiting ? NULL : ($awaiting ?? $this->awaiting),
       $qaHistory ?? $this->qaHistory,
       $this->feedbackAttempts,
+      $this->phaseGates,
     );
   }
 
@@ -495,6 +531,7 @@ final class RunState {
       'max_gate_retries' => $this->maxGateRetries,
       'provenance' => $this->provenance->value,
       'resolved_gates' => $this->resolvedGates,
+      'phase_gates' => $this->phaseGates,
       'phases' => $phases,
       'current_phase' => $this->currentPhase?->value,
       'gate_results' => $this->gateResults,
@@ -559,6 +596,8 @@ final class RunState {
       }
     }
 
+    $phases = self::readPhases($node, $label);
+
     return new self(
       $node->string('run_id'),
       $node->string('started_at'),
@@ -568,13 +607,79 @@ final class RunState {
       $node->int('max_gate_retries'),
       self::readProvenance($node, $label),
       self::readResolvedGates($node, $label),
-      self::readPhases($node, $label),
+      $phases,
       $current,
       $node->optionalChild('gate_results')?->toArray() ?? [],
       $node->optionalChild('awaiting')?->toArray(),
       self::readQaHistory($node, $label),
       self::readFeedbackAttempts($node),
+      self::readPhaseGates($node, $label, $phases),
     );
+  }
+
+  /**
+   * Reads the frozen phase-to-gates map.
+   *
+   * A document written before the map existed has no phase_gates field. The
+   * engine default is the only honest reconstruction — those runs WERE
+   * executing under "the engine decides" — so absence synthesizes the
+   * default for the phases the document configures. A PRESENT field is the
+   * run's own frozen record and is never second-guessed, empty or not.
+   *
+   * @param \Drupal\droost_workflow\Support\TypedArray $node
+   *   The decoded document.
+   * @param string $label
+   *   The state file's operator-facing path.
+   * @param array<string, \Drupal\droost_workflow\State\PhaseStatus> $phases
+   *   The configured phases, already read and validated.
+   *
+   * @return array<string, list<string>>
+   *   Phase name to its due gates.
+   *
+   * @throws \Drupal\droost_workflow\Support\DataError
+   *   When a value is not a list of strings.
+   * @throws \Drupal\droost_workflow\State\StateError
+   *   When a phase or gate name is outside its vocabulary.
+   */
+  private static function readPhaseGates(
+    TypedArray $node,
+    string $label,
+    array $phases,
+  ): array {
+    $gatesNode = $node->optionalChild('phase_gates');
+    if ($gatesNode === NULL) {
+      $due = [];
+      foreach (array_keys($phases) as $name) {
+        $phase = Phase::tryFrom($name);
+        if ($phase !== NULL) {
+          $due[$name] = PhaseGateMap::gatesFor($phase);
+        }
+      }
+      return $due;
+    }
+
+    $due = [];
+    foreach ($gatesNode->keys() as $name) {
+      if (Phase::tryFrom($name) === NULL) {
+        throw StateError::corrupt($label, sprintf(
+          'unknown phase "%s" in phase_gates (known: %s)',
+          $name,
+          implode(', ', Phase::names()),
+        ));
+      }
+      $gates = $gatesNode->stringList($name);
+      foreach ($gates as $gate) {
+        if (!GateSettings::isKnown($gate)) {
+          throw StateError::corrupt($label, sprintf(
+            'unknown gate "%s" in phase_gates (known: %s)',
+            $gate,
+            implode(', ', GateSettings::KNOWN_GATES),
+          ));
+        }
+      }
+      $due[$name] = $gates;
+    }
+    return $due;
   }
 
   /**
@@ -827,6 +932,7 @@ final class RunState {
       $this->awaiting,
       $this->qaHistory,
       $this->feedbackAttempts,
+      $this->phaseGates,
     );
   }
 

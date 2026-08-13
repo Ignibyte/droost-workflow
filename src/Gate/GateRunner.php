@@ -46,10 +46,16 @@ final class GateRunner {
   ) {}
 
   /**
-   * Runs every gate this phase is configured for.
+   * Runs every gate due at this phase.
+   *
+   * Iterates the run's own frozen phase map rather than the whole resolved
+   * set, for the same reason it reads the run's levers: what a half-finished
+   * run is measured against must not change under it. A gate that is not due
+   * at this phase is omitted from the report entirely — complete re-runs the
+   * full set, so nothing enabled is ever omitted from the run.
    *
    * @param \Drupal\droost_workflow\State\RunState $state
-   *   The run, carrying the resolved levers.
+   *   The run, carrying the resolved levers and the frozen phase map.
    * @param \Drupal\droost_workflow\Config\Phase $phase
    *   The phase being gated.
    * @param string $projectRoot
@@ -59,7 +65,7 @@ final class GateRunner {
    *   act at a gate boundary without this class knowing anything about modes.
    *
    * @return \Drupal\droost_workflow\Gate\PhaseReport
-   *   Every gate's outcome.
+   *   Every due gate's outcome.
    */
   public function run(
     RunState $state,
@@ -69,7 +75,7 @@ final class GateRunner {
   ): PhaseReport {
     $report = new PhaseReport($phase);
 
-    foreach ($state->resolvedGates as $name => $levers) {
+    foreach ($state->gatesDueFor($phase) as $name => $levers) {
       $result = $this->runOne($name, $levers, $projectRoot);
       $report = $report->with($result);
       if ($onResult !== NULL) {

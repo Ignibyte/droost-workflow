@@ -56,6 +56,11 @@ class ModeEngineTest extends WorkflowTestCase {
    * The ordering is the design. A crash between deciding to pause and
    * delivering the question must leave a visibly-waiting run, not one that
    * silently continued.
+   *
+   * Deliberately run at PLAN, which the phase map leaves gateless: pair mode
+   * pauses even when a phase ran zero gates, because the pause is about the
+   * human deciding to continue, not about what the gates said — and the
+   * cheapest moment to redirect a run is before any code exists.
    */
   public function testPairPausesWithStateWrittenBeforeTheSink(): void {
     $order = [];
@@ -90,13 +95,20 @@ class ModeEngineTest extends WorkflowTestCase {
     $this->assertNotNull($outcome->state->awaiting);
     $this->assertNotNull($outcome->question);
     $this->assertSame(Phase::Plan, $outcome->question->phase);
-    // The question carries what the gates said, so the answer can be informed.
-    $this->assertStringContainsString('plan:', $outcome->question->gateSummary);
+    // The question carries what the gates said, so the answer can be
+    // informed — here, honestly, that nothing was due.
+    $this->assertSame(
+      'plan: no gates configured',
+      $outcome->question->gateSummary,
+    );
     $this->assertSame(['emit'], $sink->order);
   }
 
   /**
    * REQ-006: re-entering a paused run re-presents, and re-runs nothing.
+   *
+   * Run at CODE, a phase where gates genuinely execute, so "re-runs nothing"
+   * is proven against a non-zero first count rather than vacuously.
    */
   public function testReEnteringWhileAwaitingIsIdempotent(): void {
     $sink = $this->recordingSink();
@@ -108,15 +120,16 @@ class ModeEngineTest extends WorkflowTestCase {
 
     $first = $engine->runPhase(
       $this->begin(['mode' => 'pair']),
-      Phase::Plan,
+      Phase::Code,
       '/tmp',
       self::NOW,
     );
     $ranOnce = $executor->count;
+    $this->assertGreaterThan(0, $ranOnce, 'code must actually run gates');
 
     $second = $engine->runPhase(
       $first->state,
-      Phase::Plan,
+      Phase::Code,
       '/tmp',
       self::NOW,
     );
@@ -282,9 +295,10 @@ class ModeEngineTest extends WorkflowTestCase {
       $sink,
     );
 
+    // Code, not plan: the failure has to come from a gate that actually ran.
     $outcome = $engine->runPhase(
       $this->begin(['mode' => 'pair']),
-      Phase::Plan,
+      Phase::Code,
       '/tmp',
       self::NOW,
     );
