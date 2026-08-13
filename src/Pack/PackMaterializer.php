@@ -162,7 +162,7 @@ final class PackMaterializer {
    */
   private function plantSentinel(string $absolute, string $relative): void {
     $marker = $absolute . '/' . PackManifest::SENTINEL;
-    $body = "Written by drupal/droost_workflow. Safe to delete along with\n"
+    $body = "Written by droost/workflow (droost_workflow). Safe to delete along with\n"
       . "this directory; deleting it alone makes the next init refuse.\n";
     if (@file_put_contents($marker, $body) !== strlen($body)) {
       throw PackError::unwritable(

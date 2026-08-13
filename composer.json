@@ -1,5 +1,5 @@
 {
-    "name": "drupal/droost_workflow",
+    "name": "droost/workflow",
     "type": "drupal-module",
     "description": "The phased, gated pipeline an agent runs to build or change a Drupal site: plan, code, test, document, complete.",
     "keywords": [
@@ -9,8 +9,12 @@
         "workflow",
         "pipeline"
     ],
-    "homepage": "https://www.drupal.org/project/droost",
+    "homepage": "https://github.com/Ignibyte/droost-workflow",
     "license": "GPL-2.0-or-later",
+    "support": {
+        "issues": "https://github.com/Ignibyte/droost-workflow/issues",
+        "source": "https://github.com/Ignibyte/droost-workflow"
+    },
     "require": {
         "php": "^8.3",
         "symfony/yaml": "^6.4 || ^7.0 || ^8.0"
@@ -33,6 +37,9 @@
             "Drupal\\Tests\\droost_workflow\\": "tests/src/",
             "Drupal\\droost_workflow_mcp\\": "modules/droost_workflow_mcp/src/"
         }
+    },
+    "extra": {
+        "installer-name": "droost_workflow"
     },
     "config": {
         "allow-plugins": {

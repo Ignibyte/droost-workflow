@@ -1,0 +1,47 @@
+# CI is confirmation here, not authority.
+#
+# Every gate in this package runs locally from its own vendor/ (see
+# scripts/lint). CI re-runs the identical script on a clean checkout so a
+# green local run cannot be an artefact of one developer's machine.
+#
+# Two legs, deliberately asymmetric: 8.3/locked reproduces the committed
+# lock file exactly, and 8.4/highest resolves fresh — the early warning for
+# a dependency release that would break a new install before any user hits
+# it.
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  gate:
+    name: gate (php ${{ matrix.php }}, ${{ matrix.deps }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - php: '8.3'
+            deps: locked
+          - php: '8.4'
+            deps: highest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+
+      - uses: ramsey/composer-install@v3
+        with:
+          dependency-versions: ${{ matrix.deps }}
+
+      - name: composer validate
+        run: composer validate --strict --no-check-publish
+
+      - name: gate
+        run: ./scripts/lint

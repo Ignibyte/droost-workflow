@@ -1,5 +1,10 @@
 # Droost Workflow
 
+[![ci](https://github.com/Ignibyte/droost-workflow/actions/workflows/ci.yml/badge.svg)](https://github.com/Ignibyte/droost-workflow/actions/workflows/ci.yml)
+[![Packagist](https://img.shields.io/packagist/v/droost/workflow)](https://packagist.org/packages/droost/workflow)
+[![PHP](https://img.shields.io/badge/php-%5E8.3-8892BF)](composer.json)
+[![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)](LICENSE)
+
 The phased, gated pipeline an agent runs to build or change a Drupal site:
 
 ```
