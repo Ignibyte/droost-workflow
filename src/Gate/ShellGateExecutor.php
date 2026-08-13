@@ -68,6 +68,17 @@ final class ShellGateExecutor implements GateExecutorInterface {
     [$exit, $stdout, $stderr] = $outcome;
     $elapsed = $this->tick() - $started;
 
+    if ($gate->name === 'coverage') {
+      return $this->coverageVerdict(
+        $gate,
+        $exit,
+        $stdout,
+        $stderr,
+        $elapsed,
+        $invocation,
+      );
+    }
+
     return GateResult::ran(
       $gate->name,
       $exit === 0 ? GateStatus::Passed : GateStatus::Failed,
@@ -75,6 +86,91 @@ final class ShellGateExecutor implements GateExecutorInterface {
       $elapsed,
       $this->summarise($gate->name, $exit, $stdout, $stderr),
       $this->findings($stdout),
+      $invocation,
+    );
+  }
+
+  /**
+   * The coverage gate's verdict, which the exit code alone cannot give.
+   *
+   * PHPUnit has no --min-coverage option — the previous argv invented one,
+   * so the gate failed on an unknown-option error whenever it was enabled
+   * and the factory preset's coverage gate could never pass. The threshold
+   * is enforced HERE instead: run the suite with a text coverage report,
+   * parse the Lines percentage, and compare it to the gate's own floor.
+   *
+   * This is the one deliberate exception to "the exit code decides the
+   * verdict". Three cases, three different answers:
+   * - a non-zero exit is a failing suite, and fails before coverage is even
+   *   a question;
+   * - exit zero with a parsable percentage is measured coverage, judged
+   *   against the floor;
+   * - exit zero with NO percentage means nothing measured anything — no
+   *   coverage driver is installed — and an environment that cannot run the
+   *   gate it was told to run is broken, not lenient: error-tool-missing,
+   *   which blocks.
+   *
+   * @param \Drupal\droost_workflow\Config\GateSettings $gate
+   *   The gate's resolved levers.
+   * @param int $exit
+   *   The exit code.
+   * @param string $stdout
+   *   Standard output, carrying the coverage summary.
+   * @param string $stderr
+   *   Standard error.
+   * @param int $elapsed
+   *   Milliseconds spent.
+   * @param string $invocation
+   *   The command that ran.
+   *
+   * @return \Drupal\droost_workflow\Gate\GateResult
+   *   The verdict.
+   */
+  private function coverageVerdict(
+    GateSettings $gate,
+    int $exit,
+    string $stdout,
+    string $stderr,
+    int $elapsed,
+    string $invocation,
+  ): GateResult {
+    if ($exit !== 0) {
+      return GateResult::ran(
+        $gate->name,
+        GateStatus::Failed,
+        $exit,
+        $elapsed,
+        $this->summarise($gate->name, $exit, $stdout, $stderr),
+        $this->findings($stdout),
+        $invocation,
+      );
+    }
+
+    if (preg_match('/^\s*Lines:\s+([0-9.]+)%/m', $stdout, $matches) !== 1) {
+      return GateResult::toolMissing(
+        $gate->name,
+        $invocation . ' — the suite passed but no coverage was measured; '
+        . 'a code coverage driver (xdebug or pcov) is not installed',
+      );
+    }
+
+    $measured = (float) $matches[1];
+    $min = $gate->option('min');
+    $floor = is_int($min) ? $min : 0;
+    $satisfied = $measured >= (float) $floor;
+
+    return GateResult::ran(
+      $gate->name,
+      $satisfied ? GateStatus::Passed : GateStatus::Failed,
+      $exit,
+      $elapsed,
+      sprintf(
+        'coverage %.1f%% %s min %d%%',
+        $measured,
+        $satisfied ? 'meets' : 'is under',
+        $floor,
+      ),
+      [],
       $invocation,
     );
   }
@@ -110,7 +206,6 @@ final class ShellGateExecutor implements GateExecutorInterface {
   private function argvFor(GateSettings $gate, string $binary): array {
     $standard = $gate->option('standard');
     $level = $gate->option('level');
-    $min = $gate->option('min');
     $msi = $gate->option('msi_min');
 
     return match ($gate->name) {
@@ -128,11 +223,13 @@ final class ShellGateExecutor implements GateExecutorInterface {
         '--level=' . (string) ($level ?? 'max'),
       ],
       'phpunit' => [$binary, '--no-progress'],
+      // No threshold flag: phpunit has no --min-coverage option. The floor
+      // is enforced by coverageVerdict(), from the parsed summary.
       'coverage' => [
         $binary,
         '--no-progress',
         '--coverage-text',
-        '--min-coverage=' . (string) ($min ?? 0),
+        '--only-summary-for-coverage-text',
       ],
       'mutation' => [
         $binary,

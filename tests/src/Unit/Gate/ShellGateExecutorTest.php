@@ -6,6 +6,7 @@ namespace Drupal\Tests\droost_workflow\Unit\Gate;
 
 use Drupal\Tests\droost_workflow\Unit\WorkflowTestCase;
 use Drupal\droost_workflow\Config\GateSettings;
+use Drupal\droost_workflow\Gate\GateResult;
 use Drupal\droost_workflow\Gate\GateStatus;
 use Drupal\droost_workflow\Gate\ShellGateExecutor;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -74,10 +75,16 @@ class ShellGateExecutorTest extends WorkflowTestCase {
         ['level' => 'max'],
         ['analyse', '--no-progress', '--error-format=json', '--level=max'],
       ],
-      'coverage carries its floor' => [
+      'coverage asks for a summary, not a threshold' => [
         'coverage',
         ['min' => 80],
-        ['--no-progress', '--coverage-text', '--min-coverage=80'],
+        // PHPUnit has no --min-coverage option; the floor is enforced by
+        // parsing the summary, so the argv must not invent a flag.
+        [
+          '--no-progress',
+          '--coverage-text',
+          '--only-summary-for-coverage-text',
+        ],
       ],
       'mutation carries its floor' => [
         'mutation',
@@ -146,6 +153,57 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * Measured coverage at or above the floor passes.
+   */
+  public function testCoverageAtTheFloorPasses(): void {
+    $result = $this->coverageRun(80, [0, self::coverageSummary('80.00'), '']);
+
+    $this->assertSame(GateStatus::Passed, $result->status);
+    $this->assertSame('coverage 80.0% meets min 80%', $result->summary);
+  }
+
+  /**
+   * Measured coverage under the floor fails, and the summary says by what.
+   */
+  public function testCoverageUnderTheFloorFails(): void {
+    $result = $this->coverageRun(80, [0, self::coverageSummary('61.20'), '']);
+
+    $this->assertSame(GateStatus::Failed, $result->status);
+    $this->assertSame('coverage 61.2% is under min 80%', $result->summary);
+  }
+
+  /**
+   * A green suite that measured nothing is a broken setup, not a pass.
+   *
+   * Without a coverage driver phpunit exits 0 and prints no percentage — an
+   * exit-code verdict would wave the gate through having checked nothing.
+   */
+  public function testCoverageWithoutDriverIsToolMissing(): void {
+    $result = $this->coverageRun(
+      80,
+      [0, "PHPUnit 12.5.32\n\nOK (10 tests)\n", ''],
+    );
+
+    $this->assertSame(GateStatus::ErrorToolMissing, $result->status);
+    $this->assertTrue($result->status->blocksAdvance());
+    $this->assertStringContainsString('xdebug or pcov', $result->summary);
+  }
+
+  /**
+   * A failing suite fails the coverage gate before coverage is a question.
+   */
+  public function testCoverageWithFailingSuiteFails(): void {
+    $result = $this->coverageRun(
+      80,
+      [1, self::coverageSummary('90.00'), 'there were failures'],
+    );
+
+    $this->assertSame(GateStatus::Failed, $result->status);
+    $this->assertSame(1, $result->exitCode);
+    $this->assertStringContainsString('exit 1', $result->summary);
+  }
+
+  /**
    * A failure summary carries the tool's own first line.
    */
   public function testFailureSummaryQuotesTheTool(): void {
@@ -194,6 +252,46 @@ class ShellGateExecutorTest extends WorkflowTestCase {
     $result = $executor->execute(new GateSettings('phpcs', TRUE), $root);
 
     $this->assertSame(250, $result->durationMs);
+  }
+
+  /**
+   * Runs the coverage gate against a scripted subprocess outcome.
+   *
+   * @param int $min
+   *   The gate's floor.
+   * @param array{int, string, string} $outcome
+   *   Exit code, stdout and stderr the runner returns.
+   *
+   * @return \Drupal\droost_workflow\Gate\GateResult
+   *   The verdict.
+   */
+  private function coverageRun(int $min, array $outcome): GateResult {
+    $root = $this->rootWithBinaries(['phpunit']);
+    $executor = new ShellGateExecutor(
+      static fn (): array => $outcome,
+      static fn (): int => 0,
+    );
+    return $executor->execute(
+      new GateSettings('coverage', TRUE, ['min' => $min]),
+      $root,
+    );
+  }
+
+  /**
+   * The summary block phpunit prints for --only-summary-for-coverage-text.
+   *
+   * @param string $lines
+   *   The Lines percentage, as phpunit renders it.
+   *
+   * @return string
+   *   The stdout payload.
+   */
+  private static function coverageSummary(string $lines): string {
+    return "PHPUnit 12.5.32\n\nOK (10 tests)\n\n"
+      . "Code Coverage Report Summary:\n"
+      . "  Classes: 50.00% (4/8)\n"
+      . "  Methods: 66.67% (10/15)\n"
+      . "  Lines:   {$lines}% (153/250)\n";
   }
 
   /**
