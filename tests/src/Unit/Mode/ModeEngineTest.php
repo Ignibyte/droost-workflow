@@ -18,6 +18,7 @@ use Drupal\droost_workflow\Mode\ModeEngine;
 use Drupal\droost_workflow\Mode\Outcome;
 use Drupal\droost_workflow\Mode\PendingQuestion;
 use Drupal\droost_workflow\Mode\QuestionSinkInterface;
+use Drupal\droost_workflow\State\PhaseStatus;
 use Drupal\droost_workflow\State\RunState;
 use Drupal\droost_workflow\State\RunStateStore;
 
@@ -309,6 +310,171 @@ class ModeEngineTest extends WorkflowTestCase {
   }
 
   /**
+   * REQ-004: a blocking gate spends retry budget across invocations.
+   *
+   * A max_gate_retries of 2 means one attempt plus two retries. The third
+   * blocking invocation finds the budget spent and marks the phase failed —
+   * terminally — without counting another attempt.
+   */
+  public function testRetryBudgetIsCountedAcrossInvocations(): void {
+    $engine = new ModeEngine(
+      new GateRunner($this->failingExecutor(), new NullSiteDriver()),
+      $this->recordingSink(),
+    );
+    // Advanced to code first, as the facade always has by the time it calls
+    // runPhase — the run's current phase IS the phase being worked.
+    $state = $this->begin(['max_gate_retries' => 2])
+      ->advanceTo(Phase::Code);
+
+    $first = $engine->runPhase($state, Phase::Code, '/tmp', self::NOW);
+    $this->assertSame(Outcome::Failed, $first->outcome);
+    $this->assertSame(
+      ['phpcs' => 1, 'phpstan' => 1],
+      $first->state->feedbackAttempts,
+    );
+    $this->assertFalse($first->exhausted());
+
+    $second = $engine->runPhase($first->state, Phase::Code, '/tmp', self::NOW);
+    $this->assertSame(Outcome::Failed, $second->outcome);
+    $this->assertSame(
+      ['phpcs' => 2, 'phpstan' => 2],
+      $second->state->feedbackAttempts,
+    );
+    $this->assertFalse($second->exhausted());
+
+    $third = $engine->runPhase($second->state, Phase::Code, '/tmp', self::NOW);
+    $this->assertSame(Outcome::Failed, $third->outcome);
+    // The budget was already spent, so no further attempt is counted.
+    $this->assertSame(
+      ['phpcs' => 2, 'phpstan' => 2],
+      $third->state->feedbackAttempts,
+    );
+    // And the phase is now terminally failed.
+    $this->assertSame(
+      PhaseStatus::Failed,
+      $third->state->statusOf(Phase::Code),
+    );
+    $this->assertTrue($third->exhausted());
+  }
+
+  /**
+   * A budget of zero means one attempt and no retry.
+   */
+  public function testZeroBudgetFailsTerminallyOnTheFirstFailure(): void {
+    $engine = new ModeEngine(
+      new GateRunner($this->failingExecutor(), new NullSiteDriver()),
+      $this->recordingSink(),
+    );
+
+    $outcome = $engine->runPhase(
+      $this->begin(['max_gate_retries' => 0])->advanceTo(Phase::Code),
+      Phase::Code,
+      '/tmp',
+      self::NOW,
+    );
+
+    $this->assertSame(Outcome::Failed, $outcome->outcome);
+    $this->assertSame([], $outcome->state->feedbackAttempts);
+    $this->assertSame(
+      PhaseStatus::Failed,
+      $outcome->state->statusOf(Phase::Code),
+    );
+    $this->assertTrue($outcome->exhausted());
+  }
+
+  /**
+   * A missing tool spends the same budget a failure does.
+   *
+   * ErrorToolMissing blocks advance, and a missing binary re-invoked
+   * forever is the worst infinite loop of all — installing the tool
+   * between invocations is a legitimate retry, so it is bounded like one.
+   */
+  public function testMissingToolConsumesRetryBudget(): void {
+    $missingPhpcs = new class() implements GateExecutorInterface {
+
+      /**
+       * {@inheritdoc}
+       */
+      public function execute(
+        GateSettings $gate,
+        string $projectRoot,
+      ): GateResult {
+        return $gate->name === 'phpcs'
+          ? GateResult::toolMissing('phpcs', 'phpcs')
+          : new GateResult($gate->name, GateStatus::Passed, 0, 1, 'ok');
+      }
+
+    };
+    $engine = new ModeEngine(
+      new GateRunner($missingPhpcs, new NullSiteDriver()),
+      $this->recordingSink(),
+    );
+
+    $outcome = $engine->runPhase(
+      $this->begin(['max_gate_retries' => 2])->advanceTo(Phase::Code),
+      Phase::Code,
+      '/tmp',
+      self::NOW,
+    );
+
+    $this->assertSame(Outcome::Failed, $outcome->outcome);
+    $this->assertSame(['phpcs' => 1], $outcome->state->feedbackAttempts);
+  }
+
+  /**
+   * A fixed gate passes on the next invocation, keeping its history.
+   *
+   * The attempts already spent are the run's record, not a penalty — they
+   * survive the pass, and only blocking gates ever consumed budget.
+   */
+  public function testFixedGateAdvancesAndKeepsItsHistory(): void {
+    $flaky = new class() implements GateExecutorInterface {
+
+      /**
+       * Whether the first invocation has already happened.
+       */
+      public bool $fixed = FALSE;
+
+      /**
+       * {@inheritdoc}
+       */
+      public function execute(
+        GateSettings $gate,
+        string $projectRoot,
+      ): GateResult {
+        if ($gate->name === 'phpcs' && !$this->fixed) {
+          return new GateResult('phpcs', GateStatus::Failed, 1, 1, 'nope');
+        }
+        return new GateResult($gate->name, GateStatus::Passed, 0, 1, 'ok');
+      }
+
+    };
+    $engine = new ModeEngine(
+      new GateRunner($flaky, new NullSiteDriver()),
+      $this->recordingSink(),
+    );
+    $state = $this->begin(['max_gate_retries' => 2])
+      ->advanceTo(Phase::Code);
+
+    $failed = $engine->runPhase($state, Phase::Code, '/tmp', self::NOW);
+    $this->assertSame(
+      ['phpcs' => 1],
+      $failed->state->feedbackAttempts,
+      'only the blocking gate spends budget',
+    );
+
+    $flaky->fixed = TRUE;
+    $passed = $engine->runPhase($failed->state, Phase::Code, '/tmp', self::NOW);
+
+    $this->assertSame(Outcome::Advanced, $passed->outcome);
+    $this->assertSame(
+      ['phpcs' => 1],
+      $passed->state->feedbackAttempts,
+      'the spent attempts are the record of the journey, not a penalty',
+    );
+  }
+
+  /**
    * The terminal phase completes rather than advancing.
    */
   public function testTheTerminalPhaseCompletes(): void {
@@ -373,6 +539,28 @@ class ModeEngineTest extends WorkflowTestCase {
        */
       public function emit(PendingQuestion $question): void {
         $this->emitted[] = $question;
+      }
+
+    };
+  }
+
+  /**
+   * An executor that fails everything it is asked to run.
+   *
+   * @return \Drupal\droost_workflow\Gate\GateExecutorInterface
+   *   The double.
+   */
+  private function failingExecutor(): GateExecutorInterface {
+    return new class() implements GateExecutorInterface {
+
+      /**
+       * {@inheritdoc}
+       */
+      public function execute(
+        GateSettings $gate,
+        string $projectRoot,
+      ): GateResult {
+        return new GateResult($gate->name, GateStatus::Failed, 1, 1, 'nope');
       }
 
     };

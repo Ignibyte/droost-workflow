@@ -18,6 +18,7 @@ use Drupal\droost_workflow\Mode\QuestionSinkInterface;
 use Drupal\droost_workflow\Mode\RunOutcome;
 use Drupal\droost_workflow\Pack\InitReport;
 use Drupal\droost_workflow\Pack\PackMaterializer;
+use Drupal\droost_workflow\State\PhaseStatus;
 use Drupal\droost_workflow\State\RunState;
 use Drupal\droost_workflow\State\RunStateStore;
 
@@ -154,6 +155,14 @@ final class WorkflowFacade {
       // The run reached its terminal gate. Re-running does not restart it;
       // saying so is more useful than silently beginning a second run.
       return new RunOutcome(Outcome::Completed, $state);
+    }
+
+    if ($state->statusOf($phase) === PhaseStatus::Failed) {
+      // The phase spent its retry budget. Re-running would silently restart
+      // a run the engine already declared over — so nothing executes, and
+      // the envelope's retries block says why. Recovery is deliberate:
+      // remove .droost-workflow/run.json and begin again.
+      return new RunOutcome(Outcome::Failed, $state);
     }
 
     $outcome = $this->engine()->runPhase(

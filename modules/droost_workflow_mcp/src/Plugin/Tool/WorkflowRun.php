@@ -65,7 +65,7 @@ use Symfony\Component\HttpKernel\HttpKernelInterface;
         'description' => 'Whether the tool ran (NOT whether the gates passed — read data.report for that).',
       ],
       'message' => ['type' => 'string', 'description' => 'Human-readable summary.'],
-      'data' => ['description' => '{outcome, current_phase, report, awaiting}.'],
+      'data' => ['description' => 'For a run: {outcome, current_phase, report, awaiting, retries: {attempts, max_gate_retries, exhausted}} — retries.exhausted TRUE means the phase spent its budget and run will refuse until .droost-workflow/run.json is deliberately removed. For answer/swap: {outcome, current_phase, report: null, awaiting}.'],
     ],
     'required' => ['success', 'message'],
   ],
@@ -221,14 +221,12 @@ final class WorkflowRun extends DestructiveToolBase {
       );
     }
     $outcome = $facade->run($root);
+    // The shared envelope, verbatim — this surface renders what every other
+    // surface renders. Note `awaiting` is the question object (or null)
+    // here, exactly as the bin and drush print it.
     return $this->succeed(
       sprintf('Workflow run: %s.', $outcome->outcome->value),
-      [
-        'outcome' => $outcome->outcome->value,
-        'current_phase' => $outcome->state->currentPhase?->value,
-        'report' => $outcome->report?->toArray(),
-        'awaiting' => $outcome->question !== NULL,
-      ],
+      $outcome->toArray(),
     );
   }
 

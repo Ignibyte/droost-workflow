@@ -8,6 +8,7 @@ use Drupal\droost_workflow\Config\ConfigError;
 use Drupal\droost_workflow\Config\Mode;
 use Drupal\droost_workflow\Gate\NullSiteDriver;
 use Drupal\droost_workflow\Gate\ShellGateExecutor;
+use Drupal\droost_workflow\Mode\Outcome;
 use Drupal\droost_workflow\Mode\RunStateOnlySink;
 use Drupal\droost_workflow\Pack\PackError;
 use Drupal\droost_workflow\State\StateError;
@@ -142,17 +143,14 @@ final class ArgvDispatcher {
    */
   private function run(string $projectRoot): int {
     $outcome = $this->facade()->run($projectRoot);
-    $this->say($this->encode([
-      'outcome' => $outcome->outcome->value,
-      'current_phase' => $outcome->state->currentPhase?->value,
-      'report' => $outcome->report?->toArray(),
-      'awaiting' => $outcome->question?->toArray(),
-    ]));
+    $this->say($this->encode($outcome->toArray()));
 
     // A paused run has not failed; it is waiting. Only a genuine failure
     // gets a non-zero exit, so a pair-mode pause does not break a script
-    // that treats non-zero as broken.
-    return $outcome->outcome->value === 'failed'
+    // that treats non-zero as broken. Retryable and terminal failures share
+    // the exit code — the difference lives in the envelope's
+    // retries.exhausted, where a caller can actually act on it.
+    return $outcome->outcome === Outcome::Failed
       ? self::EXIT_RUN_FAILED
       : self::EXIT_OK;
   }

@@ -9,6 +9,7 @@ use Drupal\droost_workflow\Config\Phase;
 use Drupal\droost_workflow\Gate\GateResult;
 use Drupal\droost_workflow\Gate\GateRunner;
 use Drupal\droost_workflow\Gate\PhaseReport;
+use Drupal\droost_workflow\State\PhaseStatus;
 use Drupal\droost_workflow\State\RunState;
 
 /**
@@ -94,7 +95,7 @@ final class ModeEngine {
     $state = $state->withGateReport($phase->value, $report->toArray());
 
     if (!$report->advance()) {
-      return new RunOutcome(Outcome::Failed, $state, $report);
+      return $this->recordFailure($state, $phase, $report);
     }
 
     if ($this->effectiveMode($state) === Mode::Pair) {
@@ -118,6 +119,59 @@ final class ModeEngine {
       $state,
       $report,
     );
+  }
+
+  /**
+   * Counts a blocking report against the retry budget, or ends the phase.
+   *
+   * This is the production caller GateRunner::mayRetry() and
+   * recordAttempt() were built for and then shipped without — until now a
+   * failed phase stayed Active and `run` would re-execute it forever, with
+   * max_gate_retries recorded in every state file and consulted by nothing.
+   *
+   * A "retry" is one more `run` invocation of the still-Active failed
+   * phase: the agent fixes the cause between invocations, so the bound is
+   * counted across invocations in run state rather than looped here. Both
+   * blocking statuses spend budget — a missing tool re-invoked forever is
+   * the worst infinite loop, and installing the tool between invocations is
+   * a legitimate retry.
+   *
+   * When ANY blocking gate is out of budget the phase is marked Failed —
+   * terminal. advanceTo() already refuses to move away from a Failed phase,
+   * and the facade refuses to re-run one, so the mark is what turns "try
+   * again" into "stop".
+   *
+   * @param \Drupal\droost_workflow\State\RunState $state
+   *   The run, with the report already recorded.
+   * @param \Drupal\droost_workflow\Config\Phase $phase
+   *   The phase that blocked.
+   * @param \Drupal\droost_workflow\Gate\PhaseReport $report
+   *   The blocking report.
+   *
+   * @return \Drupal\droost_workflow\Mode\RunOutcome
+   *   A Failed outcome — retryable when budget remains, terminal when not.
+   */
+  private function recordFailure(
+    RunState $state,
+    Phase $phase,
+    PhaseReport $report,
+  ): RunOutcome {
+    $blocking = array_filter(
+      $report->results,
+      static fn (GateResult $r): bool => $r->status->blocksAdvance(),
+    );
+
+    foreach ($blocking as $result) {
+      if (!$this->runner->mayRetry($state, $result->gate)) {
+        $state = $state->withPhaseStatus($phase, PhaseStatus::Failed);
+        return new RunOutcome(Outcome::Failed, $state, $report);
+      }
+    }
+
+    foreach ($blocking as $result) {
+      $state = $this->runner->recordAttempt($state, $result->gate);
+    }
+    return new RunOutcome(Outcome::Failed, $state, $report);
   }
 
   /**

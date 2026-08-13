@@ -8,6 +8,7 @@ use Drupal\droost_workflow\Config\Mode;
 use Drupal\droost_workflow\Driver\BootedSiteDriver;
 use Drupal\droost_workflow\Gate\ShellGateExecutor;
 use Drupal\droost_workflow\Cli\CliProcess;
+use Drupal\droost_workflow\Mode\Outcome;
 use Drupal\droost_workflow\Mode\RunStateOnlySink;
 use Drupal\droost_workflow\WorkflowFacade;
 use Drush\Attributes as CLI;
@@ -85,14 +86,11 @@ final class WorkflowCommands extends DrushCommands {
   )]
   public function run(array $options = ['project' => NULL]): int {
     $outcome = $this->facade()->run($this->projectRoot($options));
-    $this->output()->writeln($this->encode([
-      'outcome' => $outcome->outcome->value,
-      'current_phase' => $outcome->state->currentPhase?->value,
-      'report' => $outcome->report?->toArray(),
-      'awaiting' => $outcome->question?->toArray(),
-    ]));
-    // A pause is not a failure. Only a blocked run exits non-zero.
-    return $outcome->outcome->value === 'failed'
+    $this->output()->writeln($this->encode($outcome->toArray()));
+    // A pause is not a failure. Only a blocked run exits non-zero, and
+    // whether that failure is retryable or terminal lives in the envelope's
+    // retries.exhausted, not the exit code.
+    return $outcome->outcome === Outcome::Failed
       ? self::EXIT_FAILURE
       : self::EXIT_SUCCESS;
   }

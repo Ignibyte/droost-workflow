@@ -167,6 +167,48 @@ class SurfaceParityTest extends WorkflowTestCase {
   }
 
   /**
+   * Every surface renders the ONE envelope RunOutcome::toArray() builds.
+   *
+   * The same five fields used to be assembled three times — bin, drush,
+   * MCP — which is precisely the second-implementation drift the facade
+   * exists to prevent. Two halves: the envelope itself has the agreed
+   * shape, and each surface's source actually calls it (the drush and MCP
+   * classes cannot be instantiated in this suite, so the call is pinned
+   * the way the MCP structural tests pin theirs — in source).
+   */
+  public function testEverySurfaceRendersTheSharedEnvelope(): void {
+    $root = $this->makeRootWithConfig("preset: custom\n");
+    $outcome = $this->facade(new NullSiteDriver())->run($root);
+
+    $envelope = $outcome->toArray();
+    $this->assertSame(
+      ['outcome', 'current_phase', 'report', 'awaiting', 'retries'],
+      array_keys($envelope),
+    );
+    $retries = $envelope['retries'];
+    $this->assertIsArray($retries);
+    $this->assertSame(
+      ['attempts', 'max_gate_retries', 'exhausted'],
+      array_keys($retries),
+    );
+
+    $surfaces = [
+      'bin' => __DIR__ . '/../../../src/Cli/ArgvDispatcher.php',
+      'drush' => __DIR__ . '/../../../src/Drush/Commands/WorkflowCommands.php',
+      'mcp' => __DIR__
+      . '/../../../modules/droost_workflow_mcp/src/Plugin/Tool/WorkflowRun.php',
+    ];
+    foreach ($surfaces as $name => $path) {
+      $src = (string) file_get_contents($path);
+      $this->assertStringContainsString(
+        '$outcome->toArray()',
+        $src,
+        $name . ' must render the shared envelope, not assemble its own',
+      );
+    }
+  }
+
+  /**
    * Gate results keyed by gate name.
    *
    * @param array<string, mixed> $report
