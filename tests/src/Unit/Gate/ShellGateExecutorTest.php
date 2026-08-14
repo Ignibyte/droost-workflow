@@ -68,12 +68,24 @@ class ShellGateExecutorTest extends WorkflowTestCase {
       'phpstan carries a numeric level' => [
         'phpstan',
         ['level' => 6],
-        ['analyse', '--no-progress', '--error-format=json', '--level=6'],
+        [
+          'analyse',
+          '--no-progress',
+          '--error-format=json',
+          '--level=6',
+          '--memory-limit=1G',
+        ],
       ],
       'phpstan carries a word level' => [
         'phpstan',
         ['level' => 'max'],
-        ['analyse', '--no-progress', '--error-format=json', '--level=max'],
+        [
+          'analyse',
+          '--no-progress',
+          '--error-format=json',
+          '--level=max',
+          '--memory-limit=1G',
+        ],
       ],
       'coverage asks for a summary, not a threshold' => [
         'coverage',

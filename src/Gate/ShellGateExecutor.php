@@ -221,6 +221,11 @@ final class ShellGateExecutor implements GateExecutorInterface {
         '--no-progress',
         '--error-format=json',
         '--level=' . (string) ($level ?? 'max'),
+        // Not a lever: phpstan inherits php.ini's memory_limit (routinely
+        // 128M), and level max over a real module crashes its workers there.
+        // Found dogfooding against droost — 336 files OOMed the gate while
+        // the repo's own lint script passed the same flag all along.
+        '--memory-limit=1G',
       ],
       'phpunit' => [$binary, '--no-progress'],
       // No threshold flag: phpunit has no --min-coverage option. The floor
