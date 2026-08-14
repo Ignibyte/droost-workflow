@@ -7,7 +7,7 @@ namespace Drupal\droost_workflow_mcp\Plugin\Tool;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\droost\Plugin\Tool\DroostToolBase;
-use Drupal\droost\ProjectRoot;
+use Droost\Engine\Support\ProjectRoot;
 use Drupal\droost_workflow_mcp\WorkflowFacadeTrait;
 use Drupal\mcp_server\Attribute\Tool;
 use Mcp\Server\ClientGateway;
@@ -72,7 +72,7 @@ final class WorkflowStatus extends DroostToolBase {
    *   The typed plugin definition.
    * @param \Drupal\Core\Session\AccountProxyInterface $currentUser
    *   The current user service.
-   * @param \Drupal\droost\ProjectRoot $projectRoot
+   * @param \Droost\Engine\Support\ProjectRoot $projectRoot
    *   Resolves this site's own repository root, the default target.
    * @param \Symfony\Component\HttpKernel\HttpKernelInterface $kernel
    *   The HTTP kernel the facade's site driver would use. Injected for parity

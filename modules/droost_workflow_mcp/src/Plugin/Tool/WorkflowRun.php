@@ -8,7 +8,7 @@ use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\droost\Plugin\Tool\DestructiveToolBase;
-use Drupal\droost\ProjectRoot;
+use Droost\Engine\Support\ProjectRoot;
 use Drupal\droost_workflow\Config\Mode;
 use Drupal\droost_workflow_mcp\WorkflowFacadeTrait;
 use Drupal\mcp_server\Attribute\Tool;
@@ -92,7 +92,7 @@ final class WorkflowRun extends DestructiveToolBase {
    * @param \Drupal\Core\Config\ConfigFactoryInterface $configFactory
    *   The config factory (base injection; no `allow_*` gate is taken here — the
    *   transport gate is the whole gate, per droost_verify's precedent).
-   * @param \Drupal\droost\ProjectRoot $projectRoot
+   * @param \Droost\Engine\Support\ProjectRoot $projectRoot
    *   Resolves this site's own repository root, the default target.
    * @param \Symfony\Component\HttpKernel\HttpKernelInterface $kernel
    *   The HTTP kernel the facade's site driver issues its sub-requests through.

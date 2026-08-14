@@ -17,6 +17,7 @@
     },
     "require": {
         "php": "^8.3",
+        "droost/engine": "~0.1.0",
         "symfony/yaml": "^6.4 || ^7.0 || ^8.0"
     },
     "require-dev": {
