@@ -106,6 +106,12 @@ final class PackManifest {
    * @var list<string>
    */
   public const CITABLE_MODULES = [
+    // Droost 2.x merged the brain, search and the wiki into droost itself, so
+    // on a current site every tool below comes from this one module. The three
+    // submodule names stay citable because droost 1.x sites still have them
+    // and a pack file written for one is not wrong on the other — but prefer
+    // 'droost' when writing new guidance.
+    'droost',
     'droost_brain',
     'droost_search',
     'droost_wiki',

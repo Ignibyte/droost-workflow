@@ -63,11 +63,14 @@ run before you conclude anything from it.
 answer, not a broken site and not something to work around — report it and
 stop.
 
-**3. Several tools live in submodules that may not be installed.** droost
-itself depends only on `mcp_server`; `droost_capabilities` and
-`droost_architecture` come from droost_brain, `droost_symbol` /
-`droost_graph` / `droost_search` from droost_search, and the wiki tools from
-droost_wiki. A perfectly healthy site can be missing any of them.
+**3. Some tools live in submodules that may not be installed.** On droost 2.x
+the brain, codebase search and the wiki all ship in droost core — so
+`droost_capabilities`, `droost_architecture`, `droost_symbol`, `droost_graph`,
+`droost_search` and the wiki tools are there whenever droost is. (On 1.x they
+came from `droost_brain`, `droost_search` and `droost_wiki`; the tool ids are
+the same either way.) What genuinely may be absent are the backend-bridging
+submodules — display, Canvas, Views, Devel and AI tooling. A perfectly healthy
+site can be missing any of those.
 
 ## When a tool is unavailable
 

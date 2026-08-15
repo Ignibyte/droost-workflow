@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "3827e6deefe0afd3fac2e934c8dfae32",
+    "content-hash": "39c0dfadcc526c8da62e41f5144b7bf0",
     "packages": [
         {
             "name": "droost/engine",
-            "version": "v0.1.1",
+            "version": "0.5.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/Ignibyte/droost-engine.git",
-                "reference": "ab22d946a412cb6bebea8cb97ada5ac660e341a7"
+                "reference": "bfd56fad21400d63dd7d76e3f0fe9e21b65c563f"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/Ignibyte/droost-engine/zipball/ab22d946a412cb6bebea8cb97ada5ac660e341a7",
-                "reference": "ab22d946a412cb6bebea8cb97ada5ac660e341a7",
+                "url": "https://api.github.com/repos/Ignibyte/droost-engine/zipball/bfd56fad21400d63dd7d76e3f0fe9e21b65c563f",
+                "reference": "bfd56fad21400d63dd7d76e3f0fe9e21b65c563f",
                 "shasum": ""
             },
             "require": {
@@ -49,9 +49,9 @@
             "description": "Framework-free engine behind Droost: QA verify loop, AI-harness installers, guidelines/skills corpus services, scaffold blueprints, OKF wiki core, and code search/graph core for Drupal projects.",
             "support": {
                 "issues": "https://github.com/Ignibyte/droost-engine/issues",
-                "source": "https://github.com/Ignibyte/droost-engine/tree/v0.1.1"
+                "source": "https://github.com/Ignibyte/droost-engine/tree/0.5.2"
             },
-            "time": "2026-08-13T22:27:22+00:00"
+            "time": "2026-08-15T14:03:40+00:00"
         },
         {
             "name": "nikic/php-parser",
