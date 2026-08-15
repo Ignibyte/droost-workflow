@@ -1,0 +1,41 @@
+<?php
+
+/**
+ * @file
+ * Hook implementations for droost_workflow_mcp.
+ */
+
+declare(strict_types=1);
+
+/**
+ * Implements hook_droost_tool_profile_info().
+ *
+ * Droost's MCP surface is larger than one tools/list page, so it ships
+ * profiles that decide what registers at all. The family boundary is the
+ * `droost_` id prefix — which these two tools carry, because they belong to
+ * the Droost family, even though Droost does not ship them. Droost cannot
+ * curate an inventory of another project's tools, so an id it does not know
+ * registers under every profile: correct for a tool Droost has not triaged
+ * yet, wrong for ours, which would silently spend page budget the `standard`
+ * profile does not have.
+ *
+ * Both are declared `standard`. They are the reason this module exists, so a
+ * site running the default profile must keep them; neither belongs in `lean`,
+ * which is read-only orientation and nothing else, and `droost_workflow_run`
+ * executes gates.
+ *
+ * The hook is Droost 2.0.0-alpha1 and later. On an earlier release nothing
+ * invokes it and the tools register as they always did, so this needs no
+ * version constraint of its own.
+ *
+ * @return array<string, string>
+ *   Tool ids mapped to the least inclusive profile that registers them.
+ *
+ * @see hook_droost_tool_profile_info()
+ */
+function droost_workflow_mcp_droost_tool_profile_info(): array {
+  return [
+    'droost_workflow_status' => 'standard',
+    'droost_workflow_run' => 'standard',
+  ];
+}
