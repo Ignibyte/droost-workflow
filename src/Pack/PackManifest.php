@@ -89,8 +89,11 @@ final class PackManifest {
     'droost_structure_create',
     'droost_symbol',
     'droost_verify',
-    'droost_wiki_factsheet',
-    'droost_wiki_pages',
+    // Also a legacy MODULE name below, and deliberately in both lists: droost
+    // 2.x retired droost_wiki_pages/_status/_factsheet in favour of one
+    // kind-dispatched droost_wiki tool, while droost 1.x sites still have a
+    // droost_wiki module. Same string, two kinds of thing, both citable.
+    'droost_wiki',
   ];
 
   /**

@@ -36,10 +36,10 @@ Tools that help:
   that `droost_search` returns nothing at all on a site whose index was never
   built (`drush droost:search:index`), and an empty result reads exactly like
   "this project documents nothing" — check before concluding.
-- `droost_wiki_pages` and `droost_wiki_factsheet` — **both read-only**. Use
-  them to see what the site's knowledge pages already say and to pull a
-  module's factsheet before you write. Neither one writes; no MCP tool does.
-  The only way to update the wiki is the drush command
+- `droost_wiki` — **read-only**, in every mode. The default kind lists and
+  reads the site's knowledge pages; `kind: factsheet` pulls a module's
+  generation packet before you write. It never writes, and neither does any
+  other MCP tool: the only way to update the wiki is the drush command
   `drush droost:wiki:generate`.
 
 Write what is true, not what sounds finished. If a gate was skipped, say so
@@ -56,9 +56,9 @@ complete, immediately after.
 
 ## Without a site
 
-`droost_search`, `droost_guidelines`, `droost_wiki_pages` and
-`droost_wiki_factsheet` all need a booted site. With none, you cannot read
-what the project already says, let alone match it.
+`droost_search`, `droost_guidelines` and `droost_wiki` all need a booted
+site. With none, you cannot read what the project already says, let alone
+match it.
 
 Write the documentation into the repo — module READMEs, a change summary in
 the run's own artefacts. That is where it belongs anyway.
