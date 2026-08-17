@@ -12,7 +12,7 @@
 
 declare(strict_types=1);
 
-use Drupal\droost_workflow\Cli\ArgvDispatcher;
+use Droost\Workflow\Cli\ArgvDispatcher;
 
 // Works both from this package's own vendor/ and from a consuming project's,
 // so the bin behaves the same whether it was installed as a dependency or is
