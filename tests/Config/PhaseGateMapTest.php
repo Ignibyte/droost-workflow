@@ -38,9 +38,19 @@ class PhaseGateMapTest extends TestCase {
   /**
    * Plan and document run no gates: there is nothing yet to measure.
    */
-  public function testPlanAndDocumentAreGateless(): void {
+  public function testPlanIsGateless(): void {
     $this->assertSame([], PhaseGateMap::gatesFor(Phase::Plan));
-    $this->assertSame([], PhaseGateMap::gatesFor(Phase::Document));
+  }
+
+  /**
+   * Document gates the project's own documentation, and nothing else.
+   *
+   * It used to be gateless, which meant a run could leave the wiki stale and
+   * still be recorded as complete. `wiki_fresh` asks the site whether its
+   * documentation still matches the code — the one thing this phase is for.
+   */
+  public function testDocumentGatesTheWiki(): void {
+    $this->assertSame(['wiki_fresh'], PhaseGateMap::gatesFor(Phase::Document));
   }
 
   /**
@@ -89,6 +99,7 @@ class PhaseGateMapTest extends TestCase {
     $earlier = array_unique(array_merge(
       PhaseGateMap::gatesFor(Phase::Code),
       PhaseGateMap::gatesFor(Phase::Test),
+      PhaseGateMap::gatesFor(Phase::Document),
     ));
     foreach (PhaseGateMap::gatesFor(Phase::Complete) as $gate) {
       $this->assertContains(

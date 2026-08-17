@@ -188,6 +188,11 @@ final class ShellGateExecutor implements GateExecutorInterface {
     return 'vendor/bin/' . match ($gate) {
       'coverage' => 'phpunit',
       'mutation' => 'infection',
+      // The wiki gate asks the SITE whether its own documentation is current,
+      // so it runs through drush. On a checkout with no drush the executor
+      // reports toolMissing rather than a pass — which is the honest answer:
+      // nothing was checked.
+      'wiki_fresh' => 'drush',
       default => $gate,
     };
   }
@@ -227,6 +232,9 @@ final class ShellGateExecutor implements GateExecutorInterface {
         // the repo's own lint script passed the same flag all along.
         '--memory-limit=1G',
       ],
+      // Drush exits non-zero when any page is stale, orphaned or invalid, so
+      // the gate needs no parsing — the command IS the verdict.
+      'wiki_fresh' => [$binary, 'droost:wiki:status'],
       'phpunit' => [$binary, '--no-progress'],
       // No threshold flag: phpunit has no --min-coverage option. The floor
       // is enforced by coverageVerdict(), from the parsed summary.

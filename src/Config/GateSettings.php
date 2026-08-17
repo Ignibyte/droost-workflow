@@ -39,6 +39,7 @@ final class GateSettings {
     'playwright',
     'coverage',
     'rendered_check',
+    'wiki_fresh',
   ];
 
   /**

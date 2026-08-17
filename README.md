@@ -53,6 +53,7 @@ gates:
   playwright:     { on: false }
   coverage:       { on: false, min: 0 }
   rendered_check: { on: true }                 # artifacts are truth
+  wiki_fresh:     { on: true }                 # the project's own docs still match the code
 max_gate_retries: 2
 ```
 
@@ -112,7 +113,7 @@ setting, gate, option, phase, mode and preset is refused by name:
 
 ```
 droost.workflow.yml: unknown gate "phpstain" (known: phpcs, phpstan, phpunit,
-mutation, playwright, coverage, rendered_check)
+mutation, playwright, coverage, rendered_check, wiki_fresh)
 ```
 
 ## Which gates run when
@@ -124,13 +125,16 @@ engine's phase map, frozen into each run when it begins:
 plan: none
 code: phpcs, phpstan
 test: phpunit, mutation, playwright, coverage, rendered_check
-document: none
-complete: phpcs, phpstan, phpunit, mutation, playwright, coverage, rendered_check
+document: wiki_fresh
+complete: phpcs, phpstan, phpunit, mutation, playwright, coverage, rendered_check, wiki_fresh
 ```
 
-Plan and document run nothing — there is nothing yet to measure, and prose
-needs no linter. Code gates the diff with static analysis. Test runs the
-functional gates. Complete re-runs the full enabled set as the terminal
+Plan runs nothing — there is nothing yet to measure. Code gates the diff with
+static analysis. Test runs the functional gates. Document gates the one thing
+prose CAN be checked against: `wiki_fresh` asks the site whether the project's
+own documentation still matches the code it describes. It used to run nothing,
+which meant a run could leave the wiki stale and still be recorded complete —
+and a stale page is read as fact, which is worse than no page. Complete re-runs the full enabled set as the terminal
 safety net — which is what makes dropped phases safe: a run configured
 without a test phase still meets every enabled gate once, at the end.
 

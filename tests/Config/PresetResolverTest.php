@@ -54,6 +54,7 @@ class PresetResolverTest extends TestCase {
           'playwright' => ['on' => TRUE],
           'coverage' => ['on' => TRUE, 'min' => 80],
           'rendered_check' => ['on' => TRUE],
+          'wiki_fresh' => ['on' => TRUE],
         ],
       ],
       'fast' => [
@@ -66,6 +67,7 @@ class PresetResolverTest extends TestCase {
           'playwright' => ['on' => FALSE],
           'coverage' => ['on' => FALSE, 'min' => 0],
           'rendered_check' => ['on' => TRUE],
+          'wiki_fresh' => ['on' => TRUE],
         ],
       ],
       'custom' => [
@@ -78,6 +80,7 @@ class PresetResolverTest extends TestCase {
           'playwright' => ['on' => FALSE],
           'coverage' => ['on' => FALSE, 'min' => 0],
           'rendered_check' => ['on' => TRUE],
+          'wiki_fresh' => ['on' => TRUE],
         ],
       ],
     ];

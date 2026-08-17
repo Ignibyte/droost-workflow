@@ -47,7 +47,9 @@ final class PhaseGateMap {
       'coverage',
       'rendered_check',
     ],
-    'document' => [],
+    'document' => [
+      'wiki_fresh',
+    ],
     'complete' => [
       'phpcs',
       'phpstan',
@@ -56,6 +58,7 @@ final class PhaseGateMap {
       'playwright',
       'coverage',
       'rendered_check',
+      'wiki_fresh',
     ],
   ];
 

@@ -56,7 +56,7 @@ class GateRunnerTest extends WorkflowTestCase {
    *   The gateless phase.
    */
   #[DataProvider('gatelessPhases')]
-  public function testPlanAndDocumentRunNoGates(Phase $phase): void {
+  public function testGatelessPhaseRunsNoGates(Phase $phase): void {
     $executor = $this->recordingExecutor();
     $runner = new GateRunner($executor, new NullSiteDriver());
 
@@ -80,7 +80,6 @@ class GateRunnerTest extends WorkflowTestCase {
   public static function gatelessPhases(): array {
     return [
       'plan' => [Phase::Plan],
-      'document' => [Phase::Document],
     ];
   }
 
@@ -108,11 +107,16 @@ class GateRunnerTest extends WorkflowTestCase {
     $report = $runner->run($this->beginWith([]), Phase::Complete, '/tmp');
 
     $this->assertSame(
-      ['phpcs', 'phpstan', 'phpunit', 'mutation', 'playwright', 'coverage'],
+      ['phpcs', 'phpstan', 'phpunit', 'mutation', 'playwright', 'coverage', 'wiki_fresh'],
       $executor->ran,
       'every non-site gate must execute at complete',
     );
-    $this->assertCount(7, $report->results);
+    // Eight results: the seven shell gates above plus rendered_check, which is
+    // the site gate and is the one skipped under NullSiteDriver. wiki_fresh
+    // runs through the shell (drush asks the site), so it is not skipped here
+    // — with no drush on the path it reports tool-missing, which is a distinct
+    // outcome from both passed and skipped.
+    $this->assertCount(8, $report->results);
     $this->assertCount(1, $report->skipped());
   }
 
