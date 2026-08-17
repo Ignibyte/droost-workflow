@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Drupal\Tests\droost_workflow\Unit\Config;
+namespace Droost\Workflow\Tests\Config;
 
-use Drupal\droost_workflow\Config\GateSettings;
-use Drupal\droost_workflow\Config\Phase;
-use Drupal\droost_workflow\Config\PhaseGateMap;
+use Droost\Workflow\Config\GateSettings;
+use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Config\PhaseGateMap;
 use PHPUnit\Framework\TestCase;
 
 /**

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Pack;
+namespace Droost\Workflow\Pack;
 
 /**
  * The pack could not be installed into a project.

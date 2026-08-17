@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\State;
+namespace Droost\Workflow\State;
 
 /**
  * Where one phase of a run stands.

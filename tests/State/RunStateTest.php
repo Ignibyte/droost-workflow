@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Drupal\Tests\droost_workflow\Unit\State;
+namespace Droost\Workflow\Tests\State;
 
-use Drupal\droost_workflow\Config\Mode;
-use Drupal\droost_workflow\Config\Phase;
-use Drupal\droost_workflow\Config\PhaseGateMap;
-use Drupal\droost_workflow\Config\Provenance;
-use Drupal\droost_workflow\Config\WorkflowConfig;
-use Drupal\droost_workflow\State\PhaseStatus;
-use Drupal\droost_workflow\State\RunState;
+use Droost\Workflow\Config\Mode;
+use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Config\PhaseGateMap;
+use Droost\Workflow\Config\Provenance;
+use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\State\PhaseStatus;
+use Droost\Workflow\State\RunState;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -64,7 +64,7 @@ class RunStateTest extends TestCase {
    * The regression guard for the worst defect this package could have: the
    * run's own report would otherwise claim a gate succeeded that failed.
    *
-   * @param \Drupal\droost_workflow\State\PhaseStatus $status
+   * @param \Droost\Workflow\State\PhaseStatus $status
    *   The status the current phase is left in.
    */
   #[DataProvider('nonAdvanceableStatuses')]
@@ -82,7 +82,7 @@ class RunStateTest extends TestCase {
   /**
    * Statuses a run may not simply walk away from.
    *
-   * @return array<string, array{\Drupal\droost_workflow\State\PhaseStatus}>
+   * @return array<string, array{\Droost\Workflow\State\PhaseStatus}>
    *   Case name to status.
    */
   public static function nonAdvanceableStatuses(): array {
@@ -112,9 +112,9 @@ class RunStateTest extends TestCase {
   /**
    * Phases run once and in order.
    *
-   * @param \Drupal\droost_workflow\Config\Phase $from
+   * @param \Droost\Workflow\Config\Phase $from
    *   The phase to advance from.
-   * @param \Drupal\droost_workflow\Config\Phase $to
+   * @param \Droost\Workflow\Config\Phase $to
    *   The illegal target.
    */
   #[DataProvider('illegalMoves')]
@@ -138,7 +138,7 @@ class RunStateTest extends TestCase {
   /**
    * Moves that go backward or nowhere.
    *
-   * @return array<string, array{\Drupal\droost_workflow\Config\Phase, \Drupal\droost_workflow\Config\Phase}>
+   * @return array<string, array{\Droost\Workflow\Config\Phase, \Droost\Workflow\Config\Phase}>
    *   Case name to the from and to phases.
    */
   public static function illegalMoves(): array {
@@ -321,7 +321,7 @@ class RunStateTest extends TestCase {
   /**
    * A run begun from the built-in defaults.
    *
-   * @return \Drupal\droost_workflow\State\RunState
+   * @return \Droost\Workflow\State\RunState
    *   The run.
    */
   private function begin(): RunState {

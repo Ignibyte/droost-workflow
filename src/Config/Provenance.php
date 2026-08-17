@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Config;
+namespace Droost\Workflow\Config;
 
 /**
  * Where a resolved configuration came from.

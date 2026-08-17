@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Drupal\Tests\droost_workflow\Unit\Config;
+namespace Droost\Workflow\Tests\Config;
 
-use Drupal\droost_workflow\Config\GateSettings;
-use Drupal\droost_workflow\Config\PresetResolver;
-use Drupal\droost_workflow\Config\WorkflowConfig;
+use Droost\Workflow\Config\GateSettings;
+use Droost\Workflow\Config\PresetResolver;
+use Droost\Workflow\Config\WorkflowConfig;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 

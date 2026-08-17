@@ -1,7 +1,7 @@
 {
     "name": "droost/workflow",
-    "type": "drupal-module",
-    "description": "The phased, gated pipeline an agent runs to build or change a Drupal site: plan, code, test, document, complete.",
+    "type": "library",
+    "description": "The phased, gated pipeline an agent runs to build or change a Drupal site: plan, code, test, document, complete. Framework-free \u2014 the Drupal surface ships with drupal/droost.",
     "keywords": [
         "Drupal",
         "droost",
@@ -17,30 +17,24 @@
     },
     "require": {
         "php": "^8.3",
-        "droost/engine": "~0.5.0",
+        "droost/engine": "~0.6.0",
         "symfony/yaml": "^6.4 || ^7.0 || ^8.0"
     },
     "require-dev": {
         "drupal/coder": "^8.3",
-        "drupal/core": "^10.3 || ^11",
-        "drush/drush": "^12 || ^13",
         "phpstan/phpstan": "^2.1",
         "phpstan/phpstan-phpunit": "^2.0",
         "phpunit/phpunit": "^10.5 || ^11.5 || ^12.0"
     },
     "autoload": {
         "psr-4": {
-            "Drupal\\droost_workflow\\": "src/"
+            "Droost\\Workflow\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Drupal\\Tests\\droost_workflow\\": "tests/src/",
-            "Drupal\\droost_workflow_mcp\\": "modules/droost_workflow_mcp/src/"
+            "Droost\\Workflow\\Tests\\": "tests/"
         }
-    },
-    "extra": {
-        "installer-name": "droost_workflow"
     },
     "config": {
         "allow-plugins": {

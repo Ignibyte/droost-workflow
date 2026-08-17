@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Support;
+namespace Droost\Workflow\Support;
 
 /**
  * A decoded value was absent or had the wrong type.

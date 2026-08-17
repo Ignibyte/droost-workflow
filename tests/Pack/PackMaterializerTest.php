@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Drupal\Tests\droost_workflow\Unit\Pack;
+namespace Droost\Workflow\Tests\Pack;
 
-use Drupal\Tests\droost_workflow\Unit\WorkflowTestCase;
-use Drupal\droost_workflow\Pack\PackError;
-use Drupal\droost_workflow\Pack\PackManifest;
-use Drupal\droost_workflow\Pack\PackMaterializer;
+use Droost\Workflow\Tests\WorkflowTestCase;
+use Droost\Workflow\Pack\PackError;
+use Droost\Workflow\Pack\PackManifest;
+use Droost\Workflow\Pack\PackMaterializer;
 
 /**
  * Installing the pack into a consuming repository.
@@ -131,11 +131,10 @@ class PackMaterializerTest extends WorkflowTestCase {
    */
   public function testMaterializerHasNoDrupalImports(): void {
     $offenders = [];
-    foreach (glob(dirname(__DIR__, 4) . '/src/Pack/*.php') ?: [] as $file) {
+    foreach (glob(dirname(__DIR__, 2) . '/src/Pack/*.php') ?: [] as $file) {
       $source = file_get_contents($file);
       foreach (explode("\n", $source === FALSE ? '' : $source) as $line) {
-        if (str_starts_with($line, 'use Drupal\\')
-          && !str_starts_with($line, 'use Drupal\\droost_workflow\\')) {
+        if (str_starts_with($line, 'use Drupal\\')) {
           $offenders[] = basename($file) . ': ' . trim($line);
         }
       }

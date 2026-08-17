@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Gate;
+namespace Droost\Workflow\Gate;
 
-use Drupal\droost_workflow\Config\GateSettings;
+use Droost\Workflow\Config\GateSettings;
 
 /**
  * The driver for a run with no booted site.

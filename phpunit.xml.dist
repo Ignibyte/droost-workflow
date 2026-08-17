@@ -10,7 +10,7 @@
          beStrictAboutOutputDuringTests="true">
   <testsuites>
     <testsuite name="unit">
-      <directory>tests/src/Unit</directory>
+      <directory>tests</directory>
     </testsuite>
   </testsuites>
 </phpunit>

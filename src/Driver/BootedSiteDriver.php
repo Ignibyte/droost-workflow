@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Driver;
+namespace Droost\Workflow\Driver;
 
-use Drupal\droost_workflow\Config\GateSettings;
-use Drupal\droost_workflow\Gate\GateResult;
-use Drupal\droost_workflow\Gate\GateStatus;
-use Drupal\droost_workflow\Gate\SiteDriverInterface;
+use Droost\Workflow\Config\GateSettings;
+use Droost\Workflow\Gate\GateResult;
+use Droost\Workflow\Gate\GateStatus;
+use Droost\Workflow\Gate\SiteDriverInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 
@@ -147,7 +147,7 @@ final class BootedSiteDriver implements SiteDriverInterface {
   /**
    * The routes this gate checks.
    *
-   * @param \Drupal\droost_workflow\Config\GateSettings $gate
+   * @param \Droost\Workflow\Config\GateSettings $gate
    *   The gate's levers.
    *
    * @return list<string>

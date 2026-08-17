@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\State;
+namespace Droost\Workflow\State;
 
-use Drupal\droost_workflow\Support\DataError;
+use Droost\Workflow\Support\DataError;
 
 /**
  * Run state could not be read or written.
@@ -105,7 +105,7 @@ final class StateError extends \RuntimeException {
    *
    * @param string $path
    *   The state file's path.
-   * @param \Drupal\droost_workflow\Support\DataError $error
+   * @param \Droost\Workflow\Support\DataError $error
    *   The reader's error, which names the field.
    *
    * @return self

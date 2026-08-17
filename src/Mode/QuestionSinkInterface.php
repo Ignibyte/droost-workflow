@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Mode;
+namespace Droost\Workflow\Mode;
 
 /**
  * Delivers a paused run's question to whoever can answer it.
@@ -26,7 +26,7 @@ interface QuestionSinkInterface {
   /**
    * Delivers a question.
    *
-   * @param \Drupal\droost_workflow\Mode\PendingQuestion $question
+   * @param \Droost\Workflow\Mode\PendingQuestion $question
    *   The question the run is waiting on.
    */
   public function emit(PendingQuestion $question): void;

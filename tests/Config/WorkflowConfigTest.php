@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Drupal\Tests\droost_workflow\Unit\Config;
+namespace Droost\Workflow\Tests\Config;
 
-use Drupal\Tests\droost_workflow\Unit\WorkflowTestCase;
-use Drupal\droost_workflow\Config\ConfigError;
-use Drupal\droost_workflow\Support\DataError;
-use Drupal\droost_workflow\Config\GateSettings;
-use Drupal\droost_workflow\Config\Mode;
-use Drupal\droost_workflow\Config\Phase;
-use Drupal\droost_workflow\Config\Provenance;
-use Drupal\droost_workflow\Config\WorkflowConfig;
+use Droost\Workflow\Tests\WorkflowTestCase;
+use Droost\Workflow\Config\ConfigError;
+use Droost\Workflow\Support\DataError;
+use Droost\Workflow\Config\GateSettings;
+use Droost\Workflow\Config\Mode;
+use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Config\Provenance;
+use Droost\Workflow\Config\WorkflowConfig;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
@@ -57,7 +57,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
    */
   public function testEngineImportsNoDrupalSymbols(): void {
     $offenders = [];
-    $dir = new \RecursiveDirectoryIterator(dirname(__DIR__, 4) . '/src');
+    $dir = new \RecursiveDirectoryIterator(dirname(__DIR__, 2) . '/src');
     foreach (new \RecursiveIteratorIterator($dir) as $file) {
       if (!$file instanceof \SplFileInfo || $file->getExtension() !== 'php') {
         continue;
@@ -65,8 +65,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
       $source = file_get_contents($file->getPathname());
       $source = $source === FALSE ? '' : $source;
       foreach (explode("\n", $source) as $line) {
-        if (str_starts_with($line, 'use Drupal\\')
-          && !str_starts_with($line, 'use Drupal\\droost_workflow\\')) {
+        if (str_starts_with($line, 'use Drupal\\')) {
           $offenders[] = $file->getFilename() . ': ' . trim($line);
         }
       }
@@ -84,7 +83,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
    *
    * @param string|null $yaml
    *   The lever file's contents, or NULL to write no file at all.
-   * @param \Drupal\droost_workflow\Config\Provenance $expected
+   * @param \Droost\Workflow\Config\Provenance $expected
    *   The provenance the loader should report.
    */
   #[DataProvider('unspecifiedPresetCases')]
@@ -111,7 +110,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
   /**
    * Documents that name no preset.
    *
-   * @return array<string, array{string|null, \Drupal\droost_workflow\Config\Provenance}>
+   * @return array<string, array{string|null, \Droost\Workflow\Config\Provenance}>
    *   Case name to file contents and expected provenance.
    */
   public static function unspecifiedPresetCases(): array {

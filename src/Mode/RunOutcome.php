@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Mode;
+namespace Droost\Workflow\Mode;
 
-use Drupal\droost_workflow\Gate\PhaseReport;
-use Drupal\droost_workflow\State\PhaseStatus;
-use Drupal\droost_workflow\State\RunState;
+use Droost\Workflow\Gate\PhaseReport;
+use Droost\Workflow\State\PhaseStatus;
+use Droost\Workflow\State\RunState;
 
 /**
  * What happened when a phase was worked.
@@ -19,13 +19,13 @@ final class RunOutcome {
   /**
    * Constructs a RunOutcome.
    *
-   * @param \Drupal\droost_workflow\Mode\Outcome $outcome
+   * @param \Droost\Workflow\Mode\Outcome $outcome
    *   Which of the four things happened.
-   * @param \Drupal\droost_workflow\State\RunState $state
+   * @param \Droost\Workflow\State\RunState $state
    *   The run afterwards. Not yet saved.
-   * @param \Drupal\droost_workflow\Gate\PhaseReport|null $report
+   * @param \Droost\Workflow\Gate\PhaseReport|null $report
    *   The phase's gate report, when gates ran.
-   * @param \Drupal\droost_workflow\Mode\PendingQuestion|null $question
+   * @param \Droost\Workflow\Mode\PendingQuestion|null $question
    *   The question the run is waiting on, when it paused.
    */
   public function __construct(

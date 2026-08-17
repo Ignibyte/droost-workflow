@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Config;
+namespace Droost\Workflow\Config;
 
-use Drupal\droost_workflow\Support\DataError;
-use Drupal\droost_workflow\Support\TypedArray;
+use Droost\Workflow\Support\DataError;
+use Droost\Workflow\Support\TypedArray;
 use Symfony\Component\Yaml\Exception\ParseException;
 use Symfony\Component\Yaml\Yaml;
 
@@ -48,17 +48,17 @@ final class WorkflowConfig {
   /**
    * Constructs a WorkflowConfig.
    *
-   * @param \Drupal\droost_workflow\Config\Mode $mode
+   * @param \Droost\Workflow\Config\Mode $mode
    *   Automated or pair.
-   * @param list<\Drupal\droost_workflow\Config\Phase> $phases
+   * @param list<\Droost\Workflow\Config\Phase> $phases
    *   The phases this run executes, in canonical relative order.
-   * @param array<string, \Drupal\droost_workflow\Config\GateSettings> $gates
+   * @param array<string, \Droost\Workflow\Config\GateSettings> $gates
    *   Every known gate, keyed by name — resolved, not merely as written.
    * @param string $preset
    *   The preset these levers were resolved from.
    * @param int $maxGateRetries
    *   How many times a failing gate may drive the feedback loop.
-   * @param \Drupal\droost_workflow\Config\Provenance $provenance
+   * @param \Droost\Workflow\Config\Provenance $provenance
    *   Whether a file was read or the built-in defaults are in force.
    */
   private function __construct(
@@ -80,7 +80,7 @@ final class WorkflowConfig {
    *   The resolved configuration; built-in factory defaults when no file
    *   exists.
    *
-   * @throws \Drupal\droost_workflow\Config\ConfigError
+   * @throws \Droost\Workflow\Config\ConfigError
    *   When the file exists but cannot be read or understood.
    * @throws \InvalidArgumentException
    *   When the project root is empty, is the filesystem root, or is not a
@@ -150,13 +150,13 @@ final class WorkflowConfig {
    *   The decoded document.
    * @param string $source
    *   The document label, for error messages.
-   * @param \Drupal\droost_workflow\Config\Provenance $provenance
+   * @param \Droost\Workflow\Config\Provenance $provenance
    *   Where the document came from.
    *
    * @return self
    *   The resolved configuration.
    *
-   * @throws \Drupal\droost_workflow\Config\ConfigError
+   * @throws \Droost\Workflow\Config\ConfigError
    *   When the document names anything the vocabulary does not contain, or a
    *   value has the wrong type.
    */
@@ -213,7 +213,7 @@ final class WorkflowConfig {
    * @param string $name
    *   A name from GateSettings::KNOWN_GATES.
    *
-   * @return \Drupal\droost_workflow\Config\GateSettings
+   * @return \Droost\Workflow\Config\GateSettings
    *   The gate.
    *
    * @throws \InvalidArgumentException
@@ -232,7 +232,7 @@ final class WorkflowConfig {
   /**
    * Whether this run executes a phase.
    *
-   * @param \Drupal\droost_workflow\Config\Phase $phase
+   * @param \Droost\Workflow\Config\Phase $phase
    *   The phase.
    *
    * @return bool
@@ -275,19 +275,19 @@ final class WorkflowConfig {
   /**
    * Reads the mode.
    *
-   * @param \Drupal\droost_workflow\Support\TypedArray $root
+   * @param \Droost\Workflow\Support\TypedArray $root
    *   The document root.
    * @param string $source
    *   The document label.
-   * @param \Drupal\droost_workflow\Config\Mode $default
+   * @param \Droost\Workflow\Config\Mode $default
    *   The preset's mode.
    *
-   * @return \Drupal\droost_workflow\Config\Mode
+   * @return \Droost\Workflow\Config\Mode
    *   The mode.
    *
-   * @throws \Drupal\droost_workflow\Config\ConfigError
+   * @throws \Droost\Workflow\Config\ConfigError
    *   When the name is not a known mode.
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When the value is not a string.
    */
   private static function readMode(
@@ -309,18 +309,18 @@ final class WorkflowConfig {
   /**
    * Reads the phase sequence.
    *
-   * @param \Drupal\droost_workflow\Support\TypedArray $root
+   * @param \Droost\Workflow\Support\TypedArray $root
    *   The document root.
    * @param string $source
    *   The document label.
    *
-   * @return list<\Drupal\droost_workflow\Config\Phase>
+   * @return list<\Droost\Workflow\Config\Phase>
    *   The phases, in execution order.
    *
-   * @throws \Drupal\droost_workflow\Config\ConfigError
+   * @throws \Droost\Workflow\Config\ConfigError
    *   When a name is unknown, a required phase is dropped, or the order is
    *   not a subsequence of the canonical one.
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When the value is not a list of strings.
    */
   private static function readPhases(
@@ -368,19 +368,19 @@ final class WorkflowConfig {
   /**
    * Reads the gate overrides onto the preset's base set.
    *
-   * @param \Drupal\droost_workflow\Support\TypedArray $root
+   * @param \Droost\Workflow\Support\TypedArray $root
    *   The document root.
    * @param string $source
    *   The document label.
-   * @param array<string, \Drupal\droost_workflow\Config\GateSettings> $base
+   * @param array<string, \Droost\Workflow\Config\GateSettings> $base
    *   The preset's gate set.
    *
-   * @return array<string, \Drupal\droost_workflow\Config\GateSettings>
+   * @return array<string, \Droost\Workflow\Config\GateSettings>
    *   Every known gate, resolved.
    *
-   * @throws \Drupal\droost_workflow\Config\ConfigError
+   * @throws \Droost\Workflow\Config\ConfigError
    *   When a gate or one of its options is unknown.
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When a value has the wrong type or falls outside its range.
    */
   private static function readGates(

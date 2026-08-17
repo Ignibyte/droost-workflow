@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-namespace Drupal\Tests\droost_workflow\Unit;
+namespace Droost\Workflow\Tests;
 
-use Drupal\droost_workflow\Config\GateSettings;
-use Drupal\droost_workflow\Config\Phase;
-use Drupal\droost_workflow\Gate\GateExecutorInterface;
-use Drupal\droost_workflow\Gate\GateResult;
-use Drupal\droost_workflow\Gate\GateStatus;
-use Drupal\droost_workflow\Gate\NullSiteDriver;
-use Drupal\droost_workflow\Mode\Outcome;
-use Drupal\droost_workflow\Mode\RunStateOnlySink;
-use Drupal\droost_workflow\State\PhaseStatus;
-use Drupal\droost_workflow\State\RunStateStore;
-use Drupal\droost_workflow\WorkflowFacade;
+use Droost\Workflow\Config\GateSettings;
+use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Gate\GateExecutorInterface;
+use Droost\Workflow\Gate\GateResult;
+use Droost\Workflow\Gate\GateStatus;
+use Droost\Workflow\Gate\NullSiteDriver;
+use Droost\Workflow\Mode\Outcome;
+use Droost\Workflow\Mode\RunStateOnlySink;
+use Droost\Workflow\State\PhaseStatus;
+use Droost\Workflow\State\RunStateStore;
+use Droost\Workflow\WorkflowFacade;
 
 /**
  * REQ-004: the feedback loop, end to end, across separate invocations.
@@ -106,7 +106,7 @@ class WorkflowFacadeRetryTest extends WorkflowTestCase {
   /**
    * An executor where phpcs always fails and everything else passes.
    *
-   * @return object{executions: array<string, int>}&\Drupal\droost_workflow\Gate\GateExecutorInterface
+   * @return object{executions: array<string, int>}&\Droost\Workflow\Gate\GateExecutorInterface
    *   The double, counting executions per gate.
    */
   private function phpcsAlwaysFails(): object {
@@ -139,10 +139,10 @@ class WorkflowFacadeRetryTest extends WorkflowTestCase {
   /**
    * A fresh facade over a shared executor, as a new process would build it.
    *
-   * @param \Drupal\droost_workflow\Gate\GateExecutorInterface $executor
+   * @param \Droost\Workflow\Gate\GateExecutorInterface $executor
    *   The shared executor.
    *
-   * @return \Drupal\droost_workflow\WorkflowFacade
+   * @return \Droost\Workflow\WorkflowFacade
    *   The facade.
    */
   private function facade(GateExecutorInterface $executor): WorkflowFacade {

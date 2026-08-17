@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Mode;
+namespace Droost\Workflow\Mode;
 
 /**
  * The four things that can happen when a phase is worked.

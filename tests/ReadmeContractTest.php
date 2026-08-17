@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Drupal\Tests\droost_workflow\Unit;
+namespace Droost\Workflow\Tests;
 
-use Drupal\droost_workflow\Config\ConfigError;
-use Drupal\droost_workflow\Config\Mode;
-use Drupal\droost_workflow\Config\Phase;
-use Drupal\droost_workflow\Config\PhaseGateMap;
-use Drupal\droost_workflow\Config\WorkflowConfig;
+use Droost\Workflow\Config\ConfigError;
+use Droost\Workflow\Config\Mode;
+use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Config\PhaseGateMap;
+use Droost\Workflow\Config\WorkflowConfig;
 
 /**
  * The README is served to people and to agents as authoritative.
@@ -106,7 +106,7 @@ class ReadmeContractTest extends WorkflowTestCase {
    *   The block's contents.
    */
   private function extractBlock(string $marker): string {
-    $readme = file_get_contents(dirname(__DIR__, 3) . '/README.md');
+    $readme = file_get_contents(dirname(__DIR__) . '/README.md');
     $this->assertIsString($readme, 'README.md is unreadable.');
 
     $matched = preg_match_all(

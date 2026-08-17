@@ -2,17 +2,17 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Cli;
+namespace Droost\Workflow\Cli;
 
-use Drupal\droost_workflow\Config\ConfigError;
-use Drupal\droost_workflow\Config\Mode;
-use Drupal\droost_workflow\Gate\NullSiteDriver;
-use Drupal\droost_workflow\Gate\ShellGateExecutor;
-use Drupal\droost_workflow\Mode\Outcome;
-use Drupal\droost_workflow\Mode\RunStateOnlySink;
-use Drupal\droost_workflow\Pack\PackError;
-use Drupal\droost_workflow\State\StateError;
-use Drupal\droost_workflow\WorkflowFacade;
+use Droost\Workflow\Config\ConfigError;
+use Droost\Workflow\Config\Mode;
+use Droost\Workflow\Gate\NullSiteDriver;
+use Droost\Workflow\Gate\ShellGateExecutor;
+use Droost\Workflow\Mode\Outcome;
+use Droost\Workflow\Mode\RunStateOnlySink;
+use Droost\Workflow\Pack\PackError;
+use Droost\Workflow\State\StateError;
+use Droost\Workflow\WorkflowFacade;
 
 /**
  * The standalone surface: five verbs, no Drupal, no booted site.
@@ -241,7 +241,7 @@ final class ArgvDispatcher {
   /**
    * A facade wired for the siteless surface.
    *
-   * @return \Drupal\droost_workflow\WorkflowFacade
+   * @return \Droost\Workflow\WorkflowFacade
    *   The facade.
    */
   private function facade(): WorkflowFacade {

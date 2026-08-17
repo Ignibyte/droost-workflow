@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Config;
+namespace Droost\Workflow\Config;
 
 /**
  * Which gates are due at which phase.
@@ -62,7 +62,7 @@ final class PhaseGateMap {
   /**
    * The gates due at one phase.
    *
-   * @param \Drupal\droost_workflow\Config\Phase $phase
+   * @param \Droost\Workflow\Config\Phase $phase
    *   The phase.
    *
    * @return list<string>

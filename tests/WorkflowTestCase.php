@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Drupal\Tests\droost_workflow\Unit;
+namespace Droost\Workflow\Tests;
 
 use PHPUnit\Framework\TestCase;
 

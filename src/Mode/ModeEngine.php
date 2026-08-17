@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Mode;
+namespace Droost\Workflow\Mode;
 
-use Drupal\droost_workflow\Config\Mode;
-use Drupal\droost_workflow\Config\Phase;
-use Drupal\droost_workflow\Gate\GateResult;
-use Drupal\droost_workflow\Gate\GateRunner;
-use Drupal\droost_workflow\Gate\PhaseReport;
-use Drupal\droost_workflow\State\PhaseStatus;
-use Drupal\droost_workflow\State\RunState;
+use Droost\Workflow\Config\Mode;
+use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Gate\GateResult;
+use Droost\Workflow\Gate\GateRunner;
+use Droost\Workflow\Gate\PhaseReport;
+use Droost\Workflow\State\PhaseStatus;
+use Droost\Workflow\State\RunState;
 
 /**
  * How much the human is in the loop, applied at every phase gate.
@@ -32,9 +32,9 @@ final class ModeEngine {
   /**
    * Constructs a ModeEngine.
    *
-   * @param \Drupal\droost_workflow\Gate\GateRunner $runner
+   * @param \Droost\Workflow\Gate\GateRunner $runner
    *   Executes a phase's gates.
-   * @param \Drupal\droost_workflow\Mode\QuestionSinkInterface $sink
+   * @param \Droost\Workflow\Mode\QuestionSinkInterface $sink
    *   Delivers a pending question. A notification, not the record.
    */
   public function __construct(
@@ -51,10 +51,10 @@ final class ModeEngine {
    * flipping to automated never requires editing a version-controlled file
    * while a run is in flight.
    *
-   * @param \Drupal\droost_workflow\State\RunState $state
+   * @param \Droost\Workflow\State\RunState $state
    *   The run.
    *
-   * @return \Drupal\droost_workflow\Config\Mode
+   * @return \Droost\Workflow\Config\Mode
    *   The effective mode.
    */
   public function effectiveMode(RunState $state): Mode {
@@ -64,16 +64,16 @@ final class ModeEngine {
   /**
    * Works one phase: runs its gates, then pauses or advances.
    *
-   * @param \Drupal\droost_workflow\State\RunState $state
+   * @param \Droost\Workflow\State\RunState $state
    *   The run.
-   * @param \Drupal\droost_workflow\Config\Phase $phase
+   * @param \Droost\Workflow\Config\Phase $phase
    *   The phase to work.
    * @param string $projectRoot
    *   The repository.
    * @param string $now
    *   The current time, as a caller-supplied ISO-8601 string.
    *
-   * @return \Drupal\droost_workflow\Mode\RunOutcome
+   * @return \Droost\Workflow\Mode\RunOutcome
    *   What happened, and the run afterwards. Nothing is persisted here.
    */
   public function runPhase(
@@ -141,14 +141,14 @@ final class ModeEngine {
    * and the facade refuses to re-run one, so the mark is what turns "try
    * again" into "stop".
    *
-   * @param \Drupal\droost_workflow\State\RunState $state
+   * @param \Droost\Workflow\State\RunState $state
    *   The run, with the report already recorded.
-   * @param \Drupal\droost_workflow\Config\Phase $phase
+   * @param \Droost\Workflow\Config\Phase $phase
    *   The phase that blocked.
-   * @param \Drupal\droost_workflow\Gate\PhaseReport $report
+   * @param \Droost\Workflow\Gate\PhaseReport $report
    *   The blocking report.
    *
-   * @return \Drupal\droost_workflow\Mode\RunOutcome
+   * @return \Droost\Workflow\Mode\RunOutcome
    *   A Failed outcome — retryable when budget remains, terminal when not.
    */
   private function recordFailure(
@@ -177,14 +177,14 @@ final class ModeEngine {
   /**
    * Answers the question a paused run is waiting on.
    *
-   * @param \Drupal\droost_workflow\State\RunState $state
+   * @param \Droost\Workflow\State\RunState $state
    *   The paused run.
    * @param string $answer
    *   What the human said.
    * @param string $now
    *   The current time, as a caller-supplied ISO-8601 string.
    *
-   * @return \Drupal\droost_workflow\State\RunState
+   * @return \Droost\Workflow\State\RunState
    *   The run, no longer awaiting, with the exchange recorded.
    *
    * @throws \InvalidArgumentException
@@ -216,14 +216,14 @@ final class ModeEngine {
    * swap is to stop being asked; one that still required an answer to the
    * outstanding question first would not do the thing it exists for.
    *
-   * @param \Drupal\droost_workflow\State\RunState $state
+   * @param \Droost\Workflow\State\RunState $state
    *   The run.
-   * @param \Drupal\droost_workflow\Config\Mode $to
+   * @param \Droost\Workflow\Config\Mode $to
    *   The mode to switch to.
    * @param string $now
    *   The current time, as a caller-supplied ISO-8601 string.
    *
-   * @return \Drupal\droost_workflow\State\RunState
+   * @return \Droost\Workflow\State\RunState
    *   The swapped run.
    *
    * @throws \InvalidArgumentException
@@ -246,10 +246,10 @@ final class ModeEngine {
   /**
    * The question this run is waiting on, if any.
    *
-   * @param \Drupal\droost_workflow\State\RunState $state
+   * @param \Droost\Workflow\State\RunState $state
    *   The run.
    *
-   * @return \Drupal\droost_workflow\Mode\PendingQuestion|null
+   * @return \Droost\Workflow\Mode\PendingQuestion|null
    *   The question, or NULL when the run is not paused.
    */
   public function pendingQuestion(RunState $state): ?PendingQuestion {
@@ -265,16 +265,16 @@ final class ModeEngine {
    * Exposed so a surface can watch gates finish without reaching past this
    * class into the runner.
    *
-   * @param callable(\Drupal\droost_workflow\Gate\GateResult): void $watcher
+   * @param callable(\Droost\Workflow\Gate\GateResult): void $watcher
    *   Called once per gate.
-   * @param \Drupal\droost_workflow\State\RunState $state
+   * @param \Droost\Workflow\State\RunState $state
    *   The run.
-   * @param \Drupal\droost_workflow\Config\Phase $phase
+   * @param \Droost\Workflow\Config\Phase $phase
    *   The phase.
    * @param string $projectRoot
    *   The repository.
    *
-   * @return \Drupal\droost_workflow\Gate\PhaseReport
+   * @return \Droost\Workflow\Gate\PhaseReport
    *   The report.
    */
   public function observe(

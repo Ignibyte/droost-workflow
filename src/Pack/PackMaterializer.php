@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Pack;
+namespace Droost\Workflow\Pack;
 
-use Drupal\droost_workflow\Support\TypedArray;
+use Droost\Workflow\Support\TypedArray;
 
 /**
  * Installs the pack into a consuming repository.
@@ -46,10 +46,10 @@ final class PackMaterializer {
    * @param string $projectRoot
    *   The repository to install into.
    *
-   * @return \Drupal\droost_workflow\Pack\InitReport
+   * @return \Droost\Workflow\Pack\InitReport
    *   What was written and what was left alone.
    *
-   * @throws \Drupal\droost_workflow\Pack\PackError
+   * @throws \Droost\Workflow\Pack\PackError
    *   When a destination directory exists but is not ours, when a pack file
    *   is missing from this package, or when a write fails.
    * @throws \InvalidArgumentException
@@ -100,7 +100,7 @@ final class PackMaterializer {
    * @param string $relative
    *   The path as shown to the user.
    *
-   * @throws \Drupal\droost_workflow\Pack\PackError
+   * @throws \Droost\Workflow\Pack\PackError
    *   When the directory exists without our sentinel.
    */
   private function assertOursOrAbsent(
@@ -122,7 +122,7 @@ final class PackMaterializer {
    * @param string $destination
    *   The path within the project.
    *
-   * @throws \Drupal\droost_workflow\Pack\PackError
+   * @throws \Droost\Workflow\Pack\PackError
    *   When the source is missing or the destination cannot be written.
    */
   private function copy(
@@ -157,7 +157,7 @@ final class PackMaterializer {
    * @param string $relative
    *   The path as shown to the user.
    *
-   * @throws \Drupal\droost_workflow\Pack\PackError
+   * @throws \Droost\Workflow\Pack\PackError
    *   When the sentinel cannot be written.
    */
   private function plantSentinel(string $absolute, string $relative): void {
@@ -177,13 +177,13 @@ final class PackMaterializer {
    *
    * @param string $root
    *   The project root.
-   * @param \Drupal\droost_workflow\Pack\InitReport $report
+   * @param \Droost\Workflow\Pack\InitReport $report
    *   The report so far.
    *
-   * @return \Drupal\droost_workflow\Pack\InitReport
+   * @return \Droost\Workflow\Pack\InitReport
    *   The report, extended.
    *
-   * @throws \Drupal\droost_workflow\Pack\PackError
+   * @throws \Droost\Workflow\Pack\PackError
    *   When the file is missing from this package or cannot be written.
    */
   private function installConfig(
@@ -227,7 +227,7 @@ final class PackMaterializer {
    * @param string $relative
    *   The path as shown to the user.
    *
-   * @throws \Drupal\droost_workflow\Pack\PackError
+   * @throws \Droost\Workflow\Pack\PackError
    *   When the directory cannot be created.
    */
   private function makeDirectory(string $absolute, string $relative): void {

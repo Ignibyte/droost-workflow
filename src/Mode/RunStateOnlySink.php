@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Mode;
+namespace Droost\Workflow\Mode;
 
 /**
  * The sink for a surface with no way to reach a human directly.

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Config;
+namespace Droost\Workflow\Config;
 
 /**
  * The built-in lever sets a config file starts from.
@@ -64,7 +64,7 @@ final class PresetResolver {
    * @param string $preset
    *   A name from self::KNOWN_PRESETS.
    *
-   * @return \Drupal\droost_workflow\Config\Preset
+   * @return \Droost\Workflow\Config\Preset
    *   The base mode, retry bound and gate set.
    */
   public static function resolve(string $preset): Preset {
@@ -82,7 +82,7 @@ final class PresetResolver {
    * they are the first numbers a consuming repo will want to raise, and a
    * default nobody can hit is a default everybody turns off.
    *
-   * @return \Drupal\droost_workflow\Config\Preset
+   * @return \Droost\Workflow\Config\Preset
    *   The base lever set.
    */
   private static function factory(): Preset {
@@ -106,7 +106,7 @@ final class PresetResolver {
    * and a fast run that stops checking whether the page renders is not fast,
    * it is blind.
    *
-   * @return \Drupal\droost_workflow\Config\Preset
+   * @return \Droost\Workflow\Config\Preset
    *   The base lever set.
    */
   private static function fast(): Preset {
@@ -129,7 +129,7 @@ final class PresetResolver {
    * These are the values the default droost.workflow.yml spells out, so a
    * repo that edits that file sees exactly what it started from.
    *
-   * @return \Drupal\droost_workflow\Config\Preset
+   * @return \Droost\Workflow\Config\Preset
    *   The base lever set.
    */
   private static function custom(): Preset {

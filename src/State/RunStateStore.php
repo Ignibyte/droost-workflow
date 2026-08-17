@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\State;
+namespace Droost\Workflow\State;
 
-use Drupal\droost_workflow\Config\Phase;
-use Drupal\droost_workflow\Support\DataError;
-use Drupal\droost_workflow\Support\TypedArray;
+use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Support\DataError;
+use Droost\Workflow\Support\TypedArray;
 
 /**
  * Reads and writes run state as a file beside the lever file.
@@ -104,10 +104,10 @@ final class RunStateStore {
   /**
    * Loads the recorded run.
    *
-   * @return \Drupal\droost_workflow\State\RunState|null
+   * @return \Droost\Workflow\State\RunState|null
    *   The run, or NULL when none is recorded.
    *
-   * @throws \Drupal\droost_workflow\State\StateError
+   * @throws \Droost\Workflow\State\StateError
    *   When a state file exists but cannot be read, parsed, or understood. It
    *   is never deleted or replaced in that case.
    */
@@ -178,10 +178,10 @@ final class RunStateStore {
   /**
    * Persists a run.
    *
-   * @param \Drupal\droost_workflow\State\RunState $state
+   * @param \Droost\Workflow\State\RunState $state
    *   The run to record.
    *
-   * @throws \Drupal\droost_workflow\State\StateError
+   * @throws \Droost\Workflow\State\StateError
    *   When the state cannot be encoded or written. Any previously recorded
    *   state survives such a failure untouched.
    */
@@ -269,15 +269,15 @@ final class RunStateStore {
   /**
    * Advances a run to a later phase and records it.
    *
-   * @param \Drupal\droost_workflow\State\RunState $state
+   * @param \Droost\Workflow\State\RunState $state
    *   The run.
-   * @param \Drupal\droost_workflow\Config\Phase $to
+   * @param \Droost\Workflow\Config\Phase $to
    *   The phase to enter.
    *
-   * @return \Drupal\droost_workflow\State\RunState
+   * @return \Droost\Workflow\State\RunState
    *   The advanced run, already persisted.
    *
-   * @throws \Drupal\droost_workflow\State\StateError
+   * @throws \Droost\Workflow\State\StateError
    *   When the advanced state cannot be written.
    * @throws \InvalidArgumentException
    *   When the transition itself is illegal — see RunState::advanceTo(). This

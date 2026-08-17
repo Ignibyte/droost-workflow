@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Gate;
+namespace Droost\Workflow\Gate;
 
-use Drupal\droost_workflow\Config\GateSettings;
+use Droost\Workflow\Config\GateSettings;
 
 /**
  * Runs the gates that need a booted Drupal site.
@@ -39,12 +39,12 @@ interface SiteDriverInterface {
   /**
    * Runs one site-dependent gate.
    *
-   * @param \Drupal\droost_workflow\Config\GateSettings $gate
+   * @param \Droost\Workflow\Config\GateSettings $gate
    *   The gate's resolved levers.
    * @param string $projectRoot
    *   The repository the run belongs to.
    *
-   * @return \Drupal\droost_workflow\Gate\GateResult
+   * @return \Droost\Workflow\Gate\GateResult
    *   What happened.
    */
   public function run(GateSettings $gate, string $projectRoot): GateResult;

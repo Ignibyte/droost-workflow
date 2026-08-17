@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Drupal\Tests\droost_workflow\Unit\Gate;
+namespace Droost\Workflow\Tests\Gate;
 
-use Drupal\Tests\droost_workflow\Unit\WorkflowTestCase;
-use Drupal\droost_workflow\Config\GateSettings;
-use Drupal\droost_workflow\Gate\GateResult;
-use Drupal\droost_workflow\Gate\GateStatus;
-use Drupal\droost_workflow\Gate\ShellGateExecutor;
+use Droost\Workflow\Tests\WorkflowTestCase;
+use Droost\Workflow\Config\GateSettings;
+use Droost\Workflow\Gate\GateResult;
+use Droost\Workflow\Gate\GateStatus;
+use Droost\Workflow\Gate\ShellGateExecutor;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
@@ -129,7 +129,7 @@ class ShellGateExecutorTest extends WorkflowTestCase {
    *
    * @param int $exit
    *   The tool's exit code.
-   * @param \Drupal\droost_workflow\Gate\GateStatus $expected
+   * @param \Droost\Workflow\Gate\GateStatus $expected
    *   The status it must produce.
    */
   #[DataProvider('exitCodes')]
@@ -152,7 +152,7 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   /**
    * Exit codes and their verdicts.
    *
-   * @return array<string, array{int, \Drupal\droost_workflow\Gate\GateStatus}>
+   * @return array<string, array{int, \Droost\Workflow\Gate\GateStatus}>
    *   Case name to exit code and status.
    */
   public static function exitCodes(): array {
@@ -274,7 +274,7 @@ class ShellGateExecutorTest extends WorkflowTestCase {
    * @param array{int, string, string} $outcome
    *   Exit code, stdout and stderr the runner returns.
    *
-   * @return \Drupal\droost_workflow\Gate\GateResult
+   * @return \Droost\Workflow\Gate\GateResult
    *   The verdict.
    */
   private function coverageRun(int $min, array $outcome): GateResult {

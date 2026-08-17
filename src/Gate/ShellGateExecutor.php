@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Gate;
+namespace Droost\Workflow\Gate;
 
-use Drupal\droost_workflow\Config\GateSettings;
+use Droost\Workflow\Config\GateSettings;
 
 /**
  * Runs a gate by spawning the consuming repo's own tool.
@@ -110,7 +110,7 @@ final class ShellGateExecutor implements GateExecutorInterface {
    *   gate it was told to run is broken, not lenient: error-tool-missing,
    *   which blocks.
    *
-   * @param \Drupal\droost_workflow\Config\GateSettings $gate
+   * @param \Droost\Workflow\Config\GateSettings $gate
    *   The gate's resolved levers.
    * @param int $exit
    *   The exit code.
@@ -123,7 +123,7 @@ final class ShellGateExecutor implements GateExecutorInterface {
    * @param string $invocation
    *   The command that ran.
    *
-   * @return \Drupal\droost_workflow\Gate\GateResult
+   * @return \Droost\Workflow\Gate\GateResult
    *   The verdict.
    */
   private function coverageVerdict(
@@ -195,7 +195,7 @@ final class ShellGateExecutor implements GateExecutorInterface {
   /**
    * The command a gate runs.
    *
-   * @param \Drupal\droost_workflow\Config\GateSettings $gate
+   * @param \Droost\Workflow\Config\GateSettings $gate
    *   The gate's resolved levers.
    * @param string $binary
    *   The absolute path to the tool.

@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Gate;
+namespace Droost\Workflow\Gate;
 
-use Drupal\droost_workflow\Config\GateSettings;
-use Drupal\droost_workflow\Config\Phase;
-use Drupal\droost_workflow\State\RunState;
+use Droost\Workflow\Config\GateSettings;
+use Droost\Workflow\Config\Phase;
+use Droost\Workflow\State\RunState;
 
 /**
  * Executes a phase's gates and says whether the run may continue.
@@ -35,9 +35,9 @@ final class GateRunner {
   /**
    * Constructs a GateRunner.
    *
-   * @param \Drupal\droost_workflow\Gate\GateExecutorInterface $executor
+   * @param \Droost\Workflow\Gate\GateExecutorInterface $executor
    *   Runs the gates that need only a checkout.
-   * @param \Drupal\droost_workflow\Gate\SiteDriverInterface $driver
+   * @param \Droost\Workflow\Gate\SiteDriverInterface $driver
    *   Runs the gates that need a site.
    */
   public function __construct(
@@ -54,17 +54,17 @@ final class GateRunner {
    * at this phase is omitted from the report entirely — complete re-runs the
    * full set, so nothing enabled is ever omitted from the run.
    *
-   * @param \Drupal\droost_workflow\State\RunState $state
+   * @param \Droost\Workflow\State\RunState $state
    *   The run, carrying the resolved levers and the frozen phase map.
-   * @param \Drupal\droost_workflow\Config\Phase $phase
+   * @param \Droost\Workflow\Config\Phase $phase
    *   The phase being gated.
    * @param string $projectRoot
    *   The repository to run in.
-   * @param callable(\Drupal\droost_workflow\Gate\GateResult): void|null $onResult
+   * @param callable(\Droost\Workflow\Gate\GateResult): void|null $onResult
    *   Called after each gate. The attach point for pair mode, which needs to
    *   act at a gate boundary without this class knowing anything about modes.
    *
-   * @return \Drupal\droost_workflow\Gate\PhaseReport
+   * @return \Droost\Workflow\Gate\PhaseReport
    *   Every due gate's outcome.
    */
   public function run(
@@ -93,7 +93,7 @@ final class GateRunner {
    * lives in run state — so a process killed mid-loop resumes with its
    * attempts intact rather than starting the budget over.
    *
-   * @param \Drupal\droost_workflow\State\RunState $state
+   * @param \Droost\Workflow\State\RunState $state
    *   The run.
    * @param string $gate
    *   The gate that failed.
@@ -112,12 +112,12 @@ final class GateRunner {
    * persist, and a caller that forgets has not silently lost a count it
    * believed was saved.
    *
-   * @param \Drupal\droost_workflow\State\RunState $state
+   * @param \Droost\Workflow\State\RunState $state
    *   The run.
    * @param string $gate
    *   The gate that failed.
    *
-   * @return \Drupal\droost_workflow\State\RunState
+   * @return \Droost\Workflow\State\RunState
    *   The run with the attempt recorded.
    */
   public function recordAttempt(RunState $state, string $gate): RunState {
@@ -134,7 +134,7 @@ final class GateRunner {
    * @param string $projectRoot
    *   The repository to run in.
    *
-   * @return \Drupal\droost_workflow\Gate\GateResult
+   * @return \Droost\Workflow\Gate\GateResult
    *   What happened.
    */
   private function runOne(
@@ -176,7 +176,7 @@ final class GateRunner {
    * @param array<string, int|string|bool> $levers
    *   The recorded levers.
    *
-   * @return \Drupal\droost_workflow\Config\GateSettings
+   * @return \Droost\Workflow\Config\GateSettings
    *   The settings.
    */
   private function settings(

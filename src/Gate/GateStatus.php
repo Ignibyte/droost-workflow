@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Gate;
+namespace Droost\Workflow\Gate;
 
 /**
  * What happened to one gate.

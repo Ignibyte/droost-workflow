@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Support;
+namespace Droost\Workflow\Support;
 
 /**
  * The one place this package reads INTO decoded data.
@@ -181,7 +181,7 @@ final class TypedArray {
    * @return string
    *   The value.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When absent or not a string.
    */
   public function string(string $key): string {
@@ -201,7 +201,7 @@ final class TypedArray {
    * @return bool
    *   The value.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When absent or not a boolean.
    */
   public function bool(string $key): bool {
@@ -221,7 +221,7 @@ final class TypedArray {
    * @return int
    *   The value.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When absent or not an integer.
    */
   public function int(string $key): int {
@@ -245,7 +245,7 @@ final class TypedArray {
    * @return int
    *   The value.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When absent, not an integer, or out of range.
    */
   public function intInRange(string $key, int $min, int $max): int {
@@ -273,7 +273,7 @@ final class TypedArray {
    * @return int|string
    *   The value.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When absent or neither an integer nor a string.
    */
   public function intOrString(string $key): int|string {
@@ -297,7 +297,7 @@ final class TypedArray {
    * @return list<string>
    *   The values.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When absent, not a list, or any element is not a string.
    */
   public function stringList(string $key): array {
@@ -328,7 +328,7 @@ final class TypedArray {
    * @return self
    *   The nested level, carrying the extended path.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When absent or not a mapping.
    */
   public function child(string $key): self {
@@ -350,7 +350,7 @@ final class TypedArray {
    * @return string|null
    *   The value or the default.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When present but not a string.
    */
   public function optionalString(
@@ -371,7 +371,7 @@ final class TypedArray {
    * @return bool
    *   The value or the default.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When present but not a boolean.
    */
   public function optionalBool(string $key, bool $default): bool {
@@ -389,7 +389,7 @@ final class TypedArray {
    * @return int
    *   The value or the default.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When present but not an integer.
    */
   public function optionalInt(string $key, int $default): int {
@@ -405,7 +405,7 @@ final class TypedArray {
    * @return self|null
    *   The nested level, or NULL when the key is absent.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When present but not a mapping.
    */
   public function optionalChild(string $key): ?self {
@@ -423,7 +423,7 @@ final class TypedArray {
    * @return list<string>
    *   The values or the default.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When present but not a list of strings.
    */
   public function optionalStringList(string $key, array $default): array {
@@ -452,7 +452,7 @@ final class TypedArray {
    * @return mixed
    *   The value.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When absent.
    */
   private function require(string $key): mixed {

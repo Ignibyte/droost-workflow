@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Gate;
+namespace Droost\Workflow\Gate;
 
-use Drupal\droost_workflow\Config\GateSettings;
+use Droost\Workflow\Config\GateSettings;
 
 /**
  * Runs the gates that need only a checkout.
@@ -18,12 +18,12 @@ interface GateExecutorInterface {
   /**
    * Runs one gate.
    *
-   * @param \Drupal\droost_workflow\Config\GateSettings $gate
+   * @param \Droost\Workflow\Config\GateSettings $gate
    *   The gate's resolved levers.
    * @param string $projectRoot
    *   The repository to run in.
    *
-   * @return \Drupal\droost_workflow\Gate\GateResult
+   * @return \Droost\Workflow\Gate\GateResult
    *   What happened. Implementations report a missing binary as
    *   ErrorToolMissing rather than throwing: a gate that cannot run is a
    *   result, not an exception.

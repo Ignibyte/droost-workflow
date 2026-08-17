@@ -2,17 +2,17 @@
 
 declare(strict_types=1);
 
-namespace Drupal\Tests\droost_workflow\Unit\State;
+namespace Droost\Workflow\Tests\State;
 
-use Drupal\Tests\droost_workflow\Unit\WorkflowTestCase;
-use Drupal\droost_workflow\Config\Mode;
-use Drupal\droost_workflow\Config\Phase;
-use Drupal\droost_workflow\Config\Provenance;
-use Drupal\droost_workflow\Config\WorkflowConfig;
-use Drupal\droost_workflow\State\PhaseStatus;
-use Drupal\droost_workflow\State\RunState;
-use Drupal\droost_workflow\State\RunStateStore;
-use Drupal\droost_workflow\State\StateError;
+use Droost\Workflow\Tests\WorkflowTestCase;
+use Droost\Workflow\Config\Mode;
+use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Config\Provenance;
+use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\State\PhaseStatus;
+use Droost\Workflow\State\RunState;
+use Droost\Workflow\State\RunStateStore;
+use Droost\Workflow\State\StateError;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
@@ -401,7 +401,7 @@ class RunStateStoreTest extends WorkflowTestCase {
    * @param string $shape
    *   The shape key.
    *
-   * @return \Drupal\droost_workflow\State\RunState
+   * @return \Droost\Workflow\State\RunState
    *   The run.
    */
   private function buildRun(string $shape): RunState {

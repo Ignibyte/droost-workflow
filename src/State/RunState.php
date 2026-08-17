@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\State;
+namespace Droost\Workflow\State;
 
-use Drupal\droost_workflow\Config\GateSettings;
-use Drupal\droost_workflow\Config\Mode;
-use Drupal\droost_workflow\Config\Phase;
-use Drupal\droost_workflow\Config\PhaseGateMap;
-use Drupal\droost_workflow\Config\PresetResolver;
-use Drupal\droost_workflow\Config\Provenance;
-use Drupal\droost_workflow\Config\WorkflowConfig;
-use Drupal\droost_workflow\Support\TypedArray;
+use Droost\Workflow\Config\GateSettings;
+use Droost\Workflow\Config\Mode;
+use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Config\PhaseGateMap;
+use Droost\Workflow\Config\PresetResolver;
+use Droost\Workflow\Config\Provenance;
+use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\Support\TypedArray;
 
 /**
  * Everything a run remembers between one gate and the next.
@@ -43,9 +43,9 @@ final class RunState {
    *   The run's identifier, supplied by the surface that began it.
    * @param string $startedAt
    *   When the run began, as an ISO-8601 string supplied by the caller.
-   * @param \Drupal\droost_workflow\Config\Mode $mode
+   * @param \Droost\Workflow\Config\Mode $mode
    *   The mode the lever file asked for.
-   * @param \Drupal\droost_workflow\Config\Mode|null $modeOverride
+   * @param \Droost\Workflow\Config\Mode|null $modeOverride
    *   A mid-run swap, or NULL when none has happened.
    * @param string $preset
    *   The preset the levers were resolved from.
@@ -53,7 +53,7 @@ final class RunState {
    *   The bound the feedback_attempts counters are measured against. Recorded
    *   because a count without its limit does not tell a reader whether a run
    *   gave up early or exhausted its budget.
-   * @param \Drupal\droost_workflow\Config\Provenance $provenance
+   * @param \Droost\Workflow\Config\Provenance $provenance
    *   Whether these levers came from a committed file or the built-in
    *   defaults — the difference between "the repo asked for this" and "the
    *   repo said nothing", which a report must not blur.
@@ -63,9 +63,9 @@ final class RunState {
    *   the union is each gate's own "on" flag and nothing else — every option
    *   value is int|string, which is why the reader accepts a bool for "on"
    *   alone.
-   * @param array<string, \Drupal\droost_workflow\State\PhaseStatus> $phases
+   * @param array<string, \Droost\Workflow\State\PhaseStatus> $phases
    *   Status per configured phase, keyed by phase name.
-   * @param \Drupal\droost_workflow\Config\Phase|null $currentPhase
+   * @param \Droost\Workflow\Config\Phase|null $currentPhase
    *   The phase in progress, or NULL once the run has ended.
    * @param array<array-key, mixed> $gateResults
    *   Reserved for the gate runner; round-tripped verbatim.
@@ -105,7 +105,7 @@ final class RunState {
    *   The run's identifier.
    * @param string $startedAt
    *   When the run began, as an ISO-8601 string.
-   * @param \Drupal\droost_workflow\Config\WorkflowConfig $config
+   * @param \Droost\Workflow\Config\WorkflowConfig $config
    *   The resolved levers.
    *
    * @return self
@@ -146,7 +146,7 @@ final class RunState {
    * this instead of the whole resolved set, which is what stops a plan phase
    * from running a browser suite.
    *
-   * @param \Drupal\droost_workflow\Config\Phase $phase
+   * @param \Droost\Workflow\Config\Phase $phase
    *   The phase being gated.
    *
    * @return array<string, array<string, int|string|bool>>
@@ -171,7 +171,7 @@ final class RunState {
    * automated does not require editing a version-controlled file while a run
    * is in flight.
    *
-   * @return \Drupal\droost_workflow\Config\Mode
+   * @return \Droost\Workflow\Config\Mode
    *   The override when one is set, otherwise the configured mode.
    */
   public function effectiveMode(): Mode {
@@ -181,10 +181,10 @@ final class RunState {
   /**
    * One phase's status.
    *
-   * @param \Drupal\droost_workflow\Config\Phase $phase
+   * @param \Droost\Workflow\Config\Phase $phase
    *   The phase.
    *
-   * @return \Drupal\droost_workflow\State\PhaseStatus|null
+   * @return \Droost\Workflow\State\PhaseStatus|null
    *   The status, or NULL when this run does not execute that phase.
    */
   public function statusOf(Phase $phase): ?PhaseStatus {
@@ -194,9 +194,9 @@ final class RunState {
   /**
    * This run with one phase's status changed.
    *
-   * @param \Drupal\droost_workflow\Config\Phase $phase
+   * @param \Droost\Workflow\Config\Phase $phase
    *   The phase.
-   * @param \Drupal\droost_workflow\State\PhaseStatus $status
+   * @param \Droost\Workflow\State\PhaseStatus $status
    *   The new status.
    *
    * @return self
@@ -227,7 +227,7 @@ final class RunState {
    * - The run has ended (no current phase). Resuming it would silently
    *   restart something that already reached its terminal gate.
    *
-   * @param \Drupal\droost_workflow\Config\Phase $to
+   * @param \Droost\Workflow\Config\Phase $to
    *   The phase to enter.
    *
    * @return self
@@ -279,7 +279,7 @@ final class RunState {
   /**
    * Whether advanceTo() would be accepted.
    *
-   * @param \Drupal\droost_workflow\Config\Phase $to
+   * @param \Droost\Workflow\Config\Phase $to
    *   The phase to enter.
    *
    * @return bool
@@ -297,7 +297,7 @@ final class RunState {
   /**
    * Whether a phase comes after the current one in canonical order.
    *
-   * @param \Drupal\droost_workflow\Config\Phase $to
+   * @param \Droost\Workflow\Config\Phase $to
    *   The candidate phase.
    *
    * @return bool
@@ -499,7 +499,7 @@ final class RunState {
   /**
    * This run with a mid-run mode swap applied.
    *
-   * @param \Drupal\droost_workflow\Config\Mode $to
+   * @param \Droost\Workflow\Config\Mode $to
    *   The mode to switch to.
    *
    * @return self
@@ -546,7 +546,7 @@ final class RunState {
    *
    * The caller has already checked the schema version.
    *
-   * @param \Drupal\droost_workflow\Support\TypedArray $node
+   * @param \Droost\Workflow\Support\TypedArray $node
    *   The decoded document.
    * @param string $label
    *   The state file's path as shown to an operator, so that every message
@@ -557,9 +557,9 @@ final class RunState {
    * @return self
    *   The run.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When a field is absent or has the wrong type.
-   * @throws \Drupal\droost_workflow\State\StateError
+   * @throws \Droost\Workflow\State\StateError
    *   When a name is outside its vocabulary.
    */
   public static function fromArray(TypedArray $node, string $label): self {
@@ -626,19 +626,19 @@ final class RunState {
    * default for the phases the document configures. A PRESENT field is the
    * run's own frozen record and is never second-guessed, empty or not.
    *
-   * @param \Drupal\droost_workflow\Support\TypedArray $node
+   * @param \Droost\Workflow\Support\TypedArray $node
    *   The decoded document.
    * @param string $label
    *   The state file's operator-facing path.
-   * @param array<string, \Drupal\droost_workflow\State\PhaseStatus> $phases
+   * @param array<string, \Droost\Workflow\State\PhaseStatus> $phases
    *   The configured phases, already read and validated.
    *
    * @return array<string, list<string>>
    *   Phase name to its due gates.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When a value is not a list of strings.
-   * @throws \Drupal\droost_workflow\State\StateError
+   * @throws \Droost\Workflow\State\StateError
    *   When a phase or gate name is outside its vocabulary.
    */
   private static function readPhaseGates(
@@ -685,7 +685,7 @@ final class RunState {
   /**
    * Reads the recorded preset name.
    *
-   * @param \Drupal\droost_workflow\Support\TypedArray $node
+   * @param \Droost\Workflow\Support\TypedArray $node
    *   The decoded document.
    * @param string $label
    *   The state file's operator-facing path.
@@ -693,9 +693,9 @@ final class RunState {
    * @return string
    *   The preset name.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When the field is absent or not a string.
-   * @throws \Drupal\droost_workflow\State\StateError
+   * @throws \Droost\Workflow\State\StateError
    *   When the name is outside the vocabulary.
    */
   private static function readPreset(
@@ -716,17 +716,17 @@ final class RunState {
   /**
    * Reads the recorded provenance.
    *
-   * @param \Drupal\droost_workflow\Support\TypedArray $node
+   * @param \Droost\Workflow\Support\TypedArray $node
    *   The decoded document.
    * @param string $label
    *   The state file's operator-facing path.
    *
-   * @return \Drupal\droost_workflow\Config\Provenance
+   * @return \Droost\Workflow\Config\Provenance
    *   Where the levers this run is held to came from.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When the field is absent or not a string.
-   * @throws \Drupal\droost_workflow\State\StateError
+   * @throws \Droost\Workflow\State\StateError
    *   When the word is outside the vocabulary.
    */
   private static function readProvenance(
@@ -747,7 +747,7 @@ final class RunState {
   /**
    * Reads the answered-question history.
    *
-   * @param \Drupal\droost_workflow\Support\TypedArray $node
+   * @param \Droost\Workflow\Support\TypedArray $node
    *   The decoded document.
    * @param string $label
    *   The state file's operator-facing path.
@@ -755,7 +755,7 @@ final class RunState {
    * @return list<mixed>
    *   The history, in order.
    *
-   * @throws \Drupal\droost_workflow\State\StateError
+   * @throws \Droost\Workflow\State\StateError
    *   When the field is present but not a list. Silently running
    *   array_values() over a map would reshape a reserved field the caller
    *   handed us verbatim, which is the one thing round-tripping promises not
@@ -778,7 +778,7 @@ final class RunState {
   /**
    * Reads the recorded gate levers.
    *
-   * @param \Drupal\droost_workflow\Support\TypedArray $node
+   * @param \Droost\Workflow\Support\TypedArray $node
    *   The decoded document.
    * @param string $label
    *   The state file's operator-facing path.
@@ -786,9 +786,9 @@ final class RunState {
    * @return array<string, array<string, int|string|bool>>
    *   Gate name to its recorded levers.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When the shape is wrong.
-   * @throws \Drupal\droost_workflow\State\StateError
+   * @throws \Droost\Workflow\State\StateError
    *   When a gate name is outside the vocabulary.
    */
   private static function readResolvedGates(
@@ -828,17 +828,17 @@ final class RunState {
   /**
    * Reads the per-phase statuses.
    *
-   * @param \Drupal\droost_workflow\Support\TypedArray $node
+   * @param \Droost\Workflow\Support\TypedArray $node
    *   The decoded document.
    * @param string $label
    *   The state file's operator-facing path.
    *
-   * @return array<string, \Drupal\droost_workflow\State\PhaseStatus>
+   * @return array<string, \Droost\Workflow\State\PhaseStatus>
    *   Phase name to status.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When the shape is wrong.
-   * @throws \Drupal\droost_workflow\State\StateError
+   * @throws \Droost\Workflow\State\StateError
    *   When a status word is outside the vocabulary.
    */
   private static function readPhases(TypedArray $node, string $label): array {
@@ -877,13 +877,13 @@ final class RunState {
   /**
    * Reads the feedback-loop counters.
    *
-   * @param \Drupal\droost_workflow\Support\TypedArray $node
+   * @param \Droost\Workflow\Support\TypedArray $node
    *   The decoded document.
    *
    * @return array<string, int>
    *   Gate name to attempt count.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When a counter is not an integer.
    */
   private static function readFeedbackAttempts(TypedArray $node): array {
@@ -902,11 +902,11 @@ final class RunState {
   /**
    * A copy with selected fields replaced.
    *
-   * @param array<string, \Drupal\droost_workflow\State\PhaseStatus>|null $phases
+   * @param array<string, \Droost\Workflow\State\PhaseStatus>|null $phases
    *   The new phase statuses, or NULL to keep the current ones.
-   * @param \Drupal\droost_workflow\Config\Phase|null $currentPhase
+   * @param \Droost\Workflow\Config\Phase|null $currentPhase
    *   The new current phase; only applied when $moveCurrent is TRUE.
-   * @param \Drupal\droost_workflow\Config\Mode|null $modeOverride
+   * @param \Droost\Workflow\Config\Mode|null $modeOverride
    *   The new override, or NULL to keep the current one.
    *
    * @return self

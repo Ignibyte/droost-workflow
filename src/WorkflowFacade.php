@@ -2,25 +2,25 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow;
+namespace Droost\Workflow;
 
-use Drupal\droost_workflow\State\StateError;
-use Drupal\droost_workflow\Config\Mode;
-use Drupal\droost_workflow\Config\Phase;
-use Drupal\droost_workflow\Config\PhaseGateMap;
-use Drupal\droost_workflow\Config\WorkflowConfig;
-use Drupal\droost_workflow\Gate\GateExecutorInterface;
-use Drupal\droost_workflow\Gate\GateRunner;
-use Drupal\droost_workflow\Gate\SiteDriverInterface;
-use Drupal\droost_workflow\Mode\ModeEngine;
-use Drupal\droost_workflow\Mode\Outcome;
-use Drupal\droost_workflow\Mode\QuestionSinkInterface;
-use Drupal\droost_workflow\Mode\RunOutcome;
-use Drupal\droost_workflow\Pack\InitReport;
-use Drupal\droost_workflow\Pack\PackMaterializer;
-use Drupal\droost_workflow\State\PhaseStatus;
-use Drupal\droost_workflow\State\RunState;
-use Drupal\droost_workflow\State\RunStateStore;
+use Droost\Workflow\State\StateError;
+use Droost\Workflow\Config\Mode;
+use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Config\PhaseGateMap;
+use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\Gate\GateExecutorInterface;
+use Droost\Workflow\Gate\GateRunner;
+use Droost\Workflow\Gate\SiteDriverInterface;
+use Droost\Workflow\Mode\ModeEngine;
+use Droost\Workflow\Mode\Outcome;
+use Droost\Workflow\Mode\QuestionSinkInterface;
+use Droost\Workflow\Mode\RunOutcome;
+use Droost\Workflow\Pack\InitReport;
+use Droost\Workflow\Pack\PackMaterializer;
+use Droost\Workflow\State\PhaseStatus;
+use Droost\Workflow\State\RunState;
+use Droost\Workflow\State\RunStateStore;
 
 /**
  * The one place a workflow run is orchestrated.
@@ -42,12 +42,12 @@ final class WorkflowFacade {
   /**
    * Constructs a WorkflowFacade.
    *
-   * @param \Drupal\droost_workflow\Gate\GateExecutorInterface $executor
+   * @param \Droost\Workflow\Gate\GateExecutorInterface $executor
    *   Runs the gates that need only a checkout.
-   * @param \Drupal\droost_workflow\Gate\SiteDriverInterface $driver
+   * @param \Droost\Workflow\Gate\SiteDriverInterface $driver
    *   Runs the gates that need a site. The ONLY thing that differs between
    *   the CLI surface and the live one.
-   * @param \Drupal\droost_workflow\Mode\QuestionSinkInterface $sink
+   * @param \Droost\Workflow\Mode\QuestionSinkInterface $sink
    *   Delivers a paused run's question.
    * @param callable(): string $clock
    *   Returns an ISO-8601 timestamp. Injected so a run's recorded times come
@@ -69,7 +69,7 @@ final class WorkflowFacade {
    * @param string $projectRoot
    *   The repository.
    *
-   * @return \Drupal\droost_workflow\Pack\InitReport
+   * @return \Droost\Workflow\Pack\InitReport
    *   What was written and what was left alone.
    */
   public function init(string $projectRoot): InitReport {
@@ -137,7 +137,7 @@ final class WorkflowFacade {
    * @param string $projectRoot
    *   The repository.
    *
-   * @return \Drupal\droost_workflow\Mode\RunOutcome
+   * @return \Droost\Workflow\Mode\RunOutcome
    *   What happened. The state is persisted before this returns.
    */
   public function run(string $projectRoot): RunOutcome {
@@ -185,10 +185,10 @@ final class WorkflowFacade {
    * @param string $answer
    *   What the human said.
    *
-   * @return \Drupal\droost_workflow\State\RunState
+   * @return \Droost\Workflow\State\RunState
    *   The run, no longer awaiting, already persisted.
    *
-   * @throws \Drupal\droost_workflow\State\StateError
+   * @throws \Droost\Workflow\State\StateError
    *   When there is no run to answer.
    */
   public function answer(string $projectRoot, string $answer): RunState {
@@ -204,13 +204,13 @@ final class WorkflowFacade {
    *
    * @param string $projectRoot
    *   The repository.
-   * @param \Drupal\droost_workflow\Config\Mode $to
+   * @param \Droost\Workflow\Config\Mode $to
    *   The mode to switch to.
    *
-   * @return \Drupal\droost_workflow\State\RunState
+   * @return \Droost\Workflow\State\RunState
    *   The swapped run, already persisted.
    *
-   * @throws \Drupal\droost_workflow\State\StateError
+   * @throws \Droost\Workflow\State\StateError
    *   When there is no run to swap.
    */
   public function swap(string $projectRoot, Mode $to): RunState {
@@ -224,12 +224,12 @@ final class WorkflowFacade {
   /**
    * Moves a passing run on to the next phase.
    *
-   * @param \Drupal\droost_workflow\Mode\RunOutcome $outcome
+   * @param \Droost\Workflow\Mode\RunOutcome $outcome
    *   What the phase produced.
-   * @param \Drupal\droost_workflow\Config\Phase $phase
+   * @param \Droost\Workflow\Config\Phase $phase
    *   The phase just worked.
    *
-   * @return \Drupal\droost_workflow\Mode\RunOutcome
+   * @return \Droost\Workflow\Mode\RunOutcome
    *   The outcome, with the state advanced when it should be.
    */
   private function advanceIfDue(
@@ -255,12 +255,12 @@ final class WorkflowFacade {
   /**
    * The phase after this one, among those the run configured.
    *
-   * @param \Drupal\droost_workflow\State\RunState $state
+   * @param \Droost\Workflow\State\RunState $state
    *   The run.
-   * @param \Drupal\droost_workflow\Config\Phase $phase
+   * @param \Droost\Workflow\Config\Phase $phase
    *   The current phase.
    *
-   * @return \Drupal\droost_workflow\Config\Phase|null
+   * @return \Droost\Workflow\Config\Phase|null
    *   The next configured phase, or NULL when this was the last.
    */
   private function nextPhase(RunState $state, Phase $phase): ?Phase {
@@ -280,13 +280,13 @@ final class WorkflowFacade {
   /**
    * The run, or a typed error saying there is not one.
    *
-   * @param \Drupal\droost_workflow\State\RunStateStore $store
+   * @param \Droost\Workflow\State\RunStateStore $store
    *   The store.
    *
-   * @return \Drupal\droost_workflow\State\RunState
+   * @return \Droost\Workflow\State\RunState
    *   The run.
    *
-   * @throws \Drupal\droost_workflow\State\StateError
+   * @throws \Droost\Workflow\State\StateError
    *   When no run is recorded.
    */
   private function requireRun(RunStateStore $store): RunState {
@@ -303,7 +303,7 @@ final class WorkflowFacade {
   /**
    * The mode engine for this surface.
    *
-   * @return \Drupal\droost_workflow\Mode\ModeEngine
+   * @return \Droost\Workflow\Mode\ModeEngine
    *   The engine.
    */
   private function engine(): ModeEngine {

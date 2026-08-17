@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Gate;
+namespace Droost\Workflow\Gate;
 
 /**
  * What one gate reported.
@@ -24,7 +24,7 @@ final class GateResult {
    *
    * @param string $gate
    *   The gate name.
-   * @param \Drupal\droost_workflow\Gate\GateStatus $status
+   * @param \Droost\Workflow\Gate\GateStatus $status
    *   What happened.
    * @param int|null $exitCode
    *   The tool's exit code, or NULL when nothing ran.
@@ -118,7 +118,7 @@ final class GateResult {
    *
    * @param string $gate
    *   The gate name.
-   * @param \Drupal\droost_workflow\Gate\GateStatus $status
+   * @param \Droost\Workflow\Gate\GateStatus $status
    *   What happened.
    * @param int $exitCode
    *   The tool's exit code.

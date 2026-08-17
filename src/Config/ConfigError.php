@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Config;
+namespace Droost\Workflow\Config;
 
-use Drupal\droost_workflow\Support\DataError;
+use Droost\Workflow\Support\DataError;
 
 /**
  * The lever file could not be understood.
@@ -169,7 +169,7 @@ final class ConfigError extends \RuntimeException {
    *
    * @param string $source
    *   The document label.
-   * @param \Drupal\droost_workflow\Config\Phase $phase
+   * @param \Droost\Workflow\Config\Phase $phase
    *   The missing phase.
    *
    * @return self
@@ -380,7 +380,7 @@ final class ConfigError extends \RuntimeException {
    *
    * @param string $source
    *   The document label.
-   * @param \Drupal\droost_workflow\Support\DataError $error
+   * @param \Droost\Workflow\Support\DataError $error
    *   The reader's error.
    *
    * @return self

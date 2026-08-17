@@ -62,18 +62,6 @@ else
   FAIL=1
 fi
 
-# TICKET-136: say what this gate does NOT cover. `modules/droost_workflow_mcp`
-# needs droost + mcp_server + the mcp/sdk to be type-checked, and only a real
-# site has all three, so its phpstan runs there (see phpstan.neon for why no
-# portable scanDirectories list can work). A green run must never read as
-# coverage it does not have.
-if [ -d modules/droost_workflow_mcp ]; then
-  printf '  NOTE  modules/droost_workflow_mcp is NOT analysed locally (needs droost + mcp_server + mcp/sdk).\n'
-  printf '        Run it where those exist:\n'
-  printf '        ddev exec "cd /var/www/contrib/droost/droost_workflow && php vendor/bin/phpstan \\\n'
-  printf '          analyse -c phpstan-mcp-site.neon --autoload-file /var/www/html/vendor/autoload.php"\n'
-fi
-
 if require_bin vendor/bin/phpunit; then
   run_leg "phpunit" vendor/bin/phpunit --no-progress
 else

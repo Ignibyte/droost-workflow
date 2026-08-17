@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Mode;
+namespace Droost\Workflow\Mode;
 
-use Drupal\droost_workflow\Config\Phase;
-use Drupal\droost_workflow\Support\TypedArray;
+use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Support\TypedArray;
 
 /**
  * A question a paused run is waiting on.
@@ -20,7 +20,7 @@ final class PendingQuestion {
   /**
    * Constructs a PendingQuestion.
    *
-   * @param \Drupal\droost_workflow\Config\Phase $phase
+   * @param \Droost\Workflow\Config\Phase $phase
    *   The phase whose gate the run paused at.
    * @param string $question
    *   What is being asked.

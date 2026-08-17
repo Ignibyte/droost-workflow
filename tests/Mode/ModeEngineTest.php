@@ -2,25 +2,25 @@
 
 declare(strict_types=1);
 
-namespace Drupal\Tests\droost_workflow\Unit\Mode;
+namespace Droost\Workflow\Tests\Mode;
 
-use Drupal\Tests\droost_workflow\Unit\WorkflowTestCase;
-use Drupal\droost_workflow\Config\GateSettings;
-use Drupal\droost_workflow\Config\Mode;
-use Drupal\droost_workflow\Config\Phase;
-use Drupal\droost_workflow\Config\WorkflowConfig;
-use Drupal\droost_workflow\Gate\GateExecutorInterface;
-use Drupal\droost_workflow\Gate\GateResult;
-use Drupal\droost_workflow\Gate\GateRunner;
-use Drupal\droost_workflow\Gate\GateStatus;
-use Drupal\droost_workflow\Gate\NullSiteDriver;
-use Drupal\droost_workflow\Mode\ModeEngine;
-use Drupal\droost_workflow\Mode\Outcome;
-use Drupal\droost_workflow\Mode\PendingQuestion;
-use Drupal\droost_workflow\Mode\QuestionSinkInterface;
-use Drupal\droost_workflow\State\PhaseStatus;
-use Drupal\droost_workflow\State\RunState;
-use Drupal\droost_workflow\State\RunStateStore;
+use Droost\Workflow\Tests\WorkflowTestCase;
+use Droost\Workflow\Config\GateSettings;
+use Droost\Workflow\Config\Mode;
+use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\Gate\GateExecutorInterface;
+use Droost\Workflow\Gate\GateResult;
+use Droost\Workflow\Gate\GateRunner;
+use Droost\Workflow\Gate\GateStatus;
+use Droost\Workflow\Gate\NullSiteDriver;
+use Droost\Workflow\Mode\ModeEngine;
+use Droost\Workflow\Mode\Outcome;
+use Droost\Workflow\Mode\PendingQuestion;
+use Droost\Workflow\Mode\QuestionSinkInterface;
+use Droost\Workflow\State\PhaseStatus;
+use Droost\Workflow\State\RunState;
+use Droost\Workflow\State\RunStateStore;
 
 /**
  * Automated, pair, and the mid-run swap.
@@ -505,10 +505,10 @@ class ModeEngineTest extends WorkflowTestCase {
   /**
    * An engine with a passing executor and no site.
    *
-   * @param \Drupal\droost_workflow\Mode\QuestionSinkInterface $sink
+   * @param \Droost\Workflow\Mode\QuestionSinkInterface $sink
    *   The sink to use.
    *
-   * @return \Drupal\droost_workflow\Mode\ModeEngine
+   * @return \Droost\Workflow\Mode\ModeEngine
    *   The engine.
    */
   private function engine(QuestionSinkInterface $sink): ModeEngine {
@@ -521,7 +521,7 @@ class ModeEngineTest extends WorkflowTestCase {
   /**
    * A sink that remembers what it was given.
    *
-   * @return object{emitted: list<\Drupal\droost_workflow\Mode\PendingQuestion>}&\Drupal\droost_workflow\Mode\QuestionSinkInterface
+   * @return object{emitted: list<\Droost\Workflow\Mode\PendingQuestion>}&\Droost\Workflow\Mode\QuestionSinkInterface
    *   The double.
    */
   private function recordingSink(): object {
@@ -530,7 +530,7 @@ class ModeEngineTest extends WorkflowTestCase {
       /**
        * Questions this sink was given, in order.
        *
-       * @var list<\Drupal\droost_workflow\Mode\PendingQuestion>
+       * @var list<\Droost\Workflow\Mode\PendingQuestion>
        */
       public array $emitted = [];
 
@@ -547,7 +547,7 @@ class ModeEngineTest extends WorkflowTestCase {
   /**
    * An executor that fails everything it is asked to run.
    *
-   * @return \Drupal\droost_workflow\Gate\GateExecutorInterface
+   * @return \Droost\Workflow\Gate\GateExecutorInterface
    *   The double.
    */
   private function failingExecutor(): GateExecutorInterface {
@@ -569,7 +569,7 @@ class ModeEngineTest extends WorkflowTestCase {
   /**
    * An executor that passes everything and counts its calls.
    *
-   * @return object{count: int}&\Drupal\droost_workflow\Gate\GateExecutorInterface
+   * @return object{count: int}&\Droost\Workflow\Gate\GateExecutorInterface
    *   The double.
    */
   private function countingExecutor(): object {
@@ -600,7 +600,7 @@ class ModeEngineTest extends WorkflowTestCase {
    * @param array<array-key, mixed> $raw
    *   The document.
    *
-   * @return \Drupal\droost_workflow\State\RunState
+   * @return \Droost\Workflow\State\RunState
    *   The run.
    */
   private function begin(array $raw): RunState {

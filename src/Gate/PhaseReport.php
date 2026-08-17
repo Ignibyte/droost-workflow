@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Gate;
+namespace Droost\Workflow\Gate;
 
-use Drupal\droost_workflow\Config\Phase;
+use Droost\Workflow\Config\Phase;
 
 /**
  * Every gate's outcome for one phase, and whether the run may advance.
@@ -24,9 +24,9 @@ final class PhaseReport {
   /**
    * Constructs a PhaseReport.
    *
-   * @param \Drupal\droost_workflow\Config\Phase $phase
+   * @param \Droost\Workflow\Config\Phase $phase
    *   The phase these gates belong to.
-   * @param list<\Drupal\droost_workflow\Gate\GateResult> $results
+   * @param list<\Droost\Workflow\Gate\GateResult> $results
    *   One result per configured gate.
    */
   public function __construct(
@@ -37,7 +37,7 @@ final class PhaseReport {
   /**
    * This report with one more result.
    *
-   * @param \Drupal\droost_workflow\Gate\GateResult $result
+   * @param \Droost\Workflow\Gate\GateResult $result
    *   The result to add.
    *
    * @return self
@@ -65,10 +65,10 @@ final class PhaseReport {
   /**
    * The results with a given status.
    *
-   * @param \Drupal\droost_workflow\Gate\GateStatus $status
+   * @param \Droost\Workflow\Gate\GateStatus $status
    *   The status to filter by.
    *
-   * @return list<\Drupal\droost_workflow\Gate\GateResult>
+   * @return list<\Droost\Workflow\Gate\GateResult>
    *   The matching results, in order.
    */
   public function withStatus(GateStatus $status): array {
@@ -85,7 +85,7 @@ final class PhaseReport {
    * surface that has to remember to look for them is a surface that will
    * eventually forget.
    *
-   * @return list<\Drupal\droost_workflow\Gate\GateResult>
+   * @return list<\Droost\Workflow\Gate\GateResult>
    *   The skipped results.
    */
   public function skipped(): array {

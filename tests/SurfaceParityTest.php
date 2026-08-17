@@ -2,17 +2,17 @@
 
 declare(strict_types=1);
 
-namespace Drupal\Tests\droost_workflow\Unit;
+namespace Droost\Workflow\Tests;
 
-use Drupal\droost_workflow\Config\GateSettings;
-use Drupal\droost_workflow\Gate\GateExecutorInterface;
-use Drupal\droost_workflow\Gate\GateResult;
-use Drupal\droost_workflow\Gate\GateStatus;
-use Drupal\droost_workflow\Gate\NullSiteDriver;
-use Drupal\droost_workflow\Gate\SiteDriverInterface;
-use Drupal\droost_workflow\Mode\RunStateOnlySink;
-use Drupal\droost_workflow\State\StateError;
-use Drupal\droost_workflow\WorkflowFacade;
+use Droost\Workflow\Config\GateSettings;
+use Droost\Workflow\Gate\GateExecutorInterface;
+use Droost\Workflow\Gate\GateResult;
+use Droost\Workflow\Gate\GateStatus;
+use Droost\Workflow\Gate\NullSiteDriver;
+use Droost\Workflow\Gate\SiteDriverInterface;
+use Droost\Workflow\Mode\RunStateOnlySink;
+use Droost\Workflow\State\StateError;
+use Droost\Workflow\WorkflowFacade;
 
 /**
  * REQ-003: the two surfaces produce the same report.
@@ -172,9 +172,16 @@ class SurfaceParityTest extends WorkflowTestCase {
    * The same five fields used to be assembled three times — bin, drush,
    * MCP — which is precisely the second-implementation drift the facade
    * exists to prevent. Two halves: the envelope itself has the agreed
-   * shape, and each surface's source actually calls it (the drush and MCP
-   * classes cannot be instantiated in this suite, so the call is pinned
-   * the way the MCP structural tests pin theirs — in source).
+   * shape, and each surface's source actually calls it (a surface class
+   * cannot be instantiated in this suite, so the call is pinned in source).
+   *
+   * This package now owns ONE of the three surfaces. The drush and MCP
+   * classes moved to the droost module when this became a framework-free
+   * library, and their half of the assertion moved with them —
+   * droost_workflow's WorkflowMcpToolsTest pins those two. The property is
+   * preserved rather than weakened: the envelope's shape is asserted HERE,
+   * once, and each surface separately asserts that it calls toArray()
+   * instead of assembling its own.
    */
   public function testEverySurfaceRendersTheSharedEnvelope(): void {
     $root = $this->makeRootWithConfig("preset: custom\n");
@@ -192,20 +199,12 @@ class SurfaceParityTest extends WorkflowTestCase {
       array_keys($retries),
     );
 
-    $surfaces = [
-      'bin' => __DIR__ . '/../../../src/Cli/ArgvDispatcher.php',
-      'drush' => __DIR__ . '/../../../src/Drush/Commands/WorkflowCommands.php',
-      'mcp' => __DIR__
-      . '/../../../modules/droost_workflow_mcp/src/Plugin/Tool/WorkflowRun.php',
-    ];
-    foreach ($surfaces as $name => $path) {
-      $src = (string) file_get_contents($path);
-      $this->assertStringContainsString(
-        '$outcome->toArray()',
-        $src,
-        $name . ' must render the shared envelope, not assemble its own',
-      );
-    }
+    $src = (string) file_get_contents(dirname(__DIR__) . '/src/Cli/ArgvDispatcher.php');
+    $this->assertStringContainsString(
+      '$outcome->toArray()',
+      $src,
+      'bin must render the shared envelope, not assemble its own',
+    );
   }
 
   /**
@@ -235,10 +234,10 @@ class SurfaceParityTest extends WorkflowTestCase {
   /**
    * A facade with a deterministic clock and identity.
    *
-   * @param \Drupal\droost_workflow\Gate\SiteDriverInterface $driver
+   * @param \Droost\Workflow\Gate\SiteDriverInterface $driver
    *   The driver that makes it a CLI or a live surface.
    *
-   * @return \Drupal\droost_workflow\WorkflowFacade
+   * @return \Droost\Workflow\WorkflowFacade
    *   The facade.
    */
   private function facade(SiteDriverInterface $driver): WorkflowFacade {
@@ -266,7 +265,7 @@ class SurfaceParityTest extends WorkflowTestCase {
   /**
    * A driver that stands in for a booted site.
    *
-   * @return \Drupal\droost_workflow\Gate\SiteDriverInterface
+   * @return \Droost\Workflow\Gate\SiteDriverInterface
    *   The double.
    */
   private function fakeSiteDriver(): SiteDriverInterface {

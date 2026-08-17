@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Drupal\Tests\droost_workflow\Unit\Support;
+namespace Droost\Workflow\Tests\Support;
 
-use Drupal\droost_workflow\Support\DataError;
-use Drupal\droost_workflow\Support\TypedArray;
+use Droost\Workflow\Support\DataError;
+use Droost\Workflow\Support\TypedArray;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 

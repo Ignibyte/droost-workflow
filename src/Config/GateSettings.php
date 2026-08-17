@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Config;
+namespace Droost\Workflow\Config;
 
-use Drupal\droost_workflow\Support\DataError;
-use Drupal\droost_workflow\Support\TypedArray;
+use Droost\Workflow\Support\DataError;
+use Droost\Workflow\Support\TypedArray;
 
 /**
  * One quality gate's levers.
@@ -131,7 +131,7 @@ final class GateSettings {
   /**
    * This gate with a config file's entries applied over it.
    *
-   * @param \Drupal\droost_workflow\Support\TypedArray $node
+   * @param \Droost\Workflow\Support\TypedArray $node
    *   The gate's mapping from the config file.
    * @param string $source
    *   The document label, for error messages.
@@ -139,9 +139,9 @@ final class GateSettings {
    * @return self
    *   A new GateSettings; this one is unchanged.
    *
-   * @throws \Drupal\droost_workflow\Config\ConfigError
+   * @throws \Droost\Workflow\Config\ConfigError
    *   When the mapping names an option this gate does not accept.
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When a value has the wrong type or falls outside its range.
    */
   public function overlay(TypedArray $node, string $source): self {
@@ -205,7 +205,7 @@ final class GateSettings {
   /**
    * Reads one option according to its declared type.
    *
-   * @param \Drupal\droost_workflow\Support\TypedArray $node
+   * @param \Droost\Workflow\Support\TypedArray $node
    *   The gate's mapping.
    * @param string $option
    *   The option name.
@@ -213,7 +213,7 @@ final class GateSettings {
    * @return int|string
    *   The value.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When the value has the wrong type or falls outside its range.
    */
   private function readOption(TypedArray $node, string $option): int|string {
@@ -237,7 +237,7 @@ final class GateSettings {
    * future call site having to remember to quote (the indirect-sanitiser
    * trap: a guard the next reader and every SAST tool can actually see).
    *
-   * @param \Drupal\droost_workflow\Support\TypedArray $node
+   * @param \Droost\Workflow\Support\TypedArray $node
    *   The gate's mapping.
    * @param string $option
    *   The option name.
@@ -245,7 +245,7 @@ final class GateSettings {
    * @return string
    *   The value.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When the value is empty or contains anything but the characters a tool
    *   name, standard name or relative path needs.
    */
@@ -279,7 +279,7 @@ final class GateSettings {
   /**
    * Reads a PHPStan level: 0-9, "max" or "off".
    *
-   * @param \Drupal\droost_workflow\Support\TypedArray $node
+   * @param \Droost\Workflow\Support\TypedArray $node
    *   The gate's mapping.
    * @param string $option
    *   The option name.
@@ -287,7 +287,7 @@ final class GateSettings {
    * @return int|string
    *   The level.
    *
-   * @throws \Drupal\droost_workflow\Support\DataError
+   * @throws \Droost\Workflow\Support\DataError
    *   When the value is neither a level number nor a level word.
    */
   private function readLevel(TypedArray $node, string $option): int|string {

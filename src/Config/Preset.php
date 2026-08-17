@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Config;
+namespace Droost\Workflow\Config;
 
 /**
  * A built-in base lever set, before a config file's overrides.
@@ -18,11 +18,11 @@ final class Preset {
    *
    * @param string $name
    *   The preset name, one of PresetResolver::KNOWN_PRESETS.
-   * @param \Drupal\droost_workflow\Config\Mode $mode
+   * @param \Droost\Workflow\Config\Mode $mode
    *   The mode this preset starts a run in.
    * @param int $maxGateRetries
    *   How many times a failing gate may drive the feedback loop.
-   * @param array<string, \Drupal\droost_workflow\Config\GateSettings> $gates
+   * @param array<string, \Droost\Workflow\Config\GateSettings> $gates
    *   Every known gate, keyed by name.
    */
   public function __construct(

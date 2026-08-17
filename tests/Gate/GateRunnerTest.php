@@ -2,20 +2,20 @@
 
 declare(strict_types=1);
 
-namespace Drupal\Tests\droost_workflow\Unit\Gate;
+namespace Droost\Workflow\Tests\Gate;
 
-use Drupal\Tests\droost_workflow\Unit\WorkflowTestCase;
-use Drupal\droost_workflow\Config\GateSettings;
-use Drupal\droost_workflow\Config\Phase;
-use Drupal\droost_workflow\Config\WorkflowConfig;
-use Drupal\droost_workflow\Gate\GateExecutorInterface;
-use Drupal\droost_workflow\Gate\GateResult;
-use Drupal\droost_workflow\Gate\GateRunner;
-use Drupal\droost_workflow\Gate\GateStatus;
-use Drupal\droost_workflow\Gate\NullSiteDriver;
-use Drupal\droost_workflow\Gate\SiteDriverInterface;
-use Drupal\droost_workflow\State\RunState;
-use Drupal\droost_workflow\State\RunStateStore;
+use Droost\Workflow\Tests\WorkflowTestCase;
+use Droost\Workflow\Config\GateSettings;
+use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\Gate\GateExecutorInterface;
+use Droost\Workflow\Gate\GateResult;
+use Droost\Workflow\Gate\GateRunner;
+use Droost\Workflow\Gate\GateStatus;
+use Droost\Workflow\Gate\NullSiteDriver;
+use Droost\Workflow\Gate\SiteDriverInterface;
+use Droost\Workflow\State\RunState;
+use Droost\Workflow\State\RunStateStore;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
@@ -52,7 +52,7 @@ class GateRunnerTest extends WorkflowTestCase {
    * phase executed phpunit, mutation and a browser suite before any code
    * existed.
    *
-   * @param \Drupal\droost_workflow\Config\Phase $phase
+   * @param \Droost\Workflow\Config\Phase $phase
    *   The gateless phase.
    */
   #[DataProvider('gatelessPhases')]
@@ -74,7 +74,7 @@ class GateRunnerTest extends WorkflowTestCase {
   /**
    * The phases at which nothing is due.
    *
-   * @return array<string, array{\Drupal\droost_workflow\Config\Phase}>
+   * @return array<string, array{\Droost\Workflow\Config\Phase}>
    *   Case name to phase.
    */
   public static function gatelessPhases(): array {
@@ -301,7 +301,7 @@ class GateRunnerTest extends WorkflowTestCase {
   /**
    * An executor that records what it was asked to run.
    *
-   * @return object{ran: list<string>}&\Drupal\droost_workflow\Gate\GateExecutorInterface
+   * @return object{ran: list<string>}&\Droost\Workflow\Gate\GateExecutorInterface
    *   The fake.
    */
   private function recordingExecutor(): object {
@@ -334,7 +334,7 @@ class GateRunnerTest extends WorkflowTestCase {
    * @param array<array-key, mixed> $raw
    *   The lever document.
    *
-   * @return \Drupal\droost_workflow\State\RunState
+   * @return \Droost\Workflow\State\RunState
    *   The run.
    */
   private function beginWith(array $raw): RunState {

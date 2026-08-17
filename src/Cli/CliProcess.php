@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Drupal\droost_workflow\Cli;
+namespace Droost\Workflow\Cli;
 
 /**
  * The only place this package spawns a subprocess.

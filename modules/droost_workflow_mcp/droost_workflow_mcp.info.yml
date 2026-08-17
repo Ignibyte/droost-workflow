@@ -1,9 +1,0 @@
-name: Droost Workflow MCP
-type: module
-description: 'Exposes the Droost Workflow engine over MCP: droost_workflow_status (read-only) and droost_workflow_run (STDIO/Drush-only). A third and fourth front onto the same WorkflowFacade the CLI and the Drush commands use.'
-package: Droost
-core_version_requirement: ^10.3 || ^11 || ^12
-dependencies:
-  - 'droost:droost'
-  - 'mcp_server:mcp_server'
-  - 'droost_workflow:droost_workflow'

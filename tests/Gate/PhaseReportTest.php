@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Drupal\Tests\droost_workflow\Unit\Gate;
+namespace Droost\Workflow\Tests\Gate;
 
-use Drupal\droost_workflow\Config\Phase;
-use Drupal\droost_workflow\Gate\GateResult;
-use Drupal\droost_workflow\Gate\GateStatus;
-use Drupal\droost_workflow\Gate\PhaseReport;
+use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Gate\GateResult;
+use Droost\Workflow\Gate\GateStatus;
+use Droost\Workflow\Gate\PhaseReport;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -19,7 +19,7 @@ class PhaseReportTest extends TestCase {
   /**
    * REQ-007: only a blocking outcome stops the run.
    *
-   * @param \Drupal\droost_workflow\Gate\GateStatus $status
+   * @param \Droost\Workflow\Gate\GateStatus $status
    *   The single gate's outcome.
    * @param bool $advances
    *   Whether the phase should advance.
@@ -38,7 +38,7 @@ class PhaseReportTest extends TestCase {
   /**
    * Each status and whether a phase containing only it may advance.
    *
-   * @return array<string, array{\Drupal\droost_workflow\Gate\GateStatus, bool}>
+   * @return array<string, array{\Droost\Workflow\Gate\GateStatus, bool}>
    *   Case name to status and expected advance.
    */
   public static function everyStatus(): array {
@@ -58,9 +58,9 @@ class PhaseReportTest extends TestCase {
    * Every pair of statuses is checked: a skip must never turn a blocking
    * outcome into an advance, and must never be counted among the passes.
    *
-   * @param \Drupal\droost_workflow\Gate\GateStatus $first
+   * @param \Droost\Workflow\Gate\GateStatus $first
    *   The first gate's outcome.
-   * @param \Drupal\droost_workflow\Gate\GateStatus $second
+   * @param \Droost\Workflow\Gate\GateStatus $second
    *   The second gate's outcome.
    */
   #[DataProvider('everyPair')]
@@ -87,7 +87,7 @@ class PhaseReportTest extends TestCase {
   /**
    * Every ordered pair of statuses.
    *
-   * @return array<string, array{\Drupal\droost_workflow\Gate\GateStatus, \Drupal\droost_workflow\Gate\GateStatus}>
+   * @return array<string, array{\Droost\Workflow\Gate\GateStatus, \Droost\Workflow\Gate\GateStatus}>
    *   Case name to the two statuses.
    */
   public static function everyPair(): array {

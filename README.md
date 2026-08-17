@@ -210,16 +210,24 @@ your gates on an unrelated re-install would be an unpleasant surprise.
 
 ## Install
 
-One package, two ways to consume it:
+**This package is a framework-free PHP library.** It requires no Drupal, and
+it is the whole standalone surface:
 
-- **As a library / CLI** — any PHP project, no Drupal required:
-  `composer require --dev droost/workflow`, then `vendor/bin/droost-workflow
-  init` writes the pack and a default lever file. This is all the standalone
-  surface needs.
-- **As a Drupal module** — in a composer-built Drupal project the same
-  require lands it at `modules/contrib/droost_workflow`; enable the module
-  for the drush commands, and the `droost_workflow_mcp` submodule (which is
-  what depends on `mcp_server`) for the MCP surface.
+```bash
+composer require --dev droost/workflow
+vendor/bin/droost-workflow init      # writes the pack + a default lever file
+```
+
+**The Drupal surface ships with droost, not here.** `drupal/droost`'s
+`droost_workflow` submodule supplies the two things that genuinely need a
+booted site — the `drush droost:workflow:*` commands and the
+`droost_workflow_status` / `droost_workflow_run` MCP tools. Enable it and you
+get both; the pipeline underneath is this library either way.
+
+That split is P6.7 in droost's roadmap, and the reason is delivery rather than
+capability: a Drupal site builder does not install contrib from a git remote,
+and a plain Claude Code or Codex user does not want an AI work pipeline
+delivered as a Drupal module. Nothing about the pipeline changed.
 
 The lever file's `preset` is a scalar (`preset: custom`) — there is no
 `presets:` block to configure; a preset is a base the `gates:` entries
@@ -257,10 +265,10 @@ could not perform. Everything else — which gates ran, their verdicts, the
 phase, the advance decision — is identical, because both surfaces call one
 facade and differ only in which site driver they inject.
 
-## The MCP submodule (optional)
+## The MCP surface (ships with droost)
 
-`modules/droost_workflow_mcp` exposes the same engine over MCP, as a third and
-fourth front onto the one `WorkflowFacade`:
+`drupal/droost`'s `droost_workflow` submodule exposes the same engine over MCP,
+as a third and fourth front onto the one `WorkflowFacade`:
 
 - **`droost_workflow_status`** — read-only. The resolved levers (which preset,
   which gates, and where that came from), the phase order with each phase's

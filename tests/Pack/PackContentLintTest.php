@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Drupal\Tests\droost_workflow\Unit\Pack;
+namespace Droost\Workflow\Tests\Pack;
 
-use Drupal\droost_workflow\Config\WorkflowConfig;
-use Drupal\droost_workflow\Pack\PackManifest;
+use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\Pack\PackManifest;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -367,7 +367,7 @@ class PackContentLintTest extends TestCase {
    *   The absolute path.
    */
   private function packDir(): string {
-    return dirname(__DIR__, 4) . '/' . PackManifest::SOURCE_DIR;
+    return dirname(__DIR__, 2) . '/' . PackManifest::SOURCE_DIR;
   }
 
   /**
