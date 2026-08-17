@@ -94,6 +94,7 @@ final class PackManifest {
     // kind-dispatched droost_wiki tool, while droost 1.x sites still have a
     // droost_wiki module. Same string, two kinds of thing, both citable.
     'droost_wiki',
+    'droost_wiki_write',
   ];
 
   /**
