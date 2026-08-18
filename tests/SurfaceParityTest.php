@@ -29,7 +29,7 @@ class SurfaceParityTest extends WorkflowTestCase {
    * Both surfaces report the same levers for the same config.
    */
   public function testStatusIsIdenticalAcrossSurfaces(): void {
-    $root = $this->makeRootWithConfig("preset: fast\n");
+    $root = $this->makeRootWithConfig("preset: light\n");
 
     $cli = $this->facade(new NullSiteDriver())->status($root);
     $live = $this->facade($this->fakeSiteDriver())->status($root);
@@ -40,7 +40,7 @@ class SurfaceParityTest extends WorkflowTestCase {
     // offset-on-mixed error at level max.
     $levers = $cli['levers'];
     $this->assertIsArray($levers);
-    $this->assertSame('fast', $levers['preset']);
+    $this->assertSame('light', $levers['preset']);
     // Status explains WHEN each gate runs, so "why did plan run nothing"
     // is answerable without reading the engine.
     $phaseGates = $levers['phase_gates'];
@@ -62,7 +62,7 @@ class SurfaceParityTest extends WorkflowTestCase {
    * lawfully differ.
    */
   public function testOnlyTheSiteGateDiffersBetweenSurfaces(): void {
-    $config = "preset: custom\nphases: [plan, test, complete]\n";
+    $config = "preset: custom\n";
     $cliRoot = $this->makeRootWithConfig($config);
     $liveRoot = $this->makeRootWithConfig($config);
     $cliFacade = $this->facade(new NullSiteDriver());
@@ -74,6 +74,10 @@ class SurfaceParityTest extends WorkflowTestCase {
     $this->assertNotNull($livePlan->report);
     $this->assertSame([], $cliPlan->report->results, 'plan ran a gate');
     $this->assertSame([], $livePlan->report->results, 'plan ran a gate');
+
+    // Cross the code phase (0.3: every run walks all four working phases).
+    $cliFacade->run($cliRoot);
+    $liveFacade->run($liveRoot);
 
     $cli = $cliFacade->run($cliRoot);
     $live = $liveFacade->run($liveRoot);
@@ -104,13 +108,12 @@ class SurfaceParityTest extends WorkflowTestCase {
    * The CLI surface names every gate it could not run, and passes none.
    */
   public function testTheCliSurfaceReportsItsSkipsRatherThanOmittingThem(): void {
-    $root = $this->makeRootWithConfig(
-      "preset: custom\nphases: [plan, test, complete]\n",
-    );
+    $root = $this->makeRootWithConfig("preset: custom\n");
     $facade = $this->facade(new NullSiteDriver());
 
-    // Advance past the gateless plan phase to test, where the site gate is
-    // due.
+    // Advance past the gateless plan phase and through code to test, where
+    // the site gate is due (0.3: phases are canonical, never a subset).
+    $facade->run($root);
     $facade->run($root);
     $outcome = $facade->run($root);
 
@@ -140,19 +143,23 @@ class SurfaceParityTest extends WorkflowTestCase {
    * A run walks the phases and finishes, rather than repeating one.
    */
   public function testRunAdvancesThroughItsPhasesToCompletion(): void {
-    $root = $this->makeRootWithConfig("phases: [plan, complete]\n");
+    $root = $this->makeRootWithConfig("preset: custom\n");
     $facade = $this->facade(new NullSiteDriver());
 
-    $first = $facade->run($root);
-    $this->assertSame('complete', $first->state->currentPhase?->value);
-
-    $second = $facade->run($root);
-    $this->assertSame('completed', $second->outcome->value);
+    // 0.3: every run walks the full canonical sequence — four working
+    // phases and the terminal one, one facade call each.
+    $walk = [];
+    for ($step = 0; $step < 5; $step++) {
+      $outcome = $facade->run($root);
+      $walk[] = $outcome->state->currentPhase?->value;
+    }
+    $this->assertSame(['code', 'test', 'document', 'complete', 'complete'], $walk);
+    $this->assertSame('completed', $outcome->outcome->value);
 
     // Re-running an ended run says so rather than starting a second one.
-    $third = $facade->run($root);
-    $this->assertSame('completed', $third->outcome->value);
-    $this->assertSame($second->state->runId, $third->state->runId);
+    $again = $facade->run($root);
+    $this->assertSame('completed', $again->outcome->value);
+    $this->assertSame($outcome->state->runId, $again->state->runId);
   }
 
   /**

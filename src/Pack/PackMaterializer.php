@@ -76,7 +76,160 @@ final class PackMaterializer {
       $this->plantSentinel($root . '/' . $relative, $relative);
     }
 
-    return $this->installConfig($root, $report);
+    $report = $this->installConfig($root, $report);
+    $report = $this->wireClaudeSettings($root, $report);
+    return $this->ensureGitignore($root, $report);
+  }
+
+  /**
+   * Wires the enforcement guard into .claude/settings.json.
+   *
+   * A merge, never a copy: settings.json is the user's file and may carry
+   * their own hooks. Ours are recognised by their command string, so a
+   * re-run is idempotent and a project that already carries them reports
+   * "kept". An existing file that does not parse is refused rather than
+   * clobbered — rewriting a file we could not read would destroy hooks we
+   * never saw.
+   *
+   * @param string $root
+   *   The project root.
+   * @param \Droost\Workflow\Pack\InitReport $report
+   *   The report so far.
+   *
+   * @return \Droost\Workflow\Pack\InitReport
+   *   The report, extended.
+   *
+   * @throws \Droost\Workflow\Pack\PackError
+   *   When an existing settings.json cannot be parsed, or the write fails.
+   */
+  private function wireClaudeSettings(
+    string $root,
+    InitReport $report,
+  ): InitReport {
+    $relative = '.claude/settings.json';
+    $path = $root . '/' . $relative;
+    $settings = [];
+    if (is_file($path)) {
+      $raw = (string) file_get_contents($path);
+      $decoded = json_decode($raw, TRUE);
+      if (!is_array($decoded)) {
+        throw PackError::unwritable(
+          $relative,
+          'it exists but is not a JSON object; fix it before init can merge hooks',
+        );
+      }
+      $settings = $decoded;
+    }
+
+    $guard = 'php .claude/hooks/droost-workflow-guard.php';
+    $wanted = [
+      'PreToolUse' => [
+        'matcher' => 'Edit|Write|MultiEdit|NotebookEdit',
+        'hooks' => [['type' => 'command', 'command' => $guard . ' pre-tool-use']],
+      ],
+      'Stop' => [
+        'hooks' => [['type' => 'command', 'command' => $guard . ' stop']],
+      ],
+    ];
+
+    $changed = FALSE;
+    $hooks = is_array($settings['hooks'] ?? NULL) ? $settings['hooks'] : [];
+    foreach ($wanted as $event => $entry) {
+      $existing = is_array($hooks[$event] ?? NULL) ? $hooks[$event] : [];
+      if (!self::hooksContain($existing, $guard)) {
+        $existing[] = $entry;
+        $hooks[$event] = $existing;
+        $changed = TRUE;
+      }
+    }
+
+    if (!$changed) {
+      return $report->withKept($relative);
+    }
+
+    $settings['hooks'] = $hooks;
+    $this->makeDirectory(dirname($path), $relative);
+    $encoded = json_encode(
+      $settings,
+      JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES,
+    ) . "\n";
+    if (@file_put_contents($path, $encoded) !== strlen($encoded)) {
+      throw PackError::unwritable($relative, 'the write did not complete');
+    }
+    return $report->withWritten($relative);
+  }
+
+  /**
+   * Whether a hook-event list already carries the guard.
+   *
+   * @param array<array-key, mixed> $entries
+   *   The event's configured entries.
+   * @param string $guard
+   *   The guard command prefix.
+   *
+   * @return bool
+   *   TRUE when any configured command starts with the guard invocation.
+   */
+  private static function hooksContain(array $entries, string $guard): bool {
+    foreach ($entries as $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+      foreach (is_array($entry['hooks'] ?? NULL) ? $entry['hooks'] : [] as $hook) {
+        if (is_array($hook)
+          && is_string($hook['command'] ?? NULL)
+          && str_starts_with($hook['command'], $guard)) {
+          return TRUE;
+        }
+      }
+    }
+    return FALSE;
+  }
+
+  /**
+   * Keeps .droost-workflow/ out of version control by default.
+   *
+   * Run state and spec files are the run's own working papers; tracking
+   * them is an opt-in a repo makes by removing the line, not a default it
+   * discovers in review. An existing ignore entry — with or without the
+   * trailing slash — is respected and reported "kept".
+   *
+   * @param string $root
+   *   The project root.
+   * @param \Droost\Workflow\Pack\InitReport $report
+   *   The report so far.
+   *
+   * @return \Droost\Workflow\Pack\InitReport
+   *   The report, extended.
+   *
+   * @throws \Droost\Workflow\Pack\PackError
+   *   When the write fails.
+   */
+  private function ensureGitignore(
+    string $root,
+    InitReport $report,
+  ): InitReport {
+    $relative = '.gitignore';
+    $path = $root . '/' . $relative;
+    $existing = is_file($path) ? (string) file_get_contents($path) : '';
+
+    foreach (explode("\n", $existing) as $line) {
+      $line = trim($line);
+      if ($line === '.droost-workflow' || $line === '.droost-workflow/'
+        || $line === '/.droost-workflow' || $line === '/.droost-workflow/') {
+        return $report->withKept($relative);
+      }
+    }
+
+    $addition = "# Droost workflow run state and specs (droost/workflow init).\n"
+      . ".droost-workflow/\n";
+    $contents = $existing === ''
+      ? $addition
+      : rtrim($existing, "\n") . "\n\n" . $addition;
+    if (@file_put_contents($path, $contents) !== strlen($contents)) {
+      throw PackError::unwritable($relative, 'the write did not complete');
+    }
+    return $report->withWritten($relative);
   }
 
   /**

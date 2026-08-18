@@ -202,7 +202,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
       'unknown setting' => [
         ['gate' => []],
         'droost.workflow.yml: unknown setting "gate" (known: mode, phases, '
-        . 'preset, gates, max_gate_retries)',
+        . 'preset, gates, max_gate_retries, enforcement)',
       ],
       'unknown gate' => [
         ['gates' => ['phpstain' => ['on' => TRUE]]],
@@ -230,7 +230,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
       'unknown preset' => [
         ['preset' => 'turbo'],
         'droost.workflow.yml: unknown preset "turbo" (known: custom, factory, '
-        . 'fast)',
+        . 'light)',
       ],
       'dropped plan' => [
         ['phases' => ['code', 'complete']],

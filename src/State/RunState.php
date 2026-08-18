@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Droost\Workflow\State;
 
 use Droost\Workflow\Config\GateSettings;
+use Droost\Workflow\Config\Enforcement;
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\PhaseGateMap;
@@ -77,8 +78,12 @@ final class RunState {
    *   How many times each gate has driven the feedback loop.
    * @param array<string, list<string>> $phaseGates
    *   Which gates are due at which configured phase — the PhaseGateMap as it
-   *   stood when the run began, frozen for the same reason the resolved
-   *   levers are: a run is held to the map it started under.
+   *   stood when the run began (custom gates woven in at their configured
+   *   phase), frozen for the same reason the resolved levers are: a run is
+   *   held to the map it started under.
+   * @param \Droost\Workflow\Config\Enforcement $enforcement
+   *   The enforcement level frozen at begin. Defaults to Off so a document
+   *   written before the lever existed reads as what it was: unenforced.
    */
   public function __construct(
     public readonly string $runId,
@@ -96,6 +101,7 @@ final class RunState {
     public readonly array $qaHistory = [],
     public readonly array $feedbackAttempts = [],
     public readonly array $phaseGates = [],
+    public readonly Enforcement $enforcement = Enforcement::Off,
   ) {}
 
   /**
@@ -134,8 +140,45 @@ final class RunState {
       $config->resolvedGates(),
       $phases,
       $config->phases[0] ?? NULL,
-      phaseGates: PhaseGateMap::forPhases($config->phaseNames()),
+      phaseGates: self::weaveCustomGates(
+        PhaseGateMap::forPhases($config->phaseNames()),
+        $config->gates,
+      ),
+      enforcement: $config->enforcement,
     );
+  }
+
+  /**
+   * Adds each custom gate to the frozen map at its configured phase.
+   *
+   * The engine-owned map cannot know a repo's custom gates, so they join at
+   * freeze time: once at their declared phase, and once at complete, where
+   * everything enabled re-runs. Weaving them into the FROZEN map (rather
+   * than special-casing the due-gate lookup) keeps one invariant: a run is
+   * measured against exactly what its own document says.
+   *
+   * @param array<string, list<string>> $phaseGates
+   *   The engine map for the configured phases.
+   * @param array<string, \Droost\Workflow\Config\GateSettings> $gates
+   *   The resolved gate set.
+   *
+   * @return array<string, list<string>>
+   *   The map with custom gates placed.
+   */
+  private static function weaveCustomGates(array $phaseGates, array $gates): array {
+    foreach ($gates as $name => $gate) {
+      if (!GateSettings::isCustom($name)) {
+        continue;
+      }
+      $at = $gate->option('phase');
+      if (is_string($at) && isset($phaseGates[$at])) {
+        $phaseGates[$at][] = $name;
+      }
+      if (isset($phaseGates['complete'])) {
+        $phaseGates['complete'][] = $name;
+      }
+    }
+    return $phaseGates;
   }
 
   /**
@@ -350,6 +393,7 @@ final class RunState {
       $this->qaHistory,
       $this->feedbackAttempts,
       $this->phaseGates,
+      $this->enforcement,
     );
   }
 
@@ -381,6 +425,7 @@ final class RunState {
       $this->qaHistory,
       $attempts,
       $this->phaseGates,
+      $this->enforcement,
     );
   }
 
@@ -493,6 +538,7 @@ final class RunState {
       $qaHistory ?? $this->qaHistory,
       $this->feedbackAttempts,
       $this->phaseGates,
+      $this->enforcement,
     );
   }
 
@@ -530,6 +576,7 @@ final class RunState {
       'preset' => $this->preset,
       'max_gate_retries' => $this->maxGateRetries,
       'provenance' => $this->provenance->value,
+      'enforcement' => $this->enforcement->value,
       'resolved_gates' => $this->resolvedGates,
       'phase_gates' => $this->phaseGates,
       'phases' => $phases,
@@ -614,6 +661,10 @@ final class RunState {
       self::readQaHistory($node, $label),
       self::readFeedbackAttempts($node),
       self::readPhaseGates($node, $label, $phases),
+      Enforcement::tryFrom(
+        $node->optionalString('enforcement', Enforcement::Off->value)
+          ?? Enforcement::Off->value,
+      ) ?? Enforcement::Off,
     );
   }
 
@@ -933,6 +984,7 @@ final class RunState {
       $this->qaHistory,
       $this->feedbackAttempts,
       $this->phaseGates,
+      $this->enforcement,
     );
   }
 

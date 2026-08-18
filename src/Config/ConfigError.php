@@ -390,4 +390,101 @@ final class ConfigError extends \RuntimeException {
     return new self($source, $error->getMessage(), $error);
   }
 
+  /**
+   * A preset name that was retired by a rename.
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $old
+   *   The retired name.
+   * @param string $new
+   *   Its successor.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function renamedPreset(
+    string $source,
+    string $old,
+    string $new,
+  ): self {
+    return new self($source, sprintf(
+      'preset "%s" was renamed to "%s" in 0.3.0 — update the file; the '
+      . 'lever set is the same',
+      $old,
+      $new,
+    ));
+  }
+
+  /**
+   * An enforcement value outside the vocabulary.
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $value
+   *   The offending value.
+   * @param list<string> $known
+   *   The accepted values.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function unknownEnforcement(
+    string $source,
+    string $value,
+    array $known,
+  ): self {
+    return new self($source, sprintf(
+      'unknown enforcement "%s" (known: %s)',
+      $value,
+      implode(', ', $known),
+    ));
+  }
+
+  /**
+   * A custom gate entry that cannot be understood.
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $name
+   *   The custom gate's key under gates.custom.
+   * @param string $problem
+   *   What is wrong with it.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function invalidCustomGate(
+    string $source,
+    string $name,
+    string $problem,
+  ): self {
+    return new self($source, sprintf(
+      'custom gate "%s": %s',
+      $name,
+      $problem,
+    ));
+  }
+
+  /**
+   * The phases key is deprecated; kept as a parse-time notice factory.
+   *
+   * Not an exception path — the run proceeds on the canonical sequence.
+   * Phrased here so the wording lives beside the other vocabulary messages.
+   *
+   * @param string $source
+   *   The document label.
+   *
+   * @return string
+   *   The deprecation notice.
+   */
+  public static function phasesDeprecationNotice(string $source): string {
+    return sprintf(
+      '%s: the "phases" key is deprecated and ignored since 0.3.0 — every '
+      . 'run walks plan, code, test, document, complete; tune gate weight '
+      . 'per phase instead of dropping phases',
+      $source,
+    );
+  }
+
 }

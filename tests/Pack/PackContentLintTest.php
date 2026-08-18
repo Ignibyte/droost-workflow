@@ -294,14 +294,19 @@ class PackContentLintTest extends TestCase {
       }
     }
 
-    // And the positive half: the two commands must send an agent to the
-    // engine's record, by name.
-    $run = $this->read('commands/workflow/run.md');
-    $this->assertStringContainsString('.droost-workflow/run.json', $run);
-    $this->assertStringContainsString('resolved_gates', $run);
+    // And the positive half: the entry and status commands must send an
+    // agent to the engine's record, by name — and the retired run command
+    // must send them to the entry, not describe a pipeline of its own.
+    $entry = $this->read('commands/droost-work.md');
+    $this->assertStringContainsString('.droost-workflow/run.json', $entry);
+    $this->assertStringContainsString('resolved_gates', $entry);
     $status = $this->read('commands/workflow/status.md');
     $this->assertStringContainsString('.droost-workflow/run.json', $status);
     $this->assertStringContainsString('phase_gates', $status);
+    $this->assertStringContainsString(
+      '/droost-work',
+      $this->read('commands/workflow/run.md'),
+    );
   }
 
   /**

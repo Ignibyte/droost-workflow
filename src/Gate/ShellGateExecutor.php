@@ -54,6 +54,9 @@ final class ShellGateExecutor implements GateExecutorInterface {
    */
   public function execute(GateSettings $gate, string $projectRoot): GateResult {
     $root = rtrim($projectRoot, '/');
+    if (GateSettings::isCustom($gate->name)) {
+      return $this->executeCustom($gate, $root);
+    }
     $binary = $this->binaryFor($gate->name);
     $argv = $this->argvFor($gate, $root . '/' . $binary);
     $invocation = implode(' ', $argv);
@@ -87,6 +90,48 @@ final class ShellGateExecutor implements GateExecutorInterface {
       $this->summarise($gate->name, $exit, $stdout, $stderr),
       $this->findings($stdout),
       $invocation,
+    );
+  }
+
+  /**
+   * Runs a custom gate: the repo's own command, exit zero passes.
+   *
+   * The command is a single line from the repo's own lever file — the same
+   * trust boundary as a composer script, reviewed in the same diff as every
+   * other lever. It runs through the shell because that is the contract a
+   * "cmd" key advertises; there is no binary path to pre-check, so the
+   * shell's own 127 ("command not found") maps to tool-missing — an enabled
+   * gate whose tool is absent is a broken environment, never a pass.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate's resolved levers.
+   * @param string $root
+   *   The project root (already trimmed).
+   *
+   * @return \Droost\Workflow\Gate\GateResult
+   *   The verdict.
+   */
+  private function executeCustom(GateSettings $gate, string $root): GateResult {
+    $cmd = $gate->option('cmd');
+    $cmd = is_string($cmd) ? $cmd : '';
+    $started = $this->tick();
+    /** @var array{int, string, string} $outcome */
+    $outcome = ($this->runner)(['/bin/sh', '-c', $cmd], $root, $this->timeout);
+    [$exit, $stdout, $stderr] = $outcome;
+    $elapsed = $this->tick() - $started;
+
+    if ($exit === 127) {
+      return GateResult::toolMissing($gate->name, $cmd);
+    }
+
+    return GateResult::ran(
+      $gate->name,
+      $exit === 0 ? GateStatus::Passed : GateStatus::Failed,
+      $exit,
+      $elapsed,
+      $this->summarise($gate->name, $exit, $stdout, $stderr),
+      $this->findings($stdout),
+      $cmd,
     );
   }
 

@@ -38,6 +38,7 @@ final class WorkflowConfig {
     'preset',
     'gates',
     'max_gate_retries',
+    'enforcement',
   ];
 
   /**
@@ -60,6 +61,11 @@ final class WorkflowConfig {
    *   How many times a failing gate may drive the feedback loop.
    * @param \Droost\Workflow\Config\Provenance $provenance
    *   Whether a file was read or the built-in defaults are in force.
+   * @param \Droost\Workflow\Config\Enforcement $enforcement
+   *   How hard the harness hooks hold the phase discipline mid-run.
+   * @param list<string> $deprecations
+   *   Notices for keys the file still uses but the vocabulary has retired.
+   *   Surfaced by every surface that reports levers; never fatal.
    */
   private function __construct(
     public readonly Mode $mode,
@@ -68,6 +74,8 @@ final class WorkflowConfig {
     public readonly string $preset,
     public readonly int $maxGateRetries,
     public readonly Provenance $provenance,
+    public readonly Enforcement $enforcement = Enforcement::Soft,
+    public readonly array $deprecations = [],
   ) {}
 
   /**
@@ -178,6 +186,13 @@ final class WorkflowConfig {
         'preset',
         PresetResolver::DEFAULT_PRESET,
       ) ?? PresetResolver::DEFAULT_PRESET;
+      if (isset(PresetResolver::RENAMED_PRESETS[$preset])) {
+        throw ConfigError::renamedPreset(
+          $source,
+          $preset,
+          PresetResolver::RENAMED_PRESETS[$preset],
+        );
+      }
       if (!PresetResolver::isKnown($preset)) {
         throw ConfigError::unknownPreset(
           $source,
@@ -187,9 +202,19 @@ final class WorkflowConfig {
       }
       $base = PresetResolver::resolve($preset);
 
+      // The phases key is deprecated (0.3): every run walks the canonical
+      // sequence. A present key is still VALIDATED — a typo should surface,
+      // not vanish into a notice — and then superseded, with the supersession
+      // recorded where every lever report will show it.
+      $deprecations = [];
+      if ($root->has('phases')) {
+        self::readPhases($root, $source);
+        $deprecations[] = ConfigError::phasesDeprecationNotice($source);
+      }
+
       return new self(
         self::readMode($root, $source, $base->mode),
-        self::readPhases($root, $source),
+        Phase::canonical(),
         self::readGates($root, $source, $base->gates),
         $base->name,
         $root->has('max_gate_retries')
@@ -200,11 +225,53 @@ final class WorkflowConfig {
           )
           : $base->maxGateRetries,
         $provenance,
+        self::readEnforcement($root, $source, $base->enforcement),
+        $deprecations,
       );
     }
     catch (DataError $e) {
       throw ConfigError::fromData($source, $e);
     }
+  }
+
+  /**
+   * Reads the enforcement lever.
+   *
+   * Orthogonal to the preset on purpose: a repo may pair the factory gate
+   * set with enforcement off — not advised, but a lever file is a reviewable
+   * diff, and a visible loosening is the honest way to allow it.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   * @param \Droost\Workflow\Config\Enforcement $default
+   *   The preset's enforcement.
+   *
+   * @return \Droost\Workflow\Config\Enforcement
+   *   The resolved enforcement.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When the value is outside hard|soft|off.
+   */
+  private static function readEnforcement(
+    TypedArray $root,
+    string $source,
+    Enforcement $default,
+  ): Enforcement {
+    if (!$root->has('enforcement')) {
+      return $default;
+    }
+    $name = $root->string('enforcement');
+    $enforcement = Enforcement::tryFrom($name);
+    if ($enforcement === NULL) {
+      throw ConfigError::unknownEnforcement(
+        $source,
+        $name,
+        Enforcement::names(),
+      );
+    }
+    return $enforcement;
   }
 
   /**
@@ -395,6 +462,17 @@ final class WorkflowConfig {
 
     $gates = $base;
     foreach ($node->keys() as $name) {
+      // gates.custom is a namespace, not a gate: each child becomes a
+      // custom:<name> gate built whole from its entry (no preset base to
+      // overlay). Appended after the named set so reports keep a stable
+      // named-then-custom order.
+      if ($name === 'custom') {
+        foreach ($node->child('custom')->keys() as $key) {
+          $gates[GateSettings::CUSTOM_PREFIX . $key] =
+            GateSettings::customFromNode($key, $node->child('custom')->child($key), $source);
+        }
+        continue;
+      }
       if (!GateSettings::isKnown($name)) {
         throw ConfigError::unknownGate(
           $source,

@@ -29,7 +29,11 @@ use Droost\Workflow\Support\TypedArray;
 final class GateSettings {
 
   /**
-   * Every gate name a config file may use.
+   * Every named gate a config file may use.
+   *
+   * Custom gates (declared under `gates.custom`, carried as
+   * `custom:<name>`) extend this vocabulary without appearing here — see
+   * isKnown() and customFromNode().
    */
   public const KNOWN_GATES = [
     'phpcs',
@@ -41,6 +45,28 @@ final class GateSettings {
     'rendered_check',
     'wiki_fresh',
   ];
+
+  /**
+   * The prefix carried by custom gates in the resolved set and reports.
+   *
+   * Namespacing keeps a repo's `semgrep` from colliding with any gate this
+   * package might name in a later release.
+   */
+  public const CUSTOM_PREFIX = 'custom:';
+
+  /**
+   * What a custom gate's name (the key under gates.custom) may look like.
+   */
+  private const CUSTOM_NAME = '#^[a-z0-9][a-z0-9_-]*$#';
+
+  /**
+   * The phases a custom gate may attach to.
+   *
+   * Complete is deliberately absent as a choice: every enabled gate re-runs
+   * there anyway, and "only at complete" would be a gate that skips the
+   * phase whose job was to catch its failure early.
+   */
+  private const CUSTOM_PHASES = ['code', 'test'];
 
   /**
    * The options each gate accepts, and how each is read.
@@ -112,7 +138,101 @@ final class GateSettings {
    *   TRUE when known.
    */
   public static function isKnown(string $name): bool {
-    return in_array($name, self::KNOWN_GATES, TRUE);
+    return in_array($name, self::KNOWN_GATES, TRUE) || self::isCustom($name);
+  }
+
+  /**
+   * Whether a name denotes a custom gate.
+   *
+   * @param string $name
+   *   The candidate name.
+   *
+   * @return bool
+   *   TRUE for a well-formed custom:<name>.
+   */
+  public static function isCustom(string $name): bool {
+    if (!str_starts_with($name, self::CUSTOM_PREFIX)) {
+      return FALSE;
+    }
+    $bare = substr($name, strlen(self::CUSTOM_PREFIX));
+    return preg_match(self::CUSTOM_NAME, $bare) === 1;
+  }
+
+  /**
+   * Builds a custom gate from its gates.custom entry.
+   *
+   * Everything is explicit — `on`, `phase` and `cmd` are all required.
+   * Custom gates have no preset base to inherit from, so an absent switch
+   * is not "whatever the preset said", it is ambiguity; and this package's
+   * one rule about switches is that none of them is ever inferred.
+   *
+   * @param string $key
+   *   The name under gates.custom.
+   * @param \Droost\Workflow\Support\TypedArray $node
+   *   The entry's mapping.
+   * @param string $source
+   *   The document label, for error messages.
+   *
+   * @return self
+   *   The gate, named custom:<key>.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When the name is malformed or a required key is missing/invalid.
+   * @throws \Droost\Workflow\Support\DataError
+   *   When a value has the wrong type.
+   */
+  public static function customFromNode(
+    string $key,
+    TypedArray $node,
+    string $source,
+  ): self {
+    if (preg_match(self::CUSTOM_NAME, $key) !== 1) {
+      throw ConfigError::invalidCustomGate($source, $key, sprintf(
+        'the name must match %s (lowercase letters, digits, "_", "-")',
+        self::CUSTOM_NAME,
+      ));
+    }
+    foreach (['on', 'phase', 'cmd'] as $required) {
+      if (!$node->has($required)) {
+        throw ConfigError::invalidCustomGate($source, $key, sprintf(
+          '"%s" is required — a custom gate has no preset base, so nothing '
+          . 'about it is inferred',
+          $required,
+        ));
+      }
+    }
+    foreach ($node->keys() as $given) {
+      if (!in_array($given, ['on', 'phase', 'cmd'], TRUE)) {
+        throw ConfigError::invalidCustomGate($source, $key, sprintf(
+          'unknown option "%s" (accepted: on, phase, cmd)',
+          $given,
+        ));
+      }
+    }
+    $phase = $node->string('phase');
+    if (!in_array($phase, self::CUSTOM_PHASES, TRUE)) {
+      throw ConfigError::invalidCustomGate($source, $key, sprintf(
+        'phase must be one of: %s (everything enabled re-runs at complete)',
+        implode(', ', self::CUSTOM_PHASES),
+      ));
+    }
+    $cmd = $node->string('cmd');
+    // The command is the repo's own, reviewed in the same diff as every
+    // other lever — the constraint here is shape, not trust: one line,
+    // printable, non-empty.
+    if (trim($cmd) === ''
+      || str_contains($cmd, "\n")
+      || str_contains($cmd, "\0")) {
+      throw ConfigError::invalidCustomGate(
+        $source,
+        $key,
+        'cmd must be a non-empty single-line command',
+      );
+    }
+    return new self(self::CUSTOM_PREFIX . $key, $node->bool('on'), [
+      'cmd' => $cmd,
+      'phase' => $phase,
+    ]);
   }
 
   /**

@@ -24,12 +24,15 @@ final class Preset {
    *   How many times a failing gate may drive the feedback loop.
    * @param array<string, \Droost\Workflow\Config\GateSettings> $gates
    *   Every known gate, keyed by name.
+   * @param \Droost\Workflow\Config\Enforcement $enforcement
+   *   How hard the harness hooks hold the phase discipline mid-run.
    */
   public function __construct(
     public readonly string $name,
     public readonly Mode $mode,
     public readonly int $maxGateRetries,
     public readonly array $gates,
+    public readonly Enforcement $enforcement = Enforcement::Soft,
   ) {}
 
 }

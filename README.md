@@ -43,8 +43,8 @@ A single repo-root file, `droost.workflow.yml`, is the source of truth:
 
 ```yaml
 mode: automated                 # automated | pair
-preset: custom                  # custom | factory | fast
-phases: [plan, code, test, document, complete]
+preset: custom                  # custom | factory | light
+enforcement: soft               # hard | soft | off — the hooks, mid-run only
 gates:
   phpcs:          { on: true,  standard: "Drupal,DrupalPractice" }
   phpstan:        { on: true,  level: 6 }      # 0-9 | max | off
@@ -54,6 +54,8 @@ gates:
   coverage:       { on: false, min: 0 }
   rendered_check: { on: true }                 # artifacts are truth
   wiki_fresh:     { on: true }                 # the project's own docs still match the code
+  # custom:                                    # your own commands as gates
+  #   semgrep: { on: true, phase: code, cmd: "semgrep scan --error --quiet" }
 max_gate_retries: 2
 ```
 
@@ -69,11 +71,33 @@ A preset is a **base**, not an alternative to per-gate control — explicit
 `gates:` entries are applied over it, so "factory but without Playwright" is
 one line rather than a fork.
 
-- **`factory`** — everything on, strict. The software factory.
-- **`fast`** — coding standards and a shallow analysis; nothing that costs
-  minutes.
+- **`factory`** — everything on, strict. The software factory. The full EARS
+  spec; enforcement defaults `hard`.
+- **`light`** — the same four phases at lighter weight: a ten-line quasi-spec
+  presented in chat, the static pair, the rendered check; enforcement
+  defaults `soft`. Light is not a shorter path — nothing skips. (Renamed
+  from `fast` in 0.3; the old name is refused with a pointer.)
 - **`custom`** — the values shown above; the ergonomic middle, and what `init`
   writes for you.
+
+**The phases are not levers.** Since 0.3 every run walks
+`plan → code → test → document → complete`, minor changes included — the
+`phases:` key is deprecated and ignored (with a notice). What varies between
+heavy and light is the weight each phase carries, never the path.
+
+**Enforcement is its own lever**, orthogonal to the preset: `hard` blocks
+out-of-phase actions while a run is active (editing project files during
+plan, ending the turn mid-phase), `soft` warns once per phase, `off` stands
+the hooks down. Outside an active run the hooks are silent by construction —
+they read `.droost-workflow/run.json` first, and no run means no opinion.
+You may pair factory gates with `enforcement: off`; not advised, but the
+lever file is a reviewable diff, and a visible loosening is the honest way
+to allow it.
+
+**Custom gates** (`gates.custom`) wire the repo's own commands — semgrep,
+behat, anything — as first-class gates: everything explicit (`on`, `phase`
+of code|test, single-line `cmd`), exit zero passes, and a command the shell
+cannot find reports **tool missing**, which blocks, never passes.
 
 Three details worth knowing:
 
@@ -135,8 +159,8 @@ prose CAN be checked against: `wiki_fresh` asks the site whether the project's
 own documentation still matches the code it describes. It used to run nothing,
 which meant a run could leave the wiki stale and still be recorded complete —
 and a stale page is read as fact, which is worse than no page. Complete re-runs the full enabled set as the terminal
-safety net — which is what makes dropped phases safe: a run configured
-without a test phase still meets every enabled gate once, at the end.
+safety net, custom gates included — every enabled gate is met at least
+twice: once at its own phase, once at the end.
 
 ## The feedback loop
 

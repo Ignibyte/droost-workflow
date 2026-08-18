@@ -6,6 +6,8 @@ namespace Droost\Workflow\Tests\Config;
 
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Config\PresetResolver;
+use Droost\Workflow\Config\ConfigError;
+use Droost\Workflow\Config\Enforcement;
 use Droost\Workflow\Config\WorkflowConfig;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -57,8 +59,8 @@ class PresetResolverTest extends TestCase {
           'wiki_fresh' => ['on' => TRUE],
         ],
       ],
-      'fast' => [
-        'fast',
+      'light' => [
+        'light',
         [
           'phpcs' => ['on' => TRUE, 'standard' => $standard],
           'phpstan' => ['on' => TRUE, 'level' => 2],
@@ -87,14 +89,46 @@ class PresetResolverTest extends TestCase {
   }
 
   /**
-   * The rendered check stays on even in the fast preset.
+   * The rendered check stays on even in the light preset.
    *
-   * Its own justification, pinned: a fast run that stops checking whether the
-   * page renders is not fast, it is blind.
+   * Its own justification, pinned: a light run that stops checking whether
+   * the page renders is not light, it is blind.
    */
-  public function testFastKeepsTheRenderedCheck(): void {
-    $config = WorkflowConfig::fromArray(['preset' => 'fast'], 'test');
+  public function testLightKeepsTheRenderedCheck(): void {
+    $config = WorkflowConfig::fromArray(['preset' => 'light'], 'test');
     $this->assertTrue($config->gate('rendered_check')->on);
+  }
+
+  /**
+   * The retired name is refused with the rename, not aliased or "unknown".
+   */
+  public function testFastIsRefusedWithItsRename(): void {
+    $this->expectException(ConfigError::class);
+    $this->expectExceptionMessage('preset "fast" was renamed to "light"');
+    WorkflowConfig::fromArray(['preset' => 'fast'], 'droost.workflow.yml');
+  }
+
+  /**
+   * Enforcement rides the preset until the file says otherwise.
+   */
+  public function testEnforcementDefaultsPerPresetAndOverlays(): void {
+    $factory = WorkflowConfig::fromArray(['preset' => 'factory'], 'test');
+    $this->assertSame(Enforcement::Hard, $factory->enforcement);
+
+    $light = WorkflowConfig::fromArray(['preset' => 'light'], 'test');
+    $this->assertSame(Enforcement::Soft, $light->enforcement);
+
+    // Orthogonal on purpose: full factory gates, enforcement forgone.
+    $mixed = WorkflowConfig::fromArray([
+      'preset' => 'factory',
+      'enforcement' => 'off',
+    ], 'test');
+    $this->assertSame(Enforcement::Off, $mixed->enforcement);
+    $this->assertTrue($mixed->gate('mutation')->on, 'The gate set is untouched by the enforcement lever.');
+
+    $this->expectException(ConfigError::class);
+    $this->expectExceptionMessage('unknown enforcement "brutal" (known: hard, soft, off)');
+    WorkflowConfig::fromArray(['enforcement' => 'brutal'], 'test');
   }
 
   /**
@@ -102,7 +136,7 @@ class PresetResolverTest extends TestCase {
    */
   public function testExplicitGatesOverlayRatherThanReplace(): void {
     $config = WorkflowConfig::fromArray([
-      'preset' => 'fast',
+      'preset' => 'light',
       'gates' => ['phpstan' => ['level' => 9]],
     ], 'test');
 

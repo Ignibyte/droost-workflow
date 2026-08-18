@@ -17,8 +17,20 @@ final class PresetResolver {
 
   /**
    * Every preset name a config file may use.
+   *
+   * 0.3 renamed `fast` to `light`: same slot, better word — light describes
+   * the artifact weight (quasi-spec, chat-presented documentation), not
+   * corner-cutting, and every change still walks all four working phases.
+   * The old name is refused with a rename message rather than aliased, so a
+   * file that says `fast` gets told what happened instead of silently
+   * resolving to something.
    */
-  public const KNOWN_PRESETS = ['custom', 'factory', 'fast'];
+  public const KNOWN_PRESETS = ['custom', 'factory', 'light'];
+
+  /**
+   * Preset names retired by a rename, mapped to their successor.
+   */
+  public const RENAMED_PRESETS = ['fast' => 'light'];
 
   /**
    * The preset assumed whenever a document does not name one.
@@ -70,7 +82,7 @@ final class PresetResolver {
   public static function resolve(string $preset): Preset {
     return match ($preset) {
       'factory' => self::factory(),
-      'fast' => self::fast(),
+      'light' => self::light(),
       default => self::custom(),
     };
   }
@@ -86,7 +98,7 @@ final class PresetResolver {
    *   The base lever set.
    */
   private static function factory(): Preset {
-    return new Preset('factory', Mode::Automated, 2, [
+    return new Preset('factory', Mode::Automated, 2, enforcement: Enforcement::Hard, gates: [
       'phpcs' => new GateSettings('phpcs', TRUE, [
         'standard' => self::DEFAULT_STANDARD,
       ]),
@@ -101,17 +113,22 @@ final class PresetResolver {
   }
 
   /**
-   * Coding standards and a shallow analysis; nothing that costs minutes.
+   * The lighter weight: same four phases, lighter artifacts and gates.
+   *
+   * Light is not a shorter path — every change still walks plan through
+   * complete. What thins out is the load: a quasi-spec instead of the full
+   * EARS table, the static pair instead of the functional suite, and
+   * documentation presented in chat rather than recorded artefacts.
    *
    * The rendered check stays on even here. It is the artifacts-are-truth leg,
-   * and a fast run that stops checking whether the page renders is not fast,
-   * it is blind.
+   * and a light run that stops checking whether the page renders is not
+   * light, it is blind.
    *
    * @return \Droost\Workflow\Config\Preset
    *   The base lever set.
    */
-  private static function fast(): Preset {
-    return new Preset('fast', Mode::Automated, 2, [
+  private static function light(): Preset {
+    return new Preset('light', Mode::Automated, 2, enforcement: Enforcement::Soft, gates: [
       'phpcs' => new GateSettings('phpcs', TRUE, [
         'standard' => self::DEFAULT_STANDARD,
       ]),

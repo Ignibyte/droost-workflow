@@ -8,8 +8,10 @@ description: Phase 4 of the Droost Workflow. Capture what was built and why, whi
 Write down what was built, for the person who arrives after the run — often
 a later run of this same pipeline, with none of this context.
 
-This phase is droppable. A run configured without it is a legitimate run, and
-that is a decision the repo made in its lever file, not one you make here.
+This phase always runs (0.3: phases are mandatory); what varies is weight.
+A **factory** run records its documentation as artifacts. A **light** run
+presents the realized quasi-spec (`.droost-workflow/tmp-spec-<slug>.md`) and
+a change summary directly in chat — the documentation IS the presentation.
 
 ## Entry gate
 

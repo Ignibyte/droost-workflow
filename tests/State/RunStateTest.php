@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\State;
 
+use Droost\Workflow\Config\ConfigError;
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\PhaseGateMap;
@@ -33,18 +34,28 @@ class RunStateTest extends TestCase {
   }
 
   /**
-   * A dropped phase has no status at all, rather than a skipped one.
+   * The phases key is deprecated: every run walks the canonical sequence.
+   *
+   * 0.3 made the four working phases mandatory — what varies per repo is
+   * gate weight, never the path. A file still naming a subset is validated
+   * (typos must surface), then superseded, with the supersession recorded.
    */
-  public function testDroppedPhaseIsAbsentNotSkipped(): void {
+  public function testPhasesKeyIsDeprecatedNeverDropping(): void {
     $config = WorkflowConfig::fromArray(
       ['phases' => ['plan', 'code', 'complete']],
       'test',
     );
-    $state = RunState::begin('r', 't', $config);
+    $this->assertNotEmpty($config->deprecations);
+    $this->assertStringContainsString('deprecated', $config->deprecations[0]);
 
-    $this->assertNull($state->statusOf(Phase::Document));
-    $this->assertNull($state->statusOf(Phase::Test));
+    $state = RunState::begin('r', 't', $config);
+    $this->assertSame(PhaseStatus::Pending, $state->statusOf(Phase::Document));
+    $this->assertSame(PhaseStatus::Pending, $state->statusOf(Phase::Test));
     $this->assertSame(PhaseStatus::Pending, $state->statusOf(Phase::Code));
+
+    // A malformed subset still errors — deprecation is not amnesty.
+    $this->expectException(ConfigError::class);
+    WorkflowConfig::fromArray(['phases' => ['plan', 'deploy']], 'test');
   }
 
   /**
@@ -174,14 +185,25 @@ class RunStateTest extends TestCase {
   }
 
   /**
-   * A phase this run does not execute is not a destination.
+   * A phase a run's own document does not carry is not a destination.
+   *
+   * New configs cannot drop phases any more (0.3), but a run document
+   * written under an older engine still rules its own run: the guard is on
+   * the frozen state, not the current vocabulary.
    */
   public function testCannotAdvanceToUnconfiguredPhase(): void {
-    $config = WorkflowConfig::fromArray(
-      ['phases' => ['plan', 'complete']],
-      'test',
+    $state = new RunState(
+      'r',
+      't',
+      Mode::Automated,
+      NULL,
+      'custom',
+      2,
+      Provenance::File,
+      [],
+      ['plan' => PhaseStatus::Active, 'complete' => PhaseStatus::Pending],
+      Phase::Plan,
     );
-    $state = RunState::begin('r', 't', $config);
 
     $this->assertFalse($state->canAdvanceTo(Phase::Test));
     $this->expectException(\InvalidArgumentException::class);
@@ -243,14 +265,14 @@ class RunStateTest extends TestCase {
       $this->begin()->phaseGates,
     );
 
-    $partial = RunState::begin('r', 't', WorkflowConfig::fromArray(
+    $withDeprecatedKey = RunState::begin('r', 't', WorkflowConfig::fromArray(
       ['phases' => ['plan', 'code', 'complete']],
       'test',
     ));
     $this->assertSame(
-      ['plan', 'code', 'complete'],
-      array_keys($partial->phaseGates),
-      'the frozen map must carry only the phases this run executes',
+      ['plan', 'code', 'test', 'document', 'complete'],
+      array_keys($withDeprecatedKey->phaseGates),
+      'the deprecated phases key never thins the frozen map (0.3: phases are mandatory)',
     );
   }
 

@@ -1,0 +1,143 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Droost\Workflow\Tests\Pack;
+
+use Droost\Workflow\Pack\PackError;
+use Droost\Workflow\Pack\PackManifest;
+use Droost\Workflow\Pack\PackMaterializer;
+use Droost\Workflow\Tests\WorkflowTestCase;
+
+/**
+ * The enforcement layer's installation seams (0.3, W2/W5–W7).
+ *
+ * Three facts are pinned: settings.json is MERGED and never clobbered,
+ * shared .claude directories are never claimed with a sentinel, and
+ * .droost-workflow/ is gitignored by default. Each is the kind of decision
+ * that only hurts a user when it regresses silently.
+ */
+final class EnforcementWiringTest extends WorkflowTestCase {
+
+  /**
+   * Init wires the guard into settings.json and is idempotent.
+   */
+  public function testInitWiresClaudeHooksIdempotently(): void {
+    $root = $this->makeRoot();
+    $materializer = new PackMaterializer();
+
+    $first = $materializer->init($root);
+    $this->assertContains('.claude/settings.json', $first->written);
+
+    $raw = (string) file_get_contents($root . '/.claude/settings.json');
+    $settings = json_decode($raw, TRUE);
+    $this->assertIsArray($settings);
+    $encoded = json_encode($settings['hooks']);
+    $this->assertIsString($encoded);
+    $this->assertStringContainsString('droost-workflow-guard.php pre-tool-use', $encoded);
+    $this->assertStringContainsString('droost-workflow-guard.php stop', $encoded);
+
+    $second = $materializer->init($root);
+    $this->assertContains('.claude/settings.json', $second->kept);
+    $this->assertSame(
+      $raw,
+      file_get_contents($root . '/.claude/settings.json'),
+      'a re-run must not grow the file',
+    );
+  }
+
+  /**
+   * A user's existing settings survive the merge; broken JSON is refused.
+   */
+  public function testUserSettingsAreMergedNeverClobbered(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/.claude', 0755, TRUE);
+    file_put_contents($root . '/.claude/settings.json', json_encode([
+      'permissions' => ['allow' => ['Bash(ls:*)']],
+      'hooks' => [
+        'Stop' => [
+          ['hooks' => [['type' => 'command', 'command' => 'echo mine']]],
+        ],
+      ],
+    ]));
+
+    (new PackMaterializer())->init($root);
+
+    $settings = json_decode(
+      (string) file_get_contents($root . '/.claude/settings.json'),
+      TRUE,
+    );
+    $this->assertIsArray($settings);
+    $this->assertSame(['allow' => ['Bash(ls:*)']], $settings['permissions']);
+    $hooks = $settings['hooks'];
+    $this->assertIsArray($hooks);
+    $encoded = json_encode($hooks['Stop']);
+    $this->assertIsString($encoded);
+    $this->assertStringContainsString('echo mine', $encoded);
+    $this->assertStringContainsString('droost-workflow-guard.php stop', $encoded);
+
+    $broken = $this->makeRoot();
+    mkdir($broken . '/.claude', 0755, TRUE);
+    file_put_contents($broken . '/.claude/settings.json', '{not json');
+    $this->expectException(PackError::class);
+    (new PackMaterializer())->init($broken);
+  }
+
+  /**
+   * Shared .claude directories are populated but never claimed.
+   */
+  public function testSharedDirectoriesAreNeverSentinelled(): void {
+    $root = $this->makeRoot();
+    // A user's own command must neither block init nor be touched by it.
+    mkdir($root . '/.claude/commands', 0755, TRUE);
+    file_put_contents($root . '/.claude/commands/mine.md', "# Mine\n");
+
+    (new PackMaterializer())->init($root);
+
+    $this->assertFileExists($root . '/.claude/commands/droost-work.md');
+    $this->assertFileExists($root . '/.claude/hooks/droost-workflow-guard.php');
+    $this->assertFileExists($root . '/.claude/agents/workflow-researcher.md');
+    $this->assertSame("# Mine\n", file_get_contents($root . '/.claude/commands/mine.md'));
+
+    foreach (PackManifest::SHARED_DIRS as $shared) {
+      $this->assertFileDoesNotExist(
+        $root . '/' . $shared . '/' . PackManifest::SENTINEL,
+        $shared . ' is shared with the user and must never carry the sentinel',
+      );
+    }
+    // The dedicated subdirectory keeps its sentinel — ownership did not
+    // weaken, it just stopped over-reaching.
+    $this->assertFileExists(
+      $root . '/.claude/commands/workflow/' . PackManifest::SENTINEL,
+    );
+  }
+
+  /**
+   * Run state is gitignored by default; an existing entry is respected.
+   */
+  public function testInitGitignoresRunState(): void {
+    $root = $this->makeRoot();
+    file_put_contents($root . '/.gitignore', "vendor/\n");
+
+    $materializer = new PackMaterializer();
+    $first = $materializer->init($root);
+    $this->assertContains('.gitignore', $first->written);
+    $contents = (string) file_get_contents($root . '/.gitignore');
+    $this->assertStringContainsString("vendor/\n", $contents);
+    $this->assertStringContainsString(".droost-workflow/\n", $contents);
+
+    $second = $materializer->init($root);
+    $this->assertContains('.gitignore', $second->kept);
+
+    // A repo that already ignores it — in any spelling — is left alone.
+    $spelled = $this->makeRoot();
+    file_put_contents($spelled . '/.gitignore', "/.droost-workflow\n");
+    $report = (new PackMaterializer())->init($spelled);
+    $this->assertContains('.gitignore', $report->kept);
+    $this->assertSame(
+      "/.droost-workflow\n",
+      file_get_contents($spelled . '/.gitignore'),
+    );
+  }
+
+}

@@ -55,9 +55,36 @@ final class PackManifest {
     => '.claude/skills/workflow-document/SKILL.md',
     'skills/workflow-complete/SKILL.md'
     => '.claude/skills/workflow-complete/SKILL.md',
+    'commands/droost-work.md' => '.claude/commands/droost-work.md',
     'commands/workflow/run.md' => '.claude/commands/workflow/run.md',
     'commands/workflow/status.md' => '.claude/commands/workflow/status.md',
     'partials/droost-usage.md' => '.claude/partials/droost-usage.md',
+    'hooks/droost-workflow-guard.php'
+    => '.claude/hooks/droost-workflow-guard.php',
+    'agents/workflow-researcher.md'
+    => '.claude/agents/workflow-researcher.md',
+    'agents/workflow-spec-writer.md'
+    => '.claude/agents/workflow-spec-writer.md',
+    'agents/workflow-bug-fixer.md'
+    => '.claude/agents/workflow-bug-fixer.md',
+  ];
+
+  /**
+   * Destination directories shared with the user, never sentinelled.
+   *
+   * `.claude/commands`, `.claude/hooks` and `.claude/agents` are
+   * conventional homes for a repo's OWN commands, hooks and agents; planting
+   * a sentinel there would claim the whole directory and make init refuse a
+   * project that already has any. Files this pack puts in them are still
+   * refreshed on every init (the copy truncates), but the directories stay
+   * the user's: nothing beyond the manifest's own files is ever touched.
+   *
+   * @var list<string>
+   */
+  public const SHARED_DIRS = [
+    '.claude/commands',
+    '.claude/hooks',
+    '.claude/agents',
   ];
 
   /**
@@ -144,6 +171,9 @@ final class PackManifest {
     $dirs = [];
     foreach (self::FILES as $destination) {
       $dir = dirname($destination);
+      if (in_array($dir, self::SHARED_DIRS, TRUE)) {
+        continue;
+      }
       if (!in_array($dir, $dirs, TRUE)) {
         $dirs[] = $dir;
       }

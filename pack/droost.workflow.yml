@@ -16,19 +16,34 @@
 #   pair      — pause at every phase gate and ask before advancing.
 mode: automated
 
-# custom | factory | fast
-#   factory — everything on, strict. The software factory.
-#   fast    — standards and a shallow analysis; nothing that costs minutes.
+# custom | factory | light
+#   factory — everything on, strict. The software factory. Full EARS spec.
+#   light   — the same four phases at lighter weight: a ten-line quasi-spec
+#             (presented in chat at document), the static pair, and the
+#             rendered check. Light is not a shorter path — nothing skips.
 #   custom  — the values spelled out below.
+# (`fast` was renamed `light` in 0.3; the old name is refused with a pointer.)
 preset: custom
 
-# Drop code, test or document if you must. plan and complete are endpoints.
-phases: [plan, code, test, document, complete]
+# hard | soft | off
+#   How hard the harness hooks hold the phase discipline WHILE A RUN IS
+#   ACTIVE — outside a run the hooks are silent by construction. hard blocks
+#   out-of-phase actions; soft warns once per phase; off stands the hooks
+#   down and leaves only the gates. Orthogonal to the preset on purpose: you
+#   MAY pair factory gates with enforcement off. Not advised — but this file
+#   is a reviewable diff, and a visible loosening is the honest way to allow
+#   it. (Preset defaults: factory → hard, light → soft.)
+enforcement: soft
+
+# DEPRECATED (0.3) and ignored: every run walks plan, code, test, document,
+# complete. Tune gate weight per phase instead of dropping phases; naming a
+# subset here earns a deprecation notice in every lever report.
+# phases: [plan, code, test, document, complete]
 
 # WHETHER a gate runs is this file's business; WHEN it runs is the engine's
-# phase map — plan/document run none, code runs the static pair, test runs
-# the functional gates, complete re-runs everything enabled. The run command
-# documents the map.
+# phase map — plan runs none, code runs the static pair, test runs the
+# functional gates, document runs wiki_fresh, complete re-runs everything
+# enabled. The run command documents the map.
 gates:
   # "on" is the only switch a gate has. A threshold does NOT turn one on:
   # setting coverage.min without coverage.on leaves coverage where the preset
@@ -45,8 +60,8 @@ gates:
   playwright:     { on: false }
   coverage:       { on: false, min: 0 }
 
-  # Artifacts are truth. Recommended on even in a fast run: a run that stops
-  # checking whether the page renders is not fast, it is blind.
+  # Artifacts are truth. Recommended on even in a light run: a run that stops
+  # checking whether the page renders is not light, it is blind.
   #
   # No droost MCP tool renders a page, so this gate is implemented by the
   # live-site surface rather than by droost — which means a run with no
@@ -58,6 +73,15 @@ gates:
   #   rendered_check: { on: true, routes: "/,/pricing" }
   # Omitted, the live surface renders "/".
   rendered_check: { on: true }
+
+  # Your own commands as first-class gates — semgrep, behat, anything.
+  # Everything is explicit (a custom gate has no preset base, so nothing
+  # about it is inferred): `on`, `phase` (code | test — everything enabled
+  # re-runs at complete anyway) and a single-line `cmd`. Exit zero passes; a
+  # command the shell cannot find reports tool-missing, which blocks, never
+  # passes. Uncomment to use:
+  # custom:
+  #   semgrep: { on: true, phase: code, cmd: "semgrep scan --error --quiet" }
 
 # How many times a failing gate may drive the feedback loop before the run
 # fails. 0 means a gate gets one attempt and no retry.
