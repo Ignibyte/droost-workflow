@@ -96,6 +96,7 @@ final class WorkflowFacade {
         'provenance' => $config->provenance->value,
         'preset' => $config->preset,
         'mode' => $config->mode->value,
+        'enforcement' => $config->enforcement->value,
         'phases' => $config->phaseNames(),
         'gates' => $config->resolvedGates(),
         // WHEN each enabled gate runs — so "why did plan run nothing" is
@@ -103,6 +104,9 @@ final class WorkflowFacade {
         'phase_gates' => PhaseGateMap::forPhases($config->phaseNames()),
         'max_gate_retries' => $config->maxGateRetries,
       ],
+      // Deprecations are part of the resolved result: a lever file using a
+      // retired key should say so everywhere the levers are read.
+      'deprecations' => $config->deprecations,
       'run' => NULL,
     ];
 
