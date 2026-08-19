@@ -29,6 +29,25 @@ final class ShellGateExecutor implements GateExecutorInterface {
   public const DEFAULT_TIMEOUT = 600;
 
   /**
+   * What counts as analysable, per gate that accepts a `paths` lever.
+   *
+   * Used only to tell "this path holds nothing for the tool" from "the tool
+   * found problems": phpstan errors out on a path set with no PHP in it, and
+   * that exit code would otherwise read as a failing gate on every repo whose
+   * custom-code directories are still empty. phpcs's set is wider because
+   * the Drupal standard genuinely sniffs css and js.
+   */
+  private const ANALYSABLE = [
+    'phpcs' => [
+      'php', 'module', 'install', 'inc', 'theme', 'profile', 'engine',
+      'css', 'js',
+    ],
+    'phpstan' => [
+      'php', 'module', 'install', 'inc', 'theme', 'profile', 'engine',
+    ],
+  ];
+
+  /**
    * Constructs a ShellGateExecutor.
    *
    * @param callable(list<string>, string, int): array{int, string, string} $runner
@@ -59,10 +78,39 @@ final class ShellGateExecutor implements GateExecutorInterface {
     }
     $binary = $this->binaryFor($gate->name);
     $argv = $this->argvFor($gate, $root . '/' . $binary);
+    // NULL when the gate carries no paths lever (the tool discovers the
+    // repo's own config); a list otherwise — possibly empty, see below.
+    $scoped = $this->scopedPaths($gate, $root);
+    if (is_array($scoped)) {
+      $argv = array_merge($argv, $scoped);
+    }
     $invocation = implode(' ', $argv);
 
     if (!is_file($root . '/' . $binary)) {
+      // A missing tool outranks an empty scope: the environment being broken
+      // is true whether or not there is anything to analyse yet.
       return GateResult::toolMissing($gate->name, $invocation);
+    }
+
+    if ($scoped === []) {
+      // Every configured path is absent or holds nothing the tool reads.
+      // Running anyway would make phpstan's "no files found" error read as a
+      // failing gate on a repo whose custom-code directories are still
+      // empty. A pass that SAYS it analysed nothing is the honest verdict —
+      // and it is labeled, so it can never be mistaken for a clean scan.
+      return GateResult::ran(
+        $gate->name,
+        GateStatus::Passed,
+        0,
+        0,
+        sprintf(
+          '%s passed — the configured paths (%s) contain nothing to analyse',
+          $gate->name,
+          (string) $gate->option('paths'),
+        ),
+        [],
+        $invocation,
+      );
     }
 
     $started = $this->tick();
@@ -133,6 +181,71 @@ final class ShellGateExecutor implements GateExecutorInterface {
       $this->findings($stdout),
       $cmd,
     );
+  }
+
+  /**
+   * The gate's analysis paths, resolved against what actually exists.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate's resolved levers.
+   * @param string $root
+   *   The project root (already trimmed).
+   *
+   * @return list<string>|null
+   *   NULL when the gate carries no paths lever; otherwise the configured
+   *   paths that exist and hold at least one file the tool reads — possibly
+   *   an empty list, which the caller reports as a labeled pass.
+   */
+  private function scopedPaths(GateSettings $gate, string $root): ?array {
+    $extensions = self::ANALYSABLE[$gate->name] ?? NULL;
+    $paths = $gate->option('paths');
+    if ($extensions === NULL || !is_string($paths) || $paths === '') {
+      return NULL;
+    }
+    $scoped = [];
+    foreach (explode(',', $paths) as $path) {
+      $path = trim($path);
+      if ($path !== '' && $this->hasAnalysable($root . '/' . $path, $extensions)) {
+        $scoped[] = $path;
+      }
+    }
+    return $scoped;
+  }
+
+  /**
+   * Whether a path holds at least one file with one of these extensions.
+   *
+   * @param string $path
+   *   An absolute file or directory path.
+   * @param list<string> $extensions
+   *   Lower-case extensions without the dot.
+   *
+   * @return bool
+   *   TRUE when something analysable is there.
+   */
+  private function hasAnalysable(string $path, array $extensions): bool {
+    if (is_file($path)) {
+      return in_array(strtolower(pathinfo($path, PATHINFO_EXTENSION)), $extensions, TRUE);
+    }
+    if (!is_dir($path)) {
+      return FALSE;
+    }
+    try {
+      $files = new \RecursiveIteratorIterator(
+        new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
+      );
+    }
+    catch (\UnexpectedValueException) {
+      return FALSE;
+    }
+    foreach ($files as $file) {
+      if ($file instanceof \SplFileInfo
+        && $file->isFile()
+        && in_array(strtolower($file->getExtension()), $extensions, TRUE)) {
+        return TRUE;
+      }
+    }
+    return FALSE;
   }
 
   /**

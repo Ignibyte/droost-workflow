@@ -48,6 +48,8 @@ enforcement: soft               # hard | soft | off — the hooks, mid-run only
 gates:
   phpcs:          { on: true,  standard: "Drupal,DrupalPractice" }
   phpstan:        { on: true,  level: 6 }      # 0-9 | max | off
+  # both static gates accept paths: "web/modules/custom,web/themes/custom" —
+  # repo-relative analysis targets for repos with no phpcs.xml/phpstan.neon
   phpunit:        { on: true }
   mutation:       { on: false, msi_min: 0 }
   playwright:     { on: false }

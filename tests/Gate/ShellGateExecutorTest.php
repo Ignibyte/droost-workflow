@@ -307,6 +307,122 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * A paths lever appends the paths that exist and hold analysable files.
+   *
+   * The configured pair names one directory with real code and one that does
+   * not exist — the argv must carry the first and never the second, because
+   * both tools error out on paths they cannot read.
+   */
+  public function testPathsAppendedAndMissingOnesFiltered(): void {
+    $root = $this->rootWithBinaries(['phpcs']);
+    mkdir($root . '/web/modules/custom/fx', 0755, TRUE);
+    file_put_contents($root . '/web/modules/custom/fx/fx.module', "<?php\n");
+    $seen = [];
+    $executor = new ShellGateExecutor(
+      function (array $argv) use (&$seen): array {
+        $seen = $argv;
+        return [0, '', ''];
+      },
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(
+      new GateSettings('phpcs', TRUE, [
+        'standard' => 'Drupal',
+        'paths' => 'web/modules/custom,web/themes/custom',
+      ]),
+      $root,
+    );
+
+    $this->assertSame(GateStatus::Passed, $result->status);
+    $this->assertSame('web/modules/custom', end($seen));
+    $this->assertNotContains('web/themes/custom', $seen);
+  }
+
+  /**
+   * A paths lever whose scope holds nothing is a labeled pass, not a run.
+   *
+   * PHPStan exits non-zero on a path set with no PHP in it, so running would
+   * report a failing gate on every repo whose custom-code directories are
+   * still empty. The pass must SAY it analysed nothing — that label is what
+   * keeps it distinguishable from a clean scan.
+   */
+  public function testEmptyPathsScopeIsLabeledPass(): void {
+    $root = $this->rootWithBinaries(['phpstan']);
+    mkdir($root . '/web/modules/custom', 0755, TRUE);
+    file_put_contents($root . '/web/modules/custom/notes.txt', "no code\n");
+    $executor = new ShellGateExecutor(
+      static fn (): array => throw new \LogicException('must not spawn'),
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(
+      new GateSettings('phpstan', TRUE, [
+        'level' => 6,
+        'paths' => 'web/modules/custom,web/themes/custom',
+      ]),
+      $root,
+    );
+
+    $this->assertSame(GateStatus::Passed, $result->status);
+    $this->assertStringContainsString('nothing to analyse', $result->summary);
+    $this->assertStringContainsString('web/modules/custom', $result->summary);
+  }
+
+  /**
+   * What counts as analysable is the gate's call, not one shared list.
+   *
+   * The Drupal standard genuinely sniffs css, so a css-only theme directory
+   * is real work for phpcs — and nothing at all for phpstan.
+   */
+  public function testPathsAnalysabilityIsPerGate(): void {
+    $root = $this->rootWithBinaries(['phpcs', 'phpstan']);
+    mkdir($root . '/web/themes/custom/fxt/css', 0755, TRUE);
+    file_put_contents($root . '/web/themes/custom/fxt/css/tokens.css', "a {}\n");
+    $spawned = 0;
+    $executor = new ShellGateExecutor(
+      function () use (&$spawned): array {
+        $spawned++;
+        return [0, '', ''];
+      },
+      static fn (): int => 0,
+    );
+
+    $phpcs = $executor->execute(
+      new GateSettings('phpcs', TRUE, ['paths' => 'web/themes/custom']),
+      $root,
+    );
+    $phpstan = $executor->execute(
+      new GateSettings('phpstan', TRUE, ['paths' => 'web/themes/custom']),
+      $root,
+    );
+
+    $this->assertSame(1, $spawned, 'Only phpcs had something to run on.');
+    $this->assertSame(GateStatus::Passed, $phpcs->status);
+    $this->assertSame(GateStatus::Passed, $phpstan->status);
+    $this->assertStringContainsString('nothing to analyse', $phpstan->summary);
+    $this->assertStringNotContainsString('nothing to analyse', $phpcs->summary);
+  }
+
+  /**
+   * A missing tool outranks an empty scope: the environment is still broken.
+   */
+  public function testMissingBinaryOutranksEmptyPathsScope(): void {
+    $root = $this->makeRoot();
+    $executor = new ShellGateExecutor(
+      static fn (): array => throw new \LogicException('must not spawn'),
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(
+      new GateSettings('phpcs', TRUE, ['paths' => 'web/modules/custom']),
+      $root,
+    );
+
+    $this->assertSame(GateStatus::ErrorToolMissing, $result->status);
+  }
+
+  /**
    * A project root with stub binaries in place.
    *
    * @param list<string> $tools

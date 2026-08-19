@@ -212,7 +212,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
       'unknown gate option' => [
         ['gates' => ['phpcs' => ['levl' => 1]]],
         'droost.workflow.yml: gate "phpcs" has no option "levl" '
-        . '(accepts: on, standard)',
+        . '(accepts: on, standard, paths)',
       ],
       'option on a gate with none' => [
         ['gates' => ['phpunit' => ['min' => 1]]],
@@ -448,6 +448,80 @@ class WorkflowConfigTest extends WorkflowTestCase {
       'traversal in the middle' => ['a/../b', FALSE],
       'empty' => ['', FALSE],
     ];
+  }
+
+  /**
+   * A paths lever is accepted, normalized, and carried into resolution.
+   */
+  public function testPathsLeverIsAcceptedAndNormalized(): void {
+    $config = WorkflowConfig::fromArray(
+      [
+        'gates' => [
+          'phpcs' => ['paths' => 'web/modules/custom, web/themes/custom'],
+          'phpstan' => ['paths' => 'web/modules/custom'],
+        ],
+      ],
+      'droost.workflow.yml',
+    );
+
+    $this->assertSame(
+      'web/modules/custom,web/themes/custom',
+      $config->gate('phpcs')->option('paths'),
+      'Components are trimmed and rejoined.',
+    );
+    $this->assertSame(
+      'web/modules/custom',
+      $config->gate('phpstan')->option('paths'),
+    );
+  }
+
+  /**
+   * Paths are validated per component — the comma hides nothing.
+   *
+   * @param string $paths
+   *   The candidate value.
+   */
+  #[DataProvider('badPathsCases')]
+  public function testPathsAreValidatedPerComponent(string $paths): void {
+    $this->expectException(ConfigError::class);
+    $this->expectExceptionMessage('repo-relative');
+    WorkflowConfig::fromArray(
+      ['gates' => ['phpstan' => ['paths' => $paths]]],
+      'droost.workflow.yml',
+    );
+  }
+
+  /**
+   * Path lists the vocabulary must refuse.
+   *
+   * @return array<string, array{string}>
+   *   Case name to the value.
+   */
+  public static function badPathsCases(): array {
+    return [
+      'absolute component' => ['/etc'],
+      'traversal hidden behind the comma' => ['src,..'],
+      'traversal inside a component' => ['src,a/../b'],
+      'empty component' => ['src,,tests'],
+      'shell metacharacter' => ['src; rm -rf /'],
+      'empty value' => [''],
+    ];
+  }
+
+  /**
+   * Gates outside the static pair refuse a paths lever by name.
+   *
+   * The one people will reach for is phpunit: a test run is defined by its
+   * config file, and a bare path would invent a suite. The refusal must name
+   * what IS accepted so the reader learns the vocabulary from the error.
+   */
+  public function testPathsOnPhpunitIsRefused(): void {
+    $this->expectException(ConfigError::class);
+    $this->expectExceptionMessage('gate "phpunit" has no option "paths"');
+    WorkflowConfig::fromArray(
+      ['gates' => ['phpunit' => ['paths' => 'tests']]],
+      'droost.workflow.yml',
+    );
   }
 
   /**

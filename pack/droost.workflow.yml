@@ -48,6 +48,12 @@ gates:
   # "on" is the only switch a gate has. A threshold does NOT turn one on:
   # setting coverage.min without coverage.on leaves coverage where the preset
   # put it.
+  #
+  # The static pair also accepts `paths` — comma-separated repo-relative
+  # files or directories to analyse. Omitted, each tool discovers the repo's
+  # own config (phpcs.xml.dist, phpstan.neon); set it where no such config
+  # exists, e.g. a Drupal site root pointing at the custom-code directories.
+  # A configured path holding nothing analysable reports a labeled pass.
   phpcs:          { on: true,  standard: "Drupal,DrupalPractice" }
 
   # level: 0-9, "max", or "off". "off" disables the gate; pairing it with

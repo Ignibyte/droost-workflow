@@ -72,11 +72,18 @@ final class GateSettings {
    * The options each gate accepts, and how each is read.
    *
    * Types: "string", "percent" (an integer 0-100), "level" (0-9, "max" or
-   * "off"). A gate absent from a row accepts nothing but "on".
+   * "off"), "paths" (comma-separated repo-relative paths). A gate absent
+   * from a row accepts nothing but "on".
+   *
+   * Only the static pair takes `paths`: they are the two tools that can be
+   * pointed at a directory with nothing but argv, which is what a repo with
+   * no tool configs of its own — a Drupal site root, most importantly —
+   * needs. phpunit is deliberately excluded: a test run is defined by its
+   * config file (bootstrap, env), and a bare path would invent a suite.
    */
   private const GATE_OPTIONS = [
-    'phpcs' => ['standard' => 'string'],
-    'phpstan' => ['level' => 'level'],
+    'phpcs' => ['standard' => 'string', 'paths' => 'paths'],
+    'phpstan' => ['level' => 'level', 'paths' => 'paths'],
     'phpunit' => [],
     'mutation' => ['msi_min' => 'percent'],
     'playwright' => [],
@@ -342,6 +349,7 @@ final class GateSettings {
     return match ($type) {
       'percent' => $node->intInRange($option, 0, 100),
       'level' => $this->readLevel($node, $option),
+      'paths' => $this->readPaths($node, $option),
       default => $this->readToolArgument($node, $option),
     };
   }
@@ -375,16 +383,8 @@ final class GateSettings {
     string $option,
   ): string {
     $value = $node->string($option);
-    // A relative ruleset path is legitimate, so "." and "/" stay allowed —
-    // but a ".." component never names a coding standard, and letting one
-    // through would hand the gate runner a traversal it has no reason to
-    // accept.
-    $traverses = $value === '..'
-      || str_starts_with($value, '../')
-      || str_contains($value, '/../')
-      || str_ends_with($value, '/..');
     if ($value === ''
-      || $traverses
+      || self::traverses($value)
       || preg_match(self::TOOL_ARGUMENT, $value) !== 1) {
       throw new DataError($node->path($option), sprintf(
         '%s must be a non-empty name, standard or relative path using only '
@@ -395,6 +395,67 @@ final class GateSettings {
       ));
     }
     return $value;
+  }
+
+  /**
+   * Reads a comma-separated list of repo-relative analysis paths.
+   *
+   * Validated per component, because the whole-string traversal check would
+   * wave through "src,.." — the ".." hides behind the comma. Each component
+   * must be a relative path: the gate runner roots every invocation at the
+   * project, and an absolute path would let a lever file point the analysis
+   * outside the repo whose diff reviewed it.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $node
+   *   The gate's mapping.
+   * @param string $option
+   *   The option name.
+   *
+   * @return string
+   *   The list, normalized to trimmed components joined by ",".
+   *
+   * @throws \Droost\Workflow\Support\DataError
+   *   When a component is empty, absolute, traversing, or carries a
+   *   character no path needs.
+   */
+  private function readPaths(TypedArray $node, string $option): string {
+    $value = $node->string($option);
+    $components = array_map(trim(...), explode(',', $value));
+    foreach ($components as $component) {
+      if ($component === ''
+        || str_starts_with($component, '/')
+        || self::traverses($component)
+        || preg_match(self::TOOL_ARGUMENT, $component) !== 1) {
+        throw new DataError($node->path($option), sprintf(
+          '%s must be a comma-separated list of repo-relative paths — '
+          . '"%s" is not one',
+          $node->path($option),
+          $component,
+        ));
+      }
+    }
+    return implode(',', $components);
+  }
+
+  /**
+   * Whether a value contains a ".." path component.
+   *
+   * A relative ruleset path is legitimate, so "." and "/" stay allowed — but
+   * a ".." component never names a coding standard or an analysis target,
+   * and letting one through would hand the gate runner a traversal it has no
+   * reason to accept.
+   *
+   * @param string $value
+   *   The candidate.
+   *
+   * @return bool
+   *   TRUE when the value traverses upward.
+   */
+  private static function traverses(string $value): bool {
+    return $value === '..'
+      || str_starts_with($value, '../')
+      || str_contains($value, '/../')
+      || str_ends_with($value, '/..');
   }
 
   /**
