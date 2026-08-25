@@ -18,6 +18,7 @@ use Droost\Workflow\Mode\ModeEngine;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\QuestionSinkInterface;
 use Droost\Workflow\Mode\RunOutcome;
+use Droost\Workflow\Seeker\SeekerLedger;
 use Droost\Workflow\Pack\InitReport;
 use Droost\Workflow\Pack\PackMaterializer;
 use Droost\Workflow\State\PhaseStatus;
@@ -128,6 +129,13 @@ final class WorkflowFacade {
       'started_at' => $state->startedAt,
       'effective_mode' => $state->effectiveMode()->value,
       'current_phase' => $state->currentPhase?->value,
+      // The judgment half of the record: whether the checkpoint is armed,
+      // the latest parsed inspection, and which browser tier the agent
+      // declared — so "what was this run actually verified by" is
+      // answerable from status alone.
+      'seekers' => $state->seekers,
+      'seeker' => $state->seeker,
+      'browser' => $state->browser,
       'phases' => array_map(
         static fn ($s): string => $s->value,
         $state->phases,
@@ -270,6 +278,76 @@ final class WorkflowFacade {
     $swapped = $this->engine()->swap($state, $to, $this->now());
     $store->save($swapped);
     return $swapped;
+  }
+
+  /**
+   * Records a seeker inspection from its ledger text.
+   *
+   * The counts come from PARSING the ledger — never from an agent's summary
+   * of it. An unparseable or incomplete section is a typed error, and
+   * nothing is recorded: an inspection that cannot be read is an inspection
+   * that did not happen.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $ledgerText
+   *   The text carrying the "## Seeker Inspection" section — the spec
+   *   file's content, or the section alone.
+   *
+   * @return array<string, int|string>
+   *   The recorded inspection, already persisted.
+   *
+   * @throws \Droost\Workflow\Seeker\SeekerError
+   *   When the ledger is missing, incomplete or contradictory.
+   * @throws \Droost\Workflow\State\StateError
+   *   When there is no run to record against.
+   */
+  public function recordSeeker(
+    string $projectRoot,
+    string $ledgerText,
+  ): array {
+    $store = new RunStateStore($projectRoot);
+    $state = $this->requireRun($store);
+    $record = SeekerLedger::parse($ledgerText)->toRecord($this->now());
+    $store->save($state->withSeekerReport($record));
+    return $record;
+  }
+
+  /**
+   * Records the browser capability the running agent declared.
+   *
+   * Session-scoped truth only the agent can know: no file on disk says
+   * whether the session driving this run has a browser tool. Declared once
+   * at run start so the test phase and the final report can say which
+   * verification tier actually ran.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $browser
+   *   One of: playwright-mcp, native, none.
+   *
+   * @return \Droost\Workflow\State\RunState
+   *   The run, already persisted.
+   *
+   * @throws \InvalidArgumentException
+   *   When the word is outside the vocabulary.
+   * @throws \Droost\Workflow\State\StateError
+   *   When there is no run to record against.
+   */
+  public function declareBrowser(
+    string $projectRoot,
+    string $browser,
+  ): RunState {
+    if (!in_array($browser, ['playwright-mcp', 'native', 'none'], TRUE)) {
+      throw new \InvalidArgumentException(sprintf(
+        'browser must be playwright-mcp, native or none — got "%s"',
+        $browser,
+      ));
+    }
+    $store = new RunStateStore($projectRoot);
+    $declared = $this->requireRun($store)->withBrowser($browser);
+    $store->save($declared);
+    return $declared;
   }
 
   /**

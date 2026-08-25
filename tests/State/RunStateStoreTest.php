@@ -57,6 +57,7 @@ class RunStateStoreTest extends WorkflowTestCase {
       'mid-advance' => ['advanced'],
       'ended, no current phase' => ['ended'],
       'all reserved fields populated' => ['reserved'],
+      'inspected, with a declared browser' => ['inspected'],
     ];
   }
 
@@ -196,6 +197,21 @@ class RunStateStoreTest extends WorkflowTestCase {
       'a future version' => [$valid(['v' => 99]), 'schema v99 is not supported'],
       'a stringy version' => [$valid(['v' => '1']), 'v must be an integer'],
       'unknown mode' => [$valid(['mode' => 'banana']), 'unknown mode "banana"'],
+      'unknown seeker status' => [
+        $valid(['seeker' => [
+          'status' => 'vibes',
+          'critical' => 0,
+          'medium' => 0,
+          'low' => 0,
+          'observations' => 0,
+          'reported_at' => 't',
+        ]]),
+        'unknown seeker status "vibes"',
+      ],
+      'unknown browser word' => [
+        $valid(['browser' => 'chrome']),
+        'unknown browser capability "chrome"',
+      ],
       // A run that began under 0.3 carries the retired document phase. It is
       // not corruption; the message must say what it is and name both exits.
       'a 0.3 five-phase run' => [
@@ -427,6 +443,16 @@ class RunStateStoreTest extends WorkflowTestCase {
       'fresh' => $fresh,
       'override' => $fresh->withModeOverride(Mode::Pair),
       'advanced' => $fresh->advanceTo(Phase::Code),
+      'inspected' => $fresh
+        ->withSeekerReport([
+          'status' => 'clean',
+          'critical' => 0,
+          'medium' => 1,
+          'low' => 2,
+          'observations' => 3,
+          'reported_at' => '2026-08-25T00:00:00+00:00',
+        ])
+        ->withBrowser('native'),
       'ended' => new RunState(
         'run-1',
         '2026-07-27T09:00:00+00:00',

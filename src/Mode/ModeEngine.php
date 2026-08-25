@@ -98,6 +98,18 @@ final class ModeEngine {
       return $this->recordFailure($state, $phase, $report);
     }
 
+    // The seeker checkpoint. Gates verify rules; the seeker verifies
+    // judgment — so it holds the run AFTER the machines are satisfied
+    // (inspection is of code that already lints, analyses and tests), at
+    // the two boundaries the pattern names: leaving code, and completing.
+    // It sits before the pair question on purpose: there is no point asking
+    // a human to advance a run the engine itself will not advance.
+    if (($phase === Phase::Code || $phase === Phase::Complete)
+      && $state->seekers
+      && ($state->seeker['status'] ?? NULL) !== 'clean') {
+      return new RunOutcome(Outcome::InspectionDue, $state, $report);
+    }
+
     if ($this->effectiveMode($state) === Mode::Pair) {
       $question = new PendingQuestion(
         $phase,

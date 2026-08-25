@@ -120,7 +120,7 @@ class ModeEngineTest extends WorkflowTestCase {
     );
 
     $first = $engine->runPhase(
-      $this->begin(['mode' => 'pair']),
+      $this->begin(['mode' => 'pair', 'seekers' => ['on' => FALSE]]),
       Phase::Code,
       '/tmp',
       self::NOW,
@@ -323,8 +323,10 @@ class ModeEngineTest extends WorkflowTestCase {
     );
     // Advanced to code first, as the facade always has by the time it calls
     // runPhase — the run's current phase IS the phase being worked.
-    $state = $this->begin(['max_gate_retries' => 2])
-      ->advanceTo(Phase::Code);
+    $state = $this->begin([
+      'max_gate_retries' => 2,
+      'seekers' => ['on' => FALSE],
+    ])->advanceTo(Phase::Code);
 
     $first = $engine->runPhase($state, Phase::Code, '/tmp', self::NOW);
     $this->assertSame(Outcome::Failed, $first->outcome);
@@ -453,8 +455,10 @@ class ModeEngineTest extends WorkflowTestCase {
       new GateRunner($flaky, new NullSiteDriver()),
       $this->recordingSink(),
     );
-    $state = $this->begin(['max_gate_retries' => 2])
-      ->advanceTo(Phase::Code);
+    $state = $this->begin([
+      'max_gate_retries' => 2,
+      'seekers' => ['on' => FALSE],
+    ])->advanceTo(Phase::Code);
 
     $failed = $engine->runPhase($state, Phase::Code, '/tmp', self::NOW);
     $this->assertSame(
@@ -479,13 +483,74 @@ class ModeEngineTest extends WorkflowTestCase {
    */
   public function testTheTerminalPhaseCompletes(): void {
     $outcome = $this->engine($this->recordingSink())->runPhase(
-      $this->begin(['mode' => 'automated']),
+      $this->begin([
+        'mode' => 'automated',
+        'seekers' => ['on' => FALSE],
+      ]),
       Phase::Complete,
       '/tmp',
       self::NOW,
     );
 
     $this->assertSame(Outcome::Completed, $outcome->outcome);
+  }
+
+  /**
+   * The seeker checkpoint holds a green code phase until a clean ledger.
+   *
+   * Gates verify rules; the seeker verifies judgment. The checkpoint fires
+   * AFTER the machines pass (inspection is of code that already satisfies
+   * them), holds the run in place without spending retry budget, releases
+   * on a recorded clean inspection — and holds again at complete, the other
+   * boundary the pattern names. A findings record holds exactly like no
+   * record: fixing is followed by re-inspection, never by advancing.
+   */
+  public function testTheSeekerCheckpointHoldsCodeAndComplete(): void {
+    $engine = $this->engine($this->recordingSink());
+    $state = $this->begin(['mode' => 'automated'])->advanceTo(Phase::Code);
+
+    $held = $engine->runPhase($state, Phase::Code, '/tmp', self::NOW);
+    $this->assertSame(Outcome::InspectionDue, $held->outcome);
+    $this->assertSame(Phase::Code, $held->state->currentPhase);
+    $this->assertSame(
+      [],
+      $held->state->feedbackAttempts,
+      'the checkpoint is not a failing gate — it spends no budget',
+    );
+
+    $dirty = $held->state->withSeekerReport([
+      'status' => 'findings',
+      'critical' => 1,
+      'medium' => 0,
+      'low' => 0,
+      'observations' => 0,
+      'reported_at' => self::NOW,
+    ]);
+    $stillHeld = $engine->runPhase($dirty, Phase::Code, '/tmp', self::NOW);
+    $this->assertSame(Outcome::InspectionDue, $stillHeld->outcome);
+
+    $clean = $stillHeld->state->withSeekerReport([
+      'status' => 'clean',
+      'critical' => 0,
+      'medium' => 0,
+      'low' => 0,
+      'observations' => 2,
+      'reported_at' => self::NOW,
+    ]);
+    $released = $engine->runPhase($clean, Phase::Code, '/tmp', self::NOW);
+    $this->assertSame(Outcome::Advanced, $released->outcome);
+
+    // The other boundary: complete demands the clean record too.
+    $atComplete = $released->state
+      ->advanceTo(Phase::Test)
+      ->advanceTo(Phase::Complete);
+    $completed = $engine->runPhase(
+      $atComplete,
+      Phase::Complete,
+      '/tmp',
+      self::NOW,
+    );
+    $this->assertSame(Outcome::Completed, $completed->outcome);
   }
 
   /**

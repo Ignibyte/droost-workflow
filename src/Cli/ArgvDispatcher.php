@@ -11,6 +11,7 @@ use Droost\Workflow\Gate\ShellGateExecutor;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Pack\PackError;
+use Droost\Workflow\Seeker\SeekerError;
 use Droost\Workflow\State\StateError;
 use Droost\Workflow\WorkflowFacade;
 
@@ -54,12 +55,16 @@ final class ArgvDispatcher {
    *   Returns an ISO-8601 timestamp.
    * @param callable(): string $ids
    *   Returns a fresh run identifier.
+   * @param callable(): string|null $in
+   *   Reads standard input in full. NULL falls back to the real stream;
+   *   injected so tests can feed a ledger without a process.
    */
   public function __construct(
     private readonly mixed $out,
     private readonly mixed $err,
     private readonly mixed $clock,
     private readonly mixed $ids,
+    private readonly mixed $in = NULL,
   ) {}
 
   /**
@@ -87,12 +92,14 @@ final class ArgvDispatcher {
         'run' => $this->run($projectRoot),
         'answer' => $this->answer($projectRoot, $argv),
         'swap' => $this->swap($projectRoot, $argv),
+        'seeker-report' => $this->seekerReport($projectRoot),
+        'declare-browser' => $this->declareBrowser($projectRoot, $argv),
         default => $this->unknown($verb),
       };
     }
     // Every failure this package raises is typed, and each one is already
     // phrased for a human — so the handler prints rather than re-explains.
-    catch (ConfigError | StateError | PackError $e) {
+    catch (ConfigError | StateError | PackError | SeekerError $e) {
       $this->fail($e->getMessage());
       return self::EXIT_USAGE;
     }
@@ -205,6 +212,58 @@ final class ArgvDispatcher {
   }
 
   /**
+   * Records a seeker inspection from the ledger on standard input.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function seekerReport(string $projectRoot): int {
+    $text = $this->in !== NULL
+      ? ($this->in)()
+      : (string) stream_get_contents(\STDIN);
+    if (trim($text) === '') {
+      $this->fail(
+        'seeker-report reads the ledger from stdin: '
+        . 'droost-workflow seeker-report < section.md',
+      );
+      return self::EXIT_USAGE;
+    }
+    $record = $this->facade()->recordSeeker($projectRoot, $text);
+    $this->say($this->encode($record));
+    // Recording findings is a SUCCESSFUL report — the run's advance is
+    // where a dirty inspection bites, not here.
+    return self::EXIT_OK;
+  }
+
+  /**
+   * Records the agent's declared browser capability.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The arguments.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function declareBrowser(string $projectRoot, array $argv): int {
+    $word = $argv[1] ?? '';
+    if ($word === '') {
+      $this->fail(
+        'declare-browser needs the capability: playwright-mcp, native or '
+        . 'none',
+      );
+      return self::EXIT_USAGE;
+    }
+    $this->facade()->declareBrowser($projectRoot, $word);
+    $this->say('browser: ' . $word);
+    return self::EXIT_OK;
+  }
+
+  /**
    * Reports an unknown verb.
    *
    * @param string $verb
@@ -231,6 +290,9 @@ final class ArgvDispatcher {
       run              start a run, or advance it by one phase
       answer <text>    answer a paused run's question
       swap automated   stop pausing at gates and finish unattended
+      seeker-report    record an adversarial inspection (ledger on stdin)
+      declare-browser  record the session's browser tier (playwright-mcp,
+                       native, none)
 
     Every site-dependent gate reports "skipped, no site" here, with its
     reason. That is deliberate: this surface tells you what it could not

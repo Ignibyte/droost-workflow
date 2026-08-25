@@ -479,6 +479,28 @@ final class ConfigError extends \RuntimeException {
    *   The deprecation notice.
    */
   /**
+   * An option the seekers block does not accept.
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $key
+   *   What the file wrote.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function unknownSeekersOption(
+    string $source,
+    string $key,
+  ): self {
+    return new self($source, sprintf(
+      'seekers accepts only "on" — got "%s". The one-hop blast radius and '
+      . 'the six lenses are the pattern, not configuration.',
+      $key,
+    ));
+  }
+
+  /**
    * The notice recorded when a lever file tries to disarm a mandatory gate.
    *
    * @param string $source

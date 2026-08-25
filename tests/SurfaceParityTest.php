@@ -8,6 +8,7 @@ use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
+use Droost\Workflow\Cli\ArgvDispatcher;
 use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Gate\SiteDriverInterface;
 use Droost\Workflow\Mode\RunStateOnlySink;
@@ -108,7 +109,9 @@ class SurfaceParityTest extends WorkflowTestCase {
    * The CLI surface names every gate it could not run, and passes none.
    */
   public function testTheCliSurfaceReportsItsSkipsRatherThanOmittingThem(): void {
-    $root = $this->makeRootWithConfig("preset: custom\n");
+    $root = $this->makeRootWithConfig(
+      "preset: custom\nseekers: { on: false }\n",
+    );
     $facade = $this->facade(new NullSiteDriver());
 
     // Advance past the gateless plan phase and through code to test, where
@@ -148,14 +151,37 @@ class SurfaceParityTest extends WorkflowTestCase {
 
     // 0.4: every run walks the full canonical sequence — three working
     // phases and the terminal one (which now carries the documentation
-    // work), one facade call each.
+    // work) — and the seeker checkpoint holds the green code phase until a
+    // clean inspection is recorded. This walk is the canonical flow, seeker
+    // step included.
     $walk = [];
-    for ($step = 0; $step < 4; $step++) {
+    for ($step = 0; $step < 2; $step++) {
       $outcome = $facade->run($root);
-      $walk[] = $outcome->state->currentPhase?->value;
+      $walk[] = $outcome->outcome->value . ':'
+        . ($outcome->state->currentPhase?->value ?? '-');
     }
-    $this->assertSame(['code', 'test', 'complete', 'complete'], $walk);
-    $this->assertSame('completed', $outcome->outcome->value);
+    $this->assertSame(
+      ['advanced:code', 'inspection-due:code'],
+      $walk,
+      'code passes its gates and is then held for inspection',
+    );
+
+    $record = $facade->recordSeeker(
+      $root,
+      "## Seeker Inspection\n\n(no findings)\n",
+    );
+    $this->assertSame('clean', $record['status']);
+
+    $walk = [];
+    for ($step = 0; $step < 3; $step++) {
+      $outcome = $facade->run($root);
+      $walk[] = $outcome->outcome->value . ':'
+        . ($outcome->state->currentPhase?->value ?? '-');
+    }
+    $this->assertSame(
+      ['advanced:test', 'advanced:complete', 'completed:complete'],
+      $walk,
+    );
 
     // Re-running an ended run says so rather than starting a second one.
     $again = $facade->run($root);
@@ -242,6 +268,48 @@ class SurfaceParityTest extends WorkflowTestCase {
       '$outcome->toArray()',
       $src,
       'bin must render the shared envelope, not assemble its own',
+    );
+  }
+
+  /**
+   * The CLI records an inspection from stdin and a browser from argv.
+   *
+   * The dispatcher is exercised directly — injected streams, no process —
+   * so the two verbs' whole path (parse, persist, envelope) is proven at
+   * the surface a plain Claude Code or Codex session actually calls.
+   */
+  public function testTheCliRecordsInspectionsAndBrowserCapability(): void {
+    $root = $this->makeRootWithConfig("preset: custom\n");
+    $out = [];
+    $dispatcher = new ArgvDispatcher(
+      function (string $line) use (&$out): void {
+        $out[] = $line;
+      },
+      static function (string $line): void {},
+      static fn (): string => '2026-08-25T00:00:00+00:00',
+      static fn (): string => 'run-cli',
+      static fn (): string => "## Seeker Inspection\n\n(no findings)\n",
+    );
+
+    $this->assertSame(0, $dispatcher->dispatch(['run'], $root));
+    $this->assertSame(
+      0,
+      $dispatcher->dispatch(['declare-browser', 'none'], $root),
+    );
+    $this->assertSame(0, $dispatcher->dispatch(['seeker-report'], $root));
+
+    $status = $this->facade(new NullSiteDriver())->status($root);
+    $run = $status['run'];
+    $this->assertIsArray($run);
+    $this->assertSame('none', $run['browser']);
+    $this->assertIsArray($run['seeker']);
+    $this->assertSame('clean', $run['seeker']['status']);
+    $this->assertTrue($run['seekers']);
+
+    // A word outside the vocabulary is a usage error, recorded nowhere.
+    $this->assertSame(
+      2,
+      $dispatcher->dispatch(['declare-browser', 'chrome'], $root),
     );
   }
 

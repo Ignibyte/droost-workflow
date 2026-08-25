@@ -84,6 +84,20 @@ final class RunState {
    * @param \Droost\Workflow\Config\Enforcement $enforcement
    *   The enforcement level frozen at begin. Defaults to Off so a document
    *   written before the lever existed reads as what it was: unenforced.
+   * @param bool $seekers
+   *   Whether the adversarial-review checkpoint is armed, frozen at begin.
+   *   Defaults to FALSE for the same reason enforcement defaults to Off: a
+   *   document written before the lever existed was not held to it.
+   * @param array<string, int|string>|null $seeker
+   *   The latest recorded inspection — status, per-severity counts,
+   *   observation count, reported_at — or NULL when none has been recorded.
+   *   Written only by withSeekerReport(), whose counts come from parsing
+   *   the ledger text, never from a self-report.
+   * @param string|null $browser
+   *   The browser capability the running agent declared at run start
+   *   (playwright-mcp, native, or none), or NULL when undeclared. Session-
+   *   scoped truth only the agent can know; recorded so the test phase and
+   *   the report can say which verification tier actually ran.
    */
   public function __construct(
     public readonly string $runId,
@@ -102,6 +116,9 @@ final class RunState {
     public readonly array $feedbackAttempts = [],
     public readonly array $phaseGates = [],
     public readonly Enforcement $enforcement = Enforcement::Off,
+    public readonly bool $seekers = FALSE,
+    public readonly ?array $seeker = NULL,
+    public readonly ?string $browser = NULL,
   ) {}
 
   /**
@@ -145,6 +162,7 @@ final class RunState {
         $config->gates,
       ),
       enforcement: $config->enforcement,
+      seekers: $config->seekers,
     );
   }
 
@@ -394,6 +412,9 @@ final class RunState {
       $this->feedbackAttempts,
       $this->phaseGates,
       $this->enforcement,
+      $this->seekers,
+      $this->seeker,
+      $this->browser,
     );
   }
 
@@ -426,6 +447,9 @@ final class RunState {
       $attempts,
       $this->phaseGates,
       $this->enforcement,
+      $this->seekers,
+      $this->seeker,
+      $this->browser,
     );
   }
 
@@ -539,7 +563,36 @@ final class RunState {
       $this->feedbackAttempts,
       $this->phaseGates,
       $this->enforcement,
+      $this->seekers,
+      $this->seeker,
+      $this->browser,
     );
+  }
+
+  /**
+   * This run with a fresh seeker inspection recorded.
+   *
+   * @param array<string, int|string> $record
+   *   The parsed ledger's record (SeekerLedger::toRecord()).
+   *
+   * @return self
+   *   A new instance.
+   */
+  public function withSeekerReport(array $record): self {
+    return $this->with(seeker: $record);
+  }
+
+  /**
+   * This run with the agent's declared browser capability recorded.
+   *
+   * @param string $browser
+   *   One of: playwright-mcp, native, none.
+   *
+   * @return self
+   *   A new instance.
+   */
+  public function withBrowser(string $browser): self {
+    return $this->with(browser: $browser);
   }
 
   /**
@@ -585,6 +638,9 @@ final class RunState {
       'awaiting' => $this->awaiting,
       'qa_history' => $this->qaHistory,
       'feedback_attempts' => $this->feedbackAttempts,
+      'seekers' => $this->seekers,
+      'seeker' => $this->seeker,
+      'browser' => $this->browser,
     ];
   }
 
@@ -665,7 +721,83 @@ final class RunState {
         $node->optionalString('enforcement', Enforcement::Off->value)
           ?? Enforcement::Off->value,
       ) ?? Enforcement::Off,
+      $node->optionalBool('seekers', FALSE),
+      self::readSeeker($node, $label),
+      self::readBrowser($node, $label),
     );
+  }
+
+  /**
+   * Reads the recorded seeker inspection, when one exists.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $node
+   *   The decoded document.
+   * @param string $label
+   *   The state file's operator-facing path.
+   *
+   * @return array<string, int|string>|null
+   *   The record.
+   *
+   * @throws \Droost\Workflow\Support\DataError
+   *   When a field has the wrong type.
+   * @throws \Droost\Workflow\State\StateError
+   *   When the status word is outside its vocabulary.
+   */
+  private static function readSeeker(
+    TypedArray $node,
+    string $label,
+  ): ?array {
+    $seekerNode = $node->optionalChild('seeker');
+    if ($seekerNode === NULL) {
+      return NULL;
+    }
+    $status = $seekerNode->string('status');
+    if (!in_array($status, ['clean', 'findings'], TRUE)) {
+      throw StateError::corrupt($label, sprintf(
+        'unknown seeker status "%s" (known: clean, findings)',
+        $status,
+      ));
+    }
+    return [
+      'status' => $status,
+      'critical' => $seekerNode->int('critical'),
+      'medium' => $seekerNode->int('medium'),
+      'low' => $seekerNode->int('low'),
+      'observations' => $seekerNode->int('observations'),
+      'reported_at' => $seekerNode->string('reported_at'),
+    ];
+  }
+
+  /**
+   * Reads the declared browser capability, when one was declared.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $node
+   *   The decoded document.
+   * @param string $label
+   *   The state file's operator-facing path.
+   *
+   * @return string|null
+   *   The capability.
+   *
+   * @throws \Droost\Workflow\State\StateError
+   *   When the word is outside its vocabulary.
+   */
+  private static function readBrowser(
+    TypedArray $node,
+    string $label,
+  ): ?string {
+    $browser = $node->optionalString('browser');
+    if ($browser === NULL) {
+      return NULL;
+    }
+    if (!in_array($browser, ['playwright-mcp', 'native', 'none'], TRUE)) {
+      throw StateError::corrupt($label, sprintf(
+        'unknown browser capability "%s" (known: playwright-mcp, native, '
+        . 'none)',
+        $browser,
+      ));
+    }
+    return $browser;
   }
 
   /**
@@ -981,6 +1113,8 @@ final class RunState {
     ?array $phases = NULL,
     ?Phase $currentPhase = NULL,
     ?Mode $modeOverride = NULL,
+    ?array $seeker = NULL,
+    ?string $browser = NULL,
   ): self {
     return new self(
       $this->runId,
@@ -999,6 +1133,9 @@ final class RunState {
       $this->feedbackAttempts,
       $this->phaseGates,
       $this->enforcement,
+      $this->seekers,
+      $seeker ?? $this->seeker,
+      $browser ?? $this->browser,
     );
   }
 

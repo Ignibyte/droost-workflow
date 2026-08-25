@@ -257,6 +257,36 @@ class RunStateTest extends TestCase {
   }
 
   /**
+   * The judgment fields round-trip: seekers flag, inspection, browser.
+   *
+   * begin() freezes the config's seekers switch; the two writers replace
+   * their own field and nothing else; and a serialized run carries all
+   * three back unchanged — because the complete phase renders this record,
+   * and a record that does not survive a save is not a record.
+   */
+  public function testSeekerAndBrowserRoundTrip(): void {
+    $state = $this->begin();
+    $this->assertTrue($state->seekers, 'the default config arms the checkpoint');
+    $this->assertNull($state->seeker);
+    $this->assertNull($state->browser);
+
+    $record = [
+      'status' => 'findings',
+      'critical' => 1,
+      'medium' => 2,
+      'low' => 0,
+      'observations' => 3,
+      'reported_at' => 't1',
+    ];
+    $written = $state->withSeekerReport($record)->withBrowser('playwright-mcp');
+    $this->assertSame($record, $written->seeker);
+    $this->assertSame('playwright-mcp', $written->browser);
+
+    // Persistence is the store's contract: RunStateStoreTest's round-trip
+    // shapes carry an inspected run for exactly that.
+  }
+
+  /**
    * Beginning a run freezes the phase map for its configured phases.
    */
   public function testBeginFreezesThePhaseMapForConfiguredPhases(): void {

@@ -39,7 +39,16 @@ final class WorkflowConfig {
     'gates',
     'max_gate_retries',
     'enforcement',
+    'seekers',
   ];
+
+  /**
+   * What the seeker checkpoint may see: the browser capabilities aside, the
+   * only lever is the switch. The one-hop blast radius and the six lenses
+   * are the pattern, not configuration — a per-repo remap of what the
+   * reviewer looks at would be a reviewer you can negotiate with.
+   */
+  private const SEEKER_OPTIONS = ['on'];
 
   /**
    * The largest retry bound a run may configure.
@@ -66,6 +75,12 @@ final class WorkflowConfig {
    * @param list<string> $deprecations
    *   Notices for keys the file still uses but the vocabulary has retired.
    *   Surfaced by every surface that reports levers; never fatal.
+   * @param bool $seekers
+   *   Whether the adversarial-review checkpoint holds the run between code
+   *   and test, and again at complete. On by default: the seeker is the
+   *   judgment half of the gate set, and a repo that says nothing has not
+   *   opted out of judgment. Turning it off is allowed and recorded, like
+   *   enforcement: off — a visible loosening in a reviewable diff.
    */
   private function __construct(
     public readonly Mode $mode,
@@ -76,6 +91,7 @@ final class WorkflowConfig {
     public readonly Provenance $provenance,
     public readonly Enforcement $enforcement = Enforcement::Soft,
     public readonly array $deprecations = [],
+    public readonly bool $seekers = TRUE,
   ) {}
 
   /**
@@ -227,6 +243,7 @@ final class WorkflowConfig {
         $provenance,
         self::readEnforcement($root, $source, $base->enforcement),
         $deprecations,
+        self::readSeekers($root, $source),
       );
     }
     catch (DataError $e) {
@@ -272,6 +289,38 @@ final class WorkflowConfig {
       );
     }
     return $enforcement;
+  }
+
+  /**
+   * Reads the seekers block.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   *
+   * @return bool
+   *   Whether the checkpoint is armed.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When the block carries anything but its one switch.
+   * @throws \Droost\Workflow\Support\DataError
+   *   When the switch is not a boolean.
+   */
+  private static function readSeekers(
+    TypedArray $root,
+    string $source,
+  ): bool {
+    $node = $root->optionalChild('seekers');
+    if ($node === NULL) {
+      return TRUE;
+    }
+    foreach ($node->keys() as $key) {
+      if (!in_array($key, self::SEEKER_OPTIONS, TRUE)) {
+        throw ConfigError::unknownSeekersOption($source, $key);
+      }
+    }
+    return $node->optionalBool('on', TRUE);
   }
 
   /**
