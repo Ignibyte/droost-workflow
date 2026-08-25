@@ -17,11 +17,19 @@ final class SeekerError extends \RuntimeException {
   /**
    * Constructs a SeekerError.
    *
+   * Private so every instance goes through a named constructor — the
+   * prefix and the format reminder are applied here, once.
+   *
    * @param string $problem
    *   The problem.
    */
   private function __construct(string $problem) {
-    parent::__construct($problem);
+    parent::__construct(sprintf(
+      'seeker ledger: %s — a ledger is a "## Seeker Inspection" section '
+      . 'holding either finding rows (| ID | Severity | Location | Finding '
+      . '| Status |) or the literal "(no findings)" sentinel',
+      $problem,
+    ));
   }
 
   /**
@@ -34,12 +42,7 @@ final class SeekerError extends \RuntimeException {
    *   The error.
    */
   public static function malformed(string $detail): self {
-    return new self(sprintf(
-      'seeker ledger: %s — a ledger is a "## Seeker Inspection" section '
-      . 'holding either finding rows (| ID | Severity | Location | Finding '
-      . '| Status |) or the literal "(no findings)" sentinel',
-      $detail,
-    ));
+    return new self($detail);
   }
 
 }

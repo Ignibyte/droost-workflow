@@ -50,8 +50,18 @@ Every construct the spec named exists, and nothing exists that the spec did
 not name. Custom code and configuration only.
 
 At this phase's `run`, the engine gates the diff with phpcs and phpstan —
-static analysis only. The functional gates belong to the test phase, where
+static analysis only, and non-negotiable: the pair is mandatory since 0.4,
+tunable but never off. The functional gates belong to the test phase, where
 there is behaviour to verify.
+
+**Then the seeker checkpoint.** When the static pair passes, the engine
+holds the run at `inspection-due` rather than advancing: dispatch the
+`workflow-seeker` agent over everything this run changed, append its
+`## Seeker Inspection` section to the spec verbatim, and record it with the
+`seeker-report` surface. Open CRITICAL or MEDIUM findings are fixed and
+re-inspected — a fresh section, appended — before the run moves to test.
+Gates verify rules; the seeker verifies judgment. The checkpoint spends no
+retry budget: it is a hold, not a failure.
 
 ## Without a site
 

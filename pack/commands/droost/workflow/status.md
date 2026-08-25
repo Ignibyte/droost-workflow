@@ -15,17 +15,21 @@ either:
 **1. The levers — what a run here is held to.** The provenance (a committed
 `droost.workflow.yml`, or the built-in defaults — different situations a
 reader must not have to guess between), the mode, the phases, every gate with
-its switch and thresholds, and `phase_gates` — which gates are due at which
-phase, so "why did plan run nothing" is answerable from status alone. A repo
-with no lever file resolves to `factory`, the strictest set, because a repo
-that has said nothing has not opted out of anything.
+its switch and thresholds, `phase_gates` — which gates are due at which
+phase, so "why did plan run nothing" is answerable from status alone — and
+the `toolchain` rows: per gate, the binary it would run and whether it is
+present, so armed-and-broken is visible before a run hits it. A repo with no
+lever file resolves to `factory`, the strictest set, because a repo that has
+said nothing has not opted out of anything.
 
 This is useful on its own: it is how someone checks what their configuration
 actually resolves to before committing to a run.
 
 **2. The run — read from `.droost-workflow/run.json`.** Which phases are
 done, which is current, each phase's recorded gate report, the retry
-counters against their bound, and whether the run is awaiting an answer.
+counters against their bound, whether the run is awaiting an answer, the
+seeker record (armed, and the latest parsed inspection), and the declared
+browser tier.
 This survives sessions and surfaces: a run started against a live site is
 readable from a plain checkout, and a fresh session recovers a run's
 position by running `status`, never from memory.

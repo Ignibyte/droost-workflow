@@ -1105,6 +1105,10 @@ final class RunState {
    *   The new current phase; only applied when $moveCurrent is TRUE.
    * @param \Droost\Workflow\Config\Mode|null $modeOverride
    *   The new override, or NULL to keep the current one.
+   * @param array<string, int|string>|null $seeker
+   *   The new inspection record, or NULL to keep the current one.
+   * @param string|null $browser
+   *   The new declared capability, or NULL to keep the current one.
    *
    * @return self
    *   A new instance.

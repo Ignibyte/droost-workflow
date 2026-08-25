@@ -251,7 +251,7 @@ class PackContentLintTest extends TestCase {
    * wiki as updated.
    */
   public function testWikiToolsArePresentedAsReadOnly(): void {
-    $body = $this->read('skills/workflow-document/SKILL.md');
+    $body = $this->read('skills/workflow-complete/SKILL.md');
 
     $this->assertStringContainsString('read-only', strtolower($body));
     $this->assertStringContainsString('droost:wiki:generate', $body);
@@ -295,31 +295,57 @@ class PackContentLintTest extends TestCase {
     }
 
     // And the positive half: the entry and status commands must send an
-    // agent to the engine's record, by name — and the retired run command
-    // must send them to the entry, not describe a pipeline of its own.
-    $entry = $this->read('commands/droost-work.md');
+    // agent to the engine's record, by name.
+    $entry = $this->read('commands/droost/workflow/continue.md');
     $this->assertStringContainsString('.droost-workflow/run.json', $entry);
     $this->assertStringContainsString('resolved_gates', $entry);
-    $status = $this->read('commands/workflow/status.md');
+    $status = $this->read('commands/droost/workflow/status.md');
     $this->assertStringContainsString('.droost-workflow/run.json', $status);
     $this->assertStringContainsString('phase_gates', $status);
-    $this->assertStringContainsString(
-      '/droost-work',
-      $this->read('commands/workflow/run.md'),
-    );
+  }
+
+  /**
+   * The retired command names do not linger anywhere in the pack.
+   *
+   * 0.4 renamed the entry to /droost:workflow:continue and DELETED the
+   * /workflow:run pointer (a pointer file is a second source of truth). A
+   * pack file still steering an agent at the old names would send it to
+   * "unknown command" — except the entry command's own one-line note saying
+   * what it used to be called, which is how muscle memory finds the rename.
+   */
+  public function testRetiredCommandNamesDoNotLinger(): void {
+    foreach ($this->allPackFiles() as $relative) {
+      $body = $this->read($relative);
+      if ($relative === 'commands/droost/workflow/continue.md') {
+        continue;
+      }
+      // Token-bounded: "/droost-work" must not swallow the legitimate
+      // "vendor/bin/droost-workflow", and "/workflow:status" must not
+      // swallow "droost:workflow:status".
+      $this->assertDoesNotMatchRegularExpression(
+        '~/droost-work(?![a-z-])~',
+        $body,
+        $relative,
+      );
+      $this->assertDoesNotMatchRegularExpression(
+        '~(?<![a-z:])/workflow:(run|status)~',
+        $body,
+        $relative,
+      );
+    }
   }
 
   /**
    * Installed paths are named as they exist after installation.
    */
   public function testPackReferencesInstalledPaths(): void {
-    $body = $this->read('commands/workflow/run.md');
+    $body = $this->read('commands/droost/workflow/continue.md');
 
     if (str_contains($body, 'droost-usage.md')) {
       $this->assertStringContainsString(
         '.claude/partials/droost-usage.md',
         $body,
-        'run.md points at the pack-relative path, not the installed one',
+        'continue.md points at the pack-relative path, not the installed one',
       );
     }
   }

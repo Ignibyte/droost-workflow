@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests;
 
+use PHPUnit\Framework\Assert;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
@@ -157,8 +158,9 @@ class SurfaceParityTest extends WorkflowTestCase {
     $walk = [];
     for ($step = 0; $step < 2; $step++) {
       $outcome = $facade->run($root);
-      $walk[] = $outcome->outcome->value . ':'
-        . ($outcome->state->currentPhase?->value ?? '-');
+      $phase = $outcome->state->currentPhase;
+      $this->assertNotNull($phase);
+      $walk[] = $outcome->outcome->value . ':' . $phase->value;
     }
     $this->assertSame(
       ['advanced:code', 'inspection-due:code'],
@@ -175,8 +177,9 @@ class SurfaceParityTest extends WorkflowTestCase {
     $walk = [];
     for ($step = 0; $step < 3; $step++) {
       $outcome = $facade->run($root);
-      $walk[] = $outcome->outcome->value . ':'
-        . ($outcome->state->currentPhase?->value ?? '-');
+      $phase = $outcome->state->currentPhase;
+      $this->assertNotNull($phase);
+      $walk[] = $outcome->outcome->value . ':' . $phase->value;
     }
     $this->assertSame(
       ['advanced:test', 'advanced:complete', 'completed:complete'],
@@ -204,16 +207,21 @@ class SurfaceParityTest extends WorkflowTestCase {
     $status = $this->facade(new NullSiteDriver())->status($root);
 
     $toolchain = $status['toolchain'];
-    $this->assertTrue($toolchain['phpcs']['present']);
-    $this->assertSame('vendor/bin/phpcs', $toolchain['phpcs']['binary']);
-    $this->assertTrue($toolchain['phpcs']['on']);
-    $this->assertFalse($toolchain['phpstan']['present']);
+    $this->assertIsArray($toolchain);
+    $row = static function (string $gate) use ($toolchain): array {
+      Assert::assertIsArray($toolchain[$gate]);
+      return $toolchain[$gate];
+    };
+    $this->assertTrue($row('phpcs')['present']);
+    $this->assertSame('vendor/bin/phpcs', $row('phpcs')['binary']);
+    $this->assertTrue($row('phpcs')['on']);
+    $this->assertFalse($row('phpstan')['present']);
     $this->assertSame(
       'node_modules/.bin/playwright',
-      $toolchain['playwright']['binary'],
+      $row('playwright')['binary'],
     );
     $this->assertFalse(
-      $toolchain['phpunit']['suite_config'],
+      $row('phpunit')['suite_config'],
       'the phpunit row also reports whether a suite config exists',
     );
     $this->assertArrayNotHasKey('custom:lint', $toolchain);

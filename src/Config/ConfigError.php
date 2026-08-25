@@ -478,6 +478,7 @@ final class ConfigError extends \RuntimeException {
    * @return string
    *   The deprecation notice.
    */
+
   /**
    * An option the seekers block does not accept.
    *
@@ -527,6 +528,15 @@ final class ConfigError extends \RuntimeException {
     );
   }
 
+  /**
+   * The notice recorded for the retired phases key.
+   *
+   * @param string $source
+   *   The document label.
+   *
+   * @return string
+   *   The notice.
+   */
   public static function phasesDeprecationNotice(string $source): string {
     return sprintf(
       '%s: the "phases" key is deprecated and ignored since 0.3.0 — every '

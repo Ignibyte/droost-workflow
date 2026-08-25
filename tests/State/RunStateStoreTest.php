@@ -198,14 +198,16 @@ class RunStateStoreTest extends WorkflowTestCase {
       'a stringy version' => [$valid(['v' => '1']), 'v must be an integer'],
       'unknown mode' => [$valid(['mode' => 'banana']), 'unknown mode "banana"'],
       'unknown seeker status' => [
-        $valid(['seeker' => [
-          'status' => 'vibes',
-          'critical' => 0,
-          'medium' => 0,
-          'low' => 0,
-          'observations' => 0,
-          'reported_at' => 't',
-        ]]),
+        $valid([
+          'seeker' => [
+            'status' => 'vibes',
+            'critical' => 0,
+            'medium' => 0,
+            'low' => 0,
+            'observations' => 0,
+            'reported_at' => 't',
+          ],
+        ]),
         'unknown seeker status "vibes"',
       ],
       'unknown browser word' => [

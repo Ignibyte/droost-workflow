@@ -18,9 +18,10 @@ mode: automated
 
 # custom | factory | light
 #   factory — everything on, strict. The software factory. Full EARS spec.
-#   light   — the same four phases at lighter weight: a ten-line quasi-spec
-#             (presented in chat at document), the static pair, and the
-#             rendered check. Light is not a shorter path — nothing skips.
+#   light   — the same phases at lighter weight: a SHORTER spec in the same
+#             EARS shape (presented in chat at complete), the mandatory trio
+#             with phpstan at level 2, and the rendered check. Light is not
+#             a shorter path — nothing skips, and the format never thins.
 #   custom  — the values spelled out below.
 # (`fast` was renamed `light` in 0.3; the old name is refused with a pointer.)
 preset: custom
@@ -35,19 +36,27 @@ preset: custom
 #   it. (Preset defaults: factory → hard, light → soft.)
 enforcement: soft
 
-# DEPRECATED (0.3) and ignored: every run walks plan, code, test, document,
-# complete. Tune gate weight per phase instead of dropping phases; naming a
-# subset here earns a deprecation notice in every lever report.
-# phases: [plan, code, test, document, complete]
+# DEPRECATED (0.3) and ignored: every run walks plan, code, test, complete
+# (0.4 folded document into complete). Tune gate weight per phase instead of
+# dropping phases; naming a subset here earns a deprecation notice in every
+# lever report.
+# phases: [plan, code, test, complete]
 
-# WHETHER a gate runs is this file's business; WHEN it runs is the engine's
-# phase map — plan runs none, code runs the static pair, test runs the
-# functional gates, document runs wiki_fresh, complete re-runs everything
-# enabled. The run command documents the map.
+# WHETHER an optional gate runs is this file's business; WHEN it runs is the
+# engine's phase map — plan runs none, code runs the static pair (then the
+# seeker checkpoint), test runs the functional gates, complete captures the
+# documentation and re-runs everything enabled, wiki_fresh included. The
+# continue command documents the map.
 gates:
   # "on" is the only switch a gate has. A threshold does NOT turn one on:
   # setting coverage.min without coverage.on leaves coverage where the preset
   # put it.
+  #
+  # THE MANDATORY TRIO (0.4): phpcs, phpstan and phpunit cannot be turned
+  # off — they are the toolchain Drupal core itself develops with. Their
+  # tuning levers below still apply; an `on: false` here is recorded as a
+  # deprecation notice and superseded. A site that cannot run one of them
+  # yet gets an honest labeled answer, never a silent pass.
   #
   # The static pair also accepts `paths` — comma-separated repo-relative
   # files or directories to analyse. Omitted, each tool discovers the repo's
@@ -56,8 +65,8 @@ gates:
   # A configured path holding nothing analysable reports a labeled pass.
   phpcs:          { on: true,  standard: "Drupal,DrupalPractice" }
 
-  # level: 0-9, "max", or "off". "off" disables the gate; pairing it with
-  # on: true is refused rather than silently resolved.
+  # level: 0-9 or "max". ("off" is superseded like on: false — the analyser
+  # is mandatory; lower the level instead of disarming it.)
   phpstan:        { on: true,  level: 6 }
 
   phpunit:        { on: true }
@@ -89,6 +98,17 @@ gates:
   # custom:
   #   semgrep: { on: true, phase: code, cmd: "semgrep scan --error --quiet" }
 
+# The seeker checkpoint: an adversarial reviewer (the workflow-seeker agent)
+# inspects the run's diff after the code phase's gates pass, and again at
+# complete. Gates verify rules; the seeker verifies judgment — dead new
+# code, drift from the spec, coupling the change breaks, weak tests,
+# security smells, discipline defeats. On by default and highly
+# recommended; the switch is the only lever (the one-hop blast radius and
+# the six lenses are the pattern, not configuration). Turning it off is
+# recorded in every lever report, like enforcement: off.
+seekers: { on: true }
+
 # How many times a failing gate may drive the feedback loop before the run
-# fails. 0 means a gate gets one attempt and no retry.
+# fails. 0 means a gate gets one attempt and no retry. The seeker hold is
+# not a failing gate and spends none of this.
 max_gate_retries: 2

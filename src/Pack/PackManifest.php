@@ -51,13 +51,12 @@ final class PackManifest {
     => '.claude/skills/workflow-code/SKILL.md',
     'skills/workflow-test/SKILL.md'
     => '.claude/skills/workflow-test/SKILL.md',
-    'skills/workflow-document/SKILL.md'
-    => '.claude/skills/workflow-document/SKILL.md',
     'skills/workflow-complete/SKILL.md'
     => '.claude/skills/workflow-complete/SKILL.md',
-    'commands/droost-work.md' => '.claude/commands/droost-work.md',
-    'commands/workflow/run.md' => '.claude/commands/workflow/run.md',
-    'commands/workflow/status.md' => '.claude/commands/workflow/status.md',
+    'commands/droost/workflow/continue.md'
+    => '.claude/commands/droost/workflow/continue.md',
+    'commands/droost/workflow/status.md'
+    => '.claude/commands/droost/workflow/status.md',
     'partials/droost-usage.md' => '.claude/partials/droost-usage.md',
     'hooks/droost-workflow-guard.php'
     => '.claude/hooks/droost-workflow-guard.php',
@@ -65,8 +64,12 @@ final class PackManifest {
     => '.claude/agents/workflow-researcher.md',
     'agents/workflow-spec-writer.md'
     => '.claude/agents/workflow-spec-writer.md',
+    'agents/workflow-seeker.md'
+    => '.claude/agents/workflow-seeker.md',
     'agents/workflow-bug-fixer.md'
     => '.claude/agents/workflow-bug-fixer.md',
+    'agents/droost-debugger.md'
+    => '.claude/agents/droost-debugger.md',
   ];
 
   /**

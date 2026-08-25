@@ -94,7 +94,7 @@ final class EnforcementWiringTest extends WorkflowTestCase {
 
     (new PackMaterializer())->init($root);
 
-    $this->assertFileExists($root . '/.claude/commands/droost-work.md');
+    $this->assertFileExists($root . '/.claude/commands/droost/workflow/continue.md');
     $this->assertFileExists($root . '/.claude/hooks/droost-workflow-guard.php');
     $this->assertFileExists($root . '/.claude/agents/workflow-researcher.md');
     $this->assertSame("# Mine\n", file_get_contents($root . '/.claude/commands/mine.md'));
@@ -108,7 +108,7 @@ final class EnforcementWiringTest extends WorkflowTestCase {
     // The dedicated subdirectory keeps its sentinel — ownership did not
     // weaken, it just stopped over-reaching.
     $this->assertFileExists(
-      $root . '/.claude/commands/workflow/' . PackManifest::SENTINEL,
+      $root . '/.claude/commands/droost/workflow/' . PackManifest::SENTINEL,
     );
   }
 

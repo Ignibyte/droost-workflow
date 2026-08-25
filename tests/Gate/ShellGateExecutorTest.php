@@ -503,7 +503,7 @@ class ShellGateExecutorTest extends WorkflowTestCase {
    * tests passed" — and the first written test hardens the gate with no
    * lever touched.
    */
-  public function testPhpunitEmptySuiteIsALabeledPass(): void {
+  public function testPhpunitEmptySuiteIsLabeledPass(): void {
     $root = $this->rootWithBinaries(['phpunit']);
     $executor = new ShellGateExecutor(
       static fn (): array => [0, "PHPUnit 12.5\n\nNo tests executed!\n", ''],

@@ -75,17 +75,42 @@ one line rather than a fork.
 
 - **`factory`** — everything on, strict. The software factory. The full EARS
   spec; enforcement defaults `hard`.
-- **`light`** — the same four phases at lighter weight: a ten-line quasi-spec
-  presented in chat, the static pair, the rendered check; enforcement
-  defaults `soft`. Light is not a shorter path — nothing skips. (Renamed
-  from `fast` in 0.3; the old name is refused with a pointer.)
+- **`light`** — the same phases at lighter weight: a SHORTER spec in the same
+  EARS shape presented in chat, the mandatory trio with phpstan at level 2,
+  the rendered check; enforcement defaults `soft`. Light is not a shorter
+  path — nothing skips, and the spec format never thins. (Renamed from
+  `fast` in 0.3; the old name is refused with a pointer.)
 - **`custom`** — the values shown above; the ergonomic middle, and what `init`
   writes for you.
 
-**The phases are not levers.** Since 0.3 every run walks
-`plan → code → test → document → complete`, minor changes included — the
-`phases:` key is deprecated and ignored (with a notice). What varies between
-heavy and light is the weight each phase carries, never the path.
+**The phases are not levers.** Since 0.3 every run walks the canonical
+order, minor changes included — `plan → code → test → complete` since 0.4
+folded document into complete — and the `phases:` key is deprecated and
+ignored (with a notice). What varies between heavy and light is the weight
+each phase carries, never the path.
+
+**The mandatory trio is not a lever either.** Since 0.4, `phpcs`, `phpstan`
+and `phpunit` cannot be turned off — they are the toolchain Drupal core
+itself develops with (exactly what `drupal/core-dev` ships). Their tuning
+levers (standard, level, paths) still apply; an `on: false`, or phpstan's
+`level: off`, is recorded as a deprecation notice and superseded. A repo
+that cannot run one of them yet gets an honest answer instead of a pass:
+tool missing, config missing (phpunit with no phpunit.xml refuses before
+spawning anything), or a labeled "nothing to analyse / no tests yet" that
+hardens itself the moment real code or a first test exists.
+
+**The seeker checkpoint** holds a green code phase — and completion — until
+an adversarial inspection is recorded clean. Gates verify rules; the seeker
+(the pack's `workflow-seeker` agent) verifies judgment: dead new code, drift
+from the spec's EARS criteria, coupling the change breaks, weak tests,
+security smells in the changed code, attempts to defeat the workflow's own
+discipline. Its scope contract is the diff plus one hop to the changed
+symbols' consumers — never an audit of the neighbourhood — and its verdict
+is an exact ledger the engine PARSES (`seeker-report`, stdin): open CRITICAL
+or MEDIUM rows hold the run, resolved and carried-with-reason rows release
+it, and a section with neither rows nor the `(no findings)` sentinel is an
+incomplete inspection and refuses. `seekers: { on: false }` is the one
+lever, on by default; the hold spends no retry budget.
 
 **Enforcement is its own lever**, orthogonal to the preset: `hard` blocks
 out-of-phase actions while a run is active (editing project files during
@@ -95,6 +120,13 @@ they read `.droost-workflow/run.json` first, and no run means no opinion.
 You may pair factory gates with `enforcement: off`; not advised, but the
 lever file is a reviewable diff, and a visible loosening is the honest way
 to allow it.
+
+**Playwright is the npm tier.** The `playwright` gate runs
+`node_modules/.bin/playwright test` — committed regression specs, exit code
+as verdict; without playwright installed in the repo it reports tool-missing,
+honestly. It is distinct from a session's Playwright MCP tools, which the
+test phase uses for interactive verification and which the run records as
+the declared `browser` capability.
 
 **Custom gates** (`gates.custom`) wire the repo's own commands — semgrep,
 behat, anything — as first-class gates: everything explicit (`on`, `phase`
@@ -114,10 +146,10 @@ Three details worth knowing:
 - **Thresholds never imply `on`.** Writing `coverage.min` without
   `coverage.on` leaves the gate where the preset put it. An inferred switch
   would make `min: 0` and `on: false` two spellings of one intent with two
-  different failure modes. The single exception is `phpstan.level: off`, which
-  the level vocabulary has always included: it turns the gate off, and pairing
-  it with an explicit `on: true` is refused rather than silently resolved, so
-  the recorded levers can never claim a gate ran when it did not.
+  different failure modes. (`phpstan.level: off` was the one other switch;
+  the 0.4 mandate superseded it — the attempt is noticed and the gate keeps
+  the preset's level, so the recorded levers can never claim a gate was off
+  when it ran.)
 - **Something at the config path that is not a readable regular file is an
   error**, not an absent config. A directory, a broken symlink or an
   unreadable file would otherwise swap your gates for the built-in ones and
@@ -214,13 +246,20 @@ report has to be able to describe the run honestly.
 
 ## The pack
 
-The five phases ship as a `.claude/` pack — one skill per phase, two
-commands, and a shared partial on using droost. Installing it into a repo
+The phases ship as a `.claude/` pack — one skill per phase, two commands
+(`/droost:workflow:continue` acts, `/droost:workflow:status` inspects), five
+agents (the plan researcher and spec-writer, the adversarial
+`workflow-seeker`, the one-finding-at-a-time `workflow-bug-fixer`, and
+`droost-debugger`, which flips xdebug on for a stubborn failure and back off
+after), and a shared partial on using droost. Installing it into a repo
 writes:
 
 ```
-.claude/skills/workflow-{plan,code,test,document,complete}/SKILL.md
-.claude/commands/workflow/{run,status}.md
+.claude/skills/workflow-{plan,code,test,complete}/SKILL.md
+.claude/commands/droost/workflow/{continue,status}.md
+.claude/agents/workflow-{researcher,spec-writer,seeker,bug-fixer}.md
+.claude/agents/droost-debugger.md
+.claude/hooks/droost-workflow-guard.php
 .claude/partials/droost-usage.md
 droost.workflow.yml          # only if you don't already have one
 ```

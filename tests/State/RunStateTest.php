@@ -259,7 +259,7 @@ class RunStateTest extends TestCase {
   /**
    * The judgment fields round-trip: seekers flag, inspection, browser.
    *
-   * begin() freezes the config's seekers switch; the two writers replace
+   * Begin() freezes the config's seekers switch; the two writers replace
    * their own field and nothing else; and a serialized run carries all
    * three back unchanged — because the complete phase renders this record,
    * and a record that does not survive a save is not a record.

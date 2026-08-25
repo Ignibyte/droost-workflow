@@ -47,6 +47,21 @@ executed. None of the legs render a page or fetch a URL — do not describe
 `droost_last_error` and `droost_logs` tell you what the site actually said
 when something failed, rather than guessing from an exit code.
 
+**Verify through the browser tier the run declared** (`browser` in
+`.droost-workflow/run.json`, recorded at run start):
+
+- `playwright-mcp` — drive the real browser over the changed surfaces: load
+  the pages your diff touches, exercise the behaviour the criteria name,
+  screenshot what you assert. This is interactive verification of YOUR OWN
+  work — distinct from the `playwright` GATE, which runs the repo's
+  committed regression specs (`node_modules/.bin/playwright test`) and
+  needs playwright installed in the repo.
+- `native` — same verification through the editor's own browser.
+- `none` — the rendered check is the floor: the engine renders routes
+  through the booted site and that result stands in for eyes. Say in the
+  report that no browser tier ran — it is a fact about the verification,
+  not a failure.
+
 When a gate fails, enter a bounded feedback loop: read the finding, fix the
 cause, invoke `run` again. **The engine counts the attempts** — each blocking
 gate spends budget per failing invocation, recorded in run state as

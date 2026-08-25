@@ -2,7 +2,7 @@
 
 /**
  * @file
- * The droost-work enforcement guard, wired as a Claude Code hook.
+ * The droost workflow enforcement guard, wired as a Claude Code hook.
  *
  * Two modes, one rule: NO ACTIVE RUN, NO OPINION. The first thing either
  * mode does is read .droost-workflow/run.json; when it is absent, unreadable
@@ -93,8 +93,8 @@ if ($mode === 'pre-tool-use') {
     || str_ends_with($file, 'droost.workflow.yml')) {
     exit(0);
   }
-  $message = 'droost-work: the active run is still in PLAN — write the spec '
-    . 'under .droost-workflow/ and advance the run (/droost-work) before '
+  $message = 'droost:workflow:continue: the active run is still in PLAN — write the spec '
+    . 'under .droost-workflow/ and advance the run (/droost:workflow:continue) before '
     . 'editing project files.';
   if ($enforcement === 'hard') {
     fwrite(STDERR, $message);
@@ -113,7 +113,7 @@ if ($mode === 'stop') {
   }
   $message = sprintf(
     'droost-work: a run is active in phase "%s" — advance it or abandon it '
-    . '(/droost-work) rather than ending the turn mid-phase.',
+    . '(/droost:workflow:continue) rather than ending the turn mid-phase.',
     $phase,
   );
   if ($enforcement === 'hard') {

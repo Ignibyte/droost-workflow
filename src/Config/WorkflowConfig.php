@@ -43,10 +43,11 @@ final class WorkflowConfig {
   ];
 
   /**
-   * What the seeker checkpoint may see: the browser capabilities aside, the
-   * only lever is the switch. The one-hop blast radius and the six lenses
-   * are the pattern, not configuration — a per-repo remap of what the
-   * reviewer looks at would be a reviewer you can negotiate with.
+   * The options the seekers block accepts.
+   *
+   * The switch is the only lever. The one-hop blast radius and the six
+   * lenses are the pattern, not configuration — a per-repo remap of what
+   * the reviewer looks at would be a reviewer you can negotiate with.
    */
   private const SEEKER_OPTIONS = ['on'];
 
@@ -498,6 +499,8 @@ final class WorkflowConfig {
    *   The document label.
    * @param array<string, \Droost\Workflow\Config\GateSettings> $base
    *   The preset's gate set.
+   * @param list<string> $deprecations
+   *   Accumulates supersession notices (mandatory-gate disarm attempts).
    *
    * @return array<string, \Droost\Workflow\Config\GateSettings>
    *   Every known gate, resolved.

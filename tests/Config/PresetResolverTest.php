@@ -181,7 +181,7 @@ class PresetResolverTest extends TestCase {
   }
 
   /**
-   * `level: off` was the one other switch, and the mandate supersedes it.
+   * The mandate supersedes `level: off`, the one other switch.
    *
    * The attempt is recorded as a notice and the gate keeps the preset's
    * level, so the resolved record never says a gate was off when it ran.
