@@ -104,8 +104,8 @@ gates:
 # code, drift from the spec, coupling the change breaks, weak tests,
 # security smells, discipline defeats. On by default and highly
 # recommended; the switch is the only lever (the one-hop blast radius and
-# the six lenses are the pattern, not configuration). Turning it off is
-# recorded in every lever report, like enforcement: off.
+# the six lenses are the pattern, not configuration). Turning it off is a
+# reviewable line in this file — which is why the levers live in a file.
 seekers: { on: true }
 
 # How many times a failing gate may drive the feedback loop before the run
