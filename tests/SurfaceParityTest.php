@@ -225,6 +225,11 @@ class SurfaceParityTest extends WorkflowTestCase {
       'the phpunit row also reports whether a suite config exists',
     );
     $this->assertArrayNotHasKey('custom:lint', $toolchain);
+    $this->assertArrayNotHasKey(
+      'rendered_check',
+      $toolchain,
+      'a site gate runs through the driver, not a binary — a toolchain row for it reads "missing" forever',
+    );
   }
 
   /**

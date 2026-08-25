@@ -154,8 +154,13 @@ final class WorkflowFacade {
    * The toolchain rows: per named gate, the binary it runs and its presence.
    *
    * Custom gates are absent by design — their cmd runs through the shell,
-   * whose own 127 is the probe. The phpunit row also reports whether a
-   * suite config exists, because the gate refuses to run without one.
+   * whose own 127 is the probe. Site gates are absent too: rendered_check
+   * runs through the injected site driver, never a binary, and probing
+   * binaryPathFor() for it invented a vendor/bin/rendered_check that cannot
+   * exist on any repo — a row that read "missing" forever while every
+   * remedy pointed at packages that do not provide it. The phpunit row also
+   * reports whether a suite config exists, because the gate refuses to run
+   * without one.
    *
    * @param \Droost\Workflow\Config\WorkflowConfig $config
    *   The resolved levers.
@@ -172,7 +177,8 @@ final class WorkflowFacade {
     $root = rtrim($projectRoot, '/');
     $rows = [];
     foreach ($config->gates as $name => $gate) {
-      if (GateSettings::isCustom($name)) {
+      if (GateSettings::isCustom($name)
+        || in_array($name, GateRunner::SITE_GATES, TRUE)) {
         continue;
       }
       $binary = ShellGateExecutor::binaryPathFor($name);
