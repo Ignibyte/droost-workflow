@@ -63,13 +63,13 @@ gates:
   # own config (phpcs.xml.dist, phpstan.neon); set it where no such config
   # exists, e.g. a Drupal site root pointing at the custom-code directories.
   # A configured path holding nothing analysable reports a labeled pass.
-  phpcs:          { on: true,  standard: "Drupal,DrupalPractice" }
+  phpcs:          { standard: "Drupal,DrupalPractice" }
 
   # level: 0-9 or "max". ("off" is superseded like on: false — the analyser
   # is mandatory; lower the level instead of disarming it.)
-  phpstan:        { on: true,  level: 6 }
+  phpstan:        { level: 6 }
 
-  phpunit:        { on: true }
+  phpunit:        { }
 
   mutation:       { on: false, msi_min: 0 }
   playwright:     { on: false }
