@@ -164,6 +164,36 @@ class SurfaceParityTest extends WorkflowTestCase {
   }
 
   /**
+   * Status carries toolchain rows probed from the executor's own mapping.
+   *
+   * Armed-and-working must be distinguishable from armed-and-broken before
+   * a run hits it. The rows report the exact path the executor would run —
+   * one fact, never two implementations.
+   */
+  public function testStatusReportsTheToolchain(): void {
+    $root = $this->makeRootWithConfig("preset: custom\n");
+    mkdir($root . '/vendor/bin', 0755, TRUE);
+    file_put_contents($root . '/vendor/bin/phpcs', "#!/bin/sh\nexit 0\n");
+
+    $status = $this->facade(new NullSiteDriver())->status($root);
+
+    $toolchain = $status['toolchain'];
+    $this->assertTrue($toolchain['phpcs']['present']);
+    $this->assertSame('vendor/bin/phpcs', $toolchain['phpcs']['binary']);
+    $this->assertTrue($toolchain['phpcs']['on']);
+    $this->assertFalse($toolchain['phpstan']['present']);
+    $this->assertSame(
+      'node_modules/.bin/playwright',
+      $toolchain['playwright']['binary'],
+    );
+    $this->assertFalse(
+      $toolchain['phpunit']['suite_config'],
+      'the phpunit row also reports whether a suite config exists',
+    );
+    $this->assertArrayNotHasKey('custom:lint', $toolchain);
+  }
+
+  /**
    * Answering when nothing is waiting is a typed error, not a crash.
    */
   public function testAnsweringWithNoRunIsTyped(): void {

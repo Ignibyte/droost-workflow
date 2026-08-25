@@ -9,8 +9,10 @@ use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\PhaseGateMap;
 use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateRunner;
+use Droost\Workflow\Gate\ShellGateExecutor;
 use Droost\Workflow\Gate\SiteDriverInterface;
 use Droost\Workflow\Mode\ModeEngine;
 use Droost\Workflow\Mode\Outcome;
@@ -104,6 +106,11 @@ final class WorkflowFacade {
         'phase_gates' => PhaseGateMap::forPhases($config->phaseNames()),
         'max_gate_retries' => $config->maxGateRetries,
       ],
+      // Whether each named gate's tool could actually run here, probed via
+      // the executor's own path mapping — the reported row and the executed
+      // path are the same fact. Without this, armed-and-working was
+      // indistinguishable from armed-and-broken until a run hit it.
+      'toolchain' => $this->toolchain($config, $projectRoot),
       // Deprecations are part of the resolved result: a lever file using a
       // retired key should say so everywhere the levers are read.
       'deprecations' => $config->deprecations,
@@ -133,6 +140,46 @@ final class WorkflowFacade {
       'answered' => count($state->qaHistory),
     ];
     return $status;
+  }
+
+  /**
+   * The toolchain rows: per named gate, the binary it runs and its presence.
+   *
+   * Custom gates are absent by design — their cmd runs through the shell,
+   * whose own 127 is the probe. The phpunit row also reports whether a
+   * suite config exists, because the gate refuses to run without one.
+   *
+   * @param \Droost\Workflow\Config\WorkflowConfig $config
+   *   The resolved levers.
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return array<string, array<string, bool|string>>
+   *   Gate name to its binary path, presence, and armed flag.
+   */
+  private function toolchain(
+    WorkflowConfig $config,
+    string $projectRoot,
+  ): array {
+    $root = rtrim($projectRoot, '/');
+    $rows = [];
+    foreach ($config->gates as $name => $gate) {
+      if (GateSettings::isCustom($name)) {
+        continue;
+      }
+      $binary = ShellGateExecutor::binaryPathFor($name);
+      $row = [
+        'on' => $gate->on,
+        'binary' => $binary,
+        'present' => is_file($root . '/' . $binary),
+      ];
+      if ($name === 'phpunit' || $name === 'coverage') {
+        $row['suite_config'] = is_file($root . '/phpunit.xml')
+          || is_file($root . '/phpunit.xml.dist');
+      }
+      $rows[$name] = $row;
+    }
+    return $rows;
   }
 
   /**

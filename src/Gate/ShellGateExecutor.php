@@ -377,6 +377,29 @@ final class ShellGateExecutor implements GateExecutorInterface {
    *   The relative path.
    */
   private function binaryFor(string $gate): string {
+    return self::binaryPathFor($gate);
+  }
+
+  /**
+   * The binary a named gate runs, relative to the project root.
+   *
+   * Public and static because status surfaces render toolchain rows from
+   * this exact mapping — the reported probe and the executed path must be
+   * the same fact, never two implementations.
+   *
+   * @param string $gate
+   *   The gate name (a named gate; custom gates run their own cmd).
+   *
+   * @return string
+   *   The relative path.
+   */
+  public static function binaryPathFor(string $gate): string {
+    // Playwright is an npm tool: it never appears under vendor/bin, and
+    // until 0.4 this mapping pointed there — a gate that could only ever
+    // report tool-missing on every repo in existence.
+    if ($gate === 'playwright') {
+      return 'node_modules/.bin/playwright';
+    }
     return 'vendor/bin/' . match ($gate) {
       'coverage' => 'phpunit',
       'mutation' => 'infection',
@@ -449,6 +472,9 @@ final class ShellGateExecutor implements GateExecutorInterface {
         '--no-progress',
         '--min-msi=' . (string) ($msi ?? 0),
       ],
+      // `playwright test` is the suite runner; bare `playwright` prints
+      // usage and exits zero, which would read as a pass with no tests run.
+      'playwright' => [$binary, 'test'],
       default => [$binary],
     };
   }

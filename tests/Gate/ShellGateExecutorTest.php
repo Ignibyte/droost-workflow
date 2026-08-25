@@ -423,6 +423,53 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * The playwright gate runs the npm binary, as a test-suite invocation.
+   *
+   * Until 0.4 the mapping pointed at vendor/bin/playwright, which no repo
+   * on earth has — a gate that could only ever report tool-missing. And the
+   * subcommand matters: bare `playwright` prints usage and exits zero,
+   * which would read as a pass with no tests run.
+   */
+  public function testPlaywrightRunsTheNpmBinary(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/node_modules/.bin', 0755, TRUE);
+    file_put_contents($root . '/node_modules/.bin/playwright', "#!/bin/sh\nexit 0\n");
+    chmod($root . '/node_modules/.bin/playwright', 0755);
+    $seen = [];
+    $executor = new ShellGateExecutor(
+      function (array $argv) use (&$seen): array {
+        $seen = $argv;
+        return [0, '', ''];
+      },
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('playwright', TRUE), $root);
+
+    $this->assertSame(GateStatus::Passed, $result->status);
+    $this->assertSame($root . '/node_modules/.bin/playwright', $seen[0]);
+    $this->assertSame(['test'], array_slice($seen, 1));
+  }
+
+  /**
+   * A repo without playwright gets tool-missing naming the npm path.
+   */
+  public function testPlaywrightMissingNamesTheNpmPath(): void {
+    $executor = new ShellGateExecutor(
+      static fn (): array => [0, '', ''],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(
+      new GateSettings('playwright', TRUE),
+      $this->makeRoot(),
+    );
+
+    $this->assertSame(GateStatus::ErrorToolMissing, $result->status);
+    $this->assertStringContainsString('node_modules/.bin/playwright', $result->summary);
+  }
+
+  /**
    * A phpunit gate with no suite config is config-missing, never a pass.
    *
    * A test run is defined by its config file; bare phpunit against a bare
