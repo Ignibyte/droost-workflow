@@ -1,12 +1,20 @@
 ---
 title: Droost Workflow — continue
-purpose: Start a workflow run, or advance the one already in progress, through plan, code, test and complete.
+purpose: Advance the workflow run in progress — including after a stop or in a fresh session — through plan, code, test and complete.
 ---
 
-Start a run, or advance the one in progress. This is the single entry point
-to the work pipeline — `/droost:workflow:status` inspects,
-`/droost:workflow:continue` acts. (Until 0.4 this command was `/droost-work`;
-same pipeline, honest name.)
+Advance the run **in progress** — one phase per invocation, and the command
+you re-run after a stop or in a brand-new session. The three verbs:
+`/droost:workflow:start` opens a run, `/droost:workflow:continue` advances it,
+`/droost:workflow:status` inspects without changing anything. (Until 0.4 a
+single `/droost-work` did both start and advance; the honest split is start
+vs continue.)
+
+## First, make sure there is a run to continue
+
+If `.droost-workflow/run.json` does not exist, there is nothing to advance —
+begin with `/droost:workflow:start`, which writes the spec, opens the run and
+declares the browser tier. Everything below assumes an open run.
 
 ## What this does
 
@@ -17,23 +25,20 @@ the weight each phase carries, never the path. (0.4 folded the old document
 phase into complete: capturing what was built is the first half of presenting
 it.)
 
-## First invocation of a run: declare your browser
+## Browser tier: declared at start, re-declarable here
 
-Before the first `run`, record which browser tier THIS session actually has —
-nothing on disk can know it for you:
+`/droost:workflow:start` records the browser tier once the run exists. If a
+new session picks the run up on a machine with a different capability,
+re-declare it before the test phase — run.json already exists, so it applies:
 
 ```
 vendor/bin/droost-workflow declare-browser playwright-mcp   # or: native | none
 ```
 
-- `playwright-mcp` — you hold Playwright MCP tools and can drive a browser.
-- `native` — the editor gives you its own browser (Claude in Chrome, a cloud
-  browser).
-- `none` — no browser this session.
-
-The test phase branches on this, and the final report says which verification
-tier actually ran. `none` is not a failure — the rendered check is the floor
-and always runs.
+`playwright-mcp` = you can drive a browser; `native` = the editor gives you
+one; `none` = no browser this session (the rendered check is the floor and
+always runs — `none` is not a failure). The test phase branches on this and
+the final report says which tier actually ran.
 
 ## The two weights
 

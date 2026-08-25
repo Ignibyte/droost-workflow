@@ -427,10 +427,9 @@ final class WorkflowFacade {
   private function requireRun(RunStateStore $store): RunState {
     $state = $store->load();
     if ($state === NULL) {
-      throw StateError::corrupt(
-        $store->label(),
-        'there is no run in progress',
-      );
+      // Absent, not corrupt: load() returns NULL only when the file does not
+      // exist. Say "start a run", not "your unreadable file — move it aside".
+      throw StateError::noRun($store->label());
     }
     return $state;
   }

@@ -53,6 +53,8 @@ final class PackManifest {
     => '.claude/skills/workflow-test/SKILL.md',
     'skills/workflow-complete/SKILL.md'
     => '.claude/skills/workflow-complete/SKILL.md',
+    'commands/droost/workflow/start.md'
+    => '.claude/commands/droost/workflow/start.md',
     'commands/droost/workflow/continue.md'
     => '.claude/commands/droost/workflow/continue.md',
     'commands/droost/workflow/status.md'

@@ -35,6 +35,29 @@ final class StateError extends \RuntimeException {
   }
 
   /**
+   * There is no run to act on — the state file is absent, not corrupt.
+   *
+   * Distinct from corrupt() on purpose: a command that needs a run (declare
+   * a browser, record a seeker, answer, swap) must tell an operator to START
+   * one, not that their (nonexistent) file is unreadable and should be moved
+   * aside. Conflating the two produced "unreadable run state (there is no
+   * run in progress) — move it aside" for a file that was never there.
+   *
+   * @param string $path
+   *   The state file's path, as shown to the operator.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function noRun(string $path): self {
+    return new self(
+      $path,
+      'there is no run in progress — start one with /droost:workflow:start '
+      . '(or vendor/bin/droost-workflow run) before this command applies',
+    );
+  }
+
+  /**
    * The file is present but not valid state.
    *
    * @param string $path
