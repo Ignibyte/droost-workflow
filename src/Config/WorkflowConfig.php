@@ -215,7 +215,7 @@ final class WorkflowConfig {
       return new self(
         self::readMode($root, $source, $base->mode),
         Phase::canonical(),
-        self::readGates($root, $source, $base->gates),
+        self::readGates($root, $source, $base->gates, $deprecations),
         $base->name,
         $root->has('max_gate_retries')
           ? $root->intInRange(
@@ -462,6 +462,7 @@ final class WorkflowConfig {
     TypedArray $root,
     string $source,
     array $base,
+    array &$deprecations = [],
   ): array {
     $node = $root->optionalChild('gates');
     if ($node === NULL) {
@@ -488,7 +489,33 @@ final class WorkflowConfig {
           GateSettings::KNOWN_GATES,
         );
       }
-      $gates[$name] = $gates[$name]->overlay($node->child($name), $source);
+      $entry = $node->child($name);
+      // The mandatory trio cannot be disarmed. A disarm attempt is treated
+      // exactly like the retired phases key: validated vocabulary, recorded
+      // notice, superseded value — never silently obeyed, never fatal. The
+      // stripped entry still overlays, so tuning levers beside the attempt
+      // ("on: false" next to a paths list) keep their effect.
+      if (in_array($name, GateSettings::MANDATORY, TRUE)) {
+        $raw = $entry->toArray();
+        $attempted = [];
+        if (array_key_exists('on', $raw) && $raw['on'] === FALSE) {
+          $attempted[] = 'on: false';
+          unset($raw['on']);
+        }
+        if ($name === 'phpstan' && ($raw['level'] ?? NULL) === 'off') {
+          $attempted[] = 'level: off';
+          unset($raw['level']);
+        }
+        if ($attempted !== []) {
+          $deprecations[] = ConfigError::mandatoryGateNotice(
+            $source,
+            $name,
+            implode('", "', $attempted),
+          );
+          $entry = TypedArray::authored($raw);
+        }
+      }
+      $gates[$name] = $gates[$name]->overlay($entry, $source);
     }
 
     return $gates;

@@ -423,6 +423,53 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * A phpunit gate with no suite config is config-missing, never a pass.
+   *
+   * A test run is defined by its config file; bare phpunit against a bare
+   * root would error, and the error would read as a failing suite. The
+   * refusal happens before anything spawns.
+   */
+  public function testPhpunitWithoutSuiteConfigIsToolMissing(): void {
+    $root = $this->rootWithBinaries(['phpunit']);
+    unlink($root . '/phpunit.xml.dist');
+    $spawned = FALSE;
+    $executor = new ShellGateExecutor(
+      function () use (&$spawned): array {
+        $spawned = TRUE;
+        return [0, '', ''];
+      },
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('phpunit', TRUE), $root);
+
+    $this->assertSame(GateStatus::ErrorToolMissing, $result->status);
+    $this->assertStringContainsString('phpunit.xml', $result->summary);
+    $this->assertFalse($spawned, 'nothing spawns against a configless root');
+  }
+
+  /**
+   * An empty suite is a LABELED pass, never a clean one.
+   *
+   * The config exists and the runner worked; there is simply nothing to run
+   * yet. The label is what keeps "no tests yet" from being read as "the
+   * tests passed" — and the first written test hardens the gate with no
+   * lever touched.
+   */
+  public function testPhpunitEmptySuiteIsALabeledPass(): void {
+    $root = $this->rootWithBinaries(['phpunit']);
+    $executor = new ShellGateExecutor(
+      static fn (): array => [0, "PHPUnit 12.5\n\nNo tests executed!\n", ''],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('phpunit', TRUE), $root);
+
+    $this->assertSame(GateStatus::Passed, $result->status);
+    $this->assertStringContainsString('no tests yet', $result->summary);
+  }
+
+  /**
    * A project root with stub binaries in place.
    *
    * @param list<string> $tools
@@ -438,6 +485,10 @@ class ShellGateExecutorTest extends WorkflowTestCase {
       file_put_contents($root . '/vendor/bin/' . $tool, "#!/bin/sh\nexit 0\n");
       chmod($root . '/vendor/bin/' . $tool, 0755);
     }
+    // The phpunit/coverage gates refuse a root with no suite config before
+    // they spawn anything; a root credible enough to carry stub binaries
+    // carries the stub config too.
+    file_put_contents($root . '/phpunit.xml.dist', "<phpunit/>\n");
     return $root;
   }
 

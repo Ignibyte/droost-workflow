@@ -47,6 +47,24 @@ final class GateSettings {
   ];
 
   /**
+   * The gates no lever file can disarm.
+   *
+   * 0.4's opinion, stated once: the toolchain Drupal core itself develops
+   * with — phpcs, phpstan, phpunit, exactly what drupal/core-dev ships — is
+   * not optional. Levers still tune HOW they run (standard, level, paths);
+   * an `on: false` (or phpstan's `level: off`) on one of these is recorded
+   * as a deprecation notice and superseded, the same treatment as the
+   * retired phases key. A repo that cannot run one of them yet still gets an
+   * honest answer — tool-missing, or the labeled nothing-to-analyse pass —
+   * because honesty is the gate's job, not the switch's.
+   */
+  public const MANDATORY = [
+    'phpcs',
+    'phpstan',
+    'phpunit',
+  ];
+
+  /**
    * The prefix carried by custom gates in the resolved set and reports.
    *
    * Namespacing keeps a repo's `semgrep` from colliding with any gate this

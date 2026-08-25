@@ -478,6 +478,33 @@ final class ConfigError extends \RuntimeException {
    * @return string
    *   The deprecation notice.
    */
+  /**
+   * The notice recorded when a lever file tries to disarm a mandatory gate.
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $gate
+   *   The mandatory gate.
+   * @param string $attempted
+   *   What the file wrote, e.g. "on: false".
+   *
+   * @return string
+   *   The notice.
+   */
+  public static function mandatoryGateNotice(
+    string $source,
+    string $gate,
+    string $attempted,
+  ): string {
+    return sprintf(
+      '%s: %s is mandatory since 0.4.0 — "%s" is ignored and the gate stays '
+      . 'on; tune it (standard, level, paths) instead of disarming it',
+      $source,
+      $gate,
+      $attempted,
+    );
+  }
+
   public static function phasesDeprecationNotice(string $source): string {
     return sprintf(
       '%s: the "phases" key is deprecated and ignored since 0.3.0 — every '

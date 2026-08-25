@@ -20,6 +20,44 @@ use PHPUnit\Framework\Attributes\DataProvider;
 class WorkflowConfigTest extends WorkflowTestCase {
 
   /**
+   * The mandatory trio cannot be disarmed from a lever file.
+   *
+   * The attempt is not an error and not obeyed: it is recorded as a
+   * deprecation notice and superseded, exactly like the retired phases key —
+   * while tuning levers written beside the attempt keep their effect, and
+   * the optional tiers stay switchable.
+   */
+  public function testMandatoryGatesCannotBeDisarmed(): void {
+    $config = WorkflowConfig::fromArray([
+      'preset' => 'factory',
+      'gates' => [
+        'phpcs' => ['on' => FALSE, 'paths' => 'web/modules/custom'],
+        'phpunit' => ['on' => FALSE],
+        'phpstan' => ['on' => TRUE, 'level' => 'off'],
+        'mutation' => ['on' => FALSE],
+      ],
+    ], 'test');
+
+    $this->assertTrue($config->gate('phpcs')->on);
+    $this->assertSame(
+      'web/modules/custom',
+      $config->gate('phpcs')->option('paths'),
+      'tuning levers beside the disarm attempt keep their effect',
+    );
+    $this->assertTrue($config->gate('phpunit')->on);
+    $this->assertTrue($config->gate('phpstan')->on);
+    $this->assertSame('max', $config->gate('phpstan')->option('level'));
+    $this->assertFalse(
+      $config->gate('mutation')->on,
+      'the optional tiers stay switchable',
+    );
+    $this->assertCount(3, $config->deprecations);
+    foreach ($config->deprecations as $notice) {
+      $this->assertStringContainsString('mandatory since 0.4.0', $notice);
+    }
+  }
+
+  /**
    * The deprecated phases key still speaks its own 0.3 vocabulary.
    *
    * "document" was a real phase when that key was last honoured, so a file
@@ -281,10 +319,6 @@ class WorkflowConfigTest extends WorkflowTestCase {
         ['max_gate_retries' => 11],
         'droost.workflow.yml: max_gate_retries must be between 0 and 10, '
         . 'got 11',
-      ],
-      'contradictory switch' => [
-        ['gates' => ['phpstan' => ['on' => TRUE, 'level' => 'off']]],
-        'droost.workflow.yml: gate "phpstan" sets on: true and level: off',
       ],
       'quoted level' => [
         ['gates' => ['phpstan' => ['level' => '6']]],

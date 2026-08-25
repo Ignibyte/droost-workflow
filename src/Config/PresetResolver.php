@@ -116,9 +116,11 @@ final class PresetResolver {
    * The lighter weight: same four phases, lighter artifacts and gates.
    *
    * Light is not a shorter path — every change still walks plan through
-   * complete. What thins out is the load: a quasi-spec instead of the full
-   * EARS table, the static pair instead of the functional suite, and
-   * documentation presented in chat rather than recorded artefacts.
+   * complete, and since 0.4 the mandatory trio (phpcs, phpstan, phpunit)
+   * runs here like everywhere else. What thins out is the load: a shorter
+   * EARS spec instead of the full table, phpstan at level 2 instead of max,
+   * no mutation/browser/coverage tiers, and documentation presented in chat
+   * rather than recorded artefacts.
    *
    * The rendered check stays on even here. It is the artifacts-are-truth leg,
    * and a light run that stops checking whether the page renders is not
@@ -133,7 +135,7 @@ final class PresetResolver {
         'standard' => self::DEFAULT_STANDARD,
       ]),
       'phpstan' => new GateSettings('phpstan', TRUE, ['level' => 2]),
-      'phpunit' => new GateSettings('phpunit', FALSE),
+      'phpunit' => new GateSettings('phpunit', TRUE),
       'mutation' => new GateSettings('mutation', FALSE, ['msi_min' => 0]),
       'playwright' => new GateSettings('playwright', FALSE),
       'coverage' => new GateSettings('coverage', FALSE, ['min' => 0]),

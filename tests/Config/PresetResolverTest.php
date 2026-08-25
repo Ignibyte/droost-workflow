@@ -64,7 +64,7 @@ class PresetResolverTest extends TestCase {
         [
           'phpcs' => ['on' => TRUE, 'standard' => $standard],
           'phpstan' => ['on' => TRUE, 'level' => 2],
-          'phpunit' => ['on' => FALSE],
+          'phpunit' => ['on' => TRUE],
           'mutation' => ['on' => FALSE, 'msi_min' => 0],
           'playwright' => ['on' => FALSE],
           'coverage' => ['on' => FALSE, 'min' => 0],
@@ -142,7 +142,7 @@ class PresetResolverTest extends TestCase {
 
     $this->assertSame(9, $config->gate('phpstan')->option('level'));
     // The overlaid gate keeps its siblings...
-    $this->assertFalse($config->gate('phpunit')->on);
+    $this->assertFalse($config->gate('playwright')->on);
     $this->assertTrue($config->gate('rendered_check')->on);
     // ...and the untouched gates keep their own options.
     $this->assertSame(
@@ -153,17 +153,18 @@ class PresetResolverTest extends TestCase {
 
   /**
    * Switching a gate off does not discard its configuration.
+   *
+   * The subject is an optional tier: the mandatory trio cannot be switched
+   * off at all (see WorkflowConfigTest's mandatory-gate coverage).
    */
   public function testDisablingGateKeepsItsOptions(): void {
     $config = WorkflowConfig::fromArray([
-      'gates' => ['phpcs' => ['on' => FALSE]],
+      'preset' => 'factory',
+      'gates' => ['mutation' => ['on' => FALSE]],
     ], 'test');
 
-    $this->assertFalse($config->gate('phpcs')->on);
-    $this->assertSame(
-      'Drupal,DrupalPractice',
-      $config->gate('phpcs')->option('standard'),
-    );
+    $this->assertFalse($config->gate('mutation')->on);
+    $this->assertSame(80, $config->gate('mutation')->option('msi_min'));
   }
 
   /**
@@ -180,18 +181,20 @@ class PresetResolverTest extends TestCase {
   }
 
   /**
-   * The one lever that may switch a gate off says so consistently.
+   * `level: off` was the one other switch, and the mandate supersedes it.
+   *
+   * The attempt is recorded as a notice and the gate keeps the preset's
+   * level, so the resolved record never says a gate was off when it ran.
    */
-  public function testLevelOffDisablesTheGate(): void {
+  public function testLevelOffIsSupersededOnTheMandatoryAnalyser(): void {
     $config = WorkflowConfig::fromArray([
       'gates' => ['phpstan' => ['level' => 'off']],
     ], 'test');
 
-    $this->assertFalse($config->gate('phpstan')->on);
-    $this->assertSame(
-      ['on' => FALSE, 'level' => 'off'],
-      $config->resolvedGates()['phpstan'],
-    );
+    $this->assertTrue($config->gate('phpstan')->on);
+    $this->assertSame('max', $config->gate('phpstan')->option('level'));
+    $this->assertNotEmpty($config->deprecations);
+    $this->assertStringContainsString('mandatory', $config->deprecations[0]);
   }
 
   /**

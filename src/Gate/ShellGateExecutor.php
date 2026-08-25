@@ -92,6 +92,22 @@ final class ShellGateExecutor implements GateExecutorInterface {
       return GateResult::toolMissing($gate->name, $invocation);
     }
 
+    if (in_array($gate->name, ['phpunit', 'coverage'], TRUE)
+      && !is_file($root . '/phpunit.xml')
+      && !is_file($root . '/phpunit.xml.dist')) {
+      // A test run is defined by its config file (bootstrap, env, suites);
+      // running bare phpunit against a root with neither would let the tool
+      // error and the error read as a failing suite. Config-missing is the
+      // same honesty class as tool-missing: the environment cannot run the
+      // gate it was told to run. On a Drupal site,
+      // `drush droost:workflow:install` writes the file this looks for.
+      return GateResult::toolMissing(
+        $gate->name,
+        $invocation
+        . ' (no phpunit.xml or phpunit.xml.dist at the project root)',
+      );
+    }
+
     if ($scoped === []) {
       // Every configured path is absent or holds nothing the tool reads.
       // Running anyway would make phpstan's "no files found" error read as a
@@ -126,6 +142,24 @@ final class ShellGateExecutor implements GateExecutorInterface {
         $stdout,
         $stderr,
         $elapsed,
+        $invocation,
+      );
+    }
+
+    if ($gate->name === 'phpunit'
+      && $exit === 0
+      && str_contains($stdout, 'No tests executed')) {
+      // The config exists and the runner worked; there is simply nothing to
+      // run yet. A labeled pass, so it can never be mistaken for a clean
+      // suite — and the first test the test phase writes hardens this gate
+      // with no lever touched.
+      return GateResult::ran(
+        $gate->name,
+        GateStatus::Passed,
+        0,
+        $elapsed,
+        'phpunit passed — the suite contains no tests yet',
+        [],
         $invocation,
       );
     }
@@ -393,7 +427,15 @@ final class ShellGateExecutor implements GateExecutorInterface {
       // Drush exits non-zero when any page is stale, orphaned or invalid, so
       // the gate needs no parsing — the command IS the verdict.
       'wiki_fresh' => [$binary, 'droost:wiki:status'],
-      'phpunit' => [$binary, '--no-progress'],
+      // The empty-suite flag (PHPUnit >= 10; core-dev ships 11.5) turns "no
+      // tests yet" into exit zero, which execute() then LABELS rather than
+      // reporting as a clean suite — the same honesty shape as the static
+      // pair's nothing-to-analyse pass.
+      'phpunit' => [
+        $binary,
+        '--no-progress',
+        '--do-not-fail-on-empty-test-suite',
+      ],
       // No threshold flag: phpunit has no --min-coverage option. The floor
       // is enforced by coverageVerdict(), from the parsed summary.
       'coverage' => [
