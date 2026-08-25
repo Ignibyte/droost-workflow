@@ -216,7 +216,7 @@ class PhaseReportTest extends TestCase {
    * An empty phase advances rather than blocking.
    */
   public function testPhaseWithNoGatesAdvances(): void {
-    $report = new PhaseReport(Phase::Document);
+    $report = new PhaseReport(Phase::Plan);
 
     $this->assertTrue($report->advance());
     $this->assertStringContainsString('no gates configured', $report->summaryLine());

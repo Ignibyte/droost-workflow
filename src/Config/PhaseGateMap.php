@@ -23,6 +23,11 @@ namespace Droost\Workflow\Config;
  * Complete re-running the full set is also what makes dropped phases safe: a
  * run configured without a test phase still meets every enabled gate once,
  * at the end, rather than never.
+ *
+ * wiki_fresh runs at complete only. Since 0.4 the documentation work IS the
+ * first half of complete — the wiki is built there and then the freshness
+ * check has something true to verify; checking it any earlier would gate a
+ * phase on documentation that phase had not yet produced.
  */
 final class PhaseGateMap {
 
@@ -46,9 +51,6 @@ final class PhaseGateMap {
       'playwright',
       'coverage',
       'rendered_check',
-    ],
-    'document' => [
-      'wiki_fresh',
     ],
     'complete' => [
       'phpcs',

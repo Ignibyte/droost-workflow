@@ -20,6 +20,29 @@ use PHPUnit\Framework\Attributes\DataProvider;
 class WorkflowConfigTest extends WorkflowTestCase {
 
   /**
+   * The deprecated phases key still speaks its own 0.3 vocabulary.
+   *
+   * "document" was a real phase when that key was last honoured, so a file
+   * listing it is validated against the vocabulary the key belongs to —
+   * then superseded like any other use of the key. Refusing the file over a
+   * word that was correct when written would punish exactly the files the
+   * deprecation notice exists to shepherd. A word that never was a phase
+   * still errors: deprecation is not amnesty.
+   */
+  public function testDeprecatedPhasesKeyAcceptsTheRetiredDocumentPhase(): void {
+    $config = WorkflowConfig::fromArray(
+      ['phases' => ['plan', 'code', 'test', 'document', 'complete']],
+      'test',
+    );
+    $this->assertNotEmpty($config->deprecations);
+    $this->assertSame(
+      ['plan', 'code', 'test', 'complete'],
+      $config->phaseNames(),
+      'the run walks the canonical four regardless of what the key lists',
+    );
+  }
+
+  /**
    * REQ-001: a full lever file parses with no Drupal anywhere in the picture.
    */
   public function testParsesFullLeverFile(): void {
@@ -221,7 +244,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
       'unknown phase' => [
         ['phases' => ['plan', 'deploy', 'complete']],
         'droost.workflow.yml: unknown phase "deploy" (known: plan, code, '
-        . 'test, document, complete)',
+        . 'test, complete)',
       ],
       'unknown mode' => [
         ['mode' => 'solo'],
@@ -248,7 +271,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
       'phases out of order' => [
         ['phases' => ['plan', 'test', 'code', 'complete']],
         'droost.workflow.yml: phases must be a subsequence of plan, code, '
-        . 'test, document, complete — got: plan, test, code, complete',
+        . 'test, complete — got: plan, test, code, complete',
       ],
       'empty phases' => [
         ['phases' => []],

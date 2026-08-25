@@ -401,6 +401,14 @@ final class WorkflowConfig {
     $names = $root->stringList('phases');
     $phases = [];
     foreach ($names as $name) {
+      // "document" was a real phase when this key was last honoured (0.3's
+      // five), so a file that lists it is speaking the vocabulary the key
+      // belongs to. The key is superseded anyway; refusing the file over a
+      // word that was correct when written would punish exactly the files
+      // the deprecation notice exists to shepherd.
+      if ($name === 'document') {
+        continue;
+      }
       $phase = Phase::tryFrom($name);
       if ($phase === NULL) {
         throw ConfigError::unknownPhase($source, $name, Phase::names());

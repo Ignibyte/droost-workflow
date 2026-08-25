@@ -36,21 +36,28 @@ class PhaseGateMapTest extends TestCase {
   }
 
   /**
-   * Plan and document run no gates: there is nothing yet to measure.
+   * Plan runs no gates: there is nothing yet to measure.
    */
   public function testPlanIsGateless(): void {
     $this->assertSame([], PhaseGateMap::gatesFor(Phase::Plan));
   }
 
   /**
-   * Document gates the project's own documentation, and nothing else.
+   * The wiki gate is due at complete, and nowhere earlier.
    *
-   * It used to be gateless, which meant a run could leave the wiki stale and
-   * still be recorded as complete. `wiki_fresh` asks the site whether its
-   * documentation still matches the code — the one thing this phase is for.
+   * Since 0.4 the documentation work is the first half of complete itself,
+   * so complete is the first phase at which the wiki CAN be current. Due
+   * any earlier, `wiki_fresh` would gate a phase on documentation that
+   * phase had not yet produced.
    */
-  public function testDocumentGatesTheWiki(): void {
-    $this->assertSame(['wiki_fresh'], PhaseGateMap::gatesFor(Phase::Document));
+  public function testTheWikiGateRunsAtCompleteOnly(): void {
+    $where = [];
+    foreach (PhaseGateMap::DEFAULT as $phase => $gates) {
+      if (in_array('wiki_fresh', $gates, TRUE)) {
+        $where[] = $phase;
+      }
+    }
+    $this->assertSame(['complete'], $where);
   }
 
   /**
@@ -90,18 +97,24 @@ class PhaseGateMapTest extends TestCase {
   }
 
   /**
-   * Together, code + test cover everything complete re-runs.
+   * Together, code + test cover everything complete re-runs — one exception.
    *
    * No gate may exist that ONLY complete runs: it would first fire at the
-   * terminal phase, where a failure is most expensive to act on.
+   * terminal phase, where a failure is most expensive to act on. wiki_fresh
+   * is the carved-out exception, and the carve-out is the point: its subject
+   * — the documentation — is produced inside complete itself (0.4 folded the
+   * document phase in), so the terminal phase is the FIRST one at which the
+   * check can be true.
    */
   public function testNoGateFirstAppearsAtComplete(): void {
     $earlier = array_unique(array_merge(
       PhaseGateMap::gatesFor(Phase::Code),
       PhaseGateMap::gatesFor(Phase::Test),
-      PhaseGateMap::gatesFor(Phase::Document),
     ));
     foreach (PhaseGateMap::gatesFor(Phase::Complete) as $gate) {
+      if ($gate === 'wiki_fresh') {
+        continue;
+      }
       $this->assertContains(
         $gate,
         $earlier,

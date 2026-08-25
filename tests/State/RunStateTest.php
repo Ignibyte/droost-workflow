@@ -49,7 +49,7 @@ class RunStateTest extends TestCase {
     $this->assertStringContainsString('deprecated', $config->deprecations[0]);
 
     $state = RunState::begin('r', 't', $config);
-    $this->assertSame(PhaseStatus::Pending, $state->statusOf(Phase::Document));
+    $this->assertSame(PhaseStatus::Pending, $state->statusOf(Phase::Complete));
     $this->assertSame(PhaseStatus::Pending, $state->statusOf(Phase::Test));
     $this->assertSame(PhaseStatus::Pending, $state->statusOf(Phase::Code));
 
@@ -155,7 +155,7 @@ class RunStateTest extends TestCase {
   public static function illegalMoves(): array {
     return [
       'backward one step' => [Phase::Code, Phase::Plan],
-      'backward several' => [Phase::Document, Phase::Code],
+      'backward several' => [Phase::Complete, Phase::Code],
       'to itself' => [Phase::Code, Phase::Code],
     ];
   }
@@ -270,7 +270,7 @@ class RunStateTest extends TestCase {
       'test',
     ));
     $this->assertSame(
-      ['plan', 'code', 'test', 'document', 'complete'],
+      ['plan', 'code', 'test', 'complete'],
       array_keys($withDeprecatedKey->phaseGates),
       'the deprecated phases key never thins the frozen map (0.3: phases are mandatory)',
     );

@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Droost\Workflow\Config;
 
 /**
- * The five phases of a workflow run.
+ * The four phases of a workflow run.
  *
- * Solutions and design are folded into plan; there is no ticket phase. A run
- * may drop code, test or document, but plan and complete are endpoints: a run
+ * Solutions and design are folded into plan; there is no ticket phase; and
+ * since 0.4 documentation is folded into complete — capturing what was built
+ * is the first half of presenting it, and a separate phase let the two drift.
+ * A run may drop code or test, but plan and complete are endpoints: a run
  * that never planned has nothing to build against, and one that never
  * completed never presented its result.
  */
@@ -23,10 +25,8 @@ enum Phase: string {
   // Run the configured gates. Artifacts are truth.
   case Test = 'test';
 
-  // Capture what was built.
-  case Document = 'document';
-
-  // Present the diff and the gate report. Terminal.
+  // Capture what was built, then present the diff and the gate report,
+  // re-running everything enabled. Terminal.
   case Complete = 'complete';
 
   /**
@@ -45,7 +45,6 @@ enum Phase: string {
       self::Plan,
       self::Code,
       self::Test,
-      self::Document,
       self::Complete,
     ];
   }

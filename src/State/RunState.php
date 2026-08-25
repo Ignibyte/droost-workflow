@@ -712,6 +712,8 @@ final class RunState {
     $due = [];
     foreach ($gatesNode->keys() as $name) {
       if (Phase::tryFrom($name) === NULL) {
+        // The phases reader above has already turned a 0.3 document into
+        // the migration message; anything else here is genuine corruption.
         throw StateError::corrupt($label, sprintf(
           'unknown phase "%s" in phase_gates (known: %s)',
           $name,
@@ -905,6 +907,18 @@ final class RunState {
       // and then make every legitimate phase unreachable — failing much later
       // and nowhere near the cause.
       if (Phase::tryFrom($name) === NULL) {
+        // "document" is not garbage — it is a run that began under 0.3,
+        // whose five-phase vocabulary this build no longer speaks. Runs are
+        // short-lived by design, so there is no migration: the message names
+        // the two honest exits instead of calling the file corrupt.
+        if ($name === 'document') {
+          throw StateError::corrupt($label, sprintf(
+            'this run began under droost/workflow 0.3, whose five phases '
+            . 'included "document" (folded into complete in 0.4.0) — finish '
+            . 'the run on 0.3, or remove %s and start a new run',
+            $label,
+          ));
+        }
         throw StateError::corrupt($label, sprintf(
           'unknown phase "%s" (known: %s)',
           $name,

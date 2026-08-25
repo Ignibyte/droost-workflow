@@ -146,14 +146,15 @@ class SurfaceParityTest extends WorkflowTestCase {
     $root = $this->makeRootWithConfig("preset: custom\n");
     $facade = $this->facade(new NullSiteDriver());
 
-    // 0.3: every run walks the full canonical sequence — four working
-    // phases and the terminal one, one facade call each.
+    // 0.4: every run walks the full canonical sequence — three working
+    // phases and the terminal one (which now carries the documentation
+    // work), one facade call each.
     $walk = [];
-    for ($step = 0; $step < 5; $step++) {
+    for ($step = 0; $step < 4; $step++) {
       $outcome = $facade->run($root);
       $walk[] = $outcome->state->currentPhase?->value;
     }
-    $this->assertSame(['code', 'test', 'document', 'complete', 'complete'], $walk);
+    $this->assertSame(['code', 'test', 'complete', 'complete'], $walk);
     $this->assertSame('completed', $outcome->outcome->value);
 
     // Re-running an ended run says so rather than starting a second one.

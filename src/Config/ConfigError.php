@@ -481,8 +481,9 @@ final class ConfigError extends \RuntimeException {
   public static function phasesDeprecationNotice(string $source): string {
     return sprintf(
       '%s: the "phases" key is deprecated and ignored since 0.3.0 — every '
-      . 'run walks plan, code, test, document, complete; tune gate weight '
-      . 'per phase instead of dropping phases',
+      . 'run walks plan, code, test, complete (document folded into '
+      . 'complete in 0.4.0); tune gate weight per phase instead of '
+      . 'dropping phases',
       $source,
     );
   }

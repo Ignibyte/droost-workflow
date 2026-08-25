@@ -8,7 +8,7 @@
 The phased, gated pipeline an agent runs to build or change a Drupal site:
 
 ```
-plan → code → test → document → complete
+plan → code → test → complete
 ```
 
 Each phase has an entry and an exit gate. Pass, and the run advances; fail, and
@@ -151,18 +151,18 @@ engine's phase map, frozen into each run when it begins:
 plan: none
 code: phpcs, phpstan
 test: phpunit, mutation, playwright, coverage, rendered_check
-document: wiki_fresh
 complete: phpcs, phpstan, phpunit, mutation, playwright, coverage, rendered_check, wiki_fresh
 ```
 
 Plan runs nothing — there is nothing yet to measure. Code gates the diff with
-static analysis. Test runs the functional gates. Document gates the one thing
-prose CAN be checked against: `wiki_fresh` asks the site whether the project's
-own documentation still matches the code it describes. It used to run nothing,
-which meant a run could leave the wiki stale and still be recorded complete —
-and a stale page is read as fact, which is worse than no page. Complete re-runs the full enabled set as the terminal
-safety net, custom gates included — every enabled gate is met at least
-twice: once at its own phase, once at the end.
+static analysis. Test runs the functional gates. Complete opens by capturing
+what was built — the documentation work that was its own phase until 0.4 —
+and then re-runs the full enabled set as the terminal safety net, custom
+gates included, so every other enabled gate is met at least twice: once at
+its own phase, once at the end. `wiki_fresh` is due only here, and only here
+CAN it be true: it asks the site whether the project's own documentation
+still matches the code, and complete is the phase that just wrote it. A
+stale page is read as fact, which is worse than no page.
 
 ## The feedback loop
 

@@ -196,6 +196,21 @@ class RunStateStoreTest extends WorkflowTestCase {
       'a future version' => [$valid(['v' => 99]), 'schema v99 is not supported'],
       'a stringy version' => [$valid(['v' => '1']), 'v must be an integer'],
       'unknown mode' => [$valid(['mode' => 'banana']), 'unknown mode "banana"'],
+      // A run that began under 0.3 carries the retired document phase. It is
+      // not corruption; the message must say what it is and name both exits.
+      'a 0.3 five-phase run' => [
+        $valid([
+          'phases' => [
+            'plan' => 'passed',
+            'code' => 'active',
+            'test' => 'pending',
+            'document' => 'pending',
+            'complete' => 'pending',
+          ],
+          'current_phase' => 'code',
+        ]),
+        'began under droost/workflow 0.3',
+      ],
       'unknown override' => [
         $valid(['mode_override' => 'banana']),
         'unknown mode_override "banana"',
