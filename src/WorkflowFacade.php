@@ -227,7 +227,7 @@ final class WorkflowFacade {
       // The phase spent its retry budget. Re-running would silently restart
       // a run the engine already declared over — so nothing executes, and
       // the envelope's retries block says why. Recovery is deliberate:
-      // remove .droost-workflow/run.json and begin again.
+      // reset() archives the record, then a fresh run begins.
       return new RunOutcome(Outcome::Failed, $state);
     }
 
