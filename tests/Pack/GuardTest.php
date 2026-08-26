@@ -60,16 +60,139 @@ final class GuardTest extends WorkflowTestCase {
 
   /**
    * An operator-granted bypass stands the wall down.
+   *
+   * Only the operator's command writes reason AND granted_at — the guard
+   * honors exactly that shape, so a hand-rolled or corrupt marker is not a
+   * grant (writes under .droost-workflow/ are outside the wall's boundary,
+   * and an existence-only check made bypass.json a one-call self-disarm).
    */
   public function testRequireRunBypassAllows(): void {
     $root = $this->makeRoot();
     mkdir($root . '/.droost-workflow', 0755, TRUE);
-    file_put_contents($root . '/.droost-workflow/bypass.json', '{"reason":"hotfix"}');
+    file_put_contents(
+      $root . '/.droost-workflow/bypass.json',
+      '{"reason":"hotfix","granted_at":"2026-08-26T12:00:00+00:00"}',
+    );
     [$exit, , $stderr] = $this->guard($root, 'pre-tool-use', [
       'tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module'],
     ]);
     $this->assertSame(0, $exit, 'a granted bypass allows the edit');
     $this->assertSame('', $stderr);
+  }
+
+  /**
+   * A bypass file that is not the operator command's shape is not a grant.
+   */
+  public function testRequireRunRejectsMalformedBypasses(): void {
+    $cases = [
+      'garbage' => 'not json',
+      'empty file' => '',
+      'no granted_at' => '{"reason":"hotfix"}',
+      'no reason' => '{"granted_at":"2026-08-26T12:00:00+00:00"}',
+      'empty reason' => '{"reason":"","granted_at":"2026-08-26T12:00:00+00:00"}',
+    ];
+    foreach ($cases as $label => $content) {
+      $root = $this->makeRoot();
+      mkdir($root . '/.droost-workflow', 0755, TRUE);
+      file_put_contents($root . '/.droost-workflow/bypass.json', $content);
+      [$exit] = $this->guard($root, 'pre-tool-use', [
+        'tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module'],
+      ]);
+      $this->assertSame(2, $exit, $label . ' must not stand the wall down');
+    }
+  }
+
+  /**
+   * An ENDED or unreadable run does not stand the wall down.
+   *
+   * The terminal record persists until reset — the designed end state of
+   * every run — so "run.json exists" must not read as "a run is active":
+   * that parked the wall after every finished ticket, and junk written into
+   * run.json was a silent, permanent self-disarm.
+   */
+  public function testEndedRunsDoNotStandTheWallDown(): void {
+    $payload = [
+      'tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module'],
+    ];
+
+    // The authentic post-0.4.5 terminal shape: no current phase.
+    $terminal = $this->makeRoot();
+    mkdir($terminal . '/.droost-workflow', 0755, TRUE);
+    file_put_contents($terminal . '/.droost-workflow/run.json', json_encode([
+      'current_phase' => NULL,
+      'phases' => ['plan' => 'passed', 'code' => 'passed', 'test' => 'passed', 'complete' => 'passed'],
+      'enforcement' => 'hard',
+    ]));
+    [$exit, , $stderr] = $this->guard($terminal, 'pre-tool-use', $payload);
+    $this->assertSame(2, $exit, 'a completed run is history, not a licence');
+    $this->assertStringContainsString('/droost:workflow:start', $stderr);
+
+    // Ended the other ways: the final phase recorded passed; a failed phase.
+    $done = $this->rootWithRun('complete', 'passed', 'hard');
+    [$exit] = $this->guard($done, 'pre-tool-use', $payload);
+    $this->assertSame(2, $exit, 'complete+passed does not disarm the wall');
+
+    $failed = $this->rootWithRun('code', 'failed', 'hard');
+    [$exit] = $this->guard($failed, 'pre-tool-use', $payload);
+    $this->assertSame(2, $exit, 'a failed run does not disarm the wall');
+
+    // Unreadable is not a run at all.
+    $corrupt = $this->makeRoot();
+    mkdir($corrupt . '/.droost-workflow', 0755, TRUE);
+    file_put_contents($corrupt . '/.droost-workflow/run.json', 'not json');
+    [$exit] = $this->guard($corrupt, 'pre-tool-use', $payload);
+    $this->assertSame(2, $exit, 'junk in run.json is not a self-disarm');
+
+    // A LIVE run stands the wall down: in-run enforcement takes over, and
+    // during the code phase custom-code edits are the phase's work.
+    $live = $this->rootWithRun('code', 'active', 'hard');
+    [$exit, $stdout, $stderr] = $this->guard($live, 'pre-tool-use', $payload);
+    $this->assertSame(0, $exit, 'an active run governs instead of the wall');
+    $this->assertSame('', $stdout . $stderr);
+
+    // And an ended run never blocks ENDING the turn: stop stays silent.
+    [$exit] = $this->guard($terminal, 'stop', []);
+    $this->assertSame(0, $exit, 'a finished run does not police the stop');
+  }
+
+  /**
+   * The lever regex reads quoted values the way the real parser does.
+   *
+   * "off" enforced as hard while status reported off was a split brain: the
+   * hook greps the raw file, the lib parses it — the two must agree on at
+   * least the quoting the parser accepts.
+   */
+  public function testRequireRunAcceptsQuotedLeverValues(): void {
+    $payload = [
+      'tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module'],
+    ];
+
+    $off = $this->makeRootWithConfig("require_run: \"off\"\n");
+    [$exit, $stdout, $stderr] = $this->guard($off, 'pre-tool-use', $payload);
+    $this->assertSame(0, $exit, 'a double-quoted off is off');
+    $this->assertSame('', $stdout . $stderr);
+
+    $soft = $this->makeRootWithConfig("require_run: 'soft'\n");
+    [$exit, $stdout] = $this->guard($soft, 'pre-tool-use', $payload);
+    $this->assertSame(0, $exit, 'a single-quoted soft never blocks');
+    $this->assertStringContainsString('start', $stdout, 'quoted soft still nudges');
+  }
+
+  /**
+   * Cosmetic respellings of a custom-code path cannot slip past the wall.
+   */
+  public function testRequireRunNormalizesThePathBeforeMatching(): void {
+    foreach ([
+      'web/modules/./custom/acme/acme.module',
+      'web/modules//custom/acme/acme.module',
+      'web/Modules/Custom/acme/acme.module',
+    ] as $spelling) {
+      $root = $this->makeRoot();
+      [$exit] = $this->guard($root, 'pre-tool-use', [
+        'tool_input' => ['file_path' => $spelling],
+      ]);
+      $this->assertSame(2, $exit, $spelling . ' is still custom code');
+    }
   }
 
   /**

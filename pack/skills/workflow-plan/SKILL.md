@@ -17,7 +17,9 @@ against.
 - `droost.workflow.yml` loads. If it does not, stop and report the error —
   it names the key that is wrong.
 - No run is already in progress, or you are deliberately resuming one. Check
-  `.droost-workflow/run.json`.
+  `.droost-workflow/run.json` — and read it: a `current_phase` of `null`
+  means the run FINISHED (the file is its record, cleared with
+  `drush droost:workflow:reset`), while a named phase means it is live.
 
 ## Work
 

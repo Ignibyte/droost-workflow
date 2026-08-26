@@ -58,6 +58,70 @@ final class StateError extends \RuntimeException {
   }
 
   /**
+   * The run has ended — its record is history, not something to act on.
+   *
+   * Distinct from noRun(): the file exists, but the run reached its terminal
+   * gate (or spent its retry budget). Mutating verbs (declare a browser,
+   * record a seeker, answer, swap) must refuse rather than silently rewrite
+   * a closed record — the archived history would otherwise claim work was
+   * verified by things that happened after it finished.
+   *
+   * @param string $path
+   *   The state file's path, as shown to the operator.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function runEnded(string $path): self {
+    return new self(
+      $path,
+      'this run has ended — its record is history. Clear it with reset '
+      . '(drush droost:workflow:reset, or vendor/bin/droost-workflow reset), '
+      . 'then start the next run',
+    );
+  }
+
+  /**
+   * A run is still in progress; clearing it must be said out loud.
+   *
+   * @param string $path
+   *   The state file's path.
+   * @param string $phase
+   *   The phase the run is in.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function runInProgress(string $path, string $phase): self {
+    return new self($path, sprintf(
+      'a run is still in progress (phase "%s") — advance it, or abandon it '
+      . 'deliberately with reset --force',
+      $phase,
+    ));
+  }
+
+  /**
+   * The finished record could not be archived.
+   *
+   * Raised instead of pretending: a reset that says "cleared" while run.json
+   * is still in place strands the next start with no visible cause.
+   *
+   * @param string $path
+   *   The archive target path.
+   * @param string $why
+   *   What went wrong, in prose.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function archiveFailed(string $path, string $why): self {
+    return new self($path, sprintf(
+      'could not archive the run record (%s) — nothing was cleared',
+      $why,
+    ));
+  }
+
+  /**
    * The file is present but not valid state.
    *
    * @param string $path

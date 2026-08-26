@@ -100,7 +100,10 @@ and only one of them is true.
 
 The capture exists (or was presented, in a light run), the report has been
 presented in full — skips, ledger and browser tier included — and the run is
-recorded as complete.
+recorded as complete. Tell the operator the finished record persists until
+`drush droost:workflow:reset` archives it — the next run starts after that,
+and until a run is active, custom-code edits are walled again
+(`require_run`).
 
 ## Without a site
 

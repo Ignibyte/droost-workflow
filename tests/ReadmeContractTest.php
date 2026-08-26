@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Droost\Workflow\Tests;
 
 use Droost\Workflow\Config\ConfigError;
+use Droost\Workflow\Config\Enforcement;
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\PhaseGateMap;
@@ -33,6 +34,11 @@ class ReadmeContractTest extends WorkflowTestCase {
     $this->assertSame('custom', $config->preset);
     $this->assertSame(2, $config->maxGateRetries);
     $this->assertSame(Phase::names(), $config->phaseNames());
+    $this->assertSame(
+      Enforcement::Hard,
+      $config->requireRun,
+      'The README sample documents the require_run lever the guard enforces.',
+    );
     $this->assertSame(
       WorkflowConfig::fromArray(['preset' => 'custom'], 'x')->resolvedGates(),
       $config->resolvedGates(),

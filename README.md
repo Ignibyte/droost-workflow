@@ -45,9 +45,10 @@ A single repo-root file, `droost.workflow.yml`, is the source of truth:
 mode: automated                 # automated | pair
 preset: custom                  # custom | factory | light
 enforcement: soft               # hard | soft | off — the hooks, mid-run only
+require_run: hard               # hard | soft | off — custom-code edits with NO active run
 gates:
   phpcs:          { on: true,  standard: "Drupal,DrupalPractice" }
-  phpstan:        { on: true,  level: 6 }      # 0-9 | max | off
+  phpstan:        { on: true,  level: 6 }      # 0-9 | max
   # both static gates accept paths: "web/modules/custom,web/themes/custom" —
   # repo-relative analysis targets for repos with no phpcs.xml/phpstan.neon
   phpunit:        { on: true }
@@ -115,11 +116,16 @@ lever, on by default; the hold spends no retry budget.
 **Enforcement is its own lever**, orthogonal to the preset: `hard` blocks
 out-of-phase actions while a run is active (editing project files during
 plan, ending the turn mid-phase), `soft` warns once per phase, `off` stands
-the hooks down. Outside an active run the hooks are silent by construction —
-they read `.droost-workflow/run.json` first, and no run means no opinion.
-You may pair factory gates with `enforcement: off`; not advised, but the
-lever file is a reviewable diff, and a visible loosening is the honest way
-to allow it.
+the hooks down. Outside an active run the phase hooks have no opinion — but
+**`require_run` still stands**: a custom-code edit (`modules/custom`,
+`themes/custom`) with no ACTIVE run is blocked (`hard`, the default even when
+the key is absent), nudged once (`soft`), or allowed (`off`). A finished or
+failed run counts as no active run — the record is history, not a licence —
+and the way past the wall is to start a run, or an operator-granted bypass
+(`drush droost:workflow:bypass "<why>"`, cleared with `--off`), never the
+agent's own hand. You may pair factory gates with `enforcement: off`; not
+advised, but the lever file is a reviewable diff, and a visible loosening is
+the honest way to allow it.
 
 **Playwright is the npm tier.** The `playwright` gate runs
 `node_modules/.bin/playwright test` — committed regression specs, exit code
@@ -212,7 +218,10 @@ envelope: `{outcome, current_phase, report, awaiting, retries}`, where
 `retries.exhausted` separates "fix it and run again" from "this run is
 over". Exit codes stay simple — paused is not failed, and both kinds of
 failure exit non-zero. Recovery from a terminal failure is deliberate:
-remove `.droost-workflow/run.json` and begin again.
+`vendor/bin/droost-workflow reset` (or `drush droost:workflow:reset`)
+archives the record to `.droost-workflow/history/` and clears the way —
+the same verb that closes out a COMPLETED run, whose record also persists
+until reset.
 
 ## Run state
 
@@ -246,17 +255,17 @@ report has to be able to describe the run honestly.
 
 ## The pack
 
-The phases ship as a `.claude/` pack — one skill per phase, two commands
-(`/droost:workflow:continue` acts, `/droost:workflow:status` inspects), five
-agents (the plan researcher and spec-writer, the adversarial
-`workflow-seeker`, the one-finding-at-a-time `workflow-bug-fixer`, and
-`droost-debugger`, which flips xdebug on for a stubborn failure and back off
-after), and a shared partial on using droost. Installing it into a repo
-writes:
+The phases ship as a `.claude/` pack — one skill per phase, three commands
+(`/droost:workflow:start` begins a run, `/droost:workflow:continue` advances
+it, `/droost:workflow:status` inspects), five agents (the plan researcher
+and spec-writer, the adversarial `workflow-seeker`, the
+one-finding-at-a-time `workflow-bug-fixer`, and `droost-debugger`, which
+flips xdebug on for a stubborn failure and back off after), and a shared
+partial on using droost. Installing it into a repo writes:
 
 ```
 .claude/skills/workflow-{plan,code,test,complete}/SKILL.md
-.claude/commands/droost/workflow/{continue,status}.md
+.claude/commands/droost/workflow/{start,continue,status}.md
 .claude/agents/workflow-{researcher,spec-writer,seeker,bug-fixer}.md
 .claude/agents/droost-debugger.md
 .claude/hooks/droost-workflow-guard.php
@@ -312,12 +321,14 @@ site.
 vendor/bin/droost-workflow init
 vendor/bin/droost-workflow status
 vendor/bin/droost-workflow run
+vendor/bin/droost-workflow reset      # archive a finished run, start clean
 
 # Against a live site.
 drush droost:workflow:status
 drush droost:workflow:run
 drush droost:workflow:answer "yes, continue"
 drush droost:workflow:swap automated
+drush droost:workflow:reset
 ```
 
 The only thing that differs is what the site-dependent gates can say. Verified

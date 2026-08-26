@@ -46,22 +46,32 @@ if (!is_file($stateFile)) {
 }
 $document = json_decode((string) file_get_contents($stateFile), TRUE);
 if (!is_array($document)) {
+  // Unreadable is not a licence. A run that cannot be read is not an ACTIVE
+  // run, and require_run guards exactly the no-active-run case — otherwise
+  // junk written into run.json would be a silent, permanent self-disarm.
+  require_run_guard($root, $mode);
   exit(0);
 }
 
 $phase = $document['current_phase'] ?? NULL;
 if (!is_string($phase) || $phase === '') {
-  // A run with no current phase has ended; the record is history, not law.
+  // A run with no current phase has ended; the record is history, not law —
+  // and history does not stand the wall down. The finished ticket's run.json
+  // sits here until reset, which must not leave the NEXT ticket ungoverned.
+  require_run_guard($root, $mode);
   exit(0);
 }
 $phases = is_array($document['phases'] ?? NULL) ? $document['phases'] : [];
 $phaseStatus = is_string($phases[$phase] ?? NULL) ? $phases[$phase] : '';
 if ($phase === 'complete' && $phaseStatus === 'passed') {
+  require_run_guard($root, $mode);
   exit(0);
 }
 if ($phaseStatus === 'failed') {
   // A failed run is a legitimate outcome, already recorded. Holding the
-  // agent hostage to a phase it cannot pass would punish the honesty.
+  // agent hostage to a phase it cannot pass would punish the honesty — but
+  // an ended run does not license ungoverned building either.
+  require_run_guard($root, $mode);
   exit(0);
 }
 
@@ -132,13 +142,18 @@ if ($mode === 'stop') {
 exit(0);
 
 /**
- * Refuses ungoverned custom-code edits when no run is active (require_run).
+ * Refuses ungoverned custom-code edits when no run is ACTIVE (require_run).
  *
  * The one gap "no run, no opinion" leaves open: an agent quietly building
  * outside the pipeline. This closes it, and ONLY it — pre-tool-use, and only
  * writes into custom-code territory (modules/custom, themes/custom). Docs,
  * config outside those trees, non-Drupal files and the spec never trip it, so
  * the wall rarely fires on non-build work.
+ *
+ * "No active run" includes an ENDED one: a completed or failed run.json is
+ * history, not law, and an unreadable one is not a run at all — all of those
+ * paths land here, so finishing ticket A never leaves ticket B ungoverned and
+ * corrupting run.json is not a self-disarm.
  *
  * The level lives in droost.workflow.yml (require_run: hard|soft|off), read
  * here with a dependency-free regex because the hook cannot boot Drupal;
@@ -159,8 +174,10 @@ function require_run_guard(string $root, string $mode): void {
   }
   $level = 'hard';
   $lever = $root . '/droost.workflow.yml';
+  // Optional quotes: the lever parser reads "off" and off as the same value,
+  // so the regex must too — or the hook enforces hard while status says off.
   if (is_file($lever)
-    && preg_match('/^require_run:\s*(hard|soft|off)\b/m', (string) file_get_contents($lever), $m) === 1) {
+    && preg_match('/^require_run:\s*["\']?(hard|soft|off)\b["\']?/m', (string) file_get_contents($lever), $m) === 1) {
     $level = $m[1];
   }
   if ($level === 'off') {
@@ -174,13 +191,24 @@ function require_run_guard(string $root, string $mode): void {
     return;
   }
   // The narrow boundary: only custom-code territory is "build work".
-  if (preg_match('#(^|/)(modules|themes)/custom/#', str_replace('\\', '/', $file)) !== 1) {
+  // Normalized first — separators, ./ and // collapsed, case folded (APFS
+  // resolves Modules/Custom to the same directory) — so a cosmetic spelling
+  // of the same path cannot slip past the wall.
+  $path = strtolower(str_replace('\\', '/', $file));
+  $path = (string) preg_replace(['#/(?:\./)+#', '#//+#'], '/', $path);
+  if (preg_match('#(^|/)(modules|themes)/custom/#', $path) !== 1) {
     return;
   }
   // An operator-granted bypass stands the wall down; its visibility lives in
   // drush droost:workflow:status, so the hook allows silently rather than
-  // narrating every edit.
-  if (is_file($root . '/.droost-workflow/bypass.json')) {
+  // narrating every edit. Only the operator's command writes reason and
+  // granted_at — a hand-rolled or corrupt marker is not a grant.
+  $grant = is_file($root . '/.droost-workflow/bypass.json')
+    ? json_decode((string) file_get_contents($root . '/.droost-workflow/bypass.json'), TRUE)
+    : NULL;
+  if (is_array($grant)
+    && is_string($grant['reason'] ?? NULL) && $grant['reason'] !== ''
+    && is_string($grant['granted_at'] ?? NULL) && $grant['granted_at'] !== '') {
     return;
   }
   $message = sprintf(

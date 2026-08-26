@@ -16,9 +16,9 @@ use Droost\Workflow\State\StateError;
 use Droost\Workflow\WorkflowFacade;
 
 /**
- * The standalone surface: five verbs, no Drupal, no booted site.
+ * The standalone surface: a handful of verbs, no Drupal, no booted site.
  *
- * Plain argv rather than a console framework. Five verbs for a machine
+ * Plain argv rather than a console framework. A few verbs for a machine
  * audience do not justify the dependency, and a typed error rendered to
  * stderr with a non-zero exit is the whole UX contract.
  *
@@ -94,6 +94,7 @@ final class ArgvDispatcher {
         'swap' => $this->swap($projectRoot, $argv),
         'seeker-report' => $this->seekerReport($projectRoot),
         'declare-browser' => $this->declareBrowser($projectRoot, $argv),
+        'reset' => $this->reset($projectRoot, $argv),
         default => $this->unknown($verb),
       };
     }
@@ -179,8 +180,12 @@ final class ArgvDispatcher {
       $this->fail('answer needs the answer: droost-workflow answer "yes"');
       return self::EXIT_USAGE;
     }
-    $this->facade()->answer($projectRoot, $text);
-    $this->say('answered');
+    $state = $this->facade()->answer($projectRoot, $text);
+    // Answering IS the check-in the pause was for, so the run moved on;
+    // say where it now stands rather than a bare acknowledgment.
+    $this->say($state->currentPhase === NULL
+      ? 'answered — the run completed'
+      : 'answered — now at ' . $state->currentPhase->value);
     return self::EXIT_OK;
   }
 
@@ -264,6 +269,24 @@ final class ArgvDispatcher {
   }
 
   /**
+   * Clears a finished run so the next one can start.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The arguments.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function reset(string $projectRoot, array $argv): int {
+    $force = in_array('--force', $argv, TRUE);
+    $archived = $this->facade()->reset($projectRoot, $force);
+    $this->say('run cleared — record archived to ' . $archived);
+    return self::EXIT_OK;
+  }
+
+  /**
    * Reports an unknown verb.
    *
    * @param string $verb
@@ -288,11 +311,13 @@ final class ArgvDispatcher {
       init             install the .claude pack and a default lever file
       status           what this repo resolves to, and where a run has got to
       run              start a run, or advance it by one phase
-      answer <text>    answer a paused run's question
+      answer <text>    answer a paused run's question (the run then advances)
       swap automated   stop pausing at gates and finish unattended
       seeker-report    record an adversarial inspection (ledger on stdin)
       declare-browser  record the session's browser tier (playwright-mcp,
                        native, none)
+      reset [--force]  clear a finished run (archives its record to
+                       .droost-workflow/history/); --force abandons a live one
 
     Every site-dependent gate reports "skipped, no site" here, with its
     reason. That is deliberate: this surface tells you what it could not

@@ -112,15 +112,19 @@ A mid-run edit to `droost.workflow.yml` does not retarget a run in flight.
 failing invocation (`feedback_attempts` against `max_gate_retries`); when the
 budget is spent the phase is recorded failed and the run refuses to continue.
 That is a legitimate outcome. The inspection hold is NOT a failing gate — it
-spends no budget. **Abandoning a run is a deliberate act**: remove
-`.droost-workflow/run.json`, which discards the record — there is no quiet
-way out, on purpose.
+spends no budget. **Abandoning a run is a deliberate act**: ask the operator
+to run `drush droost:workflow:reset --force` (or
+`vendor/bin/droost-workflow reset --force`), which archives the record to
+`.droost-workflow/history/` — there is no quiet way out, on purpose, and the
+record is never discarded.
 
 **Enforcement is live while a run is.** With an active run, the repo's hooks
 hold the phase discipline: editing project files during plan is blocked
 (hard) or warned about (soft), and ending the turn mid-phase is challenged
-once. Outside a run the hooks are silent — they read run.json first and no
-run means no opinion.
+once. Outside a run the phase hooks have no opinion — but `require_run` still
+stands: a custom-code edit (`modules/custom`, `themes/custom`) with no ACTIVE
+run is blocked (hard, the default) or nudged (soft) until a run starts or the
+operator grants a bypass. A finished run counts as no active run.
 
 ## Which gates run when
 
@@ -170,3 +174,8 @@ full gate report — including every gate that was skipped and why, the seeker
 ledger, and which browser tier verified the work. That report is the run's
 product just as much as the code is. In a light run, the spec and the change
 summary are presented in chat; in a factory run they are recorded artifacts.
+
+The finished record persists as `.droost-workflow/run.json` until it is
+cleared — `drush droost:workflow:reset` archives it to
+`.droost-workflow/history/` — and the next run cannot start over it, so
+finishing a ticket ends with the reset pointer, not just the report.

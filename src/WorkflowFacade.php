@@ -261,8 +261,98 @@ final class WorkflowFacade {
     $store = new RunStateStore($projectRoot);
     $state = $this->requireRun($store);
     $answered = $this->engine()->answer($state, $answer, $this->now());
+    // A pause exists for exactly one reason: the current phase passed its
+    // gates and pair mode asked its check-in question. The answer IS that
+    // check-in, so answering moves the run on — to the next phase, or, at the
+    // final gate, to its terminal state. Without this, the next invocation
+    // re-ran the same gates and re-asked the same question, forever; the only
+    // exits a pair run had were swap and reset. The exchange itself is
+    // already in the history — a "no" is recorded, and its remedy is reset
+    // (abandon) or swap (finish unattended), both said in the question's own
+    // phrasing everywhere it is rendered.
+    $phase = $answered->currentPhase;
+    if ($phase !== NULL) {
+      $next = $this->nextPhase($answered, $phase);
+      $answered = $next === NULL
+        ? $answered->complete()
+        : $answered->advanceTo($next);
+    }
     $store->save($answered);
     return $answered;
+  }
+
+  /**
+   * Clears a finished run: archives its record and removes run.json.
+   *
+   * A completed (or failed) run.json persists — deliberately, it is the
+   * record — and start refuses to clobber it, so multi-ticket work needs a
+   * sanctioned way to finish one run and begin the next. The record is
+   * archived to .droost-workflow/history/<run_id>.json, never discarded; a
+   * name collision gets a numeric suffix rather than overwriting an earlier
+   * archive. An UNREADABLE run.json is clearable the same way (archived under
+   * "run"): a file that cannot be parsed is not a live run, and clearing is
+   * exactly the recovery it needs. A run still in progress is refused unless
+   * $force — abandoning live work stays a deliberate act.
+   *
+   * The guard's warn-once markers (.droost-workflow/.guard-warned-*) are
+   * cleared too: they are per-run state, and surviving a reset silenced every
+   * soft nudge for the checkout's lifetime.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param bool $force
+   *   Clear even a run still in progress.
+   *
+   * @return string
+   *   The archived record's path.
+   *
+   * @throws \Droost\Workflow\State\StateError
+   *   When there is nothing to reset (noRun), the run is live and $force is
+   *   not given (runInProgress), or the record could not be moved
+   *   (archiveFailed — nothing is deleted in that case).
+   */
+  public function reset(string $projectRoot, bool $force = FALSE): string {
+    $store = new RunStateStore($projectRoot);
+    $path = $projectRoot . '/.droost-workflow/run.json';
+    if (!is_file($path)) {
+      throw StateError::noRun($store->label());
+    }
+    // Classify from the RUN STATE alone. Loading the lever file here would
+    // couple "may I clear this run" to "does droost.workflow.yml parse" — and
+    // a typo in the lever then archived a LIVE run as if it were finished.
+    try {
+      $state = $store->load();
+    }
+    catch (StateError) {
+      // Present but unreadable: not a live run, clearable without force.
+      $state = NULL;
+    }
+    $live = $state !== NULL
+      && $state->currentPhase !== NULL
+      && $state->statusOf($state->currentPhase) !== PhaseStatus::Failed;
+    if ($live && !$force) {
+      throw StateError::runInProgress(
+        $store->label(),
+        $state->currentPhase->value,
+      );
+    }
+    $history = $projectRoot . '/.droost-workflow/history';
+    if (!is_dir($history) && !@mkdir($history, 0777, TRUE) && !is_dir($history)) {
+      throw StateError::archiveFailed($history, 'the history directory could not be created');
+    }
+    $id = $state !== NULL && $state->runId !== '' ? $state->runId : 'run';
+    $base = (string) preg_replace('/[^A-Za-z0-9._-]/', '_', $id);
+    $target = $history . '/' . $base . '.json';
+    for ($n = 2; is_file($target); $n++) {
+      $target = $history . '/' . $base . '-' . $n . '.json';
+    }
+    if (@rename($path, $target) === FALSE) {
+      throw StateError::archiveFailed($target, 'the record could not be moved');
+    }
+    foreach (glob($projectRoot . '/.droost-workflow/.guard-warned-*') ?: [] as $marker) {
+      @unlink($marker);
+    }
+    return $target;
   }
 
   /**
@@ -442,6 +532,13 @@ final class WorkflowFacade {
       // Absent, not corrupt: load() returns NULL only when the file does not
       // exist. Say "start a run", not "your unreadable file — move it aside".
       throw StateError::noRun($store->label());
+    }
+    if ($state->currentPhase === NULL) {
+      // Ended, not absent: the terminal record persists until reset, and the
+      // mutating verbs must not rewrite a closed record — a browser tier or a
+      // "clean" inspection recorded after completion would misstate what the
+      // finished work was actually verified by.
+      throw StateError::runEnded($store->label());
     }
     return $state;
   }
