@@ -372,6 +372,17 @@ final class WorkflowFacade {
     RunOutcome $outcome,
     Phase $phase,
   ): RunOutcome {
+    if ($outcome->outcome === Outcome::Completed) {
+      // The final phase passed. This is the ONLY place the terminal state is
+      // written: complete() records the phase passed and drops currentPhase to
+      // NULL, so run()'s "already completed" short-circuit, status, report and
+      // reset all read the finished run as finished — not as forever "active".
+      return new RunOutcome(
+        Outcome::Completed,
+        $outcome->state->complete(),
+        $outcome->report,
+      );
+    }
     if ($outcome->outcome !== Outcome::Advanced) {
       return $outcome;
     }

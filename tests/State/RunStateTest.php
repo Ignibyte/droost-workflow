@@ -70,6 +70,55 @@ class RunStateTest extends TestCase {
   }
 
   /**
+   * Completing the final phase records it passed and retires the run.
+   *
+   * The last phase has no phase to advance TO, so advanceTo() can neither
+   * record its pass nor drop the current phase. complete() is how a run at its
+   * final gate reaches its terminal state — passed, and with no current phase —
+   * exactly as every reader (status, report, reset) tells a finished run from
+   * currentPhase being NULL.
+   */
+  public function testCompletingTheFinalPhaseRetiresTheRun(): void {
+    $state = $this->begin()
+      ->advanceTo(Phase::Code)
+      ->advanceTo(Phase::Test)
+      ->advanceTo(Phase::Complete);
+    $this->assertSame(Phase::Complete, $state->currentPhase);
+    $this->assertSame(PhaseStatus::Active, $state->statusOf(Phase::Complete));
+
+    $done = $state->complete();
+    $this->assertNull($done->currentPhase, 'a completed run has no current phase');
+    $this->assertSame(
+      PhaseStatus::Passed,
+      $done->statusOf(Phase::Complete),
+      'the final phase is recorded passed, not left active',
+    );
+    $this->assertSame(
+      PhaseStatus::Passed,
+      $done->statusOf(Phase::Plan),
+      'phases already passed are untouched',
+    );
+  }
+
+  /**
+   * Completing an already-terminal run is a no-op, not an error.
+   */
+  public function testCompletingAnEndedRunIsIdempotent(): void {
+    $ended = $this->begin()
+      ->advanceTo(Phase::Code)
+      ->advanceTo(Phase::Test)
+      ->advanceTo(Phase::Complete)
+      ->complete();
+
+    $this->assertNull($ended->currentPhase);
+    $this->assertSame(
+      $ended,
+      $ended->complete(),
+      'completing an ended run returns the same run unchanged',
+    );
+  }
+
+  /**
    * A failed phase is never laundered into a pass by moving on.
    *
    * The regression guard for the worst defect this package could have: the

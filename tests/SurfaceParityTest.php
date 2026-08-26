@@ -178,17 +178,22 @@ class SurfaceParityTest extends WorkflowTestCase {
     for ($step = 0; $step < 3; $step++) {
       $outcome = $facade->run($root);
       $phase = $outcome->state->currentPhase;
-      $this->assertNotNull($phase);
-      $walk[] = $outcome->outcome->value . ':' . $phase->value;
+      // The terminal step completes: the final phase passed and the run
+      // reached its terminal gate, so it has NO current phase — that NULL is
+      // exactly how status, report and reset tell a finished run from a live
+      // one.
+      $walk[] = $outcome->outcome->value . ':' . ($phase === NULL ? '(none)' : $phase->value);
     }
     $this->assertSame(
-      ['advanced:test', 'advanced:complete', 'completed:complete'],
+      ['advanced:test', 'advanced:complete', 'completed:(none)'],
       $walk,
+      'the run advances to complete, then completes with no current phase',
     );
 
     // Re-running an ended run says so rather than starting a second one.
     $again = $facade->run($root);
     $this->assertSame('completed', $again->outcome->value);
+    $this->assertNull($again->state->currentPhase);
     $this->assertSame($outcome->state->runId, $again->state->runId);
   }
 

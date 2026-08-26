@@ -338,6 +338,55 @@ final class RunState {
   }
 
   /**
+   * This run at its terminal gate: the final phase passed, nothing left to run.
+   *
+   * The last phase has no phase to advance TO, so advanceTo() cannot record
+   * its pass or retire the run — yet a run that reached and passed its final
+   * gate is finished, and every reader (status, report, reset, and run()'s own
+   * "already completed" short-circuit) tells that from currentPhase being
+   * NULL. This records the final phase passed, exactly as advanceTo() records
+   * the phase it leaves, and drops currentPhase to NULL so the finished run
+   * reads as finished rather than forever "active".
+   *
+   * Completing an already-terminal run is a no-op, not an error: run() may see
+   * a completed run again and re-affirm it.
+   *
+   * @return self
+   *   A new instance at its terminal gate, or this one unchanged when it is
+   *   already there.
+   */
+  public function complete(): self {
+    if ($this->currentPhase === NULL) {
+      return $this;
+    }
+    $phases = $this->phases;
+    $phases[$this->currentPhase->value] = PhaseStatus::Passed;
+    // with() cannot set currentPhase to NULL (it reads NULL as "keep"), so the
+    // terminal state is built directly, as rebuild() does for its own field.
+    return new self(
+      $this->runId,
+      $this->startedAt,
+      $this->mode,
+      $this->modeOverride,
+      $this->preset,
+      $this->maxGateRetries,
+      $this->provenance,
+      $this->resolvedGates,
+      $phases,
+      NULL,
+      $this->gateResults,
+      $this->awaiting,
+      $this->qaHistory,
+      $this->feedbackAttempts,
+      $this->phaseGates,
+      $this->enforcement,
+      $this->seekers,
+      $this->seeker,
+      $this->browser,
+    );
+  }
+
+  /**
    * Whether advanceTo() would be accepted.
    *
    * @param \Droost\Workflow\Config\Phase $to

@@ -104,6 +104,68 @@ class WorkflowFacadeRetryTest extends WorkflowTestCase {
   }
 
   /**
+   * A run whose every gate passes completes — and the terminal state PERSISTS.
+   *
+   * The final phase has no phase to advance to, so the transition that records
+   * a phase passed (advanceTo) never fired for it: run() returned
+   * Outcome::Completed while run.json still showed "complete" active with a
+   * current phase set. A finished run then read as in-progress to status,
+   * report and reset. This drives a full run to completion over separate
+   * facades and asserts the RELOADED record is terminal — no current phase, the
+   * final phase passed — the half an engine-level test cannot prove.
+   */
+  public function testCompletedRunPersistsItsTerminalState(): void {
+    $root = $this->makeRootWithConfig(
+      "preset: custom\nmax_gate_retries: 1\n",
+    );
+    $executor = $this->allGatesPass();
+
+    // A fresh facade per invocation, as separate processes arrive; more turns
+    // than a plan -> code -> test -> complete walk needs.
+    $outcome = NULL;
+    for ($i = 0; $i < 16; $i++) {
+      $facade = $this->facade($executor);
+      $outcome = $facade->run($root);
+      if ($outcome->outcome === Outcome::InspectionDue) {
+        // The seeker checkpoint holds a green phase until a clean inspection is
+        // on record; record one and let the walk continue to completion.
+        $facade->recordSeeker(
+          $root,
+          "## Seeker Inspection\n\n(no findings)\n",
+        );
+        continue;
+      }
+      if ($outcome->outcome !== Outcome::Advanced) {
+        break;
+      }
+    }
+    // The loop runs at least once, so $outcome is set.
+    $this->assertSame(
+      Outcome::Completed,
+      $outcome->outcome,
+      'a run whose every gate passes reaches completion',
+    );
+
+    $reloaded = (new RunStateStore($root))->load();
+    $this->assertNotNull($reloaded);
+    $this->assertNull(
+      $reloaded->currentPhase,
+      'a completed run has reached its terminal gate — no current phase',
+    );
+    $this->assertSame(
+      PhaseStatus::Passed,
+      $reloaded->statusOf(Phase::Complete),
+      'the final phase is recorded passed, not left active',
+    );
+
+    // Re-running a completed run re-affirms it and leaves the record terminal;
+    // it does not silently restart.
+    $again = $this->facade($executor)->run($root);
+    $this->assertSame(Outcome::Completed, $again->outcome);
+    $this->assertNull((new RunStateStore($root))->load()?->currentPhase);
+  }
+
+  /**
    * An executor where phpcs always fails and everything else passes.
    *
    * @return object{executions: array<string, int>}&\Droost\Workflow\Gate\GateExecutorInterface
@@ -131,6 +193,28 @@ class WorkflowFacadeRetryTest extends WorkflowTestCase {
         return $gate->name === 'phpcs'
           ? new GateResult('phpcs', GateStatus::Failed, 1, 1, 'nope')
           : new GateResult($gate->name, GateStatus::Passed, 0, 1, 'ok');
+      }
+
+    };
+  }
+
+  /**
+   * An executor where every gate passes.
+   *
+   * @return \Droost\Workflow\Gate\GateExecutorInterface
+   *   The double.
+   */
+  private function allGatesPass(): GateExecutorInterface {
+    return new class() implements GateExecutorInterface {
+
+      /**
+       * {@inheritdoc}
+       */
+      public function execute(
+        GateSettings $gate,
+        string $projectRoot,
+      ): GateResult {
+        return new GateResult($gate->name, GateStatus::Passed, 0, 1, 'ok');
       }
 
     };
