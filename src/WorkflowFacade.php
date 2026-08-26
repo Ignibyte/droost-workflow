@@ -100,6 +100,7 @@ final class WorkflowFacade {
         'preset' => $config->preset,
         'mode' => $config->mode->value,
         'enforcement' => $config->enforcement->value,
+        'require_run' => $config->requireRun->value,
         'phases' => $config->phaseNames(),
         'gates' => $config->resolvedGates(),
         // WHEN each enabled gate runs — so "why did plan run nothing" is

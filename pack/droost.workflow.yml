@@ -36,6 +36,16 @@ preset: custom
 #   it. (Preset defaults: factory → hard, light → soft.)
 enforcement: soft
 
+# require_run: hard | soft | off
+#   What happens when custom code (modules/custom, themes/custom) is edited
+#   with NO active run — the trigger that makes the pipeline the end game, not
+#   an opt-in an eager agent can skip. hard BLOCKS the edit (start a run, or
+#   take an operator-granted bypass: `drush droost:workflow:bypass "<why>"`);
+#   soft nudges once; off is silent (pre-require_run behaviour). Defaults hard.
+#   Narrow by design: only custom-code writes trip it — docs, config outside
+#   those trees and non-Drupal files never do.
+require_run: hard
+
 # DEPRECATED (0.3) and ignored: every run walks plan, code, test, complete
 # (0.4 folded document into complete). Tune gate weight per phase instead of
 # dropping phases; naming a subset here earns a deprecation notice in every

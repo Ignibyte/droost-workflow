@@ -29,6 +29,69 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * With no run, a custom-code edit is walled (require_run default hard).
+   *
+   * The trigger that makes the pipeline the end game — no lever needed, hard
+   * is the default, and the block names the two ways forward.
+   */
+  public function testRequireRunHardWallsCustomCodeWithNoRun(): void {
+    $root = $this->makeRoot();
+    [$exit, , $stderr] = $this->guard($root, 'pre-tool-use', [
+      'tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module'],
+    ]);
+    $this->assertSame(2, $exit, 'building custom code with no run is blocked');
+    $this->assertStringContainsString('/droost:workflow:start', $stderr);
+    $this->assertStringContainsString('bypass', $stderr);
+  }
+
+  /**
+   * The wall is narrow: non-custom paths are never walled.
+   */
+  public function testRequireRunIgnoresNonCustomPaths(): void {
+    $root = $this->makeRoot();
+    foreach (['README.md', 'web/core/lib/Drupal.php', 'web/modules/contrib/x/x.php', '.droost-workflow/spec.md'] as $path) {
+      [$exit, , $stderr] = $this->guard($root, "pre-tool-use", [
+        "tool_input" => ["file_path" => $path],
+      ]);
+      $this->assertSame(0, $exit, "$path is outside the build boundary");
+      $this->assertSame('', $stderr, "$path must not be walled");
+    }
+  }
+
+  /**
+   * An operator-granted bypass stands the wall down.
+   */
+  public function testRequireRunBypassAllows(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/.droost-workflow', 0755, TRUE);
+    file_put_contents($root . '/.droost-workflow/bypass.json', '{"reason":"hotfix"}');
+    [$exit, , $stderr] = $this->guard($root, 'pre-tool-use', [
+      'tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module'],
+    ]);
+    $this->assertSame(0, $exit, 'a granted bypass allows the edit');
+    $this->assertSame('', $stderr);
+  }
+
+  /**
+   * Off is silent; soft nudges once but allows.
+   */
+  public function testRequireRunOffAndSoft(): void {
+    $off = $this->makeRootWithConfig("require_run: off\n");
+    [$exit, $stdout, $stderr] = $this->guard($off, 'pre-tool-use', [
+      'tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module'],
+    ]);
+    $this->assertSame(0, $exit, 'off never blocks');
+    $this->assertSame('', $stdout . $stderr, 'off is fully silent');
+
+    $soft = $this->makeRootWithConfig("require_run: soft\n");
+    [$exit, $stdout] = $this->guard($soft, 'pre-tool-use', [
+      'tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module'],
+    ]);
+    $this->assertSame(0, $exit, 'soft never blocks');
+    $this->assertStringContainsString('start', $stdout, 'soft nudges');
+  }
+
+  /**
    * Hard enforcement blocks project edits during plan; the spec passes.
    */
   public function testHardBlocksEditsDuringPlanExceptTheSpec(): void {

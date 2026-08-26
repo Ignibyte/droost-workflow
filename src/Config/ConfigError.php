@@ -442,6 +442,31 @@ final class ConfigError extends \RuntimeException {
   }
 
   /**
+   * The require_run lever names a level that is not hard, soft or off.
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $value
+   *   The offending value.
+   * @param list<string> $known
+   *   The accepted levels.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function unknownRequireRun(
+    string $source,
+    string $value,
+    array $known,
+  ): self {
+    return new self($source, sprintf(
+      'unknown require_run "%s" (known: %s)',
+      $value,
+      implode(', ', $known),
+    ));
+  }
+
+  /**
    * A custom gate entry that cannot be understood.
    *
    * @param string $source

@@ -39,6 +39,7 @@ final class WorkflowConfig {
     'gates',
     'max_gate_retries',
     'enforcement',
+    'require_run',
     'seekers',
   ];
 
@@ -82,6 +83,10 @@ final class WorkflowConfig {
    *   judgment half of the gate set, and a repo that says nothing has not
    *   opted out of judgment. Turning it off is allowed and recorded, like
    *   enforcement: off — a visible loosening in a reviewable diff.
+   * @param \Droost\Workflow\Config\Enforcement $requireRun
+   *   What happens when custom code is edited with no active run: hard blocks
+   *   (start a run, or take an operator-granted bypass), soft nudges once, off
+   *   is silent. Defaults hard — building is where the pipeline must engage.
    */
   private function __construct(
     public readonly Mode $mode,
@@ -93,6 +98,7 @@ final class WorkflowConfig {
     public readonly Enforcement $enforcement = Enforcement::Soft,
     public readonly array $deprecations = [],
     public readonly bool $seekers = TRUE,
+    public readonly Enforcement $requireRun = Enforcement::Hard,
   ) {}
 
   /**
@@ -245,6 +251,10 @@ final class WorkflowConfig {
         self::readEnforcement($root, $source, $base->enforcement),
         $deprecations,
         self::readSeekers($root, $source),
+        // Preset-independent on purpose: building must engage the pipeline
+        // whatever the gate weight, so the default is hard everywhere and the
+        // lever is the only thing that loosens it.
+        self::readRequireRun($root, $source, Enforcement::Hard),
       );
     }
     catch (DataError $e) {
@@ -290,6 +300,50 @@ final class WorkflowConfig {
       );
     }
     return $enforcement;
+  }
+
+  /**
+   * Reads the require_run lever.
+   *
+   * Governs the guard's behaviour when a code edit fires with NO active run:
+   * hard blocks it (start a run first, or take an operator-granted bypass),
+   * soft nudges once, off is silent. Distinct from enforcement, which governs
+   * phase discipline INSIDE a run — a site can want a soft in-run touch and
+   * still refuse ungoverned building. Defaults hard: the whole point is that
+   * building is where the pipeline must engage, not an opt-in an eager agent
+   * can skip. hard | soft | off, same vocabulary as enforcement.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label, for error messages.
+   * @param \Droost\Workflow\Config\Enforcement $default
+   *   The preset's require_run.
+   *
+   * @return \Droost\Workflow\Config\Enforcement
+   *   The resolved require_run level.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When the value is not one of hard, soft, off.
+   */
+  private static function readRequireRun(
+    TypedArray $root,
+    string $source,
+    Enforcement $default,
+  ): Enforcement {
+    if (!$root->has('require_run')) {
+      return $default;
+    }
+    $name = $root->string('require_run');
+    $level = Enforcement::tryFrom($name);
+    if ($level === NULL) {
+      throw ConfigError::unknownRequireRun(
+        $source,
+        $name,
+        Enforcement::names(),
+      );
+    }
+    return $level;
   }
 
   /**

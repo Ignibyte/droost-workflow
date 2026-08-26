@@ -263,7 +263,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
       'unknown setting' => [
         ['gate' => []],
         'droost.workflow.yml: unknown setting "gate" (known: mode, phases, '
-        . 'preset, gates, max_gate_retries, enforcement, seekers)',
+        . 'preset, gates, max_gate_retries, enforcement, require_run, seekers)',
       ],
       'unknown gate' => [
         ['gates' => ['phpstain' => ['on' => TRUE]]],

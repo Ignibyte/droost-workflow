@@ -37,6 +37,11 @@ if ($root === FALSE) {
 
 $stateFile = $root . '/.droost-workflow/run.json';
 if (!is_file($stateFile)) {
+  // No active run. The pipeline is silent about ordinary conversation — but
+  // there is one moment governance gets skipped entirely: a code edit with no
+  // run at all, the agent quietly building outside the pipeline. require_run
+  // guards exactly that, and ONLY that (pre-tool-use, custom code paths).
+  require_run_guard($root, $mode);
   exit(0);
 }
 $document = json_decode((string) file_get_contents($stateFile), TRUE);
@@ -125,3 +130,77 @@ if ($mode === 'stop') {
 }
 
 exit(0);
+
+/**
+ * Refuses ungoverned custom-code edits when no run is active (require_run).
+ *
+ * The one gap "no run, no opinion" leaves open: an agent quietly building
+ * outside the pipeline. This closes it, and ONLY it — pre-tool-use, and only
+ * writes into custom-code territory (modules/custom, themes/custom). Docs,
+ * config outside those trees, non-Drupal files and the spec never trip it, so
+ * the wall rarely fires on non-build work.
+ *
+ * The level lives in droost.workflow.yml (require_run: hard|soft|off), read
+ * here with a dependency-free regex because the hook cannot boot Drupal;
+ * absent or unreadable defaults to hard, because building is exactly where the
+ * pipeline must engage. hard blocks (exit 2) and names the two ways forward —
+ * start a run, or take an OPERATOR-granted bypass; soft nudges once; off is
+ * silent. The bypass is the operator's to grant (drush droost:workflow:bypass),
+ * never the agent's — that is what keeps "chose not to use it" from returning.
+ *
+ * @param string $root
+ *   The project root (cwd).
+ * @param string $mode
+ *   The hook mode; only 'pre-tool-use' acts.
+ */
+function require_run_guard(string $root, string $mode): void {
+  if ($mode !== 'pre-tool-use') {
+    return;
+  }
+  $level = 'hard';
+  $lever = $root . '/droost.workflow.yml';
+  if (is_file($lever)
+    && preg_match('/^require_run:\s*(hard|soft|off)\b/m', (string) file_get_contents($lever), $m) === 1) {
+    $level = $m[1];
+  }
+  if ($level === 'off') {
+    return;
+  }
+  $payload = json_decode((string) stream_get_contents(STDIN), TRUE);
+  $input = is_array(($payload['tool_input'] ?? NULL)) ? $payload['tool_input'] : [];
+  $file = $input['file_path'] ?? ($input['notebook_path'] ?? '');
+  $file = is_string($file) ? $file : '';
+  if ($file === '') {
+    return;
+  }
+  // The narrow boundary: only custom-code territory is "build work".
+  if (preg_match('#(^|/)(modules|themes)/custom/#', str_replace('\\', '/', $file)) !== 1) {
+    return;
+  }
+  // An operator-granted bypass stands the wall down; its visibility lives in
+  // drush droost:workflow:status, so the hook allows silently rather than
+  // narrating every edit.
+  if (is_file($root . '/.droost-workflow/bypass.json')) {
+    return;
+  }
+  $message = sprintf(
+    'droost workflow: "%s" is custom code and there is no active run. Building '
+    . 'is governed by the pipeline. Do ONE of: (1) start a run with '
+    . '/droost:workflow:start — write the spec, then build inside the run; or '
+    . '(2) if this is a deliberate one-off, ask the OPERATOR to grant a bypass '
+    . 'with: drush droost:workflow:bypass "<reason>". Do NOT retry this edit or '
+    . 'grant the bypass yourself — surface the choice to the operator.',
+    $file,
+  );
+  if ($level === 'hard') {
+    fwrite(STDERR, $message);
+    exit(2);
+  }
+  // soft: nudge once, then allow.
+  $marker = $root . '/.droost-workflow/.guard-warned-require-run';
+  if (!is_file($marker)) {
+    @mkdir($root . '/.droost-workflow', 0777, TRUE);
+    @touch($marker);
+    echo json_encode(['systemMessage' => $message . ' (require_run is soft: allowing this edit.)']);
+  }
+}
