@@ -43,11 +43,22 @@ Then the rules that do not bend:
 5. **Leave no orphans.** A field with no storage, a route with no controller,
    a service with no definition — each is a half-built thing the next phase
    will report as broken.
+6. **Export config, or it is invisible.** `droost_structure_create`,
+   `droost_config_set` and the entity tools write to ACTIVE config in the
+   database — nothing the phpcs/phpstan diff or the seeker's file review can
+   see. After any config-affecting change, export it (`drush config:export -y`,
+   or the site's own config workflow) so it lands as reviewable YAML in the
+   diff. A content type, field, view or menu that never reaches a file cleared
+   the code phase with nothing inspecting it — the one blind spot in an
+   otherwise file-based gate set, and yours to close by exporting.
 
 ## Exit gate
 
 Every construct the spec named exists, and nothing exists that the spec did
-not name. Custom code and configuration only.
+not name. Custom code and configuration only. **Any config the run created is
+exported to files** (rule 6) — otherwise the diff the gates and the seeker
+inspect is blind to it, and a config-only run would pass having verified
+nothing it built.
 
 At this phase's `run`, the engine gates the diff with phpcs and phpstan —
 static analysis only, and non-negotiable: the pair is mandatory since 0.4,

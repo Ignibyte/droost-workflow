@@ -7,14 +7,18 @@ Begin a **new** run. `/droost:workflow:start` opens one;
 `/droost:workflow:continue` advances the one already open;
 `/droost:workflow:status` inspects without changing anything.
 
-## First, refuse to clobber a run in progress
+## First, refuse to clobber an existing run
 
-If `.droost-workflow/run.json` already exists, a run is already open — do
-**not** start a second one. Resume it with `/droost:workflow:continue`, or, if
-you truly mean to abandon it and begin again, remove
-`.droost-workflow/run.json` first (abandoning a run is a deliberate act, on
-purpose — there is no quiet way out). Only when there is no run.json does a
-start proceed.
+If `.droost-workflow/run.json` already exists, do **not** start a second run:
+
+- The run is still **in progress** → resume it with
+  `/droost:workflow:continue`, not a new start. To abandon it deliberately,
+  `drush droost:workflow:reset --force`.
+- The run has **finished** (completed or failed) → clear it with
+  `drush droost:workflow:reset` (it archives the record to
+  `.droost-workflow/history/`), then start fresh.
+
+Only when there is no run.json does a start proceed.
 
 ## The order that actually works
 
