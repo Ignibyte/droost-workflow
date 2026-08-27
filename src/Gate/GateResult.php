@@ -80,7 +80,7 @@ final class GateResult {
    */
   public static function skippedNoSite(
     string $gate,
-    string $reason = 'no booted site (CLI surface)',
+    string $reason = NullSiteDriver::REASON,
   ): self {
     return new self(
       $gate,

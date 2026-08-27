@@ -90,7 +90,19 @@ clean.
 
 Every surface — `vendor/bin/droost-workflow run`, `drush droost:workflow:run`,
 or the MCP run tool — drives one engine, and the engine writes run state to
-`.droost-workflow/run.json` on every invocation. One phase per invocation, so
+`.droost-workflow/run.json` on every invocation.
+
+**If this project has a working site, advance through the SITE-BACKED
+surface** — `drush droost:workflow:run` or the MCP run tool — not
+`vendor/bin/droost-workflow`. They are not equivalent: the standalone binary
+has no booted site, so every site-dependent gate (today, `rendered_check`)
+comes back skipped with its reason, however healthy the site is. A live run
+advanced its test phase through the binary while the site was up and being
+driven by a browser, and the gate recorded "skipped-no-site"; it only ran
+because the next phase happened to use a different surface. Choosing the
+binary where a site exists means choosing not to run a gate the run has
+configured. Use the binary when there is genuinely no site — that is what it
+is for, and it says exactly which checks it could not perform. One phase per invocation, so
 the loop is:
 
 1. `/droost:workflow:status` — see the levers and where the run stands.
