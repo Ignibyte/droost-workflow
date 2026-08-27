@@ -158,7 +158,7 @@ final class ShellGateExecutor implements GateExecutorInterface {
         GateStatus::Passed,
         0,
         $elapsed,
-        'phpunit passed — the suite contains no tests yet',
+        'phpunit passed — NO TESTS RAN. Either this project has no tests yet, or its suite stopped being discovered; the gate cannot tell those apart, so read this as unverified rather than as a pass.',
         [],
         $invocation,
       );
@@ -453,7 +453,13 @@ final class ShellGateExecutor implements GateExecutorInterface {
       // The empty-suite flag (PHPUnit >= 10; core-dev ships 11.5) turns "no
       // tests yet" into exit zero, which execute() then LABELS rather than
       // reporting as a clean suite — the same honesty shape as the static
-      // pair's nothing-to-analyse pass.
+      // pair's nothing-to-analyse pass. The flag stays: failing a fresh site
+      // that has not written a test yet would be wrong. But the LABEL used to
+      // presume the benign cause ("no tests yet"), and a suite that stopped
+      // being discovered is indistinguishable from one that never existed —
+      // raised by a live run's own seeker as "a suite that stopped being
+      // discovered would report green". The gate cannot tell the two apart,
+      // so it now says so instead of guessing which one you are.
       'phpunit' => [
         $binary,
         '--no-progress',
