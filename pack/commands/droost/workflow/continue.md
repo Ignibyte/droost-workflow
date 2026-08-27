@@ -86,6 +86,32 @@ The checkpoint holds again at complete — and if you edited anything since the
 last inspection, re-dispatch before completing rather than riding a stale
 clean.
 
+**If you cannot dispatch the seeker, the checkpoint still happens.** Some
+sessions cannot spawn subagents — a host that offers no subagent surface, or
+an operator instruction against using one. That is a constraint on HOW the
+inspection runs, never on WHETHER it runs, and skipping it because the
+preferred mechanism is unavailable is the failure this checkpoint exists to
+prevent. In that case:
+
+1. Tell the operator you cannot dispatch it, and why. Offer the choice — they
+   may simply permit it.
+2. If it stays unavailable, do the adversarial pass YOURSELF against the same
+   diff, and hold yourself to the seeker agent's brief rather than a lighter
+   one: look for dead new code, drift from the spec's acceptance criteria,
+   coupling the change breaks, weak tests, and security smells in the changed
+   code.
+3. Record it in the same ledger format — and label it **self-reviewed**, in
+   the section itself, so the run's permanent record shows the inspection was
+   not independent. A self-review is worth less than an independent one and
+   the record must say so; what it is worth is more than nothing, which is
+   what skipping yields.
+
+A live run met exactly this and handled it well: it stopped, said the
+pipeline wanted the subagent while its session guidance discouraged one, and
+offered the operator both paths with the weaker one honestly labelled. This
+paragraph exists so that behaviour is the documented contract rather than one
+agent's good judgment.
+
 ## How the engine drives this
 
 Every surface — `vendor/bin/droost-workflow run`, `drush droost:workflow:run`,
