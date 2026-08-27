@@ -217,7 +217,7 @@ class RunStateTest extends TestCase {
     $ended = new RunState(
       'r',
       't',
-      Mode::Automated,
+      Mode::Agentic,
       NULL,
       'factory',
       2,
@@ -244,7 +244,7 @@ class RunStateTest extends TestCase {
     $state = new RunState(
       'r',
       't',
-      Mode::Automated,
+      Mode::Agentic,
       NULL,
       'custom',
       2,
@@ -267,15 +267,15 @@ class RunStateTest extends TestCase {
     $config = WorkflowConfig::fromArray(['mode' => 'pair'], 'test');
     $state = RunState::begin('r', 't', $config);
 
-    $this->assertSame(Mode::Pair, $state->effectiveMode());
+    $this->assertSame(Mode::Interactive, $state->effectiveMode());
     $this->assertSame(
-      Mode::Automated,
-      $state->withModeOverride(Mode::Automated)->effectiveMode(),
+      Mode::Agentic,
+      $state->withModeOverride(Mode::Agentic)->effectiveMode(),
     );
     // The configured mode is remembered, not overwritten.
     $this->assertSame(
-      Mode::Pair,
-      $state->withModeOverride(Mode::Automated)->mode,
+      Mode::Interactive,
+      $state->withModeOverride(Mode::Agentic)->mode,
     );
   }
 
@@ -407,7 +407,7 @@ class RunStateTest extends TestCase {
       'released' => static fn (RunState $s): RunState =>
       $s->awaiting(['question' => 'go on?'])->released('t2'),
       'withModeOverride' => static fn (RunState $s): RunState =>
-      $s->withModeOverride(Mode::Automated),
+      $s->withModeOverride(Mode::Agentic),
     ];
 
     foreach ($transitions as $name => $transition) {

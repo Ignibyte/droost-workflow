@@ -314,12 +314,19 @@ class SurfaceParityTest extends WorkflowTestCase {
       0,
       $dispatcher->dispatch(['declare-browser', 'none'], $root),
     );
+    $this->assertSame(
+      0,
+      $dispatcher->dispatch(['declare-tasks', 'claude-code'], $root),
+    );
     $this->assertSame(0, $dispatcher->dispatch(['seeker-report'], $root));
 
     $status = $this->facade(new NullSiteDriver())->status($root);
     $run = $status['run'];
     $this->assertIsArray($run);
     $this->assertSame('none', $run['browser']);
+    // Declared through the CLI, readable through the facade: the whole point
+    // of a declaration is that the OTHER surfaces can see it.
+    $this->assertSame('claude-code', $run['tasks']);
     $this->assertIsArray($run['seeker']);
     $this->assertSame('clean', $run['seeker']['status']);
     $this->assertTrue($run['seekers']);
@@ -328,6 +335,18 @@ class SurfaceParityTest extends WorkflowTestCase {
     $this->assertSame(
       2,
       $dispatcher->dispatch(['declare-browser', 'chrome'], $root),
+    );
+    $this->assertSame(
+      2,
+      $dispatcher->dispatch(['declare-tasks', 'jira'], $root),
+    );
+    $after = $this->facade(new NullSiteDriver())->status($root);
+    $afterRun = $after['run'];
+    $this->assertIsArray($afterRun);
+    $this->assertSame(
+      'claude-code',
+      $afterRun['tasks'],
+      'A refused declaration must not overwrite the accepted one.',
     );
   }
 

@@ -31,7 +31,7 @@ Built ticket by ticket, and past its skeleton:
 | P6.1 | Config spine — the lever file, presets, run state | **shipped** |
 | P6.2 | The five phases as a `.claude/` pack | **shipped** |
 | P6.3 | Gate runner + honest degradation | **shipped** |
-| P6.4 | Automated / pair modes and the mid-run swap | **shipped** |
+| P6.4 | Agentic / interactive modes and the mid-run swap | **shipped** |
 | P6.5 | The drush live-site surface and the standalone CLI | **shipped** |
 | P6.6 | The MCP surface (optional submodule) | **shipped** |
 | — | Hardening: the phase→gate map, engine-counted retries, a coverage gate that can pass | **shipped** |
@@ -42,7 +42,7 @@ Built ticket by ticket, and past its skeleton:
 A single repo-root file, `droost.workflow.yml`, is the source of truth:
 
 ```yaml
-mode: automated                 # automated | pair
+mode: agentic                   # agentic | interactive
 preset: custom                  # custom | factory | light
 enforcement: soft               # hard | soft | off — the hooks, mid-run only
 require_run: hard               # hard | soft | off — custom-code edits with NO active run
@@ -327,7 +327,7 @@ vendor/bin/droost-workflow reset      # archive a finished run, start clean
 drush droost:workflow:status
 drush droost:workflow:run
 drush droost:workflow:answer "yes, continue"
-drush droost:workflow:swap automated
+drush droost:workflow:swap agentic
 drush droost:workflow:reset
 ```
 

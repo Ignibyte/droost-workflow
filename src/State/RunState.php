@@ -38,6 +38,19 @@ final class RunState {
   public const SCHEMA_VERSION = 1;
 
   /**
+   * The host task surfaces an agent may declare.
+   *
+   * A closed set, like the browser tier's, so a typo is a refusal rather
+   * than a silently-recorded fiction. `other` is deliberate: a host with a
+   * task list we have not named should be able to say it has one, because
+   * the useful distinction is "a human can see the phases" versus "they
+   * cannot", not which vendor provides it.
+   *
+   * @var list<string>
+   */
+  public const TASK_SURFACES = ['claude-code', 'codex', 'other', 'none'];
+
+  /**
    * Constructs a RunState.
    *
    * @param string $runId
@@ -98,6 +111,13 @@ final class RunState {
    *   (playwright-mcp, native, or none), or NULL when undeclared. Session-
    *   scoped truth only the agent can know; recorded so the test phase and
    *   the report can say which verification tier actually ran.
+   * @param string|null $tasks
+   *   The host task surface the running agent declared (claude-code, codex,
+   *   other, or none), or NULL when undeclared. Recorded for the same reason
+   *   as the browser tier and by the same route: whether this session can
+   *   show a human where the run is, as one task per phase, is something only
+   *   the agent can see, and a report that claimed phase visibility the host
+   *   never had would be worse than one that says "none".
    */
   public function __construct(
     public readonly string $runId,
@@ -119,6 +139,7 @@ final class RunState {
     public readonly bool $seekers = FALSE,
     public readonly ?array $seeker = NULL,
     public readonly ?string $browser = NULL,
+    public readonly ?string $tasks = NULL,
   ) {}
 
   /**
@@ -383,6 +404,7 @@ final class RunState {
       $this->seekers,
       $this->seeker,
       $this->browser,
+      $this->tasks,
     );
   }
 
@@ -464,6 +486,7 @@ final class RunState {
       $this->seekers,
       $this->seeker,
       $this->browser,
+      $this->tasks,
     );
   }
 
@@ -499,14 +522,17 @@ final class RunState {
       $this->seekers,
       $this->seeker,
       $this->browser,
+      $this->tasks,
     );
   }
 
   /**
    * This run paused at a gate, waiting on a question.
    *
-   * @param array<string, string> $question
-   *   The serialized pending question.
+   * @param array<string, string|list<string>> $question
+   *   The serialized pending question. The lists are the conversation an
+   *   interactive hold carries — its detail lines and the options worth
+   *   offering — which is why this is not a flat string map.
    *
    * @return self
    *   A new instance.
@@ -580,7 +606,7 @@ final class RunState {
   /**
    * A copy with the pause-related fields replaced.
    *
-   * @param array<string, string>|null $awaiting
+   * @param array<string, string|list<string>>|null $awaiting
    *   The new pending question.
    * @param bool $clearAwaiting
    *   Whether a NULL $awaiting means "clear it" rather than "leave it".
@@ -615,6 +641,7 @@ final class RunState {
       $this->seekers,
       $this->seeker,
       $this->browser,
+      $this->tasks,
     );
   }
 
@@ -642,6 +669,19 @@ final class RunState {
    */
   public function withBrowser(string $browser): self {
     return $this->with(browser: $browser);
+  }
+
+  /**
+   * This run with the agent's declared host task surface recorded.
+   *
+   * @param string $tasks
+   *   The surface: claude-code, codex, other, or none.
+   *
+   * @return self
+   *   The run, with the declaration recorded.
+   */
+  public function withTasks(string $tasks): self {
+    return $this->with(tasks: $tasks);
   }
 
   /**
@@ -690,6 +730,7 @@ final class RunState {
       'seekers' => $this->seekers,
       'seeker' => $this->seeker,
       'browser' => $this->browser,
+      'tasks' => $this->tasks,
     ];
   }
 
@@ -716,7 +757,10 @@ final class RunState {
    */
   public static function fromArray(TypedArray $node, string $label): self {
     $modeName = $node->string('mode');
-    $mode = Mode::tryFrom($modeName);
+    // resolve(), not tryFrom(): a run started before the rename recorded
+    // "automated" or "pair", and refusing to read it would strand an
+    // in-flight run rather than rename a lever.
+    $mode = Mode::resolve($modeName);
     if ($mode === NULL) {
       throw StateError::corrupt($label, sprintf(
         'unknown mode "%s"',
@@ -727,7 +771,7 @@ final class RunState {
     $overrideName = $node->optionalString('mode_override');
     $override = NULL;
     if ($overrideName !== NULL) {
-      $override = Mode::tryFrom($overrideName);
+      $override = Mode::resolve($overrideName);
       if ($override === NULL) {
         throw StateError::corrupt($label, sprintf(
           'unknown mode_override "%s"',
@@ -773,6 +817,7 @@ final class RunState {
       $node->optionalBool('seekers', FALSE),
       self::readSeeker($node, $label),
       self::readBrowser($node, $label),
+      self::readTasks($node, $label),
     );
   }
 
@@ -847,6 +892,38 @@ final class RunState {
       ));
     }
     return $browser;
+  }
+
+  /**
+   * Reads the declared host task surface, when one was declared.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $node
+   *   The decoded document.
+   * @param string $label
+   *   The state file's operator-facing path.
+   *
+   * @return string|null
+   *   The surface.
+   *
+   * @throws \Droost\Workflow\State\StateError
+   *   When the word is outside its vocabulary.
+   */
+  private static function readTasks(
+    TypedArray $node,
+    string $label,
+  ): ?string {
+    $tasks = $node->optionalString('tasks');
+    if ($tasks === NULL) {
+      return NULL;
+    }
+    if (!in_array($tasks, self::TASK_SURFACES, TRUE)) {
+      throw StateError::corrupt($label, sprintf(
+        'unknown task surface "%s" (known: %s)',
+        $tasks,
+        implode(', ', self::TASK_SURFACES),
+      ));
+    }
+    return $tasks;
   }
 
   /**
@@ -1158,6 +1235,8 @@ final class RunState {
    *   The new inspection record, or NULL to keep the current one.
    * @param string|null $browser
    *   The new declared capability, or NULL to keep the current one.
+   * @param string|null $tasks
+   *   The new declared task surface, or NULL to keep the current one.
    *
    * @return self
    *   A new instance.
@@ -1168,6 +1247,7 @@ final class RunState {
     ?Mode $modeOverride = NULL,
     ?array $seeker = NULL,
     ?string $browser = NULL,
+    ?string $tasks = NULL,
   ): self {
     return new self(
       $this->runId,
@@ -1189,6 +1269,7 @@ final class RunState {
       $this->seekers,
       $seeker ?? $this->seeker,
       $browser ?? $this->browser,
+      $tasks ?? $this->tasks,
     );
   }
 

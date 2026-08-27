@@ -52,6 +52,25 @@ file to exist. So the sequence is:
    actually ran. (This used to be documented as a step to run BEFORE the
    first `run` — it cannot be: declare-browser records against a run that the
    first `run` is what creates.)
+4. **Declare your task surface** — whether this session can show a human
+   where the run is:
+   ```
+   vendor/bin/droost-workflow declare-tasks claude-code   # or: codex | other | none
+   ```
+   - `claude-code` — you hold task tools (TaskCreate / TaskUpdate).
+   - `codex` — the host's own task list.
+   - `other` — a task list this vocabulary does not name yet. Say so rather
+     than saying none.
+   - `none` — no task surface this session. Not a failure, and not a reason
+     to invent one.
+
+   If you declared a surface, **create one task per phase now** — plan, code,
+   test, complete — and keep them current as the run moves: the phase you are
+   working is in progress, a phase that passed is completed. That is the
+   whole point of declaring: a human watching should be able to see where the
+   run is without reading a transcript or asking you. Do not create tasks for
+   your own sub-steps at the same level as the phases; the phases are the
+   spine, and anything finer belongs underneath them or nowhere.
 
 Then switch to **`/droost:workflow:continue`** to work code → test →
 complete. Everything about the phases, the mandatory trio, the seeker

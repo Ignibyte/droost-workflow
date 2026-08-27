@@ -30,7 +30,7 @@ class ReadmeContractTest extends WorkflowTestCase {
 
     $config = WorkflowConfig::load($root);
 
-    $this->assertSame(Mode::Automated, $config->mode);
+    $this->assertSame(Mode::Agentic, $config->mode);
     $this->assertSame('custom', $config->preset);
     $this->assertSame(2, $config->maxGateRetries);
     $this->assertSame(Phase::names(), $config->phaseNames());

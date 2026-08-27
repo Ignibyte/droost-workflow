@@ -97,8 +97,33 @@ the loop is:
 2. Do the current phase's work, per its `workflow-<phase>` skill.
 3. Invoke the run surface — the engine executes the gates due at this phase,
    records the report into run state, and advances, holds for inspection,
-   pauses (pair mode), or fails.
-4. Repeat until `complete`.
+   holds to converse (interactive mode), or fails.
+4. If you declared a task surface at start, mark this phase's task completed
+   and the next one in progress.
+5. Repeat until `complete`.
+
+**Interactive mode holds to CONVERSE, not to collect a yes.** When the
+engine pauses, run.json's `awaiting` block carries the question, a headline
+naming what the phase produced, `detail` lines the operator needs in order to
+answer, and `options` — the answers worth offering. Present it properly:
+
+- If your host has a structured-question surface (Claude Code's
+  `AskUserQuestion`, or the equivalent), ask with it, using the recorded
+  `options` as the choices.
+- Otherwise print the headline, the detail, and the options, and take a
+  sentence back.
+- **Add what only you know.** The engine can speak to the phase and its
+  gates; it cannot speak to what grounding turned up, which trade-off you
+  took, or what you would recommend. Say those, and say which option you
+  recommend and why. A hold where you relay the question and nothing else
+  wastes the operator's turn.
+- Then record the answer — `answer "<what they said>"` — which releases the
+  pause and advances the run. Do not advance a paused run any other way.
+
+`agentic` mode never holds. An operator can switch to it mid-run at any hold
+(`swap agentic`), which also releases the current pause — that is what it is
+for. The reverse is not supported: a run that started without stopping is
+not interrupted into conversation.
 
 **Resume exists.** Re-invoking picks the run up exactly where run.json says
 it is — a fresh session recovers a run's position by reading the engine's

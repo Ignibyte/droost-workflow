@@ -110,16 +110,8 @@ final class ModeEngine {
       return new RunOutcome(Outcome::InspectionDue, $state, $report);
     }
 
-    if ($this->effectiveMode($state) === Mode::Pair) {
-      $question = new PendingQuestion(
-        $phase,
-        sprintf(
-          'The %s phase passed its gates. Continue to the next phase?',
-          $phase->value,
-        ),
-        $report->summaryLine(),
-        $now,
-      );
+    if ($this->effectiveMode($state)->holdsForConversation()) {
+      $question = $this->conversationAt($phase, $report, $now);
       // State first, sink second. Always.
       $state = $state->awaiting($question->toArray());
       $this->sink->emit($question);
@@ -219,12 +211,12 @@ final class ModeEngine {
   /**
    * Swaps the mode mid-run.
    *
-   * Only pair to automated is supported. The design names one direction —
-   * "flip to automated at any gate to finish unattended" — and the reverse
-   * would be an interruption path nobody has asked for and nothing has
-   * tested.
+   * Only interactive to agentic is supported. The design names one
+   * direction — "flip to agentic at any gate to finish without stopping" —
+   * and the reverse would be an interruption path nobody has asked for and
+   * nothing has tested.
    *
-   * A swap to automated also RELEASES any current pause. The point of the
+   * A swap to agentic also RELEASES any current pause. The point of the
    * swap is to stop being asked; one that still required an answer to the
    * outstanding question first would not do the thing it exists for.
    *
@@ -239,16 +231,16 @@ final class ModeEngine {
    *   The swapped run.
    *
    * @throws \InvalidArgumentException
-   *   When asked to swap to pair.
+   *   When asked to swap to interactive.
    */
   public function swap(
     RunState $state,
     Mode $to,
     string $now,
   ): RunState {
-    if ($to !== Mode::Automated) {
+    if ($to !== Mode::Agentic) {
       throw new \InvalidArgumentException(sprintf(
-        'Only a swap to automated is supported mid-run, not to "%s".',
+        'Only a swap to agentic is supported mid-run, not to "%s".',
         $to->value,
       ));
     }
@@ -302,6 +294,119 @@ final class ModeEngine {
       static function (GateResult $result) use ($watcher): void {
         $watcher($result);
       },
+    );
+  }
+
+  /**
+   * Builds the conversation a phase holds for in interactive mode.
+   *
+   * Interactive mode exists because a yes/no at a phase boundary is the
+   * wrong question. "The code phase passed its gates, continue?" tells a
+   * human nothing they could act on, so the only available answer is yes,
+   * and a hold whose answer is always yes is a form rather than a decision.
+   *
+   * What each phase hands over is different, so what is worth asking at each
+   * boundary is different too, and the phrasing here is deliberately the
+   * question a careful colleague would ask at that moment. The plan question
+   * in particular is the one live agents were already asking unprompted —
+   * "this is the cheapest moment to change the spec" — which is a strong
+   * argument that it is the right question rather than a novel one.
+   *
+   * The engine can only speak to what it knows: which phase finished, what
+   * its gates said, and what comes next. Anything the AGENT knows — what
+   * grounding turned up, which trade-off it took, what it recommends — is
+   * added when it presents this question to the human, and comes back in the
+   * recorded answer. That split is why this stays a value object built from
+   * run state rather than a hook the agent has to feed.
+   *
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase that just passed.
+   * @param \Droost\Workflow\Gate\PhaseReport $report
+   *   Its gate report.
+   * @param string $now
+   *   The current time, as a caller-supplied ISO-8601 string.
+   *
+   * @return \Droost\Workflow\Mode\PendingQuestion
+   *   The question, with the options worth offering.
+   */
+  private function conversationAt(
+    Phase $phase,
+    PhaseReport $report,
+    string $now,
+  ): PendingQuestion {
+    [$headline, $question, $detail, $options] = match ($phase) {
+      Phase::Plan => [
+        'The spec is written and the plan phase passed.',
+        'Before any code is written: is the spec what you want built — its '
+        . 'approach, its scope, and its acceptance criteria?',
+        [
+          'Changing the spec now costs nothing. Changing it after the code '
+          . 'phase means changing the code too.',
+          'Next: the code phase builds only what the spec describes, and '
+          . 'scope found mid-build has to come back here first.',
+        ],
+        [
+          'Looks right — start building',
+          'Change the spec first',
+          'Abandon the run',
+        ],
+      ],
+      Phase::Code => [
+        'The code phase passed its gates and the seeker is satisfied.',
+        'The work builds and the inspection is clean. Do you want to see the '
+        . 'diff before it goes to the test phase?',
+        [
+          'Gates verify rules and the seeker verifies judgment; neither '
+          . 'verifies that this is the change you wanted.',
+          'Next: the test phase runs the configured suites and the '
+          . 'verification tier this run declared.',
+        ],
+        [
+          'Go on to testing',
+          'Show me the diff first',
+          'Keep working in code',
+        ],
+      ],
+      Phase::Test => [
+        'The test phase passed.',
+        'The suites this run configured have run. Anything you want covered '
+        . 'that they did not cover?',
+        [
+          'A gate that could not run is reported as such rather than as a '
+          . 'pass — worth reading before you accept the phase.',
+          'Next: the complete phase captures why the work was done and '
+          . 're-runs the full gate set.',
+        ],
+        [
+          'Accept and complete the run',
+          'Add a test first',
+          'Keep working in test',
+        ],
+      ],
+      Phase::Complete => [
+        'Every phase has passed and the work is captured.',
+        'This is the last hold: finishing ends the run and leaves the record '
+        . 'in place for review. Ready?',
+        [
+          'The run record persists after finishing; resetting it is a '
+          . 'separate, deliberate act.',
+          'Until a new run opens, the write gates close again.',
+        ],
+        [
+          'Finish the run',
+          'Not yet — something still needs work',
+        ],
+      ],
+    };
+
+    return new PendingQuestion(
+      $phase,
+      $question,
+      $report->summaryLine(),
+      $now,
+      $headline,
+      $detail,
+      $options,
     );
   }
 

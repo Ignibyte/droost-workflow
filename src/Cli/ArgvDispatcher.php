@@ -12,6 +12,7 @@ use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Pack\PackError;
 use Droost\Workflow\Seeker\SeekerError;
+use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\StateError;
 use Droost\Workflow\WorkflowFacade;
 
@@ -94,6 +95,7 @@ final class ArgvDispatcher {
         'swap' => $this->swap($projectRoot, $argv),
         'seeker-report' => $this->seekerReport($projectRoot),
         'declare-browser' => $this->declareBrowser($projectRoot, $argv),
+        'declare-tasks' => $this->declareTasks($projectRoot, $argv),
         'reset' => $this->reset($projectRoot, $argv),
         default => $this->unknown($verb),
       };
@@ -202,7 +204,7 @@ final class ArgvDispatcher {
    */
   private function swap(string $projectRoot, array $argv): int {
     $name = $argv[1] ?? '';
-    $mode = Mode::tryFrom($name);
+    $mode = Mode::resolve($name);
     if ($mode === NULL) {
       $this->fail(sprintf(
         'swap needs a mode (%s), got "%s"',
@@ -269,6 +271,31 @@ final class ArgvDispatcher {
   }
 
   /**
+   * Records the host task surface the session can drive.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The arguments.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function declareTasks(string $projectRoot, array $argv): int {
+    $word = $argv[1] ?? '';
+    if ($word === '') {
+      $this->fail(sprintf(
+        'declare-tasks needs the surface: %s',
+        implode(', ', RunState::TASK_SURFACES),
+      ));
+      return self::EXIT_USAGE;
+    }
+    $this->facade()->declareTasks($projectRoot, $word);
+    $this->say('tasks: ' . $word);
+    return self::EXIT_OK;
+  }
+
+  /**
    * Clears a finished run so the next one can start.
    *
    * @param string $projectRoot
@@ -312,10 +339,12 @@ final class ArgvDispatcher {
       status           what this repo resolves to, and where a run has got to
       run              start a run, or advance it by one phase
       answer <text>    answer a paused run's question (the run then advances)
-      swap automated   stop pausing at gates and finish unattended
+      swap agentic     stop holding at phases and finish without stopping
       seeker-report    record an adversarial inspection (ledger on stdin)
       declare-browser  record the session's browser tier (playwright-mcp,
                        native, none)
+      declare-tasks    record the host task surface this session can drive,
+                       one task per phase (claude-code, codex, other, none)
       reset [--force]  clear a finished run (archives its record to
                        .droost-workflow/history/); --force abandons a live one
 

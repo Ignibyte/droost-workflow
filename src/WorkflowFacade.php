@@ -131,12 +131,14 @@ final class WorkflowFacade {
       'effective_mode' => $state->effectiveMode()->value,
       'current_phase' => $state->currentPhase?->value,
       // The judgment half of the record: whether the checkpoint is armed,
-      // the latest parsed inspection, and which browser tier the agent
-      // declared — so "what was this run actually verified by" is
-      // answerable from status alone.
+      // the latest parsed inspection, which browser tier the agent declared
+      // and whether it can show the phases as host tasks — so "what was this
+      // run actually verified by, and could anyone watch it" is answerable
+      // from status alone.
       'seekers' => $state->seekers,
       'seeker' => $state->seeker,
       'browser' => $state->browser,
+      'tasks' => $state->tasks,
       'phases' => array_map(
         static fn ($s): string => $s->value,
         $state->phases,
@@ -443,6 +445,43 @@ final class WorkflowFacade {
     }
     $store = new RunStateStore($projectRoot);
     $declared = $this->requireRun($store)->withBrowser($browser);
+    $store->save($declared);
+    return $declared;
+  }
+
+  /**
+   * Records the host task surface the running agent can drive.
+   *
+   * Same shape and same reason as declareBrowser(): whether this session can
+   * show a human where the run is — one task per phase, updated as it moves
+   * — is session-scoped truth only the agent can see, so the agent declares
+   * it and the run records it. A report that claimed phase visibility the
+   * host never had would be worse than one that says none.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $tasks
+   *   The surface: claude-code, codex, other, or none.
+   *
+   * @return \Droost\Workflow\State\RunState
+   *   The run, with the declaration recorded.
+   *
+   * @throws \InvalidArgumentException
+   *   When the word is outside its vocabulary.
+   */
+  public function declareTasks(
+    string $projectRoot,
+    string $tasks,
+  ): RunState {
+    if (!in_array($tasks, RunState::TASK_SURFACES, TRUE)) {
+      throw new \InvalidArgumentException(sprintf(
+        'tasks must be one of %s — got "%s"',
+        implode(', ', RunState::TASK_SURFACES),
+        $tasks,
+      ));
+    }
+    $store = new RunStateStore($projectRoot);
+    $declared = $this->requireRun($store)->withTasks($tasks);
     $store->save($declared);
     return $declared;
   }

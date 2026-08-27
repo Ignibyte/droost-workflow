@@ -24,6 +24,13 @@ use PHPUnit\Framework\TestCase;
 class PackContentLintTest extends TestCase {
 
   /**
+   * Files the operating system leaves behind, which pack/ never ships.
+   *
+   * @var list<string>
+   */
+  private const OS_ARTIFACTS = ['.DS_Store', 'Thumbs.db', 'desktop.ini'];
+
+  /**
    * REQ-001: the pack and the manifest agree, in both directions.
    *
    * Both directions matters. The manifest is the sole enumerator, so a file
@@ -45,6 +52,14 @@ class PackContentLintTest extends TestCase {
         continue;
       }
       $relative = substr($file->getPathname(), strlen($this->packDir()) + 1);
+      // Finder droppings are not pack content and can never be: this walks
+      // the filesystem, so without this skip anyone who merely OPENS pack/ in
+      // Finder fails the suite. Named explicitly rather than skipping all
+      // dotfiles, because a dotfile the manifest forgot is exactly the defect
+      // this test exists to catch.
+      if (in_array($file->getFilename(), self::OS_ARTIFACTS, TRUE)) {
+        continue;
+      }
       if ($relative !== PackManifest::CONFIG_FILE) {
         $onDisk[] = $relative;
       }

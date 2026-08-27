@@ -443,7 +443,7 @@ class RunStateStoreTest extends WorkflowTestCase {
 
     return match ($shape) {
       'fresh' => $fresh,
-      'override' => $fresh->withModeOverride(Mode::Pair),
+      'override' => $fresh->withModeOverride(Mode::Interactive),
       'advanced' => $fresh->advanceTo(Phase::Code),
       'inspected' => $fresh
         ->withSeekerReport([
@@ -458,7 +458,7 @@ class RunStateStoreTest extends WorkflowTestCase {
       'ended' => new RunState(
         'run-1',
         '2026-07-27T09:00:00+00:00',
-        Mode::Automated,
+        Mode::Agentic,
         NULL,
         'factory',
         2,
@@ -470,8 +470,8 @@ class RunStateStoreTest extends WorkflowTestCase {
       'reserved' => new RunState(
         'run-1',
         '2026-07-27T09:00:00+00:00',
-        Mode::Pair,
-        Mode::Automated,
+        Mode::Interactive,
+        Mode::Agentic,
         'factory',
         2,
         Provenance::File,

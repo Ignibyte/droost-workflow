@@ -470,7 +470,10 @@ final class WorkflowConfig {
       return $default;
     }
     $name = $root->string('mode');
-    $mode = Mode::tryFrom($name);
+    // resolve(), not tryFrom(): the installer wrote `automated`/`pair` into
+    // every site's lever file before the rename, and those files must keep
+    // loading.
+    $mode = Mode::resolve($name);
     if ($mode === NULL) {
       throw ConfigError::unknownMode($source, $name, Mode::names());
     }

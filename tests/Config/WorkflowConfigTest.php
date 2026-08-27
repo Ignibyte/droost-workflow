@@ -101,7 +101,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
 
     $config = WorkflowConfig::load($root);
 
-    $this->assertSame(Mode::Pair, $config->mode);
+    $this->assertSame(Mode::Interactive, $config->mode);
     $this->assertSame('custom', $config->preset);
     $this->assertSame(3, $config->maxGateRetries);
     $this->assertSame(Provenance::File, $config->provenance);
@@ -286,7 +286,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
       ],
       'unknown mode' => [
         ['mode' => 'solo'],
-        'droost.workflow.yml: unknown mode "solo" (known: automated, pair)',
+        'droost.workflow.yml: unknown mode "solo" (known: agentic, interactive)',
       ],
       'unknown preset' => [
         ['preset' => 'turbo'],

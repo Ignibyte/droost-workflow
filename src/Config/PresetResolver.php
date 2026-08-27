@@ -98,7 +98,7 @@ final class PresetResolver {
    *   The base lever set.
    */
   private static function factory(): Preset {
-    return new Preset('factory', Mode::Automated, 2, enforcement: Enforcement::Hard, gates: [
+    return new Preset('factory', Mode::Agentic, 2, enforcement: Enforcement::Hard, gates: [
       'phpcs' => new GateSettings('phpcs', TRUE, [
         'standard' => self::DEFAULT_STANDARD,
       ]),
@@ -130,7 +130,7 @@ final class PresetResolver {
    *   The base lever set.
    */
   private static function light(): Preset {
-    return new Preset('light', Mode::Automated, 2, enforcement: Enforcement::Soft, gates: [
+    return new Preset('light', Mode::Agentic, 2, enforcement: Enforcement::Soft, gates: [
       'phpcs' => new GateSettings('phpcs', TRUE, [
         'standard' => self::DEFAULT_STANDARD,
       ]),
@@ -154,7 +154,7 @@ final class PresetResolver {
    *   The base lever set.
    */
   private static function custom(): Preset {
-    return new Preset('custom', Mode::Automated, 2, [
+    return new Preset('custom', Mode::Agentic, 2, [
       'phpcs' => new GateSettings('phpcs', TRUE, [
         'standard' => self::DEFAULT_STANDARD,
       ]),

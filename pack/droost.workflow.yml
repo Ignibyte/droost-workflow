@@ -11,10 +11,14 @@
 # that has said nothing has not opted out of anything. Naming `custom` is how
 # you choose the gentler set on purpose.
 
-# automated | pair
-#   automated — run plan through complete unattended.
-#   pair      — pause at every phase gate and ask before advancing.
-mode: automated
+# agentic | interactive
+#   agentic     — run plan through complete without stopping.
+#   interactive — hold at every phase and converse before advancing: what the
+#                 phase produced, what is recommended, and the questions that
+#                 actually need an answer.
+# The earlier spellings `automated` and `pair` still load, and mean agentic
+# and interactive respectively.
+mode: agentic
 
 # custom | factory | light
 #   factory — everything on, strict. The software factory. Full EARS spec.

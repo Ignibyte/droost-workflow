@@ -23,7 +23,11 @@ use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
 
 /**
- * Automated, pair, and the mid-run swap.
+ * Agentic, interactive, and the mid-run swap.
+ *
+ * Several tests still write the SUPERSEDED lever names on purpose — a run
+ * begun from `mode: automated` has to keep behaving, so the alias is
+ * exercised by the same tests that cover the behaviour.
  */
 class ModeEngineTest extends WorkflowTestCase {
 
@@ -184,14 +188,14 @@ class ModeEngineTest extends WorkflowTestCase {
     $engine = $this->engine($sink);
     $state = $this->begin(['mode' => 'pair']);
 
-    $state = $engine->swap($state, Mode::Automated, self::NOW);
+    $state = $engine->swap($state, Mode::Agentic, self::NOW);
     $outcome = $engine->runPhase($state, Phase::Plan, '/tmp', self::NOW);
 
-    $this->assertSame(Mode::Automated, $engine->effectiveMode($state));
+    $this->assertSame(Mode::Agentic, $engine->effectiveMode($state));
     $this->assertSame(Outcome::Advanced, $outcome->outcome);
     $this->assertSame([], $sink->emitted);
     // The configured mode is remembered, not rewritten.
-    $this->assertSame(Mode::Pair, $state->mode);
+    $this->assertSame(Mode::Interactive, $state->mode);
   }
 
   /**
@@ -210,7 +214,7 @@ class ModeEngineTest extends WorkflowTestCase {
     )->state;
     $this->assertNotNull($paused->awaiting);
 
-    $swapped = $engine->swap($paused, Mode::Automated, self::NOW);
+    $swapped = $engine->swap($paused, Mode::Agentic, self::NOW);
 
     $this->assertNull($swapped->awaiting);
     // The question that was bypassed is still a fact about the run.
@@ -224,12 +228,12 @@ class ModeEngineTest extends WorkflowTestCase {
   /**
    * Only pair to automated is supported.
    */
-  public function testSwapToPairIsRefused(): void {
+  public function testSwapToInteractiveIsRefused(): void {
     $engine = $this->engine($this->recordingSink());
 
     $this->expectException(\InvalidArgumentException::class);
-    $this->expectExceptionMessage('Only a swap to automated');
-    $engine->swap($this->begin([]), Mode::Pair, self::NOW);
+    $this->expectExceptionMessage('Only a swap to agentic');
+    $engine->swap($this->begin([]), Mode::Interactive, self::NOW);
   }
 
   /**
@@ -239,10 +243,10 @@ class ModeEngineTest extends WorkflowTestCase {
     $engine = $this->engine($this->recordingSink());
     $paired = $this->begin(['mode' => 'pair']);
 
-    $this->assertSame(Mode::Pair, $engine->effectiveMode($paired));
+    $this->assertSame(Mode::Interactive, $engine->effectiveMode($paired));
     $this->assertSame(
-      Mode::Automated,
-      $engine->effectiveMode($paired->withModeOverride(Mode::Automated)),
+      Mode::Agentic,
+      $engine->effectiveMode($paired->withModeOverride(Mode::Agentic)),
     );
   }
 
@@ -565,6 +569,132 @@ class ModeEngineTest extends WorkflowTestCase {
     );
 
     $this->assertArrayHasKey('plan', $outcome->state->gateResults);
+  }
+
+  /**
+   * Interactive holds with a conversation, not a yes/no.
+   *
+   * The point of the mode. A hold whose only answer is "yes" is a form, so
+   * the question has to arrive with what the phase produced, what the human
+   * needs in order to answer, and the answers worth offering.
+   */
+  public function testInteractiveHoldsWithConversation(): void {
+    $sink = $this->recordingSink();
+    $engine = $this->engine($sink);
+
+    $outcome = $engine->runPhase(
+      $this->begin(['mode' => 'interactive']),
+      Phase::Plan,
+      '/tmp',
+      self::NOW,
+    );
+
+    $this->assertSame(Outcome::Paused, $outcome->outcome);
+    $question = $outcome->question;
+    $this->assertInstanceOf(PendingQuestion::class, $question);
+    $this->assertNotSame('', $question->headline);
+    $this->assertNotSame([], $question->detail);
+    $this->assertNotSame([], $question->options);
+    // Not the old wording, and specific to the boundary it is holding at.
+    $this->assertStringNotContainsString(
+      'Continue to the next phase?',
+      $question->question,
+    );
+    $this->assertStringContainsString('spec', $question->question);
+  }
+
+  /**
+   * Each phase asks its own question.
+   *
+   * What a phase hands over differs, so what is worth asking differs. If
+   * every boundary asked the same thing, the mode would be a form again.
+   */
+  public function testEachPhaseAsksSomethingDifferent(): void {
+    $engine = $this->engine($this->recordingSink());
+    $asked = [];
+
+    foreach (Phase::cases() as $phase) {
+      // Seekers off: the inspection checkpoint deliberately precedes the
+      // hold at code and complete, and this test is about the hold.
+      $outcome = $engine->runPhase(
+        $this->begin(['mode' => 'interactive', 'seekers' => ['on' => FALSE]]),
+        $phase,
+        '/tmp',
+        self::NOW,
+      );
+      $question = $outcome->question;
+      $this->assertInstanceOf(PendingQuestion::class, $question);
+      $this->assertSame($phase, $question->phase);
+      $asked[] = $question->question;
+      $this->assertNotSame([], $question->options);
+    }
+
+    $this->assertCount(count(Phase::cases()), array_unique($asked));
+  }
+
+  /**
+   * The conversation is in run state before the sink is told.
+   *
+   * Same ordering guarantee the original pause had, now with more to lose:
+   * the options are what a structured-question surface renders, so a pause
+   * delivered without them recorded would degrade to a free-text prompt.
+   */
+  public function testTheConversationIsPersistedNotJustEmitted(): void {
+    $sink = $this->recordingSink();
+    $engine = $this->engine($sink);
+
+    $outcome = $engine->runPhase(
+      $this->begin(['mode' => 'interactive', 'seekers' => ['on' => FALSE]]),
+      Phase::Code,
+      '/tmp',
+      self::NOW,
+    );
+
+    $awaiting = $outcome->state->awaiting;
+    $this->assertIsArray($awaiting);
+    $this->assertArrayHasKey('options', $awaiting);
+    $this->assertNotSame([], $awaiting['options']);
+    $this->assertArrayHasKey('headline', $awaiting);
+
+    $stored = PendingQuestion::fromArray($awaiting);
+    $this->assertNotNull($stored);
+    $this->assertSame($sink->emitted[0]->options, $stored->options);
+  }
+
+  /**
+   * A lever file that still says `pair` gets the conversation.
+   *
+   * End to end through the real config loader, because this is the promise
+   * the alias makes: a site provisioned before the rename keeps working, and
+   * gets the better behaviour rather than the old one.
+   */
+  public function testTheLegacyPairLeverStillHolds(): void {
+    $engine = $this->engine($this->recordingSink());
+
+    $state = $this->begin(['mode' => 'pair']);
+    $this->assertSame(Mode::Interactive, $state->mode);
+
+    $outcome = $engine->runPhase($state, Phase::Plan, '/tmp', self::NOW);
+
+    $this->assertSame(Outcome::Paused, $outcome->outcome);
+    $question = $outcome->question;
+    $this->assertInstanceOf(PendingQuestion::class, $question);
+    $this->assertNotSame([], $question->options);
+  }
+
+  /**
+   * A lever file that still says `automated` runs straight through.
+   */
+  public function testTheLegacyAutomatedLeverStillRunsThrough(): void {
+    $sink = $this->recordingSink();
+    $state = $this->begin(['mode' => 'automated']);
+    $this->assertSame(Mode::Agentic, $state->mode);
+
+    $outcome = $this->engine($sink)
+      ->runPhase($state, Phase::Plan, '/tmp', self::NOW);
+
+    $this->assertSame(Outcome::Advanced, $outcome->outcome);
+    $this->assertSame([], $sink->emitted);
   }
 
   /**

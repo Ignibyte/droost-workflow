@@ -14,6 +14,14 @@ use Droost\Workflow\Support\TypedArray;
  * is not answerable without knowing what just happened. A human asked to
  * approve a phase whose gate results they cannot see is being asked to rubber
  * stamp it.
+ *
+ * It carries three more things so interactive mode can hold a CONVERSATION
+ * rather than present a form: a headline naming what the phase actually
+ * produced, detail lines saying what the human needs to know to answer, and
+ * the options worth offering. The options exist because a host with a
+ * structured-question surface can render them as choices; a host without one
+ * prints them and takes a sentence. Every one of them is optional, so a
+ * question stored before these fields existed still reads.
  */
 final class PendingQuestion {
 
@@ -28,18 +36,32 @@ final class PendingQuestion {
    *   What the phase's gates reported, so the answer can be informed.
    * @param string $askedAt
    *   When it was asked, as a caller-supplied ISO-8601 string.
+   * @param string $headline
+   *   One line naming what the phase produced, so the question opens with
+   *   the state of the work rather than with the request.
+   * @param list<string> $detail
+   *   What the human needs in order to answer — what was found, what is
+   *   recommended, what the next phase will do. Empty is legitimate: not
+   *   every hold has something to say beyond its gates.
+   * @param list<string> $options
+   *   The answers worth offering, most-likely first. A structured-question
+   *   surface renders them as choices; a plain prompt prints them. Empty
+   *   means the question is open-ended.
    */
   public function __construct(
     public readonly Phase $phase,
     public readonly string $question,
     public readonly string $gateSummary,
     public readonly string $askedAt,
+    public readonly string $headline = '',
+    public readonly array $detail = [],
+    public readonly array $options = [],
   ) {}
 
   /**
    * This question as the data stored in run state.
    *
-   * @return array<string, string>
+   * @return array<string, string|list<string>>
    *   The serialized question.
    */
   public function toArray(): array {
@@ -48,6 +70,9 @@ final class PendingQuestion {
       'question' => $this->question,
       'gate_summary' => $this->gateSummary,
       'asked_at' => $this->askedAt,
+      'headline' => $this->headline,
+      'detail' => $this->detail,
+      'options' => $this->options,
     ];
   }
 
@@ -74,6 +99,9 @@ final class PendingQuestion {
       $node->optionalString('question', '') ?? '',
       $node->optionalString('gate_summary', '') ?? '',
       $node->optionalString('asked_at', '') ?? '',
+      $node->optionalString('headline', '') ?? '',
+      $node->optionalStringList('detail', []),
+      $node->optionalStringList('options', []),
     );
   }
 
