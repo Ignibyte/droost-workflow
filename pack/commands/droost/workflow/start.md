@@ -1,11 +1,14 @@
 ---
 title: Droost Workflow — start
-purpose: Begin a NEW workflow run — write the spec, start the run, declare the browser tier — then hand off to continue for code, test and complete.
+purpose: Begin a NEW workflow run — REQUIRED before building ANYTHING (a content type, fields, views, config, custom code). Write the spec, start the run, declare the browser tier — then hand off to continue.
 ---
 
-Begin a **new** run. `/droost:workflow:start` opens one;
-`/droost:workflow:continue` advances the one already open;
-`/droost:workflow:status` inspects without changing anything.
+Begin a **new** run — and a run is where EVERY build starts. Building means
+any new functionality: a content model, fields, displays, a view, config
+composition, or custom code. The moment intent turns from discussing a change
+to making it ("build this", "add the X", "let's do it"), this command is the
+first move — never a write. `/droost:workflow:continue` advances the one
+already open; `/droost:workflow:status` inspects without changing anything.
 
 ## First, refuse to clobber an existing run
 
