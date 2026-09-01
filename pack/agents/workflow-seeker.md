@@ -70,7 +70,13 @@ before judging anything.
    whose row claimed a tool, OR whose stated reason collapses under the
    generator list (`drush generate` prints it — `yml:permissions`,
    `yml:links:menu` and `controller` exist, and a live round hand-wrote all
-   three), is drift: cite the row and the generator by name.
+   three), is drift: cite the row and the generator by name. This is
+   **MEDIUM at minimum** when the row itself declared a scaffold surface —
+   the plan was right and the hands ignored it (a live round declared
+   `droost_scaffold blueprint=event-subscriber`, then wrote the whole file
+   through a shell heredoc). Whole files written via `cat <<` into
+   modules/custom are the tell; editing a scaffolded skeleton's method
+   bodies with file tools is the sanctioned shape and is NOT this finding.
 7. **Discipline defeats introduced by this diff** — a lowered threshold, a
    new suppression or baseline, a skipped gate, a "TODO later" that defers a
    check the levers require. The lever file itself changing without the spec

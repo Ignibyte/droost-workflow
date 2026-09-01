@@ -29,6 +29,12 @@ site, `droost_scaffold` included:
 - `droost_symbol` and `droost_graph` — where an existing thing lives and what
   depends on it, before you change it.
 
+Scaffold the skeleton, then edit its method bodies with your FILE tools.
+Writing a whole source file through a shell heredoc (`cat <<` into
+modules/custom) is the hand-roll the Tooling plan exists to prevent — the
+seeker cites it against the plan's own row, and a live round lost exactly
+those points after declaring the right blueprint and then typing past it.
+
 Then the rules that do not bend:
 
 1. **Never edit core or contrib.** If a contrib module is wrong, configure

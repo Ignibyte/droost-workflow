@@ -305,4 +305,54 @@ class SeekerLedgerTest extends TestCase {
     );
   }
 
+  /**
+   * Escaped pipes inside a cell never cost the record a finding.
+   *
+   * A live run's ledger carried `^10 \|\| ^11` in a version constraint and
+   * `(script\|style)` in a regex — markdown's CORRECT escape for a literal
+   * pipe — and the old cell split dropped both rows silently: the record
+   * read 5 medium / 1 low for a ledger holding 6 and 2. These are that
+   * ledger's rows, abbreviated but with the escapes verbatim.
+   */
+  public function testEscapedPipesInsideCellsNeverDropTheRow(): void {
+    $ledger = SeekerLedger::parse(<<<'MD'
+      ## Seeker Inspection
+
+      Inspector: independent
+
+      | ID | Severity | Location | Finding | Status |
+      |----|----------|----------|---------|--------|
+      | F7 | MEDIUM | `reading_time.info.yml:5` | `core_version_requirement: ^10 \|\| ^11` claims support the code does not have | open |
+      | F9 | LOW | `ReadingTimeCalculator.php:55` | unclosed tag fails the regex `#<(script\|style)\b[^>]*>.*?</\1>#is` | open |
+      MD);
+
+    $this->assertCount(2, $ledger->findings);
+    $this->assertSame('F7', $ledger->findings[0]['id']);
+    $this->assertStringContainsString('^10 || ^11', $ledger->findings[0]['finding']);
+    $this->assertStringContainsString('(script|style)', $ledger->findings[1]['finding']);
+    $record = $ledger->toRecord('t');
+    $this->assertSame(1, $record['medium']);
+    $this->assertSame(1, $record['low']);
+  }
+
+  /**
+   * A finding-shaped row that still cannot split into 5 cells refuses.
+   *
+   * The silent NULL is exactly how the understatement shipped: a row meant
+   * as a finding must never vanish quietly.
+   */
+  public function testRawPipesInCellsRefuseInsteadOfVanishing(): void {
+    $this->expectException(SeekerError::class);
+    $this->expectExceptionMessageMatches('/row "F1" splits into 6 cells.*escaped as/s');
+    SeekerLedger::parse(<<<'MD'
+      ## Seeker Inspection
+
+      Inspector: independent
+
+      | ID | Severity | Location | Finding | Status |
+      |----|----------|----------|---------|--------|
+      | F1 | MEDIUM | a.php:1 | a raw | pipe in a cell | open |
+      MD);
+  }
+
 }

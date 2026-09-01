@@ -308,8 +308,27 @@ final class SeekerLedger {
    *   When a data row carries a severity outside the protocol.
    */
   private static function row(string $line): ?array {
-    $cells = array_map(trim(...), explode('|', trim($line, '|')));
+    // Split on UNESCAPED pipes only: `\|` is markdown's literal pipe inside
+    // a cell, and a live ledger carried two — `^10 \|\| ^11` in a version
+    // constraint and `(script\|style)` in a regex. The old explode() split
+    // those rows into extra cells and the count check DROPPED THEM
+    // SILENTLY: the run record read 5 medium / 1 low for a ledger holding
+    // 6 and 2. The permanent record must never understate the checkpoint.
+    $trimmed = (string) preg_replace(['/^\s*\|/', '/(?<!\\\\)\|\s*$/'], '', $line);
+    $cells = array_map(
+      static fn (string $cell): string => str_replace('\\|', '|', trim($cell)),
+      preg_split('/(?<!\\\\)\|/', $trimmed) ?: [],
+    );
     if (count($cells) !== 5) {
+      // A row that was clearly MEANT as a finding must refuse, not vanish.
+      if (preg_match('/^F\d+$/i', $cells[0] ?? '') === 1) {
+        throw SeekerError::malformed(sprintf(
+          'row "%s" splits into %d cells, not 5 — a literal pipe inside a '
+          . 'cell must be escaped as \|',
+          $cells[0],
+          count($cells),
+        ));
+      }
       return NULL;
     }
     [$id, $severity, $location, $finding, $status] = $cells;
