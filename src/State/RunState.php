@@ -423,6 +423,7 @@ final class RunState {
       $this->seeker,
       $this->browser,
       $this->tasks,
+      $this->seekerHistory,
     );
   }
 
@@ -505,6 +506,7 @@ final class RunState {
       $this->seeker,
       $this->browser,
       $this->tasks,
+      $this->seekerHistory,
     );
   }
 
@@ -541,6 +543,7 @@ final class RunState {
       $this->seeker,
       $this->browser,
       $this->tasks,
+      $this->seekerHistory,
     );
   }
 
@@ -660,6 +663,7 @@ final class RunState {
       $this->seeker,
       $this->browser,
       $this->tasks,
+      $this->seekerHistory,
     );
   }
 

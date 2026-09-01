@@ -396,6 +396,53 @@ class RunStateTest extends TestCase {
   }
 
   /**
+   * The trail survives every state transition, not just the next save.
+   *
+   * The first cut of seeker_history appended correctly in
+   * withSeekerReport() and round-tripped correctly through the store — and
+   * was ERASED by the next phase advance, because advanceTo(),
+   * withPhaseStatus(), complete() and rebuild() construct the new state
+   * positionally and the new trailing parameter silently took its default.
+   * A live ship-gate round produced a three-inspection run whose run.json
+   * ended `"seeker_history": []`. So this walks the trail through the exact
+   * sequence a real run takes: inspect at code, ADVANCE, inspect again,
+   * advance to the end, COMPLETE.
+   */
+  public function testTheTrailSurvivesAdvancesAndCompletion(): void {
+    $record = static fn (string $at): array => [
+      'status' => 'clean',
+      'critical' => 0,
+      'medium' => 0,
+      'low' => 0,
+      'observations' => 0,
+      'reported_at' => $at,
+    ];
+    $state = $this->begin()
+      ->advanceTo(Phase::Code)
+      ->withSeekerReport($record('t1'))
+      ->advanceTo(Phase::Test)
+      ->withSeekerReport($record('t2'))
+      ->advanceTo(Phase::Complete)
+      ->complete();
+
+    $this->assertNull($state->currentPhase, 'the run ended');
+    $this->assertCount(
+      2,
+      $state->seekerHistory,
+      'both inspections survive the advances and the completion',
+    );
+    $this->assertSame('t1', $state->seekerHistory[0]['reported_at']);
+    $this->assertSame('t2', $state->seekerHistory[1]['reported_at']);
+
+    // And a failure being cleared deliberately does not cost the trail.
+    $cleared = $this->begin()
+      ->withSeekerReport($record('t1'))
+      ->withPhaseStatus(Phase::Plan, PhaseStatus::Failed)
+      ->withPhaseStatus(Phase::Plan, PhaseStatus::Active);
+    $this->assertCount(1, $cleared->seekerHistory);
+  }
+
+  /**
    * A self-reviewed inspection is recorded as one.
    *
    * A self-review is worth more than a skipped inspection and less than an
