@@ -52,8 +52,13 @@ Then produce the spec:
    2026-09-01). Droost ships blueprints only for what drush's generators do
    not cover, so "droost has no blueprint for this" is the EXPECTED state
    for many constructs and is never, by itself, a reason to hand-write.
-   Before any row says hand-written, run `drush generate` (the bare command
-   lists every generator) and check the construct against THAT list — a
+   Ask the map instead of eyeballing two lists: `droost_decide
+   graph=build-surface query="<construct>"` returns the resolved surface —
+   the droost tool or blueprint, the exact `drush generate` command, or an
+   explicit hand-written verdict — with gate states probed live. One call
+   per construct IS the Tooling plan row. Where the tool is unavailable,
+   run `drush generate` (the bare command lists every generator) and check
+   the construct against THAT list — a
    validation round hand-wrote `.permissions.yml`, `.links.menu.yml` and a
    route while `yml:permissions`, `yml:links:menu` and `controller` sat in
    the list it had itself printed. A hand-written row's reason must name

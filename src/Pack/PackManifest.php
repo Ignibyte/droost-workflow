@@ -107,6 +107,7 @@ final class PackManifest {
     'droost_architecture',
     'droost_capabilities',
     'droost_config_set',
+    'droost_decide',
     'droost_entities',
     'droost_entity_create',
     'droost_entity_update',
