@@ -230,4 +230,22 @@ class SeekerLedgerTest extends TestCase {
     );
   }
 
+  /**
+   * The third live phrasing: "not to dispatch agents", "in-session".
+   *
+   * Verbatim from the T09 eval ledger — the third distinct wording in three
+   * rounds, and the second the phrase list missed on first contact. Every
+   * addition is pinned by the real ledger that exposed it.
+   */
+  public function testThirdLiveDisclosurePhrasingIsRecognised(): void {
+    $ledger = SeekerLedger::parse(
+      "## Seeker Inspection\n\n"
+      . "Inspection performed in-session over the run's full diff (8 modified\n"
+      . "files, 4 untracked), not by the `workflow-seeker` subagent: this\n"
+      . "session is configured not to dispatch agents unless asked.\n\n"
+      . "(no findings)\n",
+    );
+    $this->assertTrue($ledger->selfReviewed);
+  }
+
 }

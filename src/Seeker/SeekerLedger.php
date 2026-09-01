@@ -77,8 +77,15 @@ final class SeekerLedger {
     'without a subagent',
     'cannot dispatch',
     'could not dispatch',
+    'not to dispatch',
     'does not spawn subagents',
     'not spawn a subagent',
+    // "Inspection performed in-session" is how two live rounds phrased it,
+    // in an inspection section, where the phrase has exactly one meaning:
+    // the author reviewed their own work. A third round wrote "not to
+    // dispatch agents", matched above. Each entry here is a REAL ledger's
+    // wording, never an invented paraphrase.
+    'in-session',
   ];
 
   /**
