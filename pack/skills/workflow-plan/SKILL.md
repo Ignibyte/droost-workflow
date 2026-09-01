@@ -46,13 +46,22 @@ Then produce the spec:
    surface that builds it, in this order of preference: a droost write tool
    (`droost_structure_create`, `droost_views_compose`, `droost_config_set`,
    `droost_scaffold` and its blueprints), `drush generate`, or —
-   last — hand-written, WITH the reason stated on the same line (no
-   blueprint covers it; the surface's gate is off and the operator declined;
-   the construct is genuinely novel). Exhaust the generators before writing
-   your own: ten graded rounds hand-rolled YAML a tool could have produced,
-   and this section is where that stops being invisible. The seeker grades
-   the diff against this map — building by hand what your own plan said a
-   tool would build is drift.
+   last — hand-written, WITH the reason stated on the same line.
+
+   **Droost extends drush; it never competes with it** (owner ruling,
+   2026-09-01). Droost ships blueprints only for what drush's generators do
+   not cover, so "droost has no blueprint for this" is the EXPECTED state
+   for many constructs and is never, by itself, a reason to hand-write.
+   Before any row says hand-written, run `drush generate` (the bare command
+   lists every generator) and check the construct against THAT list — a
+   validation round hand-wrote `.permissions.yml`, `.links.menu.yml` and a
+   route while `yml:permissions`, `yml:links:menu` and `controller` sat in
+   the list it had itself printed. A hand-written row's reason must name
+   what was checked: "no droost blueprint AND no drush generator", the
+   gate is off and the operator declined, or the construct is genuinely
+   novel. The seeker grades the diff against this map — building by hand
+   what your own plan said a tool would build is drift, and so is a
+   hand-written row whose construct a listed generator covers.
 5. **Acceptance criteria in EARS form** — "When <trigger>, the <system> shall
    <observable response>", one observable behaviour per row, each with a way
    to check it. A criterion nobody can check is not a criterion.

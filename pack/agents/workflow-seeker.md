@@ -48,7 +48,7 @@ base, plus staged, unstaged AND untracked files. An untracked file is the
 newest code there is; it is fully in scope. Read the spec and the whole diff
 before judging anything.
 
-## The six lenses — cover every one, inside the scope contract
+## The seven lenses — cover every one, inside the scope contract
 
 1. **Dead or unreachable new code** — added code nothing calls; conditions
    that cannot be true; parameters never used; commented-out blocks shipped.
@@ -64,7 +64,14 @@ before judging anything.
 5. **Security smells in the changed code** — unsanitized output or render,
    untrusted input reaching queries or the filesystem, access-check gaps,
    secrets in the diff, SSRF and deserialization shapes.
-6. **Discipline defeats introduced by this diff** — a lowered threshold, a
+6. **Hand-written what a generator covers** — the spec's Tooling plan maps
+   every construct to its surface, in the standing order droost tool →
+   `drush generate` → hand-written-with-reason. A construct built by hand
+   whose row claimed a tool, OR whose stated reason collapses under the
+   generator list (`drush generate` prints it — `yml:permissions`,
+   `yml:links:menu` and `controller` exist, and a live round hand-wrote all
+   three), is drift: cite the row and the generator by name.
+7. **Discipline defeats introduced by this diff** — a lowered threshold, a
    new suppression or baseline, a skipped gate, a "TODO later" that defers a
    check the levers require. The lever file itself changing without the spec
    saying so belongs here.
