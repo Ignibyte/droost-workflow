@@ -101,7 +101,7 @@ final class RunState {
    *   Whether the adversarial-review checkpoint is armed, frozen at begin.
    *   Defaults to FALSE for the same reason enforcement defaults to Off: a
    *   document written before the lever existed was not held to it.
-   * @param array<string, int|string>|null $seeker
+   * @param array<string, bool|int|string>|null $seeker
    *   The latest recorded inspection — status, per-severity counts,
    *   observation count, reported_at — or NULL when none has been recorded.
    *   Written only by withSeekerReport(), whose counts come from parsing
@@ -118,6 +118,23 @@ final class RunState {
    *   show a human where the run is, as one task per phase, is something only
    *   the agent can see, and a report that claimed phase visibility the host
    *   never had would be worse than one that says "none".
+   * @param list<array<string, bool|int|string>> $seekerHistory
+   *   Every inspection this run recorded, oldest first, appended by
+   *   withSeekerReport(). `$seeker` is the CURRENT verdict and is what the
+   *   checkpoint tests; this is the arc that produced it.
+   *
+   *   They are separate fields because they answer different questions and
+   *   one had been silently answering both. A run whose seeker caught a
+   *   latent correctness bug, saw it fixed, and then passed a clean
+   *   re-inspection reported `clean (critical 0, medium 0, low 0)` —
+   *   indistinguishable from a run whose seeker found nothing, because each
+   *   inspection REPLACED its predecessor. The verdict was right; the record
+   *   of how it was reached did not survive. Measured across four live eval
+   *   rounds: 6, 25, 12 and 20 findings caught, recorded as 0, 0, 6 and 2.
+   *
+   *   Kept per inspection rather than summed, because a re-inspection
+   *   restates earlier findings with a resolved status — summing would
+   *   double-count them, and the arc is the honest thing to keep anyway.
    */
   public function __construct(
     public readonly string $runId,
@@ -140,6 +157,7 @@ final class RunState {
     public readonly ?array $seeker = NULL,
     public readonly ?string $browser = NULL,
     public readonly ?string $tasks = NULL,
+    public readonly array $seekerHistory = [],
   ) {}
 
   /**
@@ -648,14 +666,36 @@ final class RunState {
   /**
    * This run with a fresh seeker inspection recorded.
    *
-   * @param array<string, int|string> $record
+   * @param array<string, bool|int|string> $record
    *   The parsed ledger's record (SeekerLedger::toRecord()).
    *
    * @return self
    *   A new instance.
    */
   public function withSeekerReport(array $record): self {
-    return $this->with(seeker: $record);
+    // Rebuild the record in the canonical key ORDER hydration produces, not
+    // merely with the canonical keys. A missing `self_reviewed` appended at
+    // the end still round-tripped into a different document, because the
+    // reader inserts it before `reported_at` and an identical-array
+    // assertion compares order. Both halves were caught by the round-trip
+    // test, which exists because shipping a package that cannot read the
+    // state it just wrote is the failure this class guards against.
+    $record = [
+      'status' => $record['status'] ?? 'clean',
+      'critical' => (int) ($record['critical'] ?? 0),
+      'medium' => (int) ($record['medium'] ?? 0),
+      'low' => (int) ($record['low'] ?? 0),
+      'observations' => (int) ($record['observations'] ?? 0),
+      'self_reviewed' => (bool) ($record['self_reviewed'] ?? FALSE),
+      'reported_at' => (string) ($record['reported_at'] ?? ''),
+    ];
+    // The current verdict REPLACES; the trail APPENDS. An inspection that
+    // clears a run must not erase the evidence of what the earlier ones
+    // caught, which is exactly what a single replaced field did.
+    return $this->with(
+      seeker: $record,
+      seekerHistory: [...$this->seekerHistory, $record],
+    );
   }
 
   /**
@@ -729,6 +769,7 @@ final class RunState {
       'feedback_attempts' => $this->feedbackAttempts,
       'seekers' => $this->seekers,
       'seeker' => $this->seeker,
+      'seeker_history' => $this->seekerHistory,
       'browser' => $this->browser,
       'tasks' => $this->tasks,
     ];
@@ -818,7 +859,78 @@ final class RunState {
       self::readSeeker($node, $label),
       self::readBrowser($node, $label),
       self::readTasks($node, $label),
+      self::readSeekerHistory($node, $label),
     );
+  }
+
+  /**
+   * Reads the trail of inspections this run recorded.
+   *
+   * Absent on every run.json written before the trail existed, and those
+   * runs are not corrupt — they simply predate it. So a missing key yields
+   * an empty trail rather than an error, and a run mid-flight when the
+   * upgrade lands keeps advancing with the inspections it records from here
+   * on. Refusing them would strand exactly the runs the fix is meant to
+   * serve.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $node
+   *   The decoded document.
+   * @param string $label
+   *   The state file's path as shown to an operator.
+   *
+   * @return list<array<string, bool|int|string>>
+   *   The inspections, oldest first.
+   *
+   * @throws \Droost\Workflow\State\StateError
+   *   When an entry carries a status outside its vocabulary.
+   */
+  private static function readSeekerHistory(
+    TypedArray $node,
+    string $label,
+  ): array {
+    $raw = $node->optionalChild('seeker_history')?->toArray() ?? [];
+    if (!array_is_list($raw)) {
+      throw StateError::corrupt(
+        $label,
+        'seeker_history must be a list, got a mapping',
+      );
+    }
+    $history = [];
+    foreach ($raw as $index => $entry) {
+      if (!is_array($entry)) {
+        throw StateError::corrupt($label, sprintf(
+          'seeker_history[%d] must be a mapping, got %s',
+          $index,
+          get_debug_type($entry),
+        ));
+      }
+      // Read each entry through the same typed reader the rest of this file
+      // uses, rather than casting: a cast turns a malformed value into a
+      // plausible one (a string "many" becomes 0), which is how a corrupt
+      // record reads as a clean inspection.
+      $typed = TypedArray::serialized($entry);
+      $status = $typed->string('status');
+      if (!in_array($status, ['clean', 'findings'], TRUE)) {
+        throw StateError::corrupt($label, sprintf(
+          'seeker_history[%d] has unknown status "%s" (known: clean, findings)',
+          $index,
+          $status,
+        ));
+      }
+      $history[] = [
+        'status' => $status,
+        'critical' => $typed->int('critical'),
+        'medium' => $typed->int('medium'),
+        'low' => $typed->int('low'),
+        'observations' => $typed->int('observations'),
+        // Absent on any entry recorded before the label was read back, and
+        // an unlabelled inspection is an independent one by default: the
+        // pack asks a SELF-review to say so, never the other way round.
+        'self_reviewed' => $typed->optionalBool('self_reviewed', FALSE),
+        'reported_at' => $typed->string('reported_at'),
+      ];
+    }
+    return $history;
   }
 
   /**
@@ -829,7 +941,7 @@ final class RunState {
    * @param string $label
    *   The state file's operator-facing path.
    *
-   * @return array<string, int|string>|null
+   * @return array<string, bool|int|string>|null
    *   The record.
    *
    * @throws \Droost\Workflow\Support\DataError
@@ -858,6 +970,10 @@ final class RunState {
       'medium' => $seekerNode->int('medium'),
       'low' => $seekerNode->int('low'),
       'observations' => $seekerNode->int('observations'),
+      // Absent on every record written before the ledger's own label was
+      // read back, and an unlabelled inspection is an independent one: the
+      // pack asks a SELF-review to say so, never the other way round.
+      'self_reviewed' => $seekerNode->optionalBool('self_reviewed', FALSE),
       'reported_at' => $seekerNode->string('reported_at'),
     ];
   }
@@ -1231,12 +1347,15 @@ final class RunState {
    *   The new current phase; only applied when $moveCurrent is TRUE.
    * @param \Droost\Workflow\Config\Mode|null $modeOverride
    *   The new override, or NULL to keep the current one.
-   * @param array<string, int|string>|null $seeker
+   * @param array<string, bool|int|string>|null $seeker
    *   The new inspection record, or NULL to keep the current one.
    * @param string|null $browser
    *   The new declared capability, or NULL to keep the current one.
    * @param string|null $tasks
    *   The new declared task surface, or NULL to keep the current one.
+   * @param list<array<string, bool|int|string>>|null $seekerHistory
+   *   The new inspection trail, or NULL to keep the current one. Callers
+   *   append rather than replace: see withSeekerReport().
    *
    * @return self
    *   A new instance.
@@ -1248,6 +1367,7 @@ final class RunState {
     ?array $seeker = NULL,
     ?string $browser = NULL,
     ?string $tasks = NULL,
+    ?array $seekerHistory = NULL,
   ): self {
     return new self(
       $this->runId,
@@ -1270,6 +1390,7 @@ final class RunState {
       $seeker ?? $this->seeker,
       $browser ?? $this->browser,
       $tasks ?? $this->tasks,
+      $seekerHistory ?? $this->seekerHistory,
     );
   }
 

@@ -162,4 +162,72 @@ class SeekerLedgerTest extends TestCase {
     ];
   }
 
+  /**
+   * The section's own self-review label is read back into the record.
+   *
+   * The pack's contract when a subagent cannot be dispatched is that the
+   * inspection still HAPPENS and that the section says it was not
+   * independent. Nothing read that label, so a run that reviewed itself
+   * produced a record identical to an independently-cleared one — and three
+   * consecutive live rounds took exactly that path.
+   */
+  public function testSelfReviewLabelIsRead(): void {
+    $labelled = SeekerLedger::parse(
+      "## Seeker Inspection\n\n"
+      . "(no findings)\n\n"
+      . "This session does not spawn subagents, so the six lenses were "
+      . "applied in-session instead and this inspection is **self-reviewed**, "
+      . "recorded so the substitution is visible.\n",
+    );
+    $this->assertTrue($labelled->selfReviewed);
+    $this->assertTrue($labelled->toRecord('t1')['self_reviewed']);
+
+    // Silence is not a confession: an unlabelled inspection is independent,
+    // because the contract asks a SELF-review to declare itself.
+    $plain = SeekerLedger::parse("## Seeker Inspection\n\n(no findings)\n");
+    $this->assertFalse($plain->selfReviewed);
+    $this->assertFalse($plain->toRecord('t1')['self_reviewed']);
+  }
+
+  /**
+   * The label is read wherever the agent puts it, including a table row.
+   */
+  public function testSelfReviewLabelIsReadFromAnywhereInTheSection(): void {
+    $inRow = SeekerLedger::parse(
+      "## Seeker Inspection\n\n"
+      . "Self-reviewed: no subagent was available.\n\n"
+      . "| ID | Severity | Location | Finding | Status |\n"
+      . "|----|----|----|----|----|\n"
+      . "| F1 | LOW | a:1 | x | open |\n",
+    );
+    $this->assertTrue($inRow->selfReviewed);
+    $this->assertCount(1, $inRow->findings);
+  }
+
+  /**
+   * A live round's own words count as the disclosure.
+   *
+   * Verbatim from the T01 eval ledger. The agent disclosed the substitution
+   * more fully than the contract asks — naming the agent, what it did
+   * instead, and why it recorded the fact — and never wrote the canonical
+   * token. An exact-token match read that as an independent inspection,
+   * which is the failure this whole field exists to prevent, so the real
+   * wording is pinned rather than an invented paraphrase.
+   */
+  public function testRealSelfReviewDisclosureIsRecognised(): void {
+    $ledger = SeekerLedger::parse(
+      "## Seeker Inspection\n\n"
+      . "Inspection performed in-session over the run's full diff against\n"
+      . "the spec. This session is configured not to spawn subagents, so the\n"
+      . "`workflow-seeker` agent was not dispatched and the six lenses were\n"
+      . "applied directly instead. Recorded here so the substitution is\n"
+      . "visible rather than implied.\n\n"
+      . "(no findings)\n",
+    );
+    $this->assertTrue(
+      $ledger->selfReviewed,
+      'an honest disclosure in the agent\'s own words is still a disclosure',
+    );
+  }
+
 }

@@ -100,11 +100,24 @@ prevent. In that case:
    one: look for dead new code, drift from the spec's acceptance criteria,
    coupling the change breaks, weak tests, and security smells in the changed
    code.
-3. Record it in the same ledger format — and label it **self-reviewed**, in
-   the section itself, so the run's permanent record shows the inspection was
-   not independent. A self-review is worth less than an independent one and
-   the record must say so; what it is worth is more than nothing, which is
-   what skipping yields.
+3. Record it in the same ledger format — and write the words
+   **self-reviewed** in the section itself, so the run's permanent record
+   shows the inspection was not independent. The engine reads that word back
+   into run state and the report prints it, so this is not a formality: it is
+   the only thing separating "a reviewer cleared this" from "the author
+   cleared their own work" for whoever reads the record later. Explain the
+   substitution in your own words as well — a live round named the agent, what
+   it did instead, and why it said so, which is better than the label alone —
+   but include the word, because prose the parser cannot read leaves the
+   record claiming an independence the run did not have. A self-review is
+   worth less than an independent one and the record must say so; what it is
+   worth is more than nothing, which is what skipping yields.
+
+Before concluding a subagent is unavailable, check rather than assume: the
+`workflow-seeker` agent ships with the pack and is installed in
+`.claude/agents/`. Three consecutive live rounds declined to dispatch it on
+the belief that their session forbade agents, in a project whose settings
+restricted nothing.
 
 A live run met exactly this and handled it well: it stopped, said the
 pipeline wanted the subagent while its session guidance discouraged one, and

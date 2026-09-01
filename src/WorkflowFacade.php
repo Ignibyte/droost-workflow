@@ -137,6 +137,9 @@ final class WorkflowFacade {
       // from status alone.
       'seekers' => $state->seekers,
       'seeker' => $state->seeker,
+      // The arc, not just the verdict: a clean re-inspection replaces the
+      // record but must not erase what the earlier ones caught.
+      'seeker_history' => $state->seekerHistory,
       'browser' => $state->browser,
       'tasks' => $state->tasks,
       'phases' => array_map(
@@ -393,7 +396,7 @@ final class WorkflowFacade {
    *   The text carrying the "## Seeker Inspection" section — the spec
    *   file's content, or the section alone.
    *
-   * @return array<string, int|string>
+   * @return array<string, bool|int|string>
    *   The recorded inspection, already persisted.
    *
    * @throws \Droost\Workflow\Seeker\SeekerError

@@ -328,11 +328,111 @@ class RunStateTest extends TestCase {
       'reported_at' => 't1',
     ];
     $written = $state->withSeekerReport($record)->withBrowser('playwright-mcp');
-    $this->assertSame($record, $written->seeker);
+    // The record is normalized on the way in, in the key ORDER hydration
+    // produces, so that what a run holds in memory is what it reads back —
+    // spelled out rather than derived, because the order is the contract and
+    // an array-union would have hidden the half of it that failed.
+    $this->assertSame([
+      'status' => 'findings',
+      'critical' => 1,
+      'medium' => 2,
+      'low' => 0,
+      'observations' => 3,
+      'self_reviewed' => FALSE,
+      'reported_at' => 't1',
+    ], $written->seeker);
     $this->assertSame('playwright-mcp', $written->browser);
+    $this->assertSame([$written->seeker], $written->seekerHistory);
 
     // Persistence is the store's contract: RunStateStoreTest's round-trip
     // shapes carry an inspected run for exactly that.
+  }
+
+  /**
+   * A clean re-inspection replaces the verdict and keeps the trail.
+   *
+   * The defect this pins: a run whose seeker caught a latent correctness bug,
+   * saw it fixed, and then passed a clean re-inspection reported
+   * `clean (critical 0, medium 0, low 0)` — indistinguishable from a run
+   * whose seeker found nothing, because each inspection REPLACED its
+   * predecessor. Measured across four live eval rounds: 6, 25, 12 and 20
+   * findings caught, recorded as 0, 0, 6 and 2.
+   *
+   * The verdict must still be the LATEST — that is what the checkpoint tests
+   * — so this asserts both halves at once.
+   */
+  public function testReInspectionKeepsWhatEarlierOnesCaught(): void {
+    $state = RunState::begin('run-1', 't0', WorkflowConfig::builtIn());
+
+    $caught = $state->withSeekerReport([
+      'status' => 'findings',
+      'critical' => 1,
+      'medium' => 3,
+      'low' => 2,
+      'observations' => 1,
+      'reported_at' => 't1',
+    ]);
+    $cleared = $caught->withSeekerReport([
+      'status' => 'clean',
+      'critical' => 0,
+      'medium' => 0,
+      'low' => 0,
+      'observations' => 1,
+      'reported_at' => 't2',
+    ]);
+
+    // The verdict is the newest inspection: the checkpoint may advance.
+    $verdict = $cleared->seeker;
+    $this->assertIsArray($verdict);
+    $this->assertSame('clean', $verdict['status']);
+    $this->assertSame(0, $verdict['critical']);
+
+    // And the record still knows a CRITICAL was caught and fixed.
+    $this->assertCount(2, $cleared->seekerHistory);
+    $this->assertSame(1, $cleared->seekerHistory[0]['critical']);
+    $this->assertSame(3, $cleared->seekerHistory[0]['medium']);
+    $this->assertSame('clean', $cleared->seekerHistory[1]['status']);
+    $this->assertSame('t1', $cleared->seekerHistory[0]['reported_at']);
+  }
+
+  /**
+   * A self-reviewed inspection is recorded as one.
+   *
+   * A self-review is worth more than a skipped inspection and less than an
+   * independent one, and until the ledger's own label was read back the
+   * record could not tell them apart — so a run that reviewed itself
+   * reported exactly what an independently-cleared run reported.
+   */
+  public function testSelfReviewIsCarriedIntoTheRecord(): void {
+    $state = RunState::begin('run-1', 't0', WorkflowConfig::builtIn());
+
+    $selfReviewed = $state->withSeekerReport([
+      'status' => 'clean',
+      'critical' => 0,
+      'medium' => 0,
+      'low' => 0,
+      'observations' => 0,
+      'self_reviewed' => TRUE,
+      'reported_at' => 't1',
+    ]);
+    $labelled = $selfReviewed->seeker;
+    $this->assertIsArray($labelled);
+    $this->assertTrue($labelled['self_reviewed']);
+    $this->assertTrue($selfReviewed->seekerHistory[0]['self_reviewed']);
+
+    // Unlabelled means independent: the pack asks a SELF-review to say so,
+    // never the other way round, so silence must not read as a confession.
+    $independent = $state->withSeekerReport([
+      'status' => 'clean',
+      'critical' => 0,
+      'medium' => 0,
+      'low' => 0,
+      'observations' => 0,
+      'reported_at' => 't1',
+    ]);
+    $unlabelled = $independent->seeker;
+    $this->assertIsArray($unlabelled);
+    $this->assertFalse($unlabelled['self_reviewed']);
   }
 
   /**

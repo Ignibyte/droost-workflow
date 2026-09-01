@@ -49,6 +49,39 @@ final class SeekerLedger {
   private const SEVERITIES = ['CRITICAL', 'MEDIUM', 'LOW'];
 
   /**
+   * How a section says its inspection was not independent.
+   *
+   * When a subagent cannot be dispatched, the contract in the pack's continue
+   * command is that the inspection still HAPPENS — the agent holds itself to
+   * the seeker's brief — and that the section says so. This reads that back:
+   * a self-review is worth more than a skipped one and less than an
+   * independent one, and only the record can tell the difference.
+   *
+   * More than the one canonical label, because agents disclose honestly in
+   * their own words. A live round wrote "the workflow-seeker agent was not
+   * dispatched and the six lenses were applied directly instead… recorded
+   * here so the substitution is visible rather than implied" — a fuller
+   * disclosure than the contract asks for, which an exact-token match scored
+   * as an independent inspection. Every phrase here is specifically about
+   * the subagent not having run, so an independent inspection has no reason
+   * to contain one; and the failure direction is deliberately safe, since
+   * mistaking an independent review for a self-review understates the run
+   * while the reverse overstates it.
+   */
+  private const SELF_REVIEWED = [
+    'self-reviewed',
+    'self reviewed',
+    'self-review',
+    'not dispatched',
+    'no subagent',
+    'without a subagent',
+    'cannot dispatch',
+    'could not dispatch',
+    'does not spawn subagents',
+    'not spawn a subagent',
+  ];
+
+  /**
    * Constructs a SeekerLedger.
    *
    * @param bool $sentinel
@@ -57,11 +90,15 @@ final class SeekerLedger {
    *   The finding rows, in ledger order.
    * @param int $observations
    *   How many out-of-scope observation bullets the section carries.
+   * @param bool $selfReviewed
+   *   Whether the section labels itself a self-review rather than an
+   *   independent inspection.
    */
   private function __construct(
     public readonly bool $sentinel,
     public readonly array $findings,
     public readonly int $observations,
+    public readonly bool $selfReviewed = FALSE,
   ) {}
 
   /**
@@ -96,8 +133,21 @@ final class SeekerLedger {
     $findings = [];
     $observations = 0;
     $inObservations = FALSE;
+    $selfReviewed = FALSE;
     for ($i = $start, $n = count($lines); $i < $n; $i++) {
       $line = trim($lines[$i]);
+      // Read the self-review disclosure from anywhere in the section,
+      // including the prose an agent writes around the table to explain the
+      // substitution. Case-insensitive, because the contract asks for the
+      // disclosure and not for a spelling.
+      if (!$selfReviewed) {
+        foreach (self::SELF_REVIEWED as $phrase) {
+          if (stripos($line, $phrase) !== FALSE) {
+            $selfReviewed = TRUE;
+            break;
+          }
+        }
+      }
       if (str_starts_with($line, '## ') && !str_starts_with($line, '### ')) {
         break;
       }
@@ -136,7 +186,7 @@ final class SeekerLedger {
       );
     }
 
-    return new self($sentinel, $findings, $observations);
+    return new self($sentinel, $findings, $observations, $selfReviewed);
   }
 
   /**
@@ -169,7 +219,7 @@ final class SeekerLedger {
    * @param string $reportedAt
    *   When, as a caller-supplied ISO-8601 string.
    *
-   * @return array{status: string, critical: int, medium: int, low: int, observations: int, reported_at: string}
+   * @return array{status: string, critical: int, medium: int, low: int, observations: int, self_reviewed: bool, reported_at: string}
    *   The record.
    */
   public function toRecord(string $reportedAt): array {
@@ -183,6 +233,7 @@ final class SeekerLedger {
       'medium' => $counts['MEDIUM'],
       'low' => $counts['LOW'],
       'observations' => $this->observations,
+      'self_reviewed' => $this->selfReviewed,
       'reported_at' => $reportedAt,
     ];
   }
