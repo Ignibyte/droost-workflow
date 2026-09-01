@@ -49,7 +49,38 @@ abstract class WorkflowTestCase extends TestCase {
   protected function makeRootWithConfig(string $yaml): string {
     $root = $this->makeRoot();
     file_put_contents($root . '/droost.workflow.yml', $yaml);
+    $this->writeSpec($root);
     return $root;
+  }
+
+  /**
+   * Writes a minimal governing spec that satisfies the phase contract.
+   *
+   * Every facade test that advances a run needs one, because the contract is
+   * real: leaving plan requires the tooling plan, and gating complete
+   * requires the realized capture. A test that must exercise the REFUSALS
+   * removes or rewrites this file rather than the other way round — the
+   * satisfied state is the common case, the violation is the special one.
+   *
+   * @param string $root
+   *   The project root.
+   * @param bool $realized
+   *   Whether the capture section is present (TRUE for full walks).
+   *
+   * @return string
+   *   The spec path, project-relative.
+   */
+  protected function writeSpec(string $root, bool $realized = TRUE): string {
+    $dir = $root . '/.droost-workflow';
+    if (!is_dir($dir)) {
+      mkdir($dir, 0755, TRUE);
+    }
+    $body = "# Spec: test run\n\n## Tooling plan\n\n- everything: hand-written (fixture)\n";
+    if ($realized) {
+      $body .= "\n## Realized\n\nFixture capture.\n";
+    }
+    file_put_contents($dir . '/spec-test-run.md', $body);
+    return '.droost-workflow/spec-test-run.md';
   }
 
   /**

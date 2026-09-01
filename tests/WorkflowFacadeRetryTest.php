@@ -131,7 +131,7 @@ class WorkflowFacadeRetryTest extends WorkflowTestCase {
         // on record; record one and let the walk continue to completion.
         $facade->recordSeeker(
           $root,
-          "## Seeker Inspection\n\n(no findings)\n",
+          "## Seeker Inspection\n\nInspector: independent\n\n(no findings)\n",
         );
         continue;
       }

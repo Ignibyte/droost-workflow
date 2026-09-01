@@ -23,8 +23,14 @@ record and the report from drifting apart.
 ### First half: capture
 
 Write down what was built, for the person who arrives after the run — often
-a later run of this same pipeline, with none of this context. Three things,
-in descending order of how fast they decay:
+a later run of this same pipeline, with none of this context. **The capture
+lives in the spec itself, as a `## Realized` section appended to the run's
+spec file — the engine refuses to gate the complete phase until it exists.**
+The spec is the run's one living document: criteria at the top, inspection
+ledgers as they happened, and what was actually built at the end, so the
+whole story reads in one file. (Earlier packs wrote a sibling
+`realized-<slug>.md`; that form is still honoured, and the section is the
+documented one.) Three things, in descending order of how fast they decay:
 
 1. **Why.** The decisions not visible in the diff — what was considered and
    rejected, what constraint forced the shape. Nobody can reconstruct this
@@ -55,9 +61,10 @@ Tools that help — every one needs a booted site:
 Do the capture BEFORE this phase's `run`: the wiki gate below checks what
 this half just wrote, and the re-run covers these writes like any others.
 
-In a **light** run the capture is presented in chat — the realized spec
-(`.droost-workflow/tmp-spec-<slug>.md`) and a change summary — rather than
-recorded as artifacts. Same three questions, lighter medium.
+In a **light** run the capture is ALSO presented in chat — but the
+`## Realized` section still lands in the spec file first (the engine's
+requirement does not thin with the preset; depth does). Same three
+questions, lighter medium.
 
 ### Second half: present
 

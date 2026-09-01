@@ -108,6 +108,7 @@ final class PresetResolver {
       'playwright' => new GateSettings('playwright', TRUE),
       'coverage' => new GateSettings('coverage', TRUE, ['min' => 80]),
       'rendered_check' => new GateSettings('rendered_check', TRUE),
+      'config_clean' => new GateSettings('config_clean', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', TRUE),
     ]);
   }
@@ -140,6 +141,7 @@ final class PresetResolver {
       'playwright' => new GateSettings('playwright', FALSE),
       'coverage' => new GateSettings('coverage', FALSE, ['min' => 0]),
       'rendered_check' => new GateSettings('rendered_check', TRUE),
+      'config_clean' => new GateSettings('config_clean', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', TRUE),
     ]);
   }
@@ -164,6 +166,7 @@ final class PresetResolver {
       'playwright' => new GateSettings('playwright', FALSE),
       'coverage' => new GateSettings('coverage', FALSE, ['min' => 0]),
       'rendered_check' => new GateSettings('rendered_check', TRUE),
+      'config_clean' => new GateSettings('config_clean', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', TRUE),
     ]);
   }

@@ -19,6 +19,8 @@ use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\QuestionSinkInterface;
 use Droost\Workflow\Mode\RunOutcome;
 use Droost\Workflow\Seeker\SeekerLedger;
+use Droost\Workflow\Spec\SpecContract;
+use Droost\Workflow\Spec\SpecError;
 use Droost\Workflow\Pack\InitReport;
 use Droost\Workflow\Pack\PackMaterializer;
 use Droost\Workflow\State\PhaseStatus;
@@ -140,6 +142,7 @@ final class WorkflowFacade {
       // The arc, not just the verdict: a clean re-inspection replaces the
       // record but must not erase what the earlier ones caught.
       'seeker_history' => $state->seekerHistory,
+      'spec' => $state->specPath,
       'browser' => $state->browser,
       'tasks' => $state->tasks,
       'phases' => array_map(
@@ -207,11 +210,16 @@ final class WorkflowFacade {
    *
    * @param string $projectRoot
    *   The repository.
+   * @param string|null $spec
+   *   The governing spec's path (--spec), when the caller declares one.
+   *   Resolved against the record: a declaration that contradicts the
+   *   recorded spec refuses rather than silently swapping the run's
+   *   criteria.
    *
    * @return \Droost\Workflow\Mode\RunOutcome
    *   What happened. The state is persisted before this returns.
    */
-  public function run(string $projectRoot): RunOutcome {
+  public function run(string $projectRoot, ?string $spec = NULL): RunOutcome {
     $store = new RunStateStore($projectRoot);
     $state = $store->load();
 
@@ -219,6 +227,19 @@ final class WorkflowFacade {
       $config = WorkflowConfig::load($projectRoot);
       $state = RunState::begin($this->newId(), $this->now(), $config);
       $store->save($state);
+    }
+
+    // The governing spec, resolved once and recorded: declared via --spec,
+    // carried from the record, or adopted when exactly one candidate exists.
+    // Recorded on the state so every later phase checks THE SAME document —
+    // and so a --spec that contradicts the record refuses instead of
+    // silently swapping the run's criteria mid-flight.
+    if ($state->currentPhase !== NULL) {
+      $resolved = SpecContract::resolve($projectRoot, $spec, $state->specPath);
+      if ($resolved !== $state->specPath) {
+        $state = $state->withSpecPath($resolved);
+        $store->save($state);
+      }
     }
 
     $phase = $state->currentPhase;
@@ -234,6 +255,35 @@ final class WorkflowFacade {
       // the envelope's retries block says why. Recovery is deliberate:
       // reset() archives the record, then a fresh run begins.
       return new RunOutcome(Outcome::Failed, $state);
+    }
+
+    // The spec holds up its end before the phase runs. Leaving plan needs
+    // the tooling plan — every deliverable mapped to the surface that
+    // builds it, hand-written only with a stated reason — so "exhaust the
+    // generators first" is a checked contract, not advice. Gating complete
+    // needs the realized capture, so a run cannot close having left its own
+    // document behind.
+    $specPath = $state->specPath;
+    if ($specPath !== NULL && $phase === Phase::Plan) {
+      SpecContract::requireSection(
+        $projectRoot,
+        $specPath,
+        SpecContract::TOOLING_HEADING,
+        'the plan phase ends by mapping every deliverable to the surface '
+        . 'that builds it (a droost blueprint, drush generate, a composer '
+        . 'tool, or hand-written with the reason stated). Add the section, '
+        . 'then re-run.',
+      );
+    }
+    if ($specPath !== NULL && $phase === Phase::Complete
+      && !SpecContract::hasRealizedCapture($projectRoot, $specPath)) {
+      throw SpecError::sectionMissing(
+        $specPath,
+        SpecContract::REALIZED_HEADING,
+        'complete opens by capturing what was actually built, in the spec '
+        . 'itself, for whoever arrives next with none of this context. '
+        . 'Write the section, then re-run.',
+      );
     }
 
     $outcome = $this->engine()->runPhase(

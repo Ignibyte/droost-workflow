@@ -19,7 +19,7 @@ class SeekerLedgerTest extends TestCase {
    */
   public function testTheSentinelIsClean(): void {
     $ledger = SeekerLedger::parse(
-      "## Seeker Inspection\n\n(no findings)\n",
+      "## Seeker Inspection\n\nInspector: independent\n\n(no findings)\n",
     );
 
     $this->assertTrue($ledger->isClean());
@@ -36,6 +36,8 @@ class SeekerLedgerTest extends TestCase {
     $ledger = SeekerLedger::parse(<<<'MD'
       ## Seeker Inspection
 
+      Inspector: independent
+
       | ID | Severity | Location | Finding | Status |
       |----|----------|----------|---------|--------|
       | F1 | CRITICAL | a.php:1  | bad     | resolved |
@@ -50,6 +52,8 @@ class SeekerLedgerTest extends TestCase {
 
     $dirty = SeekerLedger::parse(<<<'MD'
       ## Seeker Inspection
+
+      Inspector: independent
 
       | ID | Severity | Location | Finding | Status |
       |----|----------|----------|---------|--------|
@@ -68,6 +72,8 @@ class SeekerLedgerTest extends TestCase {
   public function testObservationsAreAdvisory(): void {
     $ledger = SeekerLedger::parse(<<<'MD'
       ## Seeker Inspection
+
+      Inspector: independent
 
       (no findings)
 
@@ -88,11 +94,15 @@ class SeekerLedgerTest extends TestCase {
     $ledger = SeekerLedger::parse(<<<'MD'
       ## Seeker Inspection
 
+      Inspector: independent
+
       | ID | Severity | Location | Finding | Status |
       |----|----------|----------|---------|--------|
       | F1 | CRITICAL | a.php:1  | bad     | open   |
 
       ## Seeker Inspection
+
+      Inspector: independent
 
       (no findings)
       MD);
@@ -147,6 +157,7 @@ class SeekerLedgerTest extends TestCase {
       ],
       'severity outside the protocol' => [
         "## Seeker Inspection\n\n"
+        . "Inspector: independent\n\n"
         . "| ID | Severity | Location | Finding | Status |\n"
         . "|----|----|----|----|----|\n"
         . "| F1 | BLOCKER | a:1 | x | open |\n",
@@ -154,6 +165,7 @@ class SeekerLedgerTest extends TestCase {
       ],
       'empty status' => [
         "## Seeker Inspection\n\n"
+        . "Inspector: independent\n\n"
         . "| ID | Severity | Location | Finding | Status |\n"
         . "|----|----|----|----|----|\n"
         . "| F1 | LOW | a:1 | x |  |\n",
@@ -174,6 +186,7 @@ class SeekerLedgerTest extends TestCase {
   public function testSelfReviewLabelIsRead(): void {
     $labelled = SeekerLedger::parse(
       "## Seeker Inspection\n\n"
+      . "Inspector: self-reviewed\n\n"
       . "(no findings)\n\n"
       . "This session does not spawn subagents, so the six lenses were "
       . "applied in-session instead and this inspection is **self-reviewed**, "
@@ -184,7 +197,7 @@ class SeekerLedgerTest extends TestCase {
 
     // Silence is not a confession: an unlabelled inspection is independent,
     // because the contract asks a SELF-review to declare itself.
-    $plain = SeekerLedger::parse("## Seeker Inspection\n\n(no findings)\n");
+    $plain = SeekerLedger::parse("## Seeker Inspection\n\nInspector: independent\n\n(no findings)\n");
     $this->assertFalse($plain->selfReviewed);
     $this->assertFalse($plain->toRecord('t1')['self_reviewed']);
   }
@@ -195,6 +208,7 @@ class SeekerLedgerTest extends TestCase {
   public function testSelfReviewLabelIsReadFromAnywhereInTheSection(): void {
     $inRow = SeekerLedger::parse(
       "## Seeker Inspection\n\n"
+      . "Inspector: self-reviewed\n\n"
       . "Self-reviewed: no subagent was available.\n\n"
       . "| ID | Severity | Location | Finding | Status |\n"
       . "|----|----|----|----|----|\n"
@@ -217,6 +231,7 @@ class SeekerLedgerTest extends TestCase {
   public function testRealSelfReviewDisclosureIsRecognised(): void {
     $ledger = SeekerLedger::parse(
       "## Seeker Inspection\n\n"
+      . "Inspector: self-reviewed\n\n"
       . "Inspection performed in-session over the run's full diff against\n"
       . "the spec. This session is configured not to spawn subagents, so the\n"
       . "`workflow-seeker` agent was not dispatched and the six lenses were\n"
@@ -240,12 +255,54 @@ class SeekerLedgerTest extends TestCase {
   public function testThirdLiveDisclosurePhrasingIsRecognised(): void {
     $ledger = SeekerLedger::parse(
       "## Seeker Inspection\n\n"
+      . "Inspector: self-reviewed\n\n"
       . "Inspection performed in-session over the run's full diff (8 modified\n"
       . "files, 4 untracked), not by the `workflow-seeker` subagent: this\n"
       . "session is configured not to dispatch agents unless asked.\n\n"
       . "(no findings)\n",
     );
     $this->assertTrue($ledger->selfReviewed);
+  }
+
+  /**
+   * The section must say who inspected — an omission is a refusal.
+   *
+   * The T08 live round: a thorough, silent self-review produced a record
+   * identical to an independently-cleared one. The parser can only read
+   * what is written, so the declaration is now REQUIRED — an omission
+   * becomes a refusal that teaches the format, and a false claim becomes
+   * an explicit lie in an auditable record instead of silence.
+   */
+  public function testAnUndeclaredInspectorIsRefused(): void {
+    $this->expectException(SeekerError::class);
+    $this->expectExceptionMessageMatches('/does not say who inspected/');
+    SeekerLedger::parse("## Seeker Inspection\n\n(no findings)\n");
+  }
+
+  /**
+   * Claiming independence beside a self-review disclosure is a contradiction.
+   */
+  public function testIndependenceClaimBesideSelfDisclosureIsRefused(): void {
+    $this->expectException(SeekerError::class);
+    $this->expectExceptionMessageMatches('/contradiction/');
+    SeekerLedger::parse(
+      "## Seeker Inspection\n\n"
+      . "Inspector: independent\n\n"
+      . "Inspection performed in-session; the workflow-seeker agent was not "
+      . "dispatched.\n\n"
+      . "(no findings)\n",
+    );
+  }
+
+  /**
+   * An unknown inspector value is refused by name.
+   */
+  public function testAnUnknownInspectorValueIsRefused(): void {
+    $this->expectException(SeekerError::class);
+    $this->expectExceptionMessageMatches('/Inspector is "my colleague"/');
+    SeekerLedger::parse(
+      "## Seeker Inspection\n\nInspector: my colleague\n\n(no findings)\n",
+    );
   }
 
 }

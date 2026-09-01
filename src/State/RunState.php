@@ -135,6 +135,12 @@ final class RunState {
    *   Kept per inspection rather than summed, because a re-inspection
    *   restates earlier findings with a resolved status — summing would
    *   double-count them, and the arc is the honest thing to keep anyway.
+   * @param string|null $specPath
+   *   The governing spec, project-relative, or NULL on a record that
+   *   predates the contract. Recorded at begin (or adopted on the first
+   *   advance that resolves it) so every later phase checks THE SAME
+   *   document the run started under — a run whose spec can silently swap
+   *   is a run whose criteria can too.
    */
   public function __construct(
     public readonly string $runId,
@@ -158,6 +164,7 @@ final class RunState {
     public readonly ?string $browser = NULL,
     public readonly ?string $tasks = NULL,
     public readonly array $seekerHistory = [],
+    public readonly ?string $specPath = NULL,
   ) {}
 
   /**
@@ -424,6 +431,7 @@ final class RunState {
       $this->browser,
       $this->tasks,
       $this->seekerHistory,
+      $this->specPath,
     );
   }
 
@@ -507,6 +515,7 @@ final class RunState {
       $this->browser,
       $this->tasks,
       $this->seekerHistory,
+      $this->specPath,
     );
   }
 
@@ -544,6 +553,7 @@ final class RunState {
       $this->browser,
       $this->tasks,
       $this->seekerHistory,
+      $this->specPath,
     );
   }
 
@@ -664,7 +674,21 @@ final class RunState {
       $this->browser,
       $this->tasks,
       $this->seekerHistory,
+      $this->specPath,
     );
+  }
+
+  /**
+   * This run with its governing spec recorded.
+   *
+   * @param string $specPath
+   *   The spec, project-relative.
+   *
+   * @return self
+   *   A new instance.
+   */
+  public function withSpecPath(string $specPath): self {
+    return $this->with(specPath: $specPath);
   }
 
   /**
@@ -774,6 +798,7 @@ final class RunState {
       'seekers' => $this->seekers,
       'seeker' => $this->seeker,
       'seeker_history' => $this->seekerHistory,
+      'spec_path' => $this->specPath,
       'browser' => $this->browser,
       'tasks' => $this->tasks,
     ];
@@ -864,6 +889,7 @@ final class RunState {
       self::readBrowser($node, $label),
       self::readTasks($node, $label),
       self::readSeekerHistory($node, $label),
+      $node->optionalString('spec_path', '') ?: NULL,
     );
   }
 
@@ -1360,6 +1386,8 @@ final class RunState {
    * @param list<array<string, bool|int|string>>|null $seekerHistory
    *   The new inspection trail, or NULL to keep the current one. Callers
    *   append rather than replace: see withSeekerReport().
+   * @param string|null $specPath
+   *   The governing spec, or NULL to keep the current one.
    *
    * @return self
    *   A new instance.
@@ -1372,6 +1400,7 @@ final class RunState {
     ?string $browser = NULL,
     ?string $tasks = NULL,
     ?array $seekerHistory = NULL,
+    ?string $specPath = NULL,
   ): self {
     return new self(
       $this->runId,
@@ -1395,6 +1424,7 @@ final class RunState {
       $browser ?? $this->browser,
       $tasks ?? $this->tasks,
       $seekerHistory ?? $this->seekerHistory,
+      $specPath ?? $this->specPath,
     );
   }
 

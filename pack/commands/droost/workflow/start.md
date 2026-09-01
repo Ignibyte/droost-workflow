@@ -34,10 +34,15 @@ file to exist. So the sequence is:
    repo; `workflow-spec-writer` drafts it at the preset's weight (a full EARS
    spec at `factory`, a shorter same-shape spec at `light`). The spec file
    exists BEFORE code does.
-2. **Invoke the run surface** — `vendor/bin/droost-workflow run`,
-   `drush droost:workflow:run`, or the MCP run tool. This BEGINS the run
-   (writes `.droost-workflow/run.json`) and gates the plan phase. This is the
-   step that makes the run real; only after it does anything below work.
+2. **Invoke the run surface, declaring the spec** —
+   `vendor/bin/droost-workflow run --spec=.droost-workflow/spec-<slug>.md`
+   (the drush and MCP surfaces take the same option). This BEGINS the run
+   (writes `.droost-workflow/run.json`), records WHICH document governs it,
+   and gates the plan phase — which requires the spec's `## Tooling plan`
+   section to be present before the run may leave plan. On a project holding
+   several spec files the declaration is mandatory: the engine refuses to
+   guess which document a run answers to. This is the step that makes the
+   run real; only after it does anything below work.
 3. **Declare your browser tier** — now that run.json exists:
    ```
    vendor/bin/droost-workflow declare-browser playwright-mcp   # or: native | none

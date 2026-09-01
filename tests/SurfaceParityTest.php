@@ -48,7 +48,7 @@ class SurfaceParityTest extends WorkflowTestCase {
     $phaseGates = $levers['phase_gates'];
     $this->assertIsArray($phaseGates);
     $this->assertSame([], $phaseGates['plan']);
-    $this->assertSame(['phpcs', 'phpstan'], $phaseGates['code']);
+    $this->assertSame(['phpcs', 'phpstan', 'config_clean'], $phaseGates['code']);
   }
 
   /**
@@ -93,7 +93,7 @@ class SurfaceParityTest extends WorkflowTestCase {
     $this->assertSame(array_keys($cliGates), array_keys($liveGates));
 
     foreach ($cliGates as $name => $cliResult) {
-      if ($name === 'rendered_check') {
+      if (in_array($name, ['rendered_check', 'config_clean'], TRUE)) {
         $this->assertSame('skipped-no-site', $cliResult['status']);
         $this->assertSame('passed', $liveGates[$name]['status']);
         continue;
@@ -123,9 +123,13 @@ class SurfaceParityTest extends WorkflowTestCase {
 
     $this->assertNotNull($outcome->report);
     $skipped = $outcome->report->skipped();
-    $this->assertCount(1, $skipped);
-    $this->assertSame('rendered_check', $skipped[0]->gate);
+    $this->assertCount(2, $skipped);
+    $this->assertSame(
+      ['rendered_check', 'config_clean'],
+      array_map(static fn ($r) => $r->gate, $skipped),
+    );
     $this->assertNotNull($skipped[0]->skipReason);
+    $this->assertNotNull($skipped[1]->skipReason);
   }
 
   /**
@@ -170,7 +174,7 @@ class SurfaceParityTest extends WorkflowTestCase {
 
     $record = $facade->recordSeeker(
       $root,
-      "## Seeker Inspection\n\n(no findings)\n",
+      "## Seeker Inspection\n\nInspector: independent\n\n(no findings)\n",
     );
     $this->assertSame('clean', $record['status']);
 
@@ -306,7 +310,7 @@ class SurfaceParityTest extends WorkflowTestCase {
       static function (string $line): void {},
       static fn (): string => '2026-08-25T00:00:00+00:00',
       static fn (): string => 'run-cli',
-      static fn (): string => "## Seeker Inspection\n\n(no findings)\n",
+      static fn (): string => "## Seeker Inspection\n\nInspector: independent\n\n(no findings)\n",
     );
 
     $this->assertSame(0, $dispatcher->dispatch(['run'], $root));
@@ -425,7 +429,7 @@ class SurfaceParityTest extends WorkflowTestCase {
        * {@inheritdoc}
        */
       public function supports(): array {
-        return ['rendered_check'];
+        return ['rendered_check', 'config_clean'];
       }
 
       /**

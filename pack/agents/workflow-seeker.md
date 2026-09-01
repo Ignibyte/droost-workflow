@@ -75,10 +75,24 @@ Return a markdown section the invoking command appends to the spec verbatim.
 The engine's parser is the checkpoint: it reads finding rows or the literal
 sentinel, and a heading with neither is an INCOMPLETE inspection that blocks.
 
+Every section MUST carry one declaration line — the engine refuses a
+ledger without it, and refuses a contradiction between the line and the
+prose around it:
+
+```
+Inspector: independent
+```
+
+(You are the independent subagent; that is your line. An author recording
+their own pass writes `Inspector: self-reviewed` — see the continue
+command's fallback contract.)
+
 With findings:
 
 ```
 ## Seeker Inspection
+
+Inspector: independent
 
 | ID | Severity | Location | Finding | Status |
 |----|----------|----------|---------|--------|
@@ -90,6 +104,8 @@ Without findings — the sentinel is REQUIRED even when observations follow:
 
 ```
 ## Seeker Inspection
+
+Inspector: independent
 
 (no findings)
 

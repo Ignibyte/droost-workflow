@@ -90,7 +90,7 @@ final class ArgvDispatcher {
       return match ($verb) {
         'init' => $this->init($projectRoot),
         'status' => $this->status($projectRoot),
-        'run' => $this->run($projectRoot),
+        'run' => $this->run($projectRoot, $argv),
         'answer' => $this->answer($projectRoot, $argv),
         'swap' => $this->swap($projectRoot, $argv),
         'seeker-report' => $this->seekerReport($projectRoot),
@@ -147,12 +147,20 @@ final class ArgvDispatcher {
    *
    * @param string $projectRoot
    *   The repository.
+   * @param list<string> $argv
+   *   The arguments; --spec=<path> declares the governing spec at begin.
    *
    * @return int
    *   The exit code.
    */
-  private function run(string $projectRoot): int {
-    $outcome = $this->facade()->run($projectRoot);
+  private function run(string $projectRoot, array $argv): int {
+    $spec = NULL;
+    foreach ($argv as $arg) {
+      if (str_starts_with($arg, '--spec=')) {
+        $spec = substr($arg, 7);
+      }
+    }
+    $outcome = $this->facade()->run($projectRoot, $spec);
     $this->say($this->encode($outcome->toArray()));
 
     // A paused run has not failed; it is waiting. Only a genuine failure
@@ -338,6 +346,7 @@ final class ArgvDispatcher {
       init             install the .claude pack and a default lever file
       status           what this repo resolves to, and where a run has got to
       run              start a run, or advance it by one phase
+                   (--spec=<path> declares which spec governs the run)
       answer <text>    answer a paused run's question (the run then advances)
       swap agentic     stop holding at phases and finish without stopping
       seeker-report    record an adversarial inspection (ledger on stdin)

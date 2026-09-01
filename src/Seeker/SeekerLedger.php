@@ -49,6 +49,20 @@ final class SeekerLedger {
   private const SEVERITIES = ['CRITICAL', 'MEDIUM', 'LOW'];
 
   /**
+   * The declaration line every inspection must carry.
+   *
+   * `Inspector: independent` (the workflow-seeker subagent ran) or
+   * `Inspector: self-reviewed` (the author held itself to the brief). Made
+   * REQUIRED after a live round performed a thorough self-review, disclosed
+   * nothing, and produced a record identical to an independently-cleared
+   * one. An omission is now a refusal that teaches the format; a false
+   * claim is now an explicit lie in an auditable record instead of silence
+   * — and a claim of independence that sits next to a self-review
+   * disclosure is a contradiction the parser refuses outright.
+   */
+  private const INSPECTOR_PREFIX = 'inspector:';
+
+  /**
    * How a section says its inspection was not independent.
    *
    * When a subagent cannot be dispatched, the contract in the pack's continue
@@ -141,8 +155,23 @@ final class SeekerLedger {
     $observations = 0;
     $inObservations = FALSE;
     $selfReviewed = FALSE;
+    $inspector = NULL;
     for ($i = $start, $n = count($lines); $i < $n; $i++) {
       $line = trim($lines[$i]);
+      // The required declaration line, wherever it sits in the section.
+      if ($inspector === NULL && stripos($line, self::INSPECTOR_PREFIX) === 0) {
+        $value = strtolower(trim(substr($line, strlen(self::INSPECTOR_PREFIX))));
+        $inspector = match (TRUE) {
+          str_starts_with($value, 'independent') => 'independent',
+          str_starts_with($value, 'self') => 'self-reviewed',
+          default => throw SeekerError::malformed(sprintf(
+            'Inspector is "%s" — the declaration is "Inspector: independent" '
+            . '(the workflow-seeker subagent ran) or "Inspector: '
+            . 'self-reviewed" (you held yourself to the brief)',
+            $value,
+          )),
+        };
+      }
       // Read the self-review disclosure from anywhere in the section,
       // including the prose an agent writes around the table to explain the
       // substitution. Case-insensitive, because the contract asks for the
@@ -192,8 +221,29 @@ final class SeekerLedger {
         . 'an incomplete inspection',
       );
     }
+    if ($inspector === NULL) {
+      throw SeekerError::malformed(
+        'the section does not say who inspected — add one line: '
+        . '"Inspector: independent" (the workflow-seeker subagent ran) or '
+        . '"Inspector: self-reviewed" (you held yourself to the brief). '
+        . 'The record must distinguish a reviewer clearing the work from '
+        . 'the author clearing their own',
+      );
+    }
+    if ($inspector === 'independent' && $selfReviewed) {
+      throw SeekerError::malformed(
+        'the section claims "Inspector: independent" AND discloses a '
+        . 'self-review in its own prose — a contradiction the record '
+        . 'refuses to carry. Say which it was',
+      );
+    }
 
-    return new self($sentinel, $findings, $observations, $selfReviewed);
+    return new self(
+      $sentinel,
+      $findings,
+      $observations,
+      $inspector === 'self-reviewed' || $selfReviewed,
+    );
   }
 
   /**

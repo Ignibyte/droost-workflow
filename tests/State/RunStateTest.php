@@ -510,12 +510,12 @@ class RunStateTest extends TestCase {
 
     $this->assertSame([], $state->gatesDueFor(Phase::Plan));
     $this->assertSame(
-      ['phpcs', 'phpstan'],
+      ['phpcs', 'phpstan', 'config_clean'],
       array_keys($state->gatesDueFor(Phase::Code)),
     );
     // Order comes from the resolved levers, so reports stay stably ordered.
     $this->assertSame(
-      ['phpunit', 'mutation', 'playwright', 'coverage', 'rendered_check'],
+      ['phpunit', 'mutation', 'playwright', 'coverage', 'rendered_check', 'config_clean'],
       array_keys($state->gatesDueFor(Phase::Test)),
     );
     $this->assertSame(

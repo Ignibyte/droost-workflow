@@ -43,6 +43,7 @@ final class GateSettings {
     'playwright',
     'coverage',
     'rendered_check',
+    'config_clean',
     'wiki_fresh',
   ];
 
@@ -107,6 +108,7 @@ final class GateSettings {
     'playwright' => [],
     'coverage' => ['min' => 'percent'],
     'rendered_check' => ['routes' => 'string'],
+    'config_clean' => [],
   ];
 
   /**

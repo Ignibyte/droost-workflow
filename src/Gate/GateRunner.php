@@ -30,7 +30,7 @@ final class GateRunner {
    *
    * @var list<string>
    */
-  public const SITE_GATES = ['rendered_check'];
+  public const SITE_GATES = ['rendered_check', 'config_clean'];
 
   /**
    * Constructs a GateRunner.

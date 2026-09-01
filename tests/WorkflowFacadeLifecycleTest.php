@@ -57,7 +57,7 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
       $facade = $this->facade($executor);
       $outcome = $facade->run($root);
       if ($outcome->outcome === Outcome::InspectionDue) {
-        $facade->recordSeeker($root, "## Seeker Inspection\n\n(no findings)\n");
+        $facade->recordSeeker($root, "## Seeker Inspection\n\nInspector: independent\n\n(no findings)\n");
         continue;
       }
       if ($outcome->outcome === Outcome::Paused) {
@@ -86,7 +86,7 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
     $verbs = [
       'declareBrowser' => fn () => $this->facade($executor)->declareBrowser($root, 'native'),
       'declareTasks' => fn () => $this->facade($executor)->declareTasks($root, 'claude-code'),
-      'recordSeeker' => fn () => $this->facade($executor)->recordSeeker($root, "## Seeker Inspection\n\n(no findings)\n"),
+      'recordSeeker' => fn () => $this->facade($executor)->recordSeeker($root, "## Seeker Inspection\n\nInspector: independent\n\n(no findings)\n"),
       'swap' => fn () => $this->facade($executor)->swap($root, Mode::Agentic),
       'answer' => fn () => $this->facade($executor)->answer($root, 'yes'),
     ];
@@ -234,7 +234,7 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
       $facade = $this->facade($executor);
       $outcome = $facade->run($root);
       if ($outcome->outcome === Outcome::InspectionDue) {
-        $facade->recordSeeker($root, "## Seeker Inspection\n\n(no findings)\n");
+        $facade->recordSeeker($root, "## Seeker Inspection\n\nInspector: independent\n\n(no findings)\n");
         continue;
       }
       if ($outcome->outcome !== Outcome::Advanced) {

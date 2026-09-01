@@ -121,6 +121,11 @@ final class PackManifest {
     'droost_structure_create',
     'droost_symbol',
     'droost_verify',
+    // The Views pair moved into droost core with the 2.0 submodule merge
+    // (D51-D54); the vocabulary predates the move and had never needed
+    // them until the Tooling plan doctrine started naming write surfaces.
+    'droost_views_compose',
+    'droost_views_alter',
     // Also a legacy MODULE name below, and deliberately in both lists: droost
     // 2.x retired droost_wiki_pages/_status/_factsheet in favour of one
     // kind-dispatched droost_wiki tool, while droost 1.x sites still have a

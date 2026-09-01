@@ -44,6 +44,7 @@ final class PhaseGateMap {
     'code' => [
       'phpcs',
       'phpstan',
+      'config_clean',
     ],
     'test' => [
       'phpunit',
@@ -51,6 +52,7 @@ final class PhaseGateMap {
       'playwright',
       'coverage',
       'rendered_check',
+      'config_clean',
     ],
     'complete' => [
       'phpcs',
@@ -60,6 +62,7 @@ final class PhaseGateMap {
       'playwright',
       'coverage',
       'rendered_check',
+      'config_clean',
       'wiki_fresh',
     ],
   ];

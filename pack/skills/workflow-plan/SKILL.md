@@ -41,7 +41,19 @@ Then produce the spec:
 2. **The Drupal constructs to build** — content types, fields, views, pages,
    blocks, custom code. Name each one.
 3. **The approach**, including what you are deliberately NOT doing.
-4. **Acceptance criteria in EARS form** — "When <trigger>, the <system> shall
+4. **A `## Tooling plan` section — REQUIRED; the engine refuses to leave the
+   plan phase without it.** Every construct from item 2, mapped to the
+   surface that builds it, in this order of preference: a droost write tool
+   (`droost_structure_create`, `droost_views_compose`, `droost_config_set`,
+   `droost_scaffold` and its blueprints), `drush generate`, or —
+   last — hand-written, WITH the reason stated on the same line (no
+   blueprint covers it; the surface's gate is off and the operator declined;
+   the construct is genuinely novel). Exhaust the generators before writing
+   your own: ten graded rounds hand-rolled YAML a tool could have produced,
+   and this section is where that stops being invisible. The seeker grades
+   the diff against this map — building by hand what your own plan said a
+   tool would build is drift.
+5. **Acceptance criteria in EARS form** — "When <trigger>, the <system> shall
    <observable response>", one observable behaviour per row, each with a way
    to check it. A criterion nobody can check is not a criterion.
 

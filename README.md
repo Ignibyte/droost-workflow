@@ -56,6 +56,7 @@ gates:
   playwright:     { on: false }
   coverage:       { on: false, min: 0 }
   rendered_check: { on: true }                 # artifacts are truth
+  config_clean:   { on: true }                 # a fresh cex produces zero diff
   wiki_fresh:     { on: true }                 # the project's own docs still match the code
   # custom:                                    # your own commands as gates
   #   semgrep: { on: true, phase: code, cmd: "semgrep scan --error --quiet" }
@@ -177,7 +178,7 @@ setting, gate, option, phase, mode and preset is refused by name:
 
 ```
 droost.workflow.yml: unknown gate "phpstain" (known: phpcs, phpstan, phpunit,
-mutation, playwright, coverage, rendered_check, wiki_fresh)
+mutation, playwright, coverage, rendered_check, config_clean, wiki_fresh)
 ```
 
 ## Which gates run when
@@ -187,13 +188,18 @@ engine's phase map, frozen into each run when it begins:
 
 ```text
 plan: none
-code: phpcs, phpstan
-test: phpunit, mutation, playwright, coverage, rendered_check
-complete: phpcs, phpstan, phpunit, mutation, playwright, coverage, rendered_check, wiki_fresh
+code: phpcs, phpstan, config_clean
+test: phpunit, mutation, playwright, coverage, rendered_check, config_clean
+complete: phpcs, phpstan, phpunit, mutation, playwright, coverage, rendered_check, config_clean, wiki_fresh
 ```
 
 Plan runs nothing — there is nothing yet to measure. Code gates the diff with
-static analysis. Test runs the functional gates. Complete opens by capturing
+static analysis, and `config_clean` asks the booted site whether a fresh
+`drush config:export` would change the tracked tree: Drupal compares
+configuration as data, so a hand-written file that imports fine can still
+diverge from the canonical serialization, and the divergence surfaces later
+as a noisy re-export burying real changes. Zero diff, against a target git
+can see, is the passing state. Test runs the functional gates. Complete opens by capturing
 what was built — the documentation work that was its own phase until 0.4 —
 and then re-runs the full enabled set as the terminal safety net, custom
 gates included, so every other enabled gate is met at least twice: once at
