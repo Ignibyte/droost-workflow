@@ -322,11 +322,30 @@ final class GuardTest extends WorkflowTestCase {
       }
     }
 
-    // Re-arming the wall is a tightening; anything else is not our business.
+    // Arming a droost write gate is the operator's act as well (R25-F2).
+    foreach ([
+      'ddev drush droost:gate allow_entity_write on',
+      'drush dgate allow_scaffold true',
+      'ddev drush config:set droost.settings allow_entity_write true -y',
+      'drush cset -y droost.settings allow_destructive 1',
+    ] as $command) {
+      [$exit, , $stderr] = $this->guard($this->makeRoot(), 'operator-commands', [
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(2, $exit, $command . ' must be refused');
+      $this->assertStringContainsString('droost:gate is the OPERATOR', $stderr);
+      $this->assertStringContainsString('Disarming a gate', $stderr);
+    }
+
+    // Re-arming the wall and disarming a gate are tightenings; anything else
+    // is not our business.
     $root = $this->makeRoot();
     foreach ([
       'ddev drush droost:workflow:bypass --off',
       'drush dwfby --off',
+      'ddev drush droost:gate allow_entity_write off',
+      'drush config:set --input-format=yaml droost.settings allow_entity_write false -y',
+      'ddev drush droost:gate allow_scaffold',
       'ddev drush droost:workflow:status',
       'ddev drush cr',
       'git log --oneline -3',

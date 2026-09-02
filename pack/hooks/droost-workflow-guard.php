@@ -23,9 +23,11 @@
  *     run the agent cannot advance.
  *
  *   php .claude/hooks/droost-workflow-guard.php operator-commands
- *     Wired to the Bash tool. Refuses `droost:workflow:gate-waive` and
+ *     Wired to the Bash tool. Refuses `droost:workflow:gate-waive`,
  *     `droost:workflow:bypass` (granting; `--off` re-arms the wall and is
- *     allowed) from the agent's own shell, run or no run. Those two commands
+ *     allowed) and ARMING a droost write gate (`droost:gate <flag> on`,
+ *     `config:set droost.settings allow_* true`; disarming is allowed) from
+ *     the agent's own shell, run or no run. Those two commands
  *     are the operator's signature; "CLI-only" excludes the MCP transport,
  *     not an agent that has a shell — round 23 watched a subject run the
  *     waiver itself after the operator picked it in a dialog, overwriting
@@ -184,16 +186,25 @@ function operator_commands_guard(): void {
     }
     $which = 'bypass';
   }
+  elseif (preg_match('/(?:droost:gate|(?<![\w-])dgate)\s+allow_\w+\s+(?:on|true|1|yes|arm|armed)\b/i', $command) === 1
+    || preg_match('/(?:config:set|config-set|cset)\b[^\n;&|]*\bdroost\.settings\s+allow_\w+\s+(?:on|true|1|yes)\b/i', $command) === 1) {
+    // ARMING a write gate is the operator's act too (round 25, R25-F2: the
+    // subject asked for allow_entity_write rather than arming it — this makes
+    // asking the only path). Disarming is a tightening and is not matched.
+    $which = 'gate (arming a write gate)';
+  }
   else {
     return;
   }
+  $name = str_starts_with($which, 'gate (') ? 'droost:gate' : 'droost:workflow:' . $which;
   fwrite(STDERR, sprintf(
-    'droost:workflow:%1$s is the OPERATOR\'s command — an agent may propose it, '
-    . 'never run it. Show the operator the exact command with your reason and '
-    . 'ask them to run it in THEIR terminal (in Claude Code: `! drush '
-    . 'droost:workflow:%1$s …`), then continue once they say it is done. The '
-    . 'run record must carry a human\'s decision, not yours.',
-    $which,
+    '%1$s is the OPERATOR\'s command — an agent may propose it, never run it. '
+    . 'Show the operator the exact command with your reason and ask them to '
+    . 'run it in THEIR terminal (in Claude Code: `! drush %1$s …`), then '
+    . 'continue once they say it is done. The record must carry a human\'s '
+    . 'decision, not yours.%2$s',
+    $name,
+    str_starts_with($which, 'gate (') ? ' (Disarming a gate — `off` — needs no operator; only arming does.)' : '',
   ));
   exit(2);
 }
