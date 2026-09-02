@@ -180,6 +180,26 @@ final class ShellGateExecutor implements GateExecutorInterface {
       );
     }
 
+    if ($gate->name === 'phpcs' && $exit !== 0) {
+      // PHP_CodeSniffer exits non-zero on WARNINGS too, so a committed
+      // minified stylesheet ("file appears to be minified") read exactly like
+      // a coding standards violation (round 24, R24-F7). The verdict follows
+      // the structured totals: errors fail, warnings alone pass and are
+      // counted in the summary so nobody mistakes the pass for a silent one.
+      $totals = $this->phpcsTotals($stdout);
+      if ($totals !== NULL && $totals['errors'] === 0) {
+        return GateResult::ran(
+          $gate->name,
+          GateStatus::Passed,
+          $exit,
+          $elapsed,
+          sprintf('phpcs passed with %d warning(s) and no errors (warnings never fail this gate; see the findings)', $totals['warnings']),
+          $this->findings($stdout),
+          $invocation,
+        );
+      }
+    }
+
     return GateResult::ran(
       $gate->name,
       $exit === 0 ? GateStatus::Passed : GateStatus::Failed,
@@ -189,6 +209,29 @@ final class ShellGateExecutor implements GateExecutorInterface {
       $this->findings($stdout),
       $invocation,
     );
+  }
+
+  /**
+   * The phpcs JSON report's totals, or NULL when the output is not that report.
+   *
+   * @param string $stdout
+   *   Standard output.
+   *
+   * @return array{errors: int, warnings: int}|null
+   *   The counts.
+   */
+  private function phpcsTotals(string $stdout): ?array {
+    try {
+      $decoded = json_decode($stdout, TRUE, 32, JSON_THROW_ON_ERROR);
+    }
+    catch (\JsonException) {
+      return NULL;
+    }
+    $totals = is_array($decoded) && is_array($decoded['totals'] ?? NULL) ? $decoded['totals'] : NULL;
+    if ($totals === NULL || !is_int($totals['errors'] ?? NULL) || !is_int($totals['warnings'] ?? NULL)) {
+      return NULL;
+    }
+    return ['errors' => $totals['errors'], 'warnings' => $totals['warnings']];
   }
 
   /**

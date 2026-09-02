@@ -155,6 +155,59 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * Warnings alone pass phpcs; errors fail — the verdict reads the totals.
+   *
+   * PHP_CodeSniffer exits non-zero on warnings too, so a committed minified
+   * stylesheet ("file appears to be minified") failed the gate exactly like a
+   * coding standards violation (round 24, R24-F7). The exit code stays on the
+   * record; the status follows totals.errors, and the pass says how many
+   * warnings it carried so it is never mistaken for a silent one.
+   */
+  public function testPhpcsWarningsAlonePassErrorsFail(): void {
+    $root = $this->rootWithBinaries(['phpcs']);
+    $warningsOnly = json_encode([
+      'totals' => ['errors' => 0, 'warnings' => 1, 'fixable' => 0],
+      'files' => [
+        '/x/theme.css' => [
+          'errors' => 0,
+          'warnings' => 1,
+          'messages' => [
+            ['message' => 'File appears to be minified and cannot be processed', 'type' => 'WARNING'],
+          ],
+        ],
+      ],
+    ]);
+    $executor = new ShellGateExecutor(
+      static fn (): array => [2, (string) $warningsOnly, ''],
+      static fn (): int => 0,
+    );
+    $result = $executor->execute(new GateSettings('phpcs', TRUE), $root);
+    $this->assertSame(GateStatus::Passed, $result->status);
+    $this->assertSame(2, $result->exitCode, 'the exit code stays on the record');
+    $this->assertStringContainsString('1 warning(s) and no errors', $result->summary);
+    $this->assertNotSame([], $result->findings, 'the warning rides along as a finding');
+
+    $withErrors = json_encode([
+      'totals' => ['errors' => 3, 'warnings' => 1, 'fixable' => 2],
+      'files' => [],
+    ]);
+    $executor = new ShellGateExecutor(
+      static fn (): array => [2, (string) $withErrors, ''],
+      static fn (): int => 0,
+    );
+    $result = $executor->execute(new GateSettings('phpcs', TRUE), $root);
+    $this->assertSame(GateStatus::Failed, $result->status);
+
+    // Output that is not phpcs's JSON keeps the exit-code rule.
+    $executor = new ShellGateExecutor(
+      static fn (): array => [2, 'PHP Fatal error: something', ''],
+      static fn (): int => 0,
+    );
+    $result = $executor->execute(new GateSettings('phpcs', TRUE), $root);
+    $this->assertSame(GateStatus::Failed, $result->status);
+  }
+
+  /**
    * Exit codes and their verdicts.
    *
    * @return array<string, array{int, \Droost\Workflow\Gate\GateStatus}>
