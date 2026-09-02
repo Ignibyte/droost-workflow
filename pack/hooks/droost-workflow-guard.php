@@ -22,6 +22,15 @@
  *     (stop_hook_active), the guard stands down rather than deadlocking a
  *     run the agent cannot advance.
  *
+ *   php .claude/hooks/droost-workflow-guard.php operator-commands
+ *     Wired to the Bash tool. Refuses `droost:workflow:gate-waive` and
+ *     `droost:workflow:bypass` (granting; `--off` re-arms the wall and is
+ *     allowed) from the agent's own shell, run or no run. Those two commands
+ *     are the operator's signature; "CLI-only" excludes the MCP transport,
+ *     not an agent that has a shell — round 23 watched a subject run the
+ *     waiver itself after the operator picked it in a dialog, overwriting
+ *     the operator's recorded reason. The agent proposes; a human runs it.
+ *
  * Exit 0 allows (optionally emitting a {"systemMessage": ...} nudge);
  * exit 2 blocks, with the reason on stderr for the agent to act on.
  * Warn-once markers live inside .droost-workflow/, which is gitignored.
@@ -32,6 +41,13 @@ declare(strict_types=1);
 $mode = $argv[1] ?? '';
 $root = getcwd();
 if ($root === FALSE) {
+  exit(0);
+}
+
+if ($mode === 'operator-commands') {
+  // Run state is irrelevant here: bypass is granted precisely when there is
+  // no run, and a waiver during one. The rule is about WHO, not WHEN.
+  operator_commands_guard();
   exit(0);
 }
 
@@ -140,6 +156,47 @@ if ($mode === 'stop') {
 }
 
 exit(0);
+
+/**
+ * Refuses the operator's two commands when the agent's shell issues them.
+ *
+ * `droost:workflow:gate-waive` and `droost:workflow:bypass` exist so a human
+ * can loosen the pipeline deliberately, with a recorded reason. They have no
+ * MCP surface, but an agent running with permissions bypassed has a shell,
+ * and Drush is a shell command — so the harness is where the agent's hand
+ * has to be stopped. Recognises the full command names and the Drush aliases
+ * (dwfgw, dwfby); `bypass --off` re-arms the wall and is always allowed.
+ * Exit 2 with the reason on stderr; the agent is told to ask the operator.
+ */
+function operator_commands_guard(): void {
+  $payload = json_decode((string) stream_get_contents(STDIN), TRUE);
+  $input = is_array($payload) && is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
+  $command = is_string($input['command'] ?? NULL) ? $input['command'] : '';
+  if ($command === '') {
+    return;
+  }
+  if (preg_match('/droost:workflow:gate-waive\b|(?<![\w-])dwfgw\b/', $command) === 1) {
+    $which = 'gate-waive';
+  }
+  elseif (preg_match('/droost:workflow:bypass\b|(?<![\w-])dwfby\b/', $command) === 1) {
+    if (preg_match('/\s--off\b/', $command) === 1) {
+      return;
+    }
+    $which = 'bypass';
+  }
+  else {
+    return;
+  }
+  fwrite(STDERR, sprintf(
+    'droost:workflow:%1$s is the OPERATOR\'s command — an agent may propose it, '
+    . 'never run it. Show the operator the exact command with your reason and '
+    . 'ask them to run it in THEIR terminal (in Claude Code: `! drush '
+    . 'droost:workflow:%1$s …`), then continue once they say it is done. The '
+    . 'run record must carry a human\'s decision, not yours.',
+    $which,
+  ));
+  exit(2);
+}
 
 /**
  * Refuses ungoverned custom-code edits when no run is ACTIVE (require_run).

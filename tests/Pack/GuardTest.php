@@ -297,6 +297,53 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * The operator's two commands are refused from the agent's shell (R23-F2).
+   *
+   * Round 23: the operator picked "waive it" in the subject's dialog and the
+   * subject ran `drush droost:workflow:gate-waive` itself, overwriting the
+   * operator's recorded reason. "CLI-only" excludes the MCP transport, not an
+   * agent with a shell. Run state is irrelevant: bypass is granted with no
+   * run, a waiver during one — the rule is about who, not when.
+   */
+  public function testOperatorCommandsAreRefusedFromTheAgentsShell(): void {
+    foreach ([$this->makeRoot(), $this->rootWithRun('code', 'active', 'soft')] as $root) {
+      foreach ([
+        'ddev drush droost:workflow:gate-waive config_clean "false positive"',
+        'drush dwfgw phpstan "vendor stub"',
+        'vendor/bin/drush droost:workflow:bypass "hotfix"',
+        'ddev drush dwfby "just this once" --project=/x',
+      ] as $command) {
+        [$exit, , $stderr] = $this->guard($root, 'operator-commands', [
+          'tool_input' => ['command' => $command],
+        ]);
+        $this->assertSame(2, $exit, $command . ' must be refused');
+        $this->assertStringContainsString("OPERATOR's command", $stderr);
+        $this->assertStringContainsString('! drush droost:workflow:', $stderr);
+      }
+    }
+
+    // Re-arming the wall is a tightening; anything else is not our business.
+    $root = $this->makeRoot();
+    foreach ([
+      'ddev drush droost:workflow:bypass --off',
+      'drush dwfby --off',
+      'ddev drush droost:workflow:status',
+      'ddev drush cr',
+      'git log --oneline -3',
+    ] as $command) {
+      [$exit, $stdout, $stderr] = $this->guard($root, 'operator-commands', [
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(0, $exit, $command . ' must be allowed');
+      $this->assertSame('', $stdout . $stderr, $command . ' must be silent');
+    }
+
+    // An empty or missing command is not a refusal either.
+    [$exit] = $this->guard($root, 'operator-commands', []);
+    $this->assertSame(0, $exit);
+  }
+
+  /**
    * A project root holding an active run frozen at the given levers.
    *
    * @param string $phase

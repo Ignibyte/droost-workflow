@@ -122,21 +122,33 @@ final class PackMaterializer {
     }
 
     $guard = 'php .claude/hooks/droost-workflow-guard.php';
+    // Three wirings of one script; two of them on PreToolUse with different
+    // matchers, so this is a list of (event, entry) pairs and presence is
+    // checked per COMMAND, not per event — an install that already carries
+    // the edit guard still gets the Bash guard added (R23-F2).
     $wanted = [
-      'PreToolUse' => [
+      ['PreToolUse', [
         'matcher' => 'Edit|Write|MultiEdit|NotebookEdit',
         'hooks' => [['type' => 'command', 'command' => $guard . ' pre-tool-use']],
       ],
-      'Stop' => [
+      ],
+      ['PreToolUse', [
+        'matcher' => 'Bash',
+        'hooks' => [['type' => 'command', 'command' => $guard . ' operator-commands']],
+      ],
+      ],
+      ['Stop', [
         'hooks' => [['type' => 'command', 'command' => $guard . ' stop']],
+      ],
       ],
     ];
 
     $changed = FALSE;
     $hooks = is_array($settings['hooks'] ?? NULL) ? $settings['hooks'] : [];
-    foreach ($wanted as $event => $entry) {
+    foreach ($wanted as [$event, $entry]) {
       $existing = is_array($hooks[$event] ?? NULL) ? $hooks[$event] : [];
-      if (!self::hooksContain($existing, $guard)) {
+      $command = $entry['hooks'][0]['command'];
+      if (!self::hooksContain($existing, $command)) {
         $existing[] = $entry;
         $hooks[$event] = $existing;
         $changed = TRUE;

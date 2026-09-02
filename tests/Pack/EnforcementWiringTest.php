@@ -36,6 +36,11 @@ final class EnforcementWiringTest extends WorkflowTestCase {
     $this->assertIsString($encoded);
     $this->assertStringContainsString('droost-workflow-guard.php pre-tool-use', $encoded);
     $this->assertStringContainsString('droost-workflow-guard.php stop', $encoded);
+    $this->assertStringContainsString('droost-workflow-guard.php operator-commands', $encoded);
+    // The Bash guard is its own PreToolUse entry with its own matcher.
+    $matchers = array_column(self::preToolUseEntries($settings), 'matcher');
+    $this->assertContains('Bash', $matchers);
+    $this->assertContains('Edit|Write|MultiEdit|NotebookEdit', $matchers);
 
     $second = $materializer->init($root);
     $this->assertContains('.claude/settings.json', $second->kept);
@@ -44,6 +49,75 @@ final class EnforcementWiringTest extends WorkflowTestCase {
       file_get_contents($root . '/.claude/settings.json'),
       'a re-run must not grow the file',
     );
+  }
+
+  /**
+   * An install from before the Bash guard gains it on re-init (R23-F2).
+   *
+   * Presence is checked per COMMAND, not per event: a settings.json that
+   * already carries the edit guard on PreToolUse must still receive the
+   * operator-commands guard, and nothing else must change.
+   */
+  public function testExistingInstallGainsTheOperatorCommandsGuard(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/.claude', 0755, TRUE);
+    $guard = 'php .claude/hooks/droost-workflow-guard.php';
+    file_put_contents($root . '/.claude/settings.json', json_encode([
+      'hooks' => [
+        'PreToolUse' => [[
+          'matcher' => 'Edit|Write|MultiEdit|NotebookEdit',
+          'hooks' => [['type' => 'command', 'command' => $guard . ' pre-tool-use']],
+        ],
+        ],
+        'Stop' => [['hooks' => [['type' => 'command', 'command' => $guard . ' stop']]]],
+      ],
+    ]));
+
+    $report = (new PackMaterializer())->init($root);
+    $this->assertContains('.claude/settings.json', $report->written);
+
+    $settings = json_decode((string) file_get_contents($root . '/.claude/settings.json'), TRUE);
+    $this->assertIsArray($settings);
+    $pre = self::preToolUseEntries($settings);
+    $this->assertCount(2, $pre, 'the edit guard is kept once and the Bash guard added once');
+    $commands = array_column($pre, 'command');
+    $this->assertContains($guard . ' pre-tool-use', $commands);
+    $this->assertContains($guard . ' operator-commands', $commands);
+    $hooks = $settings['hooks'] ?? NULL;
+    $this->assertIsArray($hooks);
+    $stop = $hooks['Stop'] ?? NULL;
+    $this->assertIsArray($stop);
+    $this->assertCount(1, $stop, 'the stop guard is not duplicated');
+  }
+
+  /**
+   * The PreToolUse entries of a decoded settings.json, typed for the analyser.
+   *
+   * @param array<mixed> $settings
+   *   The decoded file.
+   *
+   * @return list<array{matcher: string, command: string}>
+   *   One row per entry: its matcher and its first hook's command.
+   */
+  private static function preToolUseEntries(array $settings): array {
+    $hooks = $settings['hooks'] ?? NULL;
+    self::assertIsArray($hooks);
+    $pre = $hooks['PreToolUse'] ?? NULL;
+    self::assertIsArray($pre);
+    $rows = [];
+    foreach ($pre as $entry) {
+      self::assertIsArray($entry);
+      $list = $entry['hooks'] ?? NULL;
+      self::assertIsArray($list);
+      $first = $list[0] ?? NULL;
+      self::assertIsArray($first);
+      $command = $first['command'] ?? '';
+      self::assertIsString($command);
+      $matcher = $entry['matcher'] ?? '';
+      self::assertIsString($matcher);
+      $rows[] = ['matcher' => $matcher, 'command' => $command];
+    }
+    return $rows;
   }
 
   /**
