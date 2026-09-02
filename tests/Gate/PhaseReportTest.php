@@ -148,6 +148,7 @@ class PhaseReportTest extends TestCase {
       'skipped-no-site' => 1,
       'error-tool-missing' => 1,
       'off' => 1,
+      'waived' => 0,
     ], $document['tally']);
 
     $gates = $document['gates'];

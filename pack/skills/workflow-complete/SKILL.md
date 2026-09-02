@@ -20,6 +20,17 @@ record and the report from drifting apart.
 
 ## Work
 
+### Before capture: what the export carries
+
+If this run exported site configuration, check whether `droost.settings`
+rides in it. Those are the agent write gates: a `drush config:import` on
+any site this repo deploys to will ARM them there, silently. That is the
+operator's call to make, not a default to inherit — hand it to them in the
+report (a live run's handoff named exactly this), with the site-local
+options: core's `$settings['config_exclude_modules']`, a config-ignore
+module, or deliberately keeping the flags tracked because every target is
+a disposable agent site.
+
 ### First half: capture
 
 Write down what was built, for the person who arrives after the run — often

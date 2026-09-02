@@ -143,6 +143,7 @@ final class WorkflowFacade {
       // record but must not erase what the earlier ones caught.
       'seeker_history' => $state->seekerHistory,
       'spec' => $state->specPath,
+      'gate_waivers' => $state->gateWaivers,
       'browser' => $state->browser,
       'tasks' => $state->tasks,
       'phases' => array_map(
@@ -537,6 +538,63 @@ final class WorkflowFacade {
     $declared = $this->requireRun($store)->withTasks($tasks);
     $store->save($declared);
     return $declared;
+  }
+
+  /**
+   * Waives ONE gate for the rest of this run, on the operator's authority.
+   *
+   * The scoped alternative to dropping the whole wall: two live rounds
+   * reached for `droost:workflow:bypass` believing it cleared a gate, and
+   * it arms ungoverned edits instead — the wrong hammer. A waiver is
+   * per-gate, run-scoped (it dies with the run record), always carries its
+   * reason, renders as its own status (never a pass), and enters ONLY
+   * through the CLI — there is deliberately no MCP surface for it, so an
+   * agent can never waive its own gates.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $gate
+   *   The gate to waive.
+   * @param string $reason
+   *   The operator's reason, non-empty.
+   *
+   * @return \Droost\Workflow\State\RunState
+   *   The run, with the waiver recorded and persisted.
+   *
+   * @throws \InvalidArgumentException
+   *   When the gate is unknown, is one of the mandatory trio, or the reason
+   *   is empty.
+   * @throws \Droost\Workflow\State\StateError
+   *   When there is no run to waive against.
+   */
+  public function waiveGate(
+    string $projectRoot,
+    string $gate,
+    string $reason,
+  ): RunState {
+    if (trim($reason) === '') {
+      throw new \InvalidArgumentException(
+        'a gate waiver requires a reason — an unexplained waiver is indistinguishable from tampering',
+      );
+    }
+    if (in_array($gate, ['phpcs', 'phpstan', 'phpunit'], TRUE)) {
+      throw new \InvalidArgumentException(sprintf(
+        'the mandatory trio carries no switch and no waiver — "%s" failures are fixed at the source',
+        $gate,
+      ));
+    }
+    if (!in_array($gate, GateSettings::KNOWN_GATES, TRUE)) {
+      throw new \InvalidArgumentException(sprintf(
+        'unknown gate "%s" (known: %s)',
+        $gate,
+        implode(', ', GateSettings::KNOWN_GATES),
+      ));
+    }
+    $store = new RunStateStore($projectRoot);
+    $waived = $this->requireRun($store)
+      ->withGateWaiver($gate, trim($reason), $this->now());
+    $store->save($waived);
+    return $waived;
   }
 
   /**

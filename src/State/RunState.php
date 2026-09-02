@@ -141,6 +141,11 @@ final class RunState {
    *   advance that resolves it) so every later phase checks THE SAME
    *   document the run started under — a run whose spec can silently swap
    *   is a run whose criteria can too.
+   * @param array<string, array{reason: string, granted_at: string}> $gateWaivers
+   *   Gates the OPERATOR waived for this run, keyed by gate name, each with
+   *   its reason and grant time. Run-scoped by construction — the record
+   *   dies with the run — and written only by withGateWaiver(), whose sole
+   *   caller is the CLI command: an agent has no surface that can reach it.
    */
   public function __construct(
     public readonly string $runId,
@@ -165,6 +170,7 @@ final class RunState {
     public readonly ?string $tasks = NULL,
     public readonly array $seekerHistory = [],
     public readonly ?string $specPath = NULL,
+    public readonly array $gateWaivers = [],
   ) {}
 
   /**
@@ -432,6 +438,7 @@ final class RunState {
       $this->tasks,
       $this->seekerHistory,
       $this->specPath,
+      $this->gateWaivers,
     );
   }
 
@@ -516,6 +523,7 @@ final class RunState {
       $this->tasks,
       $this->seekerHistory,
       $this->specPath,
+      $this->gateWaivers,
     );
   }
 
@@ -554,6 +562,7 @@ final class RunState {
       $this->tasks,
       $this->seekerHistory,
       $this->specPath,
+      $this->gateWaivers,
     );
   }
 
@@ -675,6 +684,7 @@ final class RunState {
       $this->tasks,
       $this->seekerHistory,
       $this->specPath,
+      $this->gateWaivers,
     );
   }
 
@@ -799,6 +809,7 @@ final class RunState {
       'seeker' => $this->seeker,
       'seeker_history' => $this->seekerHistory,
       'spec_path' => $this->specPath,
+      'gate_waivers' => $this->gateWaivers,
       'browser' => $this->browser,
       'tasks' => $this->tasks,
     ];
@@ -890,6 +901,85 @@ final class RunState {
       self::readTasks($node, $label),
       self::readSeekerHistory($node, $label),
       $node->optionalString('spec_path', '') ?: NULL,
+      self::readGateWaivers($node, $label),
+    );
+  }
+
+  /**
+   * Reads the operator's per-gate waivers.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $node
+   *   The run node.
+   * @param string $label
+   *   The provenance label for errors.
+   *
+   * @return array<string, array{reason: string, granted_at: string}>
+   *   Waivers keyed by gate name; empty when none were granted.
+   */
+  private static function readGateWaivers(TypedArray $node, string $label): array {
+    $raw = $node->optionalChild('gate_waivers')?->toArray() ?? [];
+    $waivers = [];
+    foreach ($raw as $gate => $record) {
+      if (!is_string($gate) || !is_array($record)
+        || !is_string($record['reason'] ?? NULL) || ($record['reason'] ?? '') === ''
+        || !is_string($record['granted_at'] ?? NULL) || ($record['granted_at'] ?? '') === '') {
+        throw StateError::corrupt(
+          $label,
+          'gate_waivers must map a gate name to {reason, granted_at}, both non-empty — a waiver without its reason is indistinguishable from tampering',
+        );
+      }
+      $waivers[$gate] = [
+        'reason' => $record['reason'],
+        'granted_at' => $record['granted_at'],
+      ];
+    }
+    return $waivers;
+  }
+
+  /**
+   * This run with one gate waived by the operator.
+   *
+   * The waiver is RUN-SCOPED: it dies with the run record, applies to every
+   * remaining phase that lists the gate, and always carries its reason —
+   * the report prints it, so the choice is visible where the record is.
+   *
+   * @param string $gate
+   *   The gate name.
+   * @param string $reason
+   *   The operator's reason, non-empty.
+   * @param string $grantedAt
+   *   When it was granted, ISO-8601.
+   *
+   * @return self
+   *   A new instance carrying the waiver.
+   */
+  public function withGateWaiver(string $gate, string $reason, string $grantedAt): self {
+    $waivers = $this->gateWaivers;
+    $waivers[$gate] = ['reason' => $reason, 'granted_at' => $grantedAt];
+    return new self(
+      $this->runId,
+      $this->startedAt,
+      $this->mode,
+      $this->modeOverride,
+      $this->preset,
+      $this->maxGateRetries,
+      $this->provenance,
+      $this->resolvedGates,
+      $this->phases,
+      $this->currentPhase,
+      $this->gateResults,
+      $this->awaiting,
+      $this->qaHistory,
+      $this->feedbackAttempts,
+      $this->phaseGates,
+      $this->enforcement,
+      $this->seekers,
+      $this->seeker,
+      $this->browser,
+      $this->tasks,
+      $this->seekerHistory,
+      $this->specPath,
+      $waivers,
     );
   }
 
@@ -1425,6 +1515,7 @@ final class RunState {
       $tasks ?? $this->tasks,
       $seekerHistory ?? $this->seekerHistory,
       $specPath ?? $this->specPath,
+      $this->gateWaivers,
     );
   }
 

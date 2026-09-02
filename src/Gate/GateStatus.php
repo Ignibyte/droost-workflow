@@ -34,6 +34,11 @@ enum GateStatus: string {
   // Configured off. Visibly distinct from every kind of "could not run".
   case Off = 'off';
 
+  // Waived by the OPERATOR for this run, with a recorded reason. Never an
+  // agent's move: the waiver enters only through the CLI command, and the
+  // report prints it beside its reason — visible where the record is.
+  case Waived = 'waived';
+
   /**
    * Whether this status stops the run.
    *
@@ -70,6 +75,7 @@ enum GateStatus: string {
       self::SkippedNoSite => 'skipped — no site',
       self::ErrorToolMissing => 'ERROR — tool missing',
       self::Off => 'off',
+      self::Waived => 'waived by the operator',
     };
   }
 

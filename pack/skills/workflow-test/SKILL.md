@@ -69,6 +69,17 @@ gate spends budget per failing invocation, recorded in run state as
 spent it records the phase failed and refuses to continue. That is a
 legitimate outcome, and worth more than a success the run cannot support.
 
+When a gate is failing on something that is not this diff's to fix — a
+pre-existing project condition, a policy the project has deliberately not
+adopted — that is the OPERATOR's call, and there is a scoped mechanism for
+it: `drush droost:workflow:gate-waive <gate> "<reason>"` waives ONE gate
+for the rest of this run, recorded with its reason and rendered as
+"waived", never as a pass. Ask the operator to run it; it is deliberately
+CLI-only, so you cannot grant it yourself. Do NOT reach for
+`droost:workflow:bypass` here — that drops the whole require_run wall,
+which is a different and much larger decision (two live rounds made
+exactly that mistake).
+
 ## Exit gate
 
 Every enabled gate has a result, and the result is one of: passed, failed,

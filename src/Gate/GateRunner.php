@@ -76,7 +76,22 @@ final class GateRunner {
     $report = new PhaseReport($phase);
 
     foreach ($state->gatesDueFor($phase) as $name => $levers) {
-      $result = $this->runOne($name, $levers, $projectRoot);
+      $waiver = $state->gateWaivers[$name] ?? NULL;
+      if ($waiver !== NULL) {
+        // Waived by the OPERATOR for this run (never an agent's move — the
+        // waiver enters only through the CLI). The gate does not execute,
+        // the status is visibly distinct from every kind of pass, and the
+        // reason rides the result into the report.
+        $result = new GateResult(
+          $name,
+          GateStatus::Waived,
+          summary: sprintf('waived by the operator: %s', $waiver['reason']),
+          skipReason: $waiver['reason'],
+        );
+      }
+      else {
+        $result = $this->runOne($name, $levers, $projectRoot);
+      }
       $report = $report->with($result);
       if ($onResult !== NULL) {
         $onResult($result);
