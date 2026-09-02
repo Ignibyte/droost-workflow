@@ -6,15 +6,24 @@ namespace Droost\Workflow\Gate;
 
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\State\RunState;
 
 /**
  * Executes a phase's gates and says whether the run may continue.
  *
- * Reads the resolved lever set from the RUN, never from the config file. A
- * run is held to the levers it started under; re-reading the file would let
- * an edit made mid-run change what a half-finished run is measured against,
- * and would make two surfaces disagree about the same run.
+ * WHICH gates run, and WHEN, come from the RUN: the resolved on/off set and
+ * the phase map are frozen at begin, so an edit made mid-run cannot switch a
+ * gate off under a half-finished run or make two surfaces disagree about it.
+ *
+ * HOW a gate runs — its tuning options (standard, level, paths, thresholds,
+ * routes) — is re-read from the lever file at gate time, when the file
+ * exists, and any difference from the frozen record is named in the gate's
+ * own summary. Round 24 (R24-F4): a subject's phpcs gate walked node_modules,
+ * the subject pointed `phpcs.standard` at a ruleset that excluded it — the
+ * feedback loop's intended move — and the gate silently re-ran with the old
+ * standard until the retries were spent. Fixing a ruleset IS the loop;
+ * refusing to see the fix while counting down the budget was the defect.
  */
 final class GateRunner {
 
@@ -74,6 +83,7 @@ final class GateRunner {
     ?callable $onResult = NULL,
   ): PhaseReport {
     $report = new PhaseReport($phase);
+    $live = $this->liveTuning($projectRoot);
 
     foreach ($state->gatesDueFor($phase) as $name => $levers) {
       $waiver = $state->gateWaivers[$name] ?? NULL;
@@ -90,7 +100,21 @@ final class GateRunner {
         );
       }
       else {
+        [$levers, $drift] = $this->withLiveTuning($name, $levers, $live[$name] ?? NULL);
         $result = $this->runOne($name, $levers, $projectRoot);
+        if ($drift !== []) {
+          $result = new GateResult(
+            $result->gate,
+            $result->status,
+            $result->exitCode,
+            $result->durationMs,
+            rtrim($result->summary, '. ') . sprintf(' [levers re-read at gate time: %s]', implode('; ', $drift)),
+            $result->findings,
+            $result->truncated,
+            $result->skipReason,
+            $result->invocation,
+          );
+        }
       }
       $report = $report->with($result);
       if ($onResult !== NULL) {
@@ -181,6 +205,67 @@ final class GateRunner {
     }
 
     return $this->executor->execute($gate, $projectRoot);
+  }
+
+  /**
+   * The lever file's CURRENT tuning options per gate, or [] when unreadable.
+   *
+   * Only when a lever file exists at the root: a repo with no file resolved
+   * its frozen levers from the built-in preset and has nothing to re-read. A
+   * file that no longer parses leaves the frozen record in force — the run
+   * must not stall on a half-edited YAML — and the gate summary says nothing,
+   * because there is nothing coherent to compare against.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return array<string, array<string, int|string|bool>>
+   *   Gate name to its currently resolved levers.
+   */
+  private function liveTuning(string $projectRoot): array {
+    if (!is_file(rtrim($projectRoot, '/') . '/' . WorkflowConfig::FILENAME)) {
+      return [];
+    }
+    try {
+      return WorkflowConfig::load($projectRoot)->resolvedGates();
+    }
+    catch (\Throwable) {
+      return [];
+    }
+  }
+
+  /**
+   * Overlays the file's current tuning onto the frozen levers of one gate.
+   *
+   * `on` is never taken from the file — that is the frozen half. Custom gates
+   * are left alone too: their `cmd` is the gate, not a tuning of it.
+   *
+   * @param string $name
+   *   The gate.
+   * @param array<string, int|string|bool> $frozen
+   *   The levers recorded at begin.
+   * @param array<string, int|string|bool>|null $current
+   *   The file's levers for the same gate, or NULL when absent.
+   *
+   * @return array{array<string, int|string|bool>, list<string>}
+   *   The levers to run with, and a human line per option that changed.
+   */
+  private function withLiveTuning(string $name, array $frozen, ?array $current): array {
+    if ($current === NULL || GateSettings::isCustom($name)) {
+      return [$frozen, []];
+    }
+    $drift = [];
+    $levers = $frozen;
+    foreach (GateSettings::optionNames($name) as $option) {
+      $was = $frozen[$option] ?? NULL;
+      $now = $current[$option] ?? NULL;
+      if ($now === $was || !(is_int($now) || is_string($now))) {
+        continue;
+      }
+      $levers[$option] = $now;
+      $drift[] = sprintf('%s %s → %s', $option, $was === NULL ? '(unset)' : (string) $was, (string) $now);
+    }
+    return [$levers, $drift];
   }
 
   /**

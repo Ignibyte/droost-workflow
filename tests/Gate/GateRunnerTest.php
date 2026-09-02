@@ -344,6 +344,74 @@ class GateRunnerTest extends WorkflowTestCase {
   }
 
   /**
+   * Tuning is re-read at gate time; on/off stays frozen (R24-F4).
+   *
+   * Round 24: the subject pointed phpcs.standard at a ruleset excluding
+   * node_modules mid-run and the gate kept running the frozen standard until
+   * the retries were spent. The fix a feedback loop asks for must reach the
+   * gate; whether a gate runs at all must not move under a half-finished run.
+   */
+  public function testTuningIsReReadAtGateTimeButOnOffStaysFrozen(): void {
+    $root = $this->makeRootWithConfig(
+      "preset: custom\ngates:\n  phpcs: { standard: \"Drupal\" }\n  mutation: { on: false, msi_min: 0 }\n",
+    );
+    $state = RunState::begin('run-1', '2026-09-02T09:00:00+00:00', WorkflowConfig::load($root));
+    $executor = new class() implements GateExecutorInterface {
+
+      /**
+       * The settings each gate was executed with, by gate name.
+       *
+       * @var array<string, \Droost\Workflow\Config\GateSettings>
+       */
+      public array $seen = [];
+
+      /**
+       * {@inheritdoc}
+       */
+      public function execute(GateSettings $gate, string $projectRoot): GateResult {
+        $this->seen[$gate->name] = $gate;
+        return GateResult::ran($gate->name, GateStatus::Passed, 0, 1, $gate->name . ' passed', [], $gate->name);
+      }
+
+    };
+    $runner = new GateRunner($executor, new NullSiteDriver());
+    $byGate = static function (array $results, string $gate): ?GateResult {
+      foreach ($results as $result) {
+        if ($result instanceof GateResult && $result->gate === $gate) {
+          return $result;
+        }
+      }
+      return NULL;
+    };
+
+    // The operator fixes the ruleset mid-run and, illegitimately, tries to
+    // switch a gate on that the run began without.
+    file_put_contents(
+      $root . '/droost.workflow.yml',
+      "preset: custom\ngates:\n  phpcs: { standard: \"phpcs.xml\" }\n  mutation: { on: true, msi_min: 70 }\n",
+    );
+    $report = $runner->run($state, Phase::Complete, $root);
+
+    $this->assertArrayHasKey('phpcs', $executor->seen);
+    $this->assertSame('phpcs.xml', $executor->seen['phpcs']->option('standard'), 'the ruleset fix reaches the gate');
+    $phpcs = $byGate($report->results, 'phpcs');
+    $this->assertInstanceOf(GateResult::class, $phpcs);
+    $this->assertStringContainsString('levers re-read at gate time: standard Drupal → phpcs.xml', $phpcs->summary);
+    $this->assertArrayNotHasKey('mutation', $executor->seen, 'a gate the run began without stays off');
+    $mutation = $byGate($report->results, 'mutation');
+    $this->assertInstanceOf(GateResult::class, $mutation);
+    $this->assertSame(GateStatus::Off, $mutation->status);
+
+    // A file that no longer parses leaves the frozen record in force.
+    file_put_contents($root . '/droost.workflow.yml', "gates:\n  phpstain: { on: true }\n");
+    $report = $runner->run($state, Phase::Code, $root);
+    $this->assertSame('Drupal', $executor->seen['phpcs']->option('standard'));
+    $phpcs = $byGate($report->results, 'phpcs');
+    $this->assertInstanceOf(GateResult::class, $phpcs);
+    $this->assertStringNotContainsString('re-read', $phpcs->summary);
+  }
+
+  /**
    * Begins a run from a config document.
    *
    * @param array<array-key, mixed> $raw
