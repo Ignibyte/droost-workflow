@@ -60,10 +60,15 @@ class ShellGateExecutorTest extends WorkflowTestCase {
    */
   public static function argvCases(): array {
     return [
-      'phpcs carries its standard' => [
+      'phpcs carries its standard and ignores vendored trees' => [
         'phpcs',
         ['standard' => 'Drupal,DrupalPractice'],
-        ['-q', '--report=json', '--standard=Drupal,DrupalPractice'],
+        [
+          '-q',
+          '--report=json',
+          '--standard=Drupal,DrupalPractice',
+          '--ignore=*/node_modules/*,*/vendor/*',
+        ],
       ],
       'phpstan carries a numeric level' => [
         'phpstan',
@@ -367,6 +372,45 @@ class ShellGateExecutorTest extends WorkflowTestCase {
     $this->assertSame(GateStatus::Passed, $result->status);
     $this->assertStringContainsString('nothing to analyse', $result->summary);
     $this->assertStringContainsString('web/modules/custom', $result->summary);
+  }
+
+  /**
+   * Vendored trees under a path are not the project's code (R24-F3).
+   *
+   * A subtheme with a build step keeps node_modules/ on disk, and the Drupal
+   * standard sniffs JavaScript — so a theme directory whose only files are
+   * vendored must read as "nothing to analyse" rather than spawn phpcs over
+   * someone else's minified bundle. The moment a real template or stylesheet
+   * appears beside it, the path is analysable again.
+   */
+  public function testVendoredTreesAreNotAnalysable(): void {
+    $root = $this->rootWithBinaries(['phpcs']);
+    $theme = $root . '/web/themes/custom/mysite';
+    mkdir($theme . '/node_modules/tailwindcss/dist', 0755, TRUE);
+    mkdir($theme . '/vendor/acme/lib', 0755, TRUE);
+    file_put_contents($theme . '/node_modules/tailwindcss/dist/lib.js', "var x;\n");
+    file_put_contents($theme . '/vendor/acme/lib/Thing.php', "<?php\n");
+    /** @var \ArrayObject<int, list<string>> $spawns */
+    $spawns = new \ArrayObject();
+    $executor = new ShellGateExecutor(
+      static function (array $argv) use ($spawns): array {
+        $spawns[] = $argv;
+        return [0, '', ''];
+      },
+      static fn (): int => 0,
+    );
+    $gate = new GateSettings('phpcs', TRUE, ['standard' => 'Drupal', 'paths' => 'web/themes/custom']);
+
+    $result = $executor->execute($gate, $root);
+    $this->assertSame(GateStatus::Passed, $result->status);
+    $this->assertStringContainsString('nothing to analyse', $result->summary);
+    $this->assertCount(0, $spawns, 'vendored trees alone never spawn the tool');
+
+    // Real code beside the vendored trees makes the path analysable again.
+    file_put_contents($theme . '/mysite.theme', "<?php\n");
+    $result = $executor->execute($gate, $root);
+    $this->assertCount(1, $spawns, 'a real file makes the path analysable');
+    $this->assertStringNotContainsString('nothing to analyse', $result->summary);
   }
 
   /**

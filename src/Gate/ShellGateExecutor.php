@@ -48,6 +48,22 @@ final class ShellGateExecutor implements GateExecutorInterface {
   ];
 
   /**
+   * Directory names that hold vendored code, never the project's own.
+   *
+   * A theme with a build step keeps `node_modules/` on disk; a module with
+   * its own composer.json keeps `vendor/`. Neither is committed, neither is
+   * the work under review, and the Drupal standard sniffs the JavaScript in
+   * the first (R24-F3, round 24). Skipped when deciding whether a path holds
+   * anything analysable, and passed to phpcs as an ignore pattern.
+   */
+  private const VENDORED_DIRS = ['node_modules', 'vendor'];
+
+  /**
+   * The same exclusion as a phpcs `--ignore` pattern list.
+   */
+  private const VENDORED_IGNORE = '*/node_modules/*,*/vendor/*';
+
+  /**
    * Constructs a ShellGateExecutor.
    *
    * @param callable(list<string>, string, int): array{int, string, string} $runner
@@ -265,8 +281,13 @@ final class ShellGateExecutor implements GateExecutorInterface {
       return FALSE;
     }
     try {
+      // Vendored trees (node_modules, vendor) are not the project's code: a
+      // directory holding nothing else is "nothing to analyse" (R24-F3).
       $files = new \RecursiveIteratorIterator(
-        new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
+        new \RecursiveCallbackFilterIterator(
+          new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
+          static fn (\SplFileInfo $current): bool => !($current->isDir() && in_array($current->getFilename(), self::VENDORED_DIRS, TRUE)),
+        ),
       );
     }
     catch (\UnexpectedValueException) {
@@ -434,6 +455,11 @@ final class ShellGateExecutor implements GateExecutorInterface {
         '-q',
         '--report=json',
         '--standard=' . (is_string($standard) ? $standard : 'Drupal'),
+        // A theme with a build step keeps node_modules/ on disk (never
+        // committed), and the Drupal standard sniffs JS and CSS — so the gate
+        // walked vendored JavaScript and reported on it (round 24, R24-F3).
+        // Vendored trees are never the project's code; exclude them always.
+        '--ignore=' . self::VENDORED_IGNORE,
       ],
       'phpstan' => [
         $binary,
