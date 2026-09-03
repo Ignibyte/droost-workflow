@@ -527,6 +527,31 @@ final class ConfigError extends \RuntimeException {
   }
 
   /**
+   * The work_item block carries an option it does not define.
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $key
+   *   The unknown option.
+   * @param list<string> $known
+   *   The options the block accepts.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function unknownWorkItemOption(
+    string $source,
+    string $key,
+    array $known,
+  ): self {
+    return new self($source, sprintf(
+      'work_item accepts only %s — got "%s".',
+      implode(', ', $known),
+      $key,
+    ));
+  }
+
+  /**
    * The notice recorded when a lever file tries to disarm a mandatory gate.
    *
    * @param string $source

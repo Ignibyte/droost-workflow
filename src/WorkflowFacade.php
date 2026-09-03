@@ -10,6 +10,8 @@ use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\PhaseGateMap;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Config\GateSettings;
+use Droost\Workflow\Event\NullWorkflowListener;
+use Droost\Workflow\Event\WorkflowListenerInterface;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\ShellGateExecutor;
@@ -45,6 +47,11 @@ use Droost\Workflow\State\RunStateStore;
 final class WorkflowFacade {
 
   /**
+   * Observes lifecycle transitions. A notification, never the record.
+   */
+  private readonly WorkflowListenerInterface $listener;
+
+  /**
    * Constructs a WorkflowFacade.
    *
    * @param \Droost\Workflow\Gate\GateExecutorInterface $executor
@@ -59,6 +66,11 @@ final class WorkflowFacade {
    *   from the surface rather than from a value object.
    * @param callable(): string $ids
    *   Returns a fresh run identifier.
+   * @param \Droost\Workflow\Event\WorkflowListenerInterface|null $listener
+   *   Observes lifecycle transitions (run start, phase change, completion).
+   *   Optional and defaults to a no-op, so the CLI and every existing caller
+   *   are unaffected; the Drupal surfaces inject a bridge that re-broadcasts to
+   *   hooks. A notification, never the record — see the interface.
    */
   public function __construct(
     private readonly GateExecutorInterface $executor,
@@ -66,7 +78,10 @@ final class WorkflowFacade {
     private readonly QuestionSinkInterface $sink,
     private readonly mixed $clock,
     private readonly mixed $ids,
-  ) {}
+    ?WorkflowListenerInterface $listener = NULL,
+  ) {
+    $this->listener = $listener ?? new NullWorkflowListener();
+  }
 
   /**
    * Installs the pack and the default lever file into a project.
@@ -109,6 +124,9 @@ final class WorkflowFacade {
         // answerable from status alone.
         'phase_gates' => PhaseGateMap::forPhases($config->phaseNames()),
         'max_gate_retries' => $config->maxGateRetries,
+        // The work-item integration for status: how a run's ticket is fetched
+        // and written back. NULL when the repo declares none.
+        'work_item' => $config->workItem?->toArray(),
       ],
       // Whether each named gate's tool could actually run here, probed via
       // the executor's own path mapping — the reported row and the executed
@@ -228,6 +246,7 @@ final class WorkflowFacade {
       $config = WorkflowConfig::load($projectRoot);
       $state = RunState::begin($this->newId(), $this->now(), $config);
       $store->save($state);
+      $this->notify(fn () => $this->listener->onRunStart($state));
     }
 
     // The governing spec, resolved once and recorded: declared via --spec,
@@ -295,6 +314,7 @@ final class WorkflowFacade {
     );
     $advanced = $this->advanceIfDue($outcome, $phase);
     $store->save($advanced->state);
+    $this->announceAdvanceOrComplete($phase, $advanced->state);
 
     return $advanced;
   }
@@ -334,6 +354,9 @@ final class WorkflowFacade {
         : $answered->advanceTo($next);
     }
     $store->save($answered);
+    if ($phase !== NULL) {
+      $this->announceAdvanceOrComplete($phase, $answered);
+    }
     return $answered;
   }
 
@@ -691,6 +714,49 @@ final class WorkflowFacade {
       throw StateError::runEnded($store->label());
     }
     return $state;
+  }
+
+  /**
+   * Announces a run's advance or completion to the listener, if it moved.
+   *
+   * Derived purely from the resulting state so both run() and answer() share
+   * it: a NULL current phase is completion, a changed current phase is an
+   * advance, and an unchanged one (paused, failed, inspection-due) is neither.
+   *
+   * @param \Droost\Workflow\Config\Phase $from
+   *   The phase current before this step.
+   * @param \Droost\Workflow\State\RunState $after
+   *   The run after the step, already persisted.
+   */
+  private function announceAdvanceOrComplete(Phase $from, RunState $after): void {
+    if ($after->currentPhase === NULL) {
+      $this->notify(fn () => $this->listener->onRunComplete($after));
+      return;
+    }
+    if ($after->currentPhase !== $from) {
+      $to = $after->currentPhase;
+      $this->notify(fn () => $this->listener->onPhaseChange($after, $from, $to));
+    }
+  }
+
+  /**
+   * Delivers a lifecycle callback, swallowing any failure it raises.
+   *
+   * A listener is a notification, never the record: the transition is already
+   * persisted, so a listener that throws must not turn a saved, correct run
+   * into a failed one — the state-first/listener-second contract the pause
+   * path keeps, applied to lifecycle events.
+   *
+   * @param callable(): void $emit
+   *   The callback to run.
+   */
+  private function notify(callable $emit): void {
+    try {
+      $emit();
+    }
+    catch (\Throwable) {
+      // Intentionally swallowed: a broken listener cannot break a run.
+    }
   }
 
   /**

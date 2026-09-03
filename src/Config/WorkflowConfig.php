@@ -41,6 +41,7 @@ final class WorkflowConfig {
     'enforcement',
     'require_run',
     'seekers',
+    'work_item',
   ];
 
   /**
@@ -87,6 +88,10 @@ final class WorkflowConfig {
    *   What happens when custom code is edited with no active run: hard blocks
    *   (start a run, or take an operator-granted bypass), soft nudges once, off
    *   is silent. Defaults hard — building is where the pipeline must engage.
+   * @param \Droost\Workflow\Config\WorkItemSettings|null $workItem
+   *   The optional work_item block: how a run's ticket is fetched and written
+   *   back. NULL when the repo declares no integration — the common case. The
+   *   engine never consumes it, so its absence changes nothing here.
    */
   private function __construct(
     public readonly Mode $mode,
@@ -99,6 +104,7 @@ final class WorkflowConfig {
     public readonly array $deprecations = [],
     public readonly bool $seekers = TRUE,
     public readonly Enforcement $requireRun = Enforcement::Hard,
+    public readonly ?WorkItemSettings $workItem = NULL,
   ) {}
 
   /**
@@ -255,6 +261,7 @@ final class WorkflowConfig {
         // whatever the gate weight, so the default is hard everywhere and the
         // lever is the only thing that loosens it.
         self::readRequireRun($root, $source, Enforcement::Hard),
+        self::readWorkItem($root, $source),
       );
     }
     catch (DataError $e) {
@@ -376,6 +383,33 @@ final class WorkflowConfig {
       }
     }
     return $node->optionalBool('on', TRUE);
+  }
+
+  /**
+   * Reads the optional work_item block.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   *
+   * @return \Droost\Workflow\Config\WorkItemSettings|null
+   *   The parsed settings, or NULL when the block is absent.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When the block carries an option it does not define.
+   * @throws \Droost\Workflow\Support\DataError
+   *   When a value is the wrong type.
+   */
+  private static function readWorkItem(
+    TypedArray $root,
+    string $source,
+  ): ?WorkItemSettings {
+    $node = $root->optionalChild('work_item');
+    if ($node === NULL) {
+      return NULL;
+    }
+    return WorkItemSettings::fromNode($node, $source);
   }
 
   /**
