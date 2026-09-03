@@ -121,7 +121,17 @@ final class PackMaterializer {
       $settings = $decoded;
     }
 
-    $guard = 'php .claude/hooks/droost-workflow-guard.php';
+    // Anchor the script to $CLAUDE_PROJECT_DIR, not a bare relative path.
+    // Claude Code runs a hook from the invoking tool's cwd, and the agent's
+    // Bash tool persists a cwd that moves the moment it runs `cd` — after
+    // which `php .claude/hooks/…` fails to open the file and the guard
+    // silently stops enforcing (seen live: "Could not open input file",
+    // non-blocking, on every Bash call once the agent had cd'd away). The env
+    // var is set for every hook execution and is the documented way to
+    // reference project files from a hook; the double quotes tolerate a space
+    // in the path. The guard resolves the same var internally for its run
+    // state, so both the script and what it reads are project-anchored.
+    $guard = 'php "$CLAUDE_PROJECT_DIR/.claude/hooks/droost-workflow-guard.php"';
     // Three wirings of one script; two of them on PreToolUse with different
     // matchers, so this is a list of (event, entry) pairs and presence is
     // checked per COMMAND, not per event — an install that already carries
@@ -148,8 +158,20 @@ final class PackMaterializer {
     foreach ($wanted as [$event, $entry]) {
       $existing = is_array($hooks[$event] ?? NULL) ? $hooks[$event] : [];
       $command = $entry['hooks'][0]['command'];
-      if (!self::hooksContain($existing, $command)) {
+      // Identify our guard for this mode by its suffix, not its exact command,
+      // so an install carrying an older script path is UPGRADED in place. Add
+      // when absent, replace when the command drifted, keep when identical —
+      // which keeps a re-init idempotent and never leaves a second, dead guard
+      // beside the live one (R27-F1).
+      $mode = substr($command, (int) strrpos($command, ' ') + 1);
+      $at = self::guardIndex($existing, $mode);
+      if ($at === NULL) {
         $existing[] = $entry;
+        $hooks[$event] = $existing;
+        $changed = TRUE;
+      }
+      elseif (self::commandAt($existing, $at) !== $command) {
+        $existing[$at] = $entry;
         $hooks[$event] = $existing;
         $changed = TRUE;
       }
@@ -172,30 +194,64 @@ final class PackMaterializer {
   }
 
   /**
-   * Whether a hook-event list already carries the guard.
+   * The index of our guard entry for a mode within an event's list, or NULL.
+   *
+   * Identity is the guard filename plus the mode suffix (pre-tool-use |
+   * operator-commands | stop), independent of the script path it was installed
+   * with — so a guard wired by any earlier version is recognised and upgraded
+   * in place, never duplicated.
    *
    * @param array<array-key, mixed> $entries
-   *   The event's configured entries.
-   * @param string $guard
-   *   The guard command prefix.
+   *   The event's configured entries (a list).
+   * @param string $mode
+   *   The guard mode to find.
    *
-   * @return bool
-   *   TRUE when any configured command starts with the guard invocation.
+   * @return int|null
+   *   The list index of the matching entry, or NULL when none carries it.
    */
-  private static function hooksContain(array $entries, string $guard): bool {
-    foreach ($entries as $entry) {
-      if (!is_array($entry)) {
+  private static function guardIndex(array $entries, string $mode): ?int {
+    foreach ($entries as $i => $entry) {
+      if (!is_int($i) || !is_array($entry)) {
         continue;
       }
       foreach (is_array($entry['hooks'] ?? NULL) ? $entry['hooks'] : [] as $hook) {
         if (is_array($hook)
           && is_string($hook['command'] ?? NULL)
-          && str_starts_with($hook['command'], $guard)) {
-          return TRUE;
+          && str_contains($hook['command'], 'droost-workflow-guard.php')
+          && str_ends_with($hook['command'], ' ' . $mode)) {
+          return $i;
         }
       }
     }
-    return FALSE;
+    return NULL;
+  }
+
+  /**
+   * The first hook command at a list index, or NULL when the shape is off.
+   *
+   * @param array<array-key, mixed> $entries
+   *   The event's configured entries.
+   * @param int $index
+   *   The index ::guardIndex() returned.
+   *
+   * @return string|null
+   *   The command string on that entry's first hook, or NULL.
+   */
+  private static function commandAt(array $entries, int $index): ?string {
+    $entry = $entries[$index] ?? NULL;
+    if (!is_array($entry)) {
+      return NULL;
+    }
+    $hooks = $entry['hooks'] ?? NULL;
+    if (!is_array($hooks)) {
+      return NULL;
+    }
+    $first = $hooks[0] ?? NULL;
+    if (!is_array($first)) {
+      return NULL;
+    }
+    $command = $first['command'] ?? NULL;
+    return is_string($command) ? $command : NULL;
   }
 
   /**

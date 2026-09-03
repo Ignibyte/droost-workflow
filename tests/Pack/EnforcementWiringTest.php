@@ -32,13 +32,17 @@ final class EnforcementWiringTest extends WorkflowTestCase {
     $raw = (string) file_get_contents($root . '/.claude/settings.json');
     $settings = json_decode($raw, TRUE);
     $this->assertIsArray($settings);
-    $encoded = json_encode($settings['hooks']);
-    $this->assertIsString($encoded);
-    $this->assertStringContainsString('droost-workflow-guard.php pre-tool-use', $encoded);
-    $this->assertStringContainsString('droost-workflow-guard.php stop', $encoded);
-    $this->assertStringContainsString('droost-workflow-guard.php operator-commands', $encoded);
+    // Every mode is wired on the guard, anchored to $CLAUDE_PROJECT_DIR so the
+    // hook survives the agent's Bash tool moving its cwd out of the project
+    // root (R27-F1). Asserted on the raw commands, not the escaped JSON blob.
+    $guard = 'php "$CLAUDE_PROJECT_DIR/.claude/hooks/droost-workflow-guard.php"';
+    $pre = self::preToolUseEntries($settings);
+    $preCommands = array_column($pre, 'command');
+    $this->assertContains($guard . ' pre-tool-use', $preCommands);
+    $this->assertContains($guard . ' operator-commands', $preCommands);
+    $this->assertSame($guard . ' stop', self::firstCommand($settings, 'Stop'));
     // The Bash guard is its own PreToolUse entry with its own matcher.
-    $matchers = array_column(self::preToolUseEntries($settings), 'matcher');
+    $matchers = array_column($pre, 'matcher');
     $this->assertContains('Bash', $matchers);
     $this->assertContains('Edit|Write|MultiEdit|NotebookEdit', $matchers);
 
@@ -61,15 +65,17 @@ final class EnforcementWiringTest extends WorkflowTestCase {
   public function testExistingInstallGainsTheOperatorCommandsGuard(): void {
     $root = $this->makeRoot();
     mkdir($root . '/.claude', 0755, TRUE);
-    $guard = 'php .claude/hooks/droost-workflow-guard.php';
+    // A pre-0.6.9 install: the edit and stop guards on the old relative path,
+    // no Bash guard yet.
+    $old = 'php .claude/hooks/droost-workflow-guard.php';
     file_put_contents($root . '/.claude/settings.json', json_encode([
       'hooks' => [
         'PreToolUse' => [[
           'matcher' => 'Edit|Write|MultiEdit|NotebookEdit',
-          'hooks' => [['type' => 'command', 'command' => $guard . ' pre-tool-use']],
+          'hooks' => [['type' => 'command', 'command' => $old . ' pre-tool-use']],
         ],
         ],
-        'Stop' => [['hooks' => [['type' => 'command', 'command' => $guard . ' stop']]]],
+        'Stop' => [['hooks' => [['type' => 'command', 'command' => $old . ' stop']]]],
       ],
     ]));
 
@@ -78,16 +84,22 @@ final class EnforcementWiringTest extends WorkflowTestCase {
 
     $settings = json_decode((string) file_get_contents($root . '/.claude/settings.json'), TRUE);
     $this->assertIsArray($settings);
+    // The Bash guard is added, and the pre-existing guards are upgraded to the
+    // anchored path in place — two PreToolUse entries, one Stop, no duplicate
+    // and no old relative path left behind (R23-F2 + R27-F1).
+    $new = 'php "$CLAUDE_PROJECT_DIR/.claude/hooks/droost-workflow-guard.php"';
     $pre = self::preToolUseEntries($settings);
-    $this->assertCount(2, $pre, 'the edit guard is kept once and the Bash guard added once');
+    $this->assertCount(2, $pre, 'the edit guard is upgraded once and the Bash guard added once');
     $commands = array_column($pre, 'command');
-    $this->assertContains($guard . ' pre-tool-use', $commands);
-    $this->assertContains($guard . ' operator-commands', $commands);
+    $this->assertContains($new . ' pre-tool-use', $commands);
+    $this->assertContains($new . ' operator-commands', $commands);
+    $this->assertNotContains($old . ' pre-tool-use', $commands, 'the old relative path is gone, not left beside the new one');
     $hooks = $settings['hooks'] ?? NULL;
     $this->assertIsArray($hooks);
     $stop = $hooks['Stop'] ?? NULL;
     $this->assertIsArray($stop);
     $this->assertCount(1, $stop, 'the stop guard is not duplicated');
+    $this->assertSame($new . ' stop', self::firstCommand($settings, 'Stop'), 'the stop guard is upgraded too');
   }
 
   /**
@@ -121,6 +133,33 @@ final class EnforcementWiringTest extends WorkflowTestCase {
   }
 
   /**
+   * The command on an event's first configured hook entry.
+   *
+   * @param array<mixed> $settings
+   *   The decoded settings.json.
+   * @param string $event
+   *   The hook event name.
+   *
+   * @return string
+   *   The first entry's first hook command.
+   */
+  private static function firstCommand(array $settings, string $event): string {
+    $hooks = $settings['hooks'] ?? NULL;
+    self::assertIsArray($hooks);
+    $entries = $hooks[$event] ?? NULL;
+    self::assertIsArray($entries);
+    $first = $entries[0] ?? NULL;
+    self::assertIsArray($first);
+    $list = $first['hooks'] ?? NULL;
+    self::assertIsArray($list);
+    $hook = $list[0] ?? NULL;
+    self::assertIsArray($hook);
+    $command = $hook['command'] ?? NULL;
+    self::assertIsString($command);
+    return $command;
+  }
+
+  /**
    * A user's existing settings survive the merge; broken JSON is refused.
    */
   public function testUserSettingsAreMergedNeverClobbered(): void {
@@ -145,10 +184,18 @@ final class EnforcementWiringTest extends WorkflowTestCase {
     $this->assertSame(['allow' => ['Bash(ls:*)']], $settings['permissions']);
     $hooks = $settings['hooks'];
     $this->assertIsArray($hooks);
-    $encoded = json_encode($hooks['Stop']);
-    $this->assertIsString($encoded);
-    $this->assertStringContainsString('echo mine', $encoded);
-    $this->assertStringContainsString('droost-workflow-guard.php stop', $encoded);
+    $stop = $hooks['Stop'] ?? NULL;
+    $this->assertIsArray($stop);
+    $commands = [];
+    foreach ($stop as $entry) {
+      if (is_array($entry) && is_array($entry['hooks'] ?? NULL) && is_array($entry['hooks'][0] ?? NULL)) {
+        $commands[] = $entry['hooks'][0]['command'] ?? NULL;
+      }
+    }
+    // The user's own Stop hook survives the merge, and the guard's is added in
+    // the anchored form (R27-F1) — checked raw, since json_encode escapes it.
+    $this->assertContains('echo mine', $commands);
+    $this->assertContains('php "$CLAUDE_PROJECT_DIR/.claude/hooks/droost-workflow-guard.php" stop', $commands);
 
     $broken = $this->makeRoot();
     mkdir($broken . '/.claude', 0755, TRUE);

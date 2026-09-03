@@ -241,6 +241,29 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * The guard resolves its root from CLAUDE_PROJECT_DIR, not the cwd (R27-F1).
+   *
+   * Claude Code runs the hook from the invoking tool's working directory, and
+   * the agent's Bash tool persists a cwd that a `cd` moves out of the project.
+   * A run mid-CODE allows a custom-code edit; were the guard to fall back to
+   * getcwd() it would find no run at the moved cwd and wall the edit as "no
+   * active run". Run here from an unrelated directory with the project root
+   * only in the env: the edit must still be allowed.
+   */
+  public function testResolvesProjectRootFromClaudeProjectDirNotCwd(): void {
+    $root = $this->rootWithRun('code', 'active', 'hard');
+    $elsewhere = $this->makeRoot();
+    [$exit, , $stderr] = $this->guard($root, 'pre-tool-use', [
+      'tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module'],
+    ], $elsewhere);
+    $this->assertSame(
+      0,
+      $exit,
+      "a code-phase edit must be allowed via CLAUDE_PROJECT_DIR, not walled by the moved cwd; stderr: $stderr",
+    );
+  }
+
+  /**
    * Soft enforcement warns exactly once per phase, then stays quiet.
    */
   public function testSoftWarnsOncePerPhase(): void {
@@ -394,22 +417,32 @@ final class GuardTest extends WorkflowTestCase {
    * Executes the packed guard exactly as Claude Code would.
    *
    * @param string $root
-   *   The project root (the hook's cwd).
+   *   The project root, delivered as CLAUDE_PROJECT_DIR — the way Claude Code
+   *   runs the hook, and what the guard resolves its run state against.
    * @param string $mode
    *   The guard mode: pre-tool-use or stop.
    * @param array<string, mixed> $payload
    *   The hook payload delivered on stdin.
+   * @param string|null $cwd
+   *   The working directory to run from, when it must differ from the project
+   *   root (the agent's Bash tool can move it — R27-F1). Defaults to $root.
    *
    * @return array{int, string, string}
    *   Exit code, stdout, stderr.
    */
-  private function guard(string $root, string $mode, array $payload): array {
+  private function guard(string $root, string $mode, array $payload, ?string $cwd = NULL): array {
     $script = dirname(__DIR__, 2) . '/pack/hooks/droost-workflow-guard.php';
+    // Set CLAUDE_PROJECT_DIR explicitly so the fixture root wins over any value
+    // in the environment that runs the suite, and so cwd and the project root
+    // can be driven apart to exercise the moved-cwd case.
+    $env = getenv();
+    $env['CLAUDE_PROJECT_DIR'] = $root;
     $process = proc_open(
       [PHP_BINARY, $script, $mode],
       [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
       $pipes,
-      $root,
+      $cwd ?? $root,
+      $env,
     );
     $this->assertIsResource($process);
     fwrite($pipes[0], (string) json_encode($payload));

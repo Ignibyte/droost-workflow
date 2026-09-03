@@ -41,7 +41,16 @@
 declare(strict_types=1);
 
 $mode = $argv[1] ?? '';
-$root = getcwd();
+// A hook runs from the invoking tool's cwd, which the agent's Bash tool can
+// move out of the project root (a persisted `cd`). getcwd() would then point
+// the guard at the wrong tree — reading a run.json and lever that are not
+// there, so the wall and the plan-phase block quietly stop firing. Claude Code
+// sets CLAUDE_PROJECT_DIR to the real project root for every hook; prefer it,
+// and fall back to getcwd() for a manual CLI run where the var is unset.
+$root = getenv('CLAUDE_PROJECT_DIR');
+if ($root === FALSE || $root === '') {
+  $root = getcwd();
+}
 if ($root === FALSE) {
   exit(0);
 }
