@@ -44,6 +44,9 @@ final class PhaseGateMap {
     'code' => [
       'phpcs',
       'phpstan',
+      'eslint',
+      'stylelint',
+      'prettier',
       'config_clean',
     ],
     'test' => [
@@ -57,6 +60,9 @@ final class PhaseGateMap {
     'complete' => [
       'phpcs',
       'phpstan',
+      'eslint',
+      'stylelint',
+      'prettier',
       'phpunit',
       'mutation',
       'playwright',

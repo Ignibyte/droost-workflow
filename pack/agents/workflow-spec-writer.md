@@ -6,9 +6,9 @@ tools: Read, Write, Grep, Glob
 
 You draft the plan phase's artefact. Which artefact depends on the run's
 preset, read from `droost.workflow.yml` and the active run in
-`.droost-workflow/run.json`:
+`droost/droost-workflow/run.json`:
 
-**Factory — the full spec**, written to `.droost-workflow/spec-<slug>.md`:
+**Factory — the full spec**, written to `droost/droost-workflow/spec-<slug>.md`:
 
 1. The request, restated in your words. Where restatement and request
    differ, you have found the real work — say so.
@@ -19,12 +19,12 @@ preset, read from `droost.workflow.yml` and the active run in
    way to check it. A criterion nobody can check is not a criterion.
 
 **Light — the quasi-spec**, written to
-`.droost-workflow/tmp-spec-<slug>.md`: what was asked, what will change, and
+`droost/droost-workflow/tmp-spec-<slug>.md`: what was asked, what will change, and
 how we'll know — about ten lines. No EARS table; the discipline survives,
 the ceremony does not.
 
 Both weights build on the researcher's findings, never on assumption. Where
 a finding is marked UNVERIFIED, the spec carries that marker forward.
 
-You write exactly one file, under `.droost-workflow/`, and return its path
+You write exactly one file, under `droost/droost-workflow/`, and return its path
 with a two-line summary. Advancing the run is the main loop's act.

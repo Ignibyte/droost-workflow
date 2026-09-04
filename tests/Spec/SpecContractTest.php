@@ -35,7 +35,7 @@ final class SpecContractTest extends WorkflowTestCase {
     $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
     // Overwrite the helper's satisfying spec with one missing the section.
     file_put_contents(
-      $root . '/.droost-workflow/spec-test-run.md',
+      $root . '/droost/droost-workflow/spec-test-run.md',
       "# Spec: test run\n\n## 1. The request\n\nWords.\n",
     );
 
@@ -54,13 +54,13 @@ final class SpecContractTest extends WorkflowTestCase {
 
     $this->assertSame('code', $outcome->state->currentPhase?->value);
     $this->assertSame(
-      '.droost-workflow/spec-test-run.md',
+      'droost/droost-workflow/spec-test-run.md',
       $outcome->state->specPath,
       'the governing spec is recorded on the run',
     );
     // And persisted: the next surface reads the same document.
     $reloaded = (new RunStateStore($root))->load();
-    $this->assertSame('.droost-workflow/spec-test-run.md', $reloaded?->specPath);
+    $this->assertSame('droost/droost-workflow/spec-test-run.md', $reloaded?->specPath);
   }
 
   /**
@@ -90,7 +90,7 @@ final class SpecContractTest extends WorkflowTestCase {
     $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
     $this->writeSpec($root, realized: FALSE);
     file_put_contents(
-      $root . '/.droost-workflow/realized-test-run.md',
+      $root . '/droost/droost-workflow/realized-test-run.md',
       "Capture, companion form.\n",
     );
     $facade = $this->facadeForCli();
@@ -108,7 +108,7 @@ final class SpecContractTest extends WorkflowTestCase {
    */
   public function testResolutionAdoptsOneAndRefusesGuessesAndSwaps(): void {
     $root = $this->makeRoot();
-    mkdir($root . '/.droost-workflow', 0755, TRUE);
+    mkdir($root . '/droost/droost-workflow', 0755, TRUE);
 
     // Zero candidates: the refusal teaches the bootstrap order.
     try {
@@ -120,14 +120,14 @@ final class SpecContractTest extends WorkflowTestCase {
     }
 
     // One candidate: adopted, project-relative.
-    file_put_contents($root . '/.droost-workflow/spec-a.md', "# a\n");
+    file_put_contents($root . '/droost/droost-workflow/spec-a.md', "# a\n");
     $this->assertSame(
-      '.droost-workflow/spec-a.md',
+      'droost/droost-workflow/spec-a.md',
       SpecContract::resolve($root, NULL),
     );
 
     // Two candidates: a guess would swap the run's criteria — refuse.
-    file_put_contents($root . '/.droost-workflow/spec-b.md', "# b\n");
+    file_put_contents($root . '/droost/droost-workflow/spec-b.md', "# b\n");
     try {
       SpecContract::resolve($root, NULL);
       $this->fail('two candidates must refuse');
@@ -138,11 +138,11 @@ final class SpecContractTest extends WorkflowTestCase {
 
     // Declared wins over ambiguity; a declared ghost refuses.
     $this->assertSame(
-      '.droost-workflow/spec-b.md',
-      SpecContract::resolve($root, $root . '/.droost-workflow/spec-b.md'),
+      'droost/droost-workflow/spec-b.md',
+      SpecContract::resolve($root, $root . '/droost/droost-workflow/spec-b.md'),
     );
     try {
-      SpecContract::resolve($root, '.droost-workflow/spec-ghost.md');
+      SpecContract::resolve($root, 'droost/droost-workflow/spec-ghost.md');
       $this->fail('a missing declared spec must refuse');
     }
     catch (SpecError $e) {
@@ -153,8 +153,8 @@ final class SpecContractTest extends WorkflowTestCase {
     try {
       SpecContract::resolve(
         $root,
-        '.droost-workflow/spec-b.md',
-        '.droost-workflow/spec-a.md',
+        'droost/droost-workflow/spec-b.md',
+        'droost/droost-workflow/spec-a.md',
       );
       $this->fail('a conflicting declaration must refuse');
     }
@@ -201,7 +201,7 @@ final class SpecContractTest extends WorkflowTestCase {
 
     $run = $status['run'];
     $this->assertIsArray($run);
-    $this->assertSame('.droost-workflow/spec-test-run.md', $run['spec']);
+    $this->assertSame('droost/droost-workflow/spec-test-run.md', $run['spec']);
   }
 
 }

@@ -328,6 +328,10 @@ class ModeEngineTest extends WorkflowTestCase {
     // Advanced to code first, as the facade always has by the time it calls
     // runPhase — the run's current phase IS the phase being worked.
     $state = $this->begin([
+      // The custom preset keeps the front-end lint trio off, so this test
+      // stays about the counting mechanism over the static pair, not the
+      // gate vocabulary.
+      'preset' => 'custom',
       'max_gate_retries' => 2,
       'seekers' => ['on' => FALSE],
     ])->advanceTo(Phase::Code);

@@ -51,6 +51,9 @@ class PresetResolverTest extends TestCase {
         [
           'phpcs' => ['on' => TRUE, 'standard' => $standard],
           'phpstan' => ['on' => TRUE, 'level' => 'max'],
+          'eslint' => ['on' => TRUE],
+          'stylelint' => ['on' => TRUE],
+          'prettier' => ['on' => TRUE],
           'phpunit' => ['on' => TRUE],
           'mutation' => ['on' => TRUE, 'msi_min' => 80],
           'playwright' => ['on' => TRUE],
@@ -65,6 +68,9 @@ class PresetResolverTest extends TestCase {
         [
           'phpcs' => ['on' => TRUE, 'standard' => $standard],
           'phpstan' => ['on' => TRUE, 'level' => 2],
+          'eslint' => ['on' => FALSE],
+          'stylelint' => ['on' => FALSE],
+          'prettier' => ['on' => FALSE],
           'phpunit' => ['on' => TRUE],
           'mutation' => ['on' => FALSE, 'msi_min' => 0],
           'playwright' => ['on' => FALSE],
@@ -79,6 +85,9 @@ class PresetResolverTest extends TestCase {
         [
           'phpcs' => ['on' => TRUE, 'standard' => $standard],
           'phpstan' => ['on' => TRUE, 'level' => 6],
+          'eslint' => ['on' => FALSE],
+          'stylelint' => ['on' => FALSE],
+          'prettier' => ['on' => FALSE],
           'phpunit' => ['on' => TRUE],
           'mutation' => ['on' => FALSE, 'msi_min' => 0],
           'playwright' => ['on' => FALSE],

@@ -12,7 +12,7 @@ vs continue.)
 
 ## First, make sure there is a run to continue
 
-If `.droost-workflow/run.json` does not exist, there is nothing to advance —
+If `droost/droost-workflow/run.json` does not exist, there is nothing to advance —
 begin with `/droost:workflow:start`, which writes the spec, opens the run and
 declares the browser tier. Everything below assumes an open run.
 
@@ -45,11 +45,11 @@ the final report says which tier actually ran.
 The preset decides the artifact weight (and the file can override any lever):
 
 - **factory** — the full EARS spec, written to
-  `.droost-workflow/spec-<slug>.md`. Gates: everything on. Enforcement
+  `droost/droost-workflow/spec-<slug>.md`. Gates: everything on. Enforcement
   defaults hard.
 - **light** — a SHORTER spec in the same EARS shape: what was asked, what
   will change, and a handful of "When <trigger>, the <system> shall
-  <response>" criteria — written to `.droost-workflow/tmp-spec-<slug>.md`
+  <response>" criteria — written to `droost/droost-workflow/tmp-spec-<slug>.md`
   and presented back in chat at complete. Light trims depth, never format:
   one spec shape everywhere is what the seeker grades against.
 
@@ -128,7 +128,7 @@ agent's good judgment.
 
 Every surface — `vendor/bin/droost-workflow run`, `drush droost:workflow:run`,
 or the MCP run tool — drives one engine, and the engine writes run state to
-`.droost-workflow/run.json` on every invocation.
+`droost/droost-workflow/run.json` on every invocation.
 
 **If this project has a working site, advance through the SITE-BACKED
 surface** — `drush droost:workflow:run` or the MCP run tool — not
@@ -190,7 +190,7 @@ That is a legitimate outcome. The inspection hold is NOT a failing gate — it
 spends no budget. **Abandoning a run is a deliberate act**: ask the operator
 to run `drush droost:workflow:reset --force` (or
 `vendor/bin/droost-workflow reset --force`), which archives the record to
-`.droost-workflow/history/` — there is no quiet way out, on purpose, and the
+`droost/droost-workflow/history/` — there is no quiet way out, on purpose, and the
 record is never discarded.
 
 **Enforcement is live while a run is.** With an active run, the repo's hooks
@@ -250,7 +250,7 @@ ledger, and which browser tier verified the work. That report is the run's
 product just as much as the code is. In a light run, the spec and the change
 summary are presented in chat; in a factory run they are recorded artifacts.
 
-The finished record persists as `.droost-workflow/run.json` until it is
+The finished record persists as `droost/droost-workflow/run.json` until it is
 cleared — `drush droost:workflow:reset` archives it to
-`.droost-workflow/history/` — and the next run cannot start over it, so
+`droost/droost-workflow/history/` — and the next run cannot start over it, so
 finishing a ticket ends with the reset pointer, not just the report.

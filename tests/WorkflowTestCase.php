@@ -71,7 +71,7 @@ abstract class WorkflowTestCase extends TestCase {
    *   The spec path, project-relative.
    */
   protected function writeSpec(string $root, bool $realized = TRUE): string {
-    $dir = $root . '/.droost-workflow';
+    $dir = $root . '/droost/droost-workflow';
     if (!is_dir($dir)) {
       mkdir($dir, 0755, TRUE);
     }
@@ -80,7 +80,7 @@ abstract class WorkflowTestCase extends TestCase {
       $body .= "\n## Realized\n\nFixture capture.\n";
     }
     file_put_contents($dir . '/spec-test-run.md', $body);
-    return '.droost-workflow/spec-test-run.md';
+    return 'droost/droost-workflow/spec-test-run.md';
   }
 
   /**
@@ -93,7 +93,7 @@ abstract class WorkflowTestCase extends TestCase {
    *   Basenames of anything matching *.tmp.
    */
   protected function tempResidue(string $root): array {
-    $found = glob($root . '/.droost-workflow/*.tmp');
+    $found = glob($root . '/droost/droost-workflow/*.tmp');
     return array_map(basename(...), $found === FALSE ? [] : $found);
   }
 

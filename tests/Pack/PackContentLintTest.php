@@ -312,17 +312,17 @@ class PackContentLintTest extends TestCase {
     // And the positive half: the entry and status commands must send an
     // agent to the engine's record, by name.
     $entry = $this->read('commands/droost/workflow/continue.md');
-    $this->assertStringContainsString('.droost-workflow/run.json', $entry);
+    $this->assertStringContainsString('droost/droost-workflow/run.json', $entry);
     $this->assertStringContainsString('resolved_gates', $entry);
     $status = $this->read('commands/droost/workflow/status.md');
-    $this->assertStringContainsString('.droost-workflow/run.json', $status);
+    $this->assertStringContainsString('droost/droost-workflow/run.json', $status);
     $this->assertStringContainsString('phase_gates', $status);
     // Start opens a run: it guards on run.json (refuse to clobber) and hands
     // off to continue. Its whole reason to exist is that declare-browser
     // records against a run the first `run` creates — so it must not tell an
     // agent to declare the browser BEFORE that first invocation.
     $start = $this->read('commands/droost/workflow/start.md');
-    $this->assertStringContainsString('.droost-workflow/run.json', $start);
+    $this->assertStringContainsString('droost/droost-workflow/run.json', $start);
     $this->assertStringContainsString('/droost:workflow:continue', $start);
     $this->assertDoesNotMatchRegularExpression(
       '~before the first `?run`?, .{0,40}declare~i',

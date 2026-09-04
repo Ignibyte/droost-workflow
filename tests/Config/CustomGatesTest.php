@@ -46,6 +46,37 @@ final class CustomGatesTest extends TestCase {
   }
 
   /**
+   * A custom gate may attach to more than one phase — code AND test.
+   *
+   * The Snyk case: a security scan that must run as code lands and again
+   * under the test phase. `phase` takes a comma-separated list (trimmed and
+   * deduplicated), and the gate is woven into every named phase — plus
+   * complete, where everything enabled re-runs.
+   */
+  public function testCustomGateAttachesToMultiplePhases(): void {
+    $config = WorkflowConfig::fromArray([
+      'gates' => [
+        'custom' => [
+          'snyk' => [
+            'on' => TRUE,
+            'phase' => 'code, test',
+            'cmd' => 'snyk test',
+          ],
+        ],
+      ],
+    ], 'test');
+
+    // The list is trimmed and stored normalised.
+    $this->assertSame('code,test', $config->gate('custom:snyk')->option('phase'));
+
+    // And it is due at BOTH phases, plus complete (gatesDueFor keys by name).
+    $state = RunState::begin('r', 't', $config);
+    $this->assertArrayHasKey('custom:snyk', $state->gatesDueFor(Phase::Code));
+    $this->assertArrayHasKey('custom:snyk', $state->gatesDueFor(Phase::Test));
+    $this->assertArrayHasKey('custom:snyk', $state->gatesDueFor(Phase::Complete));
+  }
+
+  /**
    * Nothing about a custom gate is inferred: on, phase and cmd are required.
    *
    * @param array<string, mixed> $entry
@@ -85,7 +116,11 @@ final class CustomGatesTest extends TestCase {
       ],
       'complete is not a placement' => [
         ['on' => TRUE, 'phase' => 'complete', 'cmd' => 'true'],
-        'phase must be one of: code, test',
+        'phase must be one or more of: code, test',
+      ],
+      'a bad phase in a list is refused' => [
+        ['on' => TRUE, 'phase' => 'code,deploy', 'cmd' => 'true'],
+        'phase must be one or more of: code, test',
       ],
       'unknown option' => [
         ['on' => TRUE, 'phase' => 'code', 'cmd' => 'true', 'threshold' => 3],

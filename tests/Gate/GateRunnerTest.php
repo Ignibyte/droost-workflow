@@ -95,8 +95,11 @@ class GateRunnerTest extends WorkflowTestCase {
 
     // The executor sees only the shell gates; config_clean is due here too
     // but routes through the site driver (skipped under NullSiteDriver).
-    $this->assertSame(['phpcs', 'phpstan'], $executor->ran);
-    $this->assertCount(3, $report->results);
+    $this->assertSame(
+      ['phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier'],
+      $executor->ran,
+    );
+    $this->assertCount(6, $report->results);
   }
 
   /**
@@ -110,17 +113,20 @@ class GateRunnerTest extends WorkflowTestCase {
     $report = $runner->run($this->beginWith([]), Phase::Complete, '/tmp');
 
     $this->assertSame(
-      ['phpcs', 'phpstan', 'phpunit', 'mutation', 'playwright', 'coverage', 'wiki_fresh'],
+      [
+        'phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier',
+        'phpunit', 'mutation', 'playwright', 'coverage', 'wiki_fresh',
+      ],
       $executor->ran,
       'every non-site gate must execute at complete',
     );
-    // Nine results: the seven shell gates above plus the two site gates —
+    // Twelve results: the ten shell gates above plus the two site gates —
     // rendered_check and config_clean — which are the ones skipped under
     // NullSiteDriver. wiki_fresh runs through the shell (drush asks the
     // site), so it is not skipped here — with no drush on the path it
     // reports tool-missing, which is a distinct outcome from both passed
     // and skipped.
-    $this->assertCount(9, $report->results);
+    $this->assertCount(12, $report->results);
     $this->assertCount(2, $report->skipped());
   }
 

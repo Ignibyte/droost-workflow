@@ -38,6 +38,9 @@ final class GateSettings {
   public const KNOWN_GATES = [
     'phpcs',
     'phpstan',
+    'eslint',
+    'stylelint',
+    'prettier',
     'phpunit',
     'mutation',
     'playwright',
@@ -109,6 +112,13 @@ final class GateSettings {
     'coverage' => ['min' => 'percent'],
     'rendered_check' => ['routes' => 'string'],
     'config_clean' => [],
+    // The front-end lint trio takes `paths` for the same reason the static
+    // PHP pair does: pointed at a directory, each tool discovers the config
+    // Drupal core ships (.eslintrc.json / .stylelintrc.json / .prettierrc.json
+    // in web/core, which a site may extend) with nothing but argv.
+    'eslint' => ['paths' => 'paths'],
+    'stylelint' => ['paths' => 'paths'],
+    'prettier' => ['paths' => 'paths'],
   ];
 
   /**
@@ -236,13 +246,34 @@ final class GateSettings {
         ));
       }
     }
-    $phase = $node->string('phase');
-    if (!in_array($phase, self::CUSTOM_PHASES, TRUE)) {
+    // The `phase` option accepts one phase or a comma-separated list, the same
+    // shape as `paths`, so a gate can attach to code AND test — a Snyk scan,
+    // say, that must run as code lands and again under the test phase. Each
+    // entry is validated; the deduplicated, order-preserving list is stored.
+    $phases = [];
+    foreach (explode(',', $node->string('phase')) as $candidate) {
+      $candidate = trim($candidate);
+      if ($candidate === '') {
+        continue;
+      }
+      if (!in_array($candidate, self::CUSTOM_PHASES, TRUE)) {
+        throw ConfigError::invalidCustomGate($source, $key, sprintf(
+          'phase must be one or more of: %s (comma-separated; everything '
+          . 'enabled re-runs at complete)',
+          implode(', ', self::CUSTOM_PHASES),
+        ));
+      }
+      if (!in_array($candidate, $phases, TRUE)) {
+        $phases[] = $candidate;
+      }
+    }
+    if ($phases === []) {
       throw ConfigError::invalidCustomGate($source, $key, sprintf(
-        'phase must be one of: %s (everything enabled re-runs at complete)',
+        'phase must name at least one of: %s',
         implode(', ', self::CUSTOM_PHASES),
       ));
     }
+    $phase = implode(',', $phases);
     $cmd = $node->string('cmd');
     // The command is the repo's own, reviewed in the same diff as every
     // other lever — the constraint here is shape, not trust: one line,

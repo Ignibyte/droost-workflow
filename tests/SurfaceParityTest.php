@@ -48,7 +48,7 @@ class SurfaceParityTest extends WorkflowTestCase {
     $phaseGates = $levers['phase_gates'];
     $this->assertIsArray($phaseGates);
     $this->assertSame([], $phaseGates['plan']);
-    $this->assertSame(['phpcs', 'phpstan', 'config_clean'], $phaseGates['code']);
+    $this->assertSame(['phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier', 'config_clean'], $phaseGates['code']);
   }
 
   /**
@@ -138,9 +138,9 @@ class SurfaceParityTest extends WorkflowTestCase {
   public function testRunningWritesRunState(): void {
     $root = $this->makeRootWithConfig("preset: custom\n");
 
-    $this->assertFileDoesNotExist($root . '/.droost-workflow/run.json');
+    $this->assertFileDoesNotExist($root . '/droost/droost-workflow/run.json');
     $this->facade(new NullSiteDriver())->run($root);
-    $this->assertFileExists($root . '/.droost-workflow/run.json');
+    $this->assertFileExists($root . '/droost/droost-workflow/run.json');
 
     $status = $this->facade(new NullSiteDriver())->status($root);
     $this->assertIsArray($status['run']);

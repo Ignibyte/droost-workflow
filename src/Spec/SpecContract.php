@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Spec;
 
+use Droost\Workflow\State\RunStateStore;
+
 /**
  * What the run requires of its spec, phase by phase.
  *
@@ -34,8 +36,11 @@ final class SpecContract {
 
   /**
    * Where run documents live, relative to the project root.
+   *
+   * The default; a project still on the legacy hidden dir is honoured by
+   * RunStateStore::resolveStateDir(), which the discovery below routes through.
    */
-  public const STATE_DIR = '.droost-workflow';
+  public const STATE_DIR = RunStateStore::STATE_DIR;
 
   /**
    * Resolves which spec governs a run.
@@ -83,12 +88,13 @@ final class SpecContract {
     // choice is unambiguous. One candidate is an adoption; several are a
     // guess, and a run governed by a guessed document is worse than a
     // refusal that names the fix.
-    $dir = $root . '/' . self::STATE_DIR;
+    $stateDir = RunStateStore::resolveStateDir($root);
+    $dir = $root . '/' . $stateDir;
     $candidates = glob($dir . '/spec-*.md') ?: [];
     if (count($candidates) === 1) {
       return self::relative($root, $candidates[0]);
     }
-    throw SpecError::unresolvable(self::STATE_DIR, count($candidates));
+    throw SpecError::unresolvable($stateDir, count($candidates));
   }
 
   /**

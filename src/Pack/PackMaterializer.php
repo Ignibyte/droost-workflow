@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Pack;
 
+use Droost\Workflow\State\RunStateStore;
 use Droost\Workflow\Support\TypedArray;
 
 /**
@@ -67,11 +68,32 @@ final class PackMaterializer {
       $this->assertOursOrAbsent($root . '/' . $relative, $relative);
     }
 
+    // Drift-aware materialisation. pack.lock records the hash of what droost
+    // last shipped for each file; a file whose on-disk hash still matches is
+    // refreshed, one the user has since edited is KEPT and reported. First
+    // init (no lock) writes everything, as before.
     $report = new InitReport();
+    $lock = $this->readLock($root);
+    $newLock = [];
     foreach (PackManifest::FILES as $source => $destination) {
-      $this->copy($root, $source, $destination);
+      $shipped = $this->readSource($source);
+      $lastShipped = is_string($lock[$destination] ?? NULL)
+        ? $lock[$destination]
+        : NULL;
+      $to = $root . '/' . $destination;
+      if ($lastShipped !== NULL && is_file($to)
+        && !hash_equals($lastShipped, hash('sha256', (string) file_get_contents($to)))) {
+        // Edited since droost shipped it — keep it, hold the lock at what we
+        // last wrote so the next init still sees the edit.
+        $report = $report->withDrifted($destination);
+        $newLock[$destination] = $lastShipped;
+        continue;
+      }
+      $this->writeFile($destination, $to, $shipped);
       $report = $report->withWritten($destination);
+      $newLock[$destination] = hash('sha256', $shipped);
     }
+    $this->writeLock($root, $newLock);
     foreach (PackManifest::ownedDirectories() as $relative) {
       $this->plantSentinel($root . '/' . $relative, $relative);
     }
@@ -281,16 +303,23 @@ final class PackMaterializer {
     $path = $root . '/' . $relative;
     $existing = is_file($path) ? (string) file_get_contents($path) : '';
 
+    // Ignore the RESOLVED state dir (the visible droost/droost-workflow for a
+    // fresh init, the legacy hidden dir for a project still on it). Either
+    // spelling already present — for the new dir or the legacy one — is kept.
+    $stateDir = RunStateStore::resolveStateDir($root);
+    $already = [
+      $stateDir, $stateDir . '/', '/' . $stateDir, '/' . $stateDir . '/',
+      '.droost-workflow', '.droost-workflow/',
+      '/.droost-workflow', '/.droost-workflow/',
+    ];
     foreach (explode("\n", $existing) as $line) {
-      $line = trim($line);
-      if ($line === '.droost-workflow' || $line === '.droost-workflow/'
-        || $line === '/.droost-workflow' || $line === '/.droost-workflow/') {
+      if (in_array(trim($line), $already, TRUE)) {
         return $report->withKept($relative);
       }
     }
 
     $addition = "# Droost workflow run state and specs (droost/workflow init).\n"
-      . ".droost-workflow/\n";
+      . $stateDir . "/\n";
     $contents = $existing === ''
       ? $addition
       : rtrim($existing, "\n") . "\n\n" . $addition;
@@ -334,39 +363,109 @@ final class PackMaterializer {
   }
 
   /**
-   * Copies one pack file into the project.
+   * Reads one pack file's shipped content.
    *
-   * @param string $root
-   *   The project root.
    * @param string $source
    *   The path within pack/.
-   * @param string $destination
-   *   The path within the project.
+   *
+   * @return string
+   *   The file's content.
    *
    * @throws \Droost\Workflow\Pack\PackError
-   *   When the source is missing or the destination cannot be written.
+   *   When the source is missing or unreadable.
    */
-  private function copy(
-    string $root,
-    string $source,
-    string $destination,
-  ): void {
+  private function readSource(string $source): string {
     $from = $this->packageRoot . '/' . PackManifest::SOURCE_DIR . '/' . $source;
     if (!is_file($from)) {
       throw PackError::sourceMissing(PackManifest::SOURCE_DIR . '/' . $source);
     }
-
     $contents = file_get_contents($from);
     if ($contents === FALSE) {
       throw PackError::sourceMissing(PackManifest::SOURCE_DIR . '/' . $source);
     }
+    return $contents;
+  }
 
-    $to = $root . '/' . $destination;
+  /**
+   * Writes one pack file into the project, creating its directory.
+   *
+   * @param string $destination
+   *   The path within the project (for error messages).
+   * @param string $to
+   *   The absolute destination path.
+   * @param string $contents
+   *   The shipped content.
+   *
+   * @throws \Droost\Workflow\Pack\PackError
+   *   When the destination cannot be written.
+   */
+  private function writeFile(string $destination, string $to, string $contents): void {
     $this->makeDirectory(dirname($to), $destination);
     // A truncating write, so a re-run refreshes rather than appends and the
     // result does not depend on what was there before.
     if (@file_put_contents($to, $contents) !== strlen($contents)) {
       throw PackError::unwritable($destination, 'the write did not complete');
+    }
+  }
+
+  /**
+   * The pack lock's path — inside the (gitignored) run-state directory.
+   */
+  private function lockPath(string $root): string {
+    return $root . '/' . RunStateStore::resolveStateDir($root) . '/pack.lock';
+  }
+
+  /**
+   * Reads the per-file shipped-hash lock, or [] when absent or unreadable.
+   *
+   * An unreadable or malformed lock degrades to "no lock" — the next init then
+   * refreshes every file once (the pre-drift-awareness behaviour) and rewrites
+   * a clean lock, rather than refusing.
+   *
+   * @param string $root
+   *   The project root.
+   *
+   * @return array<string, string>
+   *   Destination path => sha256 of what droost last shipped for it.
+   */
+  private function readLock(string $root): array {
+    $path = $this->lockPath($root);
+    if (!is_file($path)) {
+      return [];
+    }
+    $decoded = json_decode((string) file_get_contents($path), TRUE);
+    if (!is_array($decoded)) {
+      return [];
+    }
+    $lock = [];
+    foreach ($decoded as $file => $hash) {
+      if (is_string($file) && is_string($hash)) {
+        $lock[$file] = $hash;
+      }
+    }
+    return $lock;
+  }
+
+  /**
+   * Writes the per-file shipped-hash lock.
+   *
+   * @param string $root
+   *   The project root.
+   * @param array<string, string> $lock
+   *   Destination path => sha256 of what droost last shipped for it.
+   *
+   * @throws \Droost\Workflow\Pack\PackError
+   *   When the lock cannot be written.
+   */
+  private function writeLock(string $root, array $lock): void {
+    ksort($lock);
+    $stateDir = RunStateStore::resolveStateDir($root);
+    $relative = $stateDir . '/pack.lock';
+    $path = $this->lockPath($root);
+    $this->makeDirectory(dirname($path), $stateDir);
+    $encoded = json_encode($lock, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    if (@file_put_contents($path, $encoded) !== strlen($encoded)) {
+      throw PackError::unwritable($relative, 'the write did not complete');
     }
   }
 

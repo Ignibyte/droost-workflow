@@ -60,18 +60,50 @@ class PackMaterializerTest extends WorkflowTestCase {
   /**
    * REQ-003: re-running refreshes what we own, and is idempotent.
    */
-  public function testReInitRefreshesOwnedFiles(): void {
+  public function testReInitKeepsUserEditedFilesAndReportsDrift(): void {
+    $root = $this->makeRoot();
+    $materializer = new PackMaterializer();
+    $materializer->init($root);
+
+    // Edit a shipped pack file after the first init.
+    $skill = $root . '/.claude/skills/workflow-plan/SKILL.md';
+    file_put_contents($skill, "my tuned version\n");
+
+    $report = $materializer->init($root);
+
+    // The edit is KEPT, not clobbered — the drift-aware materializer holds a
+    // file the user changed since droost shipped it...
+    $this->assertSame("my tuned version\n", file_get_contents($skill));
+    // ...and surfaces it as drift rather than silently discarding it.
+    $this->assertContains(
+      '.claude/skills/workflow-plan/SKILL.md',
+      $report->drifted,
+    );
+  }
+
+  /**
+   * An unedited pack file is refreshed on re-init (the lock still matches).
+   */
+  public function testReInitRefreshesUnmodifiedFiles(): void {
     $root = $this->makeRoot();
     $materializer = new PackMaterializer();
     $materializer->init($root);
 
     $skill = $root . '/.claude/skills/workflow-plan/SKILL.md';
     $pristine = file_get_contents($skill);
-    file_put_contents($skill, "clobbered\n");
 
-    $materializer->init($root);
+    $report = $materializer->init($root);
 
+    // Untouched since droost wrote it, so it is rewritten, not kept as drift.
     $this->assertSame($pristine, file_get_contents($skill));
+    $this->assertNotContains(
+      '.claude/skills/workflow-plan/SKILL.md',
+      $report->drifted,
+    );
+    $this->assertContains(
+      '.claude/skills/workflow-plan/SKILL.md',
+      $report->written,
+    );
   }
 
   /**

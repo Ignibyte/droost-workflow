@@ -392,7 +392,11 @@ final class WorkflowFacade {
    */
   public function reset(string $projectRoot, bool $force = FALSE): string {
     $store = new RunStateStore($projectRoot);
-    $path = $projectRoot . '/.droost-workflow/run.json';
+    // Everything below reads the store's RESOLVED state directory, so reset
+    // finds the run wherever it lives — the visible droost/droost-workflow or
+    // a project still on the legacy hidden dir.
+    $stateDir = $store->directory();
+    $path = $store->path();
     if (!is_file($path)) {
       throw StateError::noRun($store->label());
     }
@@ -415,7 +419,7 @@ final class WorkflowFacade {
         $state->currentPhase->value,
       );
     }
-    $history = $projectRoot . '/.droost-workflow/history';
+    $history = $stateDir . '/history';
     if (!is_dir($history) && !@mkdir($history, 0777, TRUE) && !is_dir($history)) {
       throw StateError::archiveFailed($history, 'the history directory could not be created');
     }
@@ -428,7 +432,7 @@ final class WorkflowFacade {
     if (@rename($path, $target) === FALSE) {
       throw StateError::archiveFailed($target, 'the record could not be moved');
     }
-    foreach (glob($projectRoot . '/.droost-workflow/.guard-warned-*') ?: [] as $marker) {
+    foreach (glob($stateDir . '/.guard-warned-*') ?: [] as $marker) {
       @unlink($marker);
     }
     return $target;

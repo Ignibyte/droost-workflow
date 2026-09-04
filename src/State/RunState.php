@@ -240,9 +240,16 @@ final class RunState {
       if (!GateSettings::isCustom($name)) {
         continue;
       }
+      // `phase` is one phase or a comma-separated list (GateSettings validates
+      // it), so a custom gate can attach to code AND test. It is woven into
+      // each named phase the run configures, and always into complete.
       $at = $gate->option('phase');
-      if (is_string($at) && isset($phaseGates[$at])) {
-        $phaseGates[$at][] = $name;
+      if (is_string($at)) {
+        foreach (explode(',', $at) as $phase) {
+          if (isset($phaseGates[$phase])) {
+            $phaseGates[$phase][] = $name;
+          }
+        }
       }
       if (isset($phaseGates['complete'])) {
         $phaseGates['complete'][] = $name;

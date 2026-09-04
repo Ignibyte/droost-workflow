@@ -34,13 +34,51 @@ final class RunStateStore {
 
   /**
    * The directory, relative to the project root, that holds run artefacts.
+   *
+   * A visible folder under a single top-level `droost/` directory — beside
+   * `droost/wiki` — because the spec and the run record are things people read,
+   * not machinery to hide. Prefer resolveStateDir(), which honours a project
+   * still on the legacy hidden dir.
    */
-  public const STATE_DIR = '.droost-workflow';
+  public const STATE_DIR = 'droost/droost-workflow';
+
+  /**
+   * The pre-0.7 hidden location, still honoured so existing runs keep working.
+   *
+   * A project that already has `.droost-workflow/` (and not the new dir) keeps
+   * using it until it is moved by hand; a fresh project gets the visible dir.
+   * Every reader resolves through resolveStateDir() so the wall, status, reset
+   * and the guards all agree on where a given project's run state lives — an
+   * inconsistency there would make the wall look in the wrong place.
+   */
+  public const LEGACY_STATE_DIR = '.droost-workflow';
 
   /**
    * The state file's name within that directory.
    */
   public const STATE_FILE = 'run.json';
+
+  /**
+   * Resolves which state directory a project uses.
+   *
+   * The visible `droost/droost-workflow` by default; the legacy hidden
+   * `.droost-workflow` only when that exists and the new one does not, so an
+   * install predating the move keeps working with no migration step.
+   *
+   * @param string $projectRoot
+   *   The project root.
+   *
+   * @return string
+   *   The state directory relative to the project root.
+   */
+  public static function resolveStateDir(string $projectRoot): string {
+    $root = rtrim($projectRoot, '/');
+    if (is_dir($root . '/' . self::LEGACY_STATE_DIR)
+      && !is_dir($root . '/' . self::STATE_DIR)) {
+      return self::LEGACY_STATE_DIR;
+    }
+    return self::STATE_DIR;
+  }
 
   /**
    * Constructs a RunStateStore.
@@ -54,6 +92,7 @@ final class RunStateStore {
    */
   public function __construct(string $projectRoot) {
     $this->projectRoot = TypedArray::requireProjectRoot($projectRoot);
+    $this->stateDir = self::resolveStateDir($this->projectRoot);
   }
 
   /**
@@ -62,13 +101,18 @@ final class RunStateStore {
   private readonly string $projectRoot;
 
   /**
+   * The resolved state directory for this project (new visible, or legacy).
+   */
+  private readonly string $stateDir;
+
+  /**
    * The directory run artefacts live in.
    *
    * @return string
    *   The absolute directory path.
    */
   public function directory(): string {
-    return rtrim($this->projectRoot, '/') . '/' . self::STATE_DIR;
+    return rtrim($this->projectRoot, '/') . '/' . $this->stateDir;
   }
 
   /**
@@ -88,7 +132,7 @@ final class RunStateStore {
    *   The relative path.
    */
   public function label(): string {
-    return self::STATE_DIR . '/' . self::STATE_FILE;
+    return $this->stateDir . '/' . self::STATE_FILE;
   }
 
   /**
@@ -196,7 +240,7 @@ final class RunStateStore {
       && !is_dir($directory)) {
       throw StateError::unwritable(
         $this->label(),
-        'could not create ' . self::STATE_DIR,
+        'could not create ' . $this->stateDir,
       );
     }
     // is_dir() and is_writable() both follow symlinks, so without this a
@@ -205,14 +249,14 @@ final class RunStateStore {
     if (is_link($directory)) {
       throw StateError::unwritable(
         $this->label(),
-        self::STATE_DIR . ' is a symlink; run state must stay inside the '
+        $this->stateDir . ' is a symlink; run state must stay inside the '
         . 'project',
       );
     }
     if (!is_writable($directory)) {
       throw StateError::unwritable(
         $this->label(),
-        self::STATE_DIR . ' is not writable',
+        $this->stateDir . ' is not writable',
       );
     }
 

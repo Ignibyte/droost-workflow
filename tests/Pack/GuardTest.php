@@ -49,7 +49,7 @@ final class GuardTest extends WorkflowTestCase {
    */
   public function testRequireRunIgnoresNonCustomPaths(): void {
     $root = $this->makeRoot();
-    foreach (['README.md', 'web/core/lib/Drupal.php', 'web/modules/contrib/x/x.php', '.droost-workflow/spec.md'] as $path) {
+    foreach (['README.md', 'web/core/lib/Drupal.php', 'web/modules/contrib/x/x.php', 'droost/droost-workflow/spec.md'] as $path) {
       [$exit, , $stderr] = $this->guard($root, "pre-tool-use", [
         "tool_input" => ["file_path" => $path],
       ]);
@@ -63,14 +63,14 @@ final class GuardTest extends WorkflowTestCase {
    *
    * Only the operator's command writes reason AND granted_at — the guard
    * honors exactly that shape, so a hand-rolled or corrupt marker is not a
-   * grant (writes under .droost-workflow/ are outside the wall's boundary,
+   * grant (writes under droost/droost-workflow/ are outside the wall,
    * and an existence-only check made bypass.json a one-call self-disarm).
    */
   public function testRequireRunBypassAllows(): void {
     $root = $this->makeRoot();
-    mkdir($root . '/.droost-workflow', 0755, TRUE);
+    mkdir($root . '/droost/droost-workflow', 0755, TRUE);
     file_put_contents(
-      $root . '/.droost-workflow/bypass.json',
+      $root . '/droost/droost-workflow/bypass.json',
       '{"reason":"hotfix","granted_at":"2026-08-26T12:00:00+00:00"}',
     );
     [$exit, , $stderr] = $this->guard($root, 'pre-tool-use', [
@@ -93,8 +93,8 @@ final class GuardTest extends WorkflowTestCase {
     ];
     foreach ($cases as $label => $content) {
       $root = $this->makeRoot();
-      mkdir($root . '/.droost-workflow', 0755, TRUE);
-      file_put_contents($root . '/.droost-workflow/bypass.json', $content);
+      mkdir($root . '/droost/droost-workflow', 0755, TRUE);
+      file_put_contents($root . '/droost/droost-workflow/bypass.json', $content);
       [$exit] = $this->guard($root, 'pre-tool-use', [
         'tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module'],
       ]);
@@ -117,8 +117,8 @@ final class GuardTest extends WorkflowTestCase {
 
     // The authentic post-0.4.5 terminal shape: no current phase.
     $terminal = $this->makeRoot();
-    mkdir($terminal . '/.droost-workflow', 0755, TRUE);
-    file_put_contents($terminal . '/.droost-workflow/run.json', json_encode([
+    mkdir($terminal . '/droost/droost-workflow', 0755, TRUE);
+    file_put_contents($terminal . '/droost/droost-workflow/run.json', json_encode([
       'current_phase' => NULL,
       'phases' => ['plan' => 'passed', 'code' => 'passed', 'test' => 'passed', 'complete' => 'passed'],
       'enforcement' => 'hard',
@@ -138,8 +138,8 @@ final class GuardTest extends WorkflowTestCase {
 
     // Unreadable is not a run at all.
     $corrupt = $this->makeRoot();
-    mkdir($corrupt . '/.droost-workflow', 0755, TRUE);
-    file_put_contents($corrupt . '/.droost-workflow/run.json', 'not json');
+    mkdir($corrupt . '/droost/droost-workflow', 0755, TRUE);
+    file_put_contents($corrupt . '/droost/droost-workflow/run.json', 'not json');
     [$exit] = $this->guard($corrupt, 'pre-tool-use', $payload);
     $this->assertSame(2, $exit, 'junk in run.json is not a self-disarm');
 
@@ -227,7 +227,7 @@ final class GuardTest extends WorkflowTestCase {
     $this->assertStringContainsString('PLAN', $stderr);
 
     [$exit, $stdout, $stderr] = $this->guard($root, 'pre-tool-use', [
-      'tool_input' => ['file_path' => '.droost-workflow/spec-thing.md'],
+      'tool_input' => ['file_path' => 'droost/droost-workflow/spec-thing.md'],
     ]);
     $this->assertSame(0, $exit, 'the spec is plan\'s own artefact');
     $this->assertSame('', $stdout . $stderr);
@@ -404,8 +404,8 @@ final class GuardTest extends WorkflowTestCase {
     string $enforcement,
   ): string {
     $root = $this->makeRoot();
-    mkdir($root . '/.droost-workflow', 0755, TRUE);
-    file_put_contents($root . '/.droost-workflow/run.json', json_encode([
+    mkdir($root . '/droost/droost-workflow', 0755, TRUE);
+    file_put_contents($root . '/droost/droost-workflow/run.json', json_encode([
       'current_phase' => $phase,
       'phases' => [$phase => $status],
       'enforcement' => $enforcement,

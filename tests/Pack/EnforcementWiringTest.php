@@ -14,7 +14,7 @@ use Droost\Workflow\Tests\WorkflowTestCase;
  *
  * Three facts are pinned: settings.json is MERGED and never clobbered,
  * shared .claude directories are never claimed with a sentinel, and
- * .droost-workflow/ is gitignored by default. Each is the kind of decision
+ * droost/droost-workflow/ is gitignored by default. Each is the kind of choice
  * that only hurts a user when it regresses silently.
  */
 final class EnforcementWiringTest extends WorkflowTestCase {
@@ -245,18 +245,18 @@ final class EnforcementWiringTest extends WorkflowTestCase {
     $this->assertContains('.gitignore', $first->written);
     $contents = (string) file_get_contents($root . '/.gitignore');
     $this->assertStringContainsString("vendor/\n", $contents);
-    $this->assertStringContainsString(".droost-workflow/\n", $contents);
+    $this->assertStringContainsString("droost/droost-workflow/\n", $contents);
 
     $second = $materializer->init($root);
     $this->assertContains('.gitignore', $second->kept);
 
     // A repo that already ignores it — in any spelling — is left alone.
     $spelled = $this->makeRoot();
-    file_put_contents($spelled . '/.gitignore', "/.droost-workflow\n");
+    file_put_contents($spelled . '/.gitignore', "/droost/droost-workflow\n");
     $report = (new PackMaterializer())->init($spelled);
     $this->assertContains('.gitignore', $report->kept);
     $this->assertSame(
-      "/.droost-workflow\n",
+      "/droost/droost-workflow\n",
       file_get_contents($spelled . '/.gitignore'),
     );
   }

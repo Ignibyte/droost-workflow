@@ -25,7 +25,7 @@ said nothing has not opted out of anything.
 This is useful on its own: it is how someone checks what their configuration
 actually resolves to before committing to a run.
 
-**2. The run — read from `.droost-workflow/run.json`.** Which phases are
+**2. The run — read from `droost/droost-workflow/run.json`.** Which phases are
 done, which is current, each phase's recorded gate report, the retry
 counters against their bound, whether the run is awaiting an answer, the
 seeker record (armed, and the latest parsed inspection), and the declared

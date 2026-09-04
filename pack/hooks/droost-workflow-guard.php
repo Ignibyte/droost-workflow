@@ -55,6 +55,16 @@ if ($root === FALSE) {
   exit(0);
 }
 
+// The run-state directory — the visible droost/droost-workflow, or the legacy
+// hidden .droost-workflow when only that exists. Resolved exactly as the engine
+// does (RunStateStore::resolveStateDir) so the wall reads run state from where
+// it actually lives; a mismatch would over- or under-block. Standalone hook, so
+// the rule is inlined rather than imported.
+$stateDir = (is_dir($root . '/.droost-workflow')
+  && !is_dir($root . '/droost/droost-workflow'))
+  ? '.droost-workflow'
+  : 'droost/droost-workflow';
+
 if ($mode === 'operator-commands') {
   // Run state is irrelevant here: bypass is granted precisely when there is
   // no run, and a waiver during one. The rule is about WHO, not WHEN.
@@ -62,7 +72,7 @@ if ($mode === 'operator-commands') {
   exit(0);
 }
 
-$stateFile = $root . '/.droost-workflow/run.json';
+$stateFile = $root . '/' . $stateDir . '/run.json';
 if (!is_file($stateFile)) {
   // No active run. The pipeline is silent about ordinary conversation — but
   // there is one moment governance gets skipped entirely: a code edit with no
@@ -110,8 +120,8 @@ if ($enforcement !== 'hard' && $enforcement !== 'soft') {
 /**
  * Emits a soft nudge, at most once per phase per mode.
  */
-$warnOnce = static function (string $message) use ($root, $mode, $phase): void {
-  $marker = $root . '/.droost-workflow/.guard-warned-' . $mode . '-' . $phase;
+$warnOnce = static function (string $message) use ($root, $stateDir, $mode, $phase): void {
+  $marker = $root . '/' . $stateDir . '/.guard-warned-' . $mode . '-' . $phase;
   if (is_file($marker)) {
     return;
   }
@@ -131,12 +141,12 @@ if ($mode === 'pre-tool-use') {
   $input = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
   $file = $input['file_path'] ?? ($input['notebook_path'] ?? '');
   $file = is_string($file) ? $file : '';
-  if (str_contains($file, '.droost-workflow/')
+  if (str_contains($file, $stateDir . '/')
     || str_ends_with($file, 'droost.workflow.yml')) {
     exit(0);
   }
   $message = 'droost:workflow:continue: the active run is still in PLAN — write the spec '
-    . 'under .droost-workflow/ and advance the run (/droost:workflow:continue) before '
+    . 'under ' . $stateDir . '/ and advance the run (/droost:workflow:continue) before '
     . 'editing project files.';
   if ($enforcement === 'hard') {
     fwrite(STDERR, $message);
@@ -280,8 +290,15 @@ function require_run_guard(string $root, string $mode): void {
   // drush droost:workflow:status, so the hook allows silently rather than
   // narrating every edit. Only the operator's command writes reason and
   // granted_at — a hand-rolled or corrupt marker is not a grant.
-  $grant = is_file($root . '/.droost-workflow/bypass.json')
-    ? json_decode((string) file_get_contents($root . '/.droost-workflow/bypass.json'), TRUE)
+  // Resolve the state dir the same way the engine does — the visible
+  // droost/droost-workflow, or the legacy hidden dir when only that exists.
+  $stateDir = (is_dir($root . '/.droost-workflow')
+    && !is_dir($root . '/droost/droost-workflow'))
+    ? '.droost-workflow'
+    : 'droost/droost-workflow';
+  $bypass = $root . '/' . $stateDir . '/bypass.json';
+  $grant = is_file($bypass)
+    ? json_decode((string) file_get_contents($bypass), TRUE)
     : NULL;
   if (is_array($grant)
     && is_string($grant['reason'] ?? NULL) && $grant['reason'] !== ''

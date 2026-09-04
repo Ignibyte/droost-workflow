@@ -12,14 +12,14 @@ already open; `/droost:workflow:status` inspects without changing anything.
 
 ## First, refuse to clobber an existing run
 
-If `.droost-workflow/run.json` already exists, do **not** start a second run:
+If `droost/droost-workflow/run.json` already exists, do **not** start a second run:
 
 - The run is still **in progress** → resume it with
   `/droost:workflow:continue`, not a new start. To abandon it deliberately,
   `drush droost:workflow:reset --force`.
 - The run has **finished** (completed or failed) → clear it with
   `drush droost:workflow:reset` (it archives the record to
-  `.droost-workflow/history/`), then start fresh.
+  `droost/droost-workflow/history/`), then start fresh.
 
 Only when there is no run.json does a start proceed.
 
@@ -35,9 +35,9 @@ file to exist. So the sequence is:
    spec at `factory`, a shorter same-shape spec at `light`). The spec file
    exists BEFORE code does.
 2. **Invoke the run surface, declaring the spec** —
-   `vendor/bin/droost-workflow run --spec=.droost-workflow/spec-<slug>.md`
+   `vendor/bin/droost-workflow run --spec=droost/droost-workflow/spec-<slug>.md`
    (the drush and MCP surfaces take the same option). This BEGINS the run
-   (writes `.droost-workflow/run.json`), records WHICH document governs it,
+   (writes `droost/droost-workflow/run.json`), records WHICH document governs it,
    and gates the plan phase — which requires the spec's `## Tooling plan`
    section to be present before the run may leave plan. On a project holding
    several spec files the declaration is mandatory: the engine refuses to

@@ -21,7 +21,7 @@ use Droost\Workflow\WorkflowFacade;
  *
  * Every invocation below builds a FRESH facade over the same executor, the
  * way real invocations arrive as separate processes: the only thing carrying
- * the budget between them is .droost-workflow/run.json. An engine-level test
+ * the budget between them is droost/droost-workflow/run.json. An engine test
  * cannot prove that half, and it is the half that was missing — the counters
  * existed and were unit-tested while nothing in production consulted them.
  */

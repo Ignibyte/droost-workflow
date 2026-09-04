@@ -144,7 +144,7 @@ class RunStateStoreTest extends WorkflowTestCase {
   ): void {
     $root = $this->makeRoot();
     $store = new RunStateStore($root);
-    mkdir($root . '/.droost-workflow', 0755, TRUE);
+    mkdir($root . '/droost/droost-workflow', 0755, TRUE);
     file_put_contents($store->path(), $contents);
     $before = hash_file('sha256', $store->path());
 
@@ -287,7 +287,7 @@ class RunStateStoreTest extends WorkflowTestCase {
   public function testAbsentPhaseGatesSynthesizeTheDefaultMap(): void {
     $root = $this->makeRoot();
     $store = new RunStateStore($root);
-    mkdir($root . '/.droost-workflow', 0755, TRUE);
+    mkdir($root . '/droost/droost-workflow', 0755, TRUE);
     $document = [
       'v' => 1,
       'run_id' => 'r',
@@ -311,7 +311,7 @@ class RunStateStoreTest extends WorkflowTestCase {
 
     $this->assertNotNull($loaded);
     $this->assertSame(
-      ['plan' => [], 'code' => ['phpcs', 'phpstan', 'config_clean']],
+      ['plan' => [], 'code' => ['phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier', 'config_clean']],
       $loaded->phaseGates,
     );
   }
@@ -372,7 +372,8 @@ class RunStateStoreTest extends WorkflowTestCase {
   public function testSymlinkedStateDirectoryIsRefused(): void {
     $root = $this->makeRoot();
     $outside = $this->makeRoot();
-    symlink($outside, $root . '/.droost-workflow');
+    mkdir($root . '/droost', 0755, TRUE);
+    symlink($outside, $root . '/droost/droost-workflow');
 
     $this->expectException(StateError::class);
     $this->expectExceptionMessage('is a symlink');

@@ -17,7 +17,7 @@ against.
 - `droost.workflow.yml` loads. If it does not, stop and report the error —
   it names the key that is wrong.
 - No run is already in progress, or you are deliberately resuming one. Check
-  `.droost-workflow/run.json` — and read it: a `current_phase` of `null`
+  `droost/droost-workflow/run.json` — and read it: a `current_phase` of `null`
   means the run FINISHED (the file is its record, cleared with
   `drush droost:workflow:reset`), while a named phase means it is live.
 
@@ -73,10 +73,10 @@ Then produce the spec:
 
 The spec's WEIGHT follows the run's preset — and since 0.4 the weight is
 DEPTH, never format. A **factory** run writes the full spec above to
-`.droost-workflow/spec-<slug>.md`. A **light** run writes a shorter spec in
+`droost/droost-workflow/spec-<slug>.md`. A **light** run writes a shorter spec in
 the same EARS shape — what was asked, what will change, and a handful of
 "When <trigger>, the <system> shall <response>" criteria — to
-`.droost-workflow/tmp-spec-<slug>.md`, presented back in chat at complete.
+`droost/droost-workflow/tmp-spec-<slug>.md`, presented back in chat at complete.
 One spec format everywhere is what the seeker checkpoint grades against;
 a criterion-free sketch would give the adversarial reviewer nothing to hold
 the diff to. Either way the file exists BEFORE code does: light trims depth,

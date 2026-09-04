@@ -45,6 +45,16 @@ final class ShellGateExecutor implements GateExecutorInterface {
     'phpstan' => [
       'php', 'module', 'install', 'inc', 'theme', 'profile', 'engine',
     ],
+    // The front-end trio. Each scopes to the files its tool owns, so a path
+    // with no JS/CSS reports a labeled "nothing to analyse" pass rather than
+    // a tool error — the same honesty as the static PHP pair. prettier is
+    // deliberately held to the JS/CSS family (not yml/json/md) so the gate
+    // never reformats Drupal's own info.yml or a README.
+    'eslint' => ['js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'vue'],
+    'stylelint' => ['css', 'scss', 'less', 'pcss'],
+    'prettier' => [
+      'js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'vue', 'css', 'scss', 'less',
+    ],
   ];
 
   /**
@@ -458,11 +468,12 @@ final class ShellGateExecutor implements GateExecutorInterface {
    *   The relative path.
    */
   public static function binaryPathFor(string $gate): string {
-    // Playwright is an npm tool: it never appears under vendor/bin, and
-    // until 0.4 this mapping pointed there — a gate that could only ever
-    // report tool-missing on every repo in existence.
-    if ($gate === 'playwright') {
-      return 'node_modules/.bin/playwright';
+    // The npm tools never appear under vendor/bin — they live in the site's
+    // node_modules/.bin. playwright and the front-end lint trio all probe
+    // there; on a repo with no node toolchain the executor reports
+    // tool-missing (with the message saying how to install it), never a pass.
+    if (in_array($gate, ['playwright', 'eslint', 'stylelint', 'prettier'], TRUE)) {
+      return 'node_modules/.bin/' . $gate;
     }
     return 'vendor/bin/' . match ($gate) {
       'coverage' => 'phpunit',
@@ -516,6 +527,18 @@ final class ShellGateExecutor implements GateExecutorInterface {
         // the repo's own lint script passed the same flag all along.
         '--memory-limit=1G',
       ],
+      // The front-end lint trio. Exit code IS the verdict (nonzero = problems),
+      // like the mandatory tools; the json format is emitted for the findings
+      // detail the report renders, not for the pass/fail decision. execute()
+      // appends the scoped custom-tree paths, and each tool discovers the
+      // config Drupal core ships in web/core (a site may extend it).
+      // NOTE: live invocation is version-sensitive and is validated on a
+      // node-equipped site — eslint 9 flat-config lints a directory directly
+      // (eslint 8 wanted --ext); stylelint prefers file globs, so a bare
+      // directory in `paths` is refined to a glob on the first real run.
+      'eslint' => [$binary, '--format=json'],
+      'stylelint' => [$binary, '--formatter=json'],
+      'prettier' => [$binary, '--check'],
       // Drush exits non-zero when any page is stale, orphaned or invalid, so
       // the gate needs no parsing — the command IS the verdict.
       'wiki_fresh' => [$binary, 'droost:wiki:status'],

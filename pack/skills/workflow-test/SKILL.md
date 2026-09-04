@@ -15,7 +15,7 @@ What the gates report about the artefact is.
 
 - The code phase passed.
 - You know which gates this run is held to — the resolved set was frozen
-  into `.droost-workflow/run.json` (`resolved_gates`) when the run began,
+  into `droost/droost-workflow/run.json` (`resolved_gates`) when the run began,
   and survives any restart. The engine reads it from there; so should you.
 
 ## Work
@@ -48,7 +48,7 @@ executed. None of the legs render a page or fetch a URL — do not describe
 when something failed, rather than guessing from an exit code.
 
 **Verify through the browser tier the run declared** (`browser` in
-`.droost-workflow/run.json`, recorded at run start):
+`droost/droost-workflow/run.json`, recorded at run start):
 
 - `playwright-mcp` — drive the real browser over the changed surfaces: load
   the pages your diff touches, exercise the behaviour the criteria name,

@@ -114,17 +114,17 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
     $root = $this->makeRootWithConfig("preset: custom\n");
     $executor = $this->allGatesPass();
     $this->driveToCompletion($executor, $root);
-    touch($root . '/.droost-workflow/.guard-warned-require-run');
+    touch($root . '/droost/droost-workflow/.guard-warned-require-run');
 
     $archived = $this->facade($executor)->reset($root);
 
-    $this->assertFileDoesNotExist($root . '/.droost-workflow/run.json');
+    $this->assertFileDoesNotExist($root . '/droost/droost-workflow/run.json');
     $this->assertFileExists($archived);
-    $this->assertStringStartsWith($root . '/.droost-workflow/history/', $archived);
+    $this->assertStringStartsWith($root . '/droost/droost-workflow/history/', $archived);
     $record = json_decode((string) file_get_contents($archived), TRUE);
     $this->assertIsArray($record, 'the archive is the record, not a copy of nothing');
     $this->assertFileDoesNotExist(
-      $root . '/.droost-workflow/.guard-warned-require-run',
+      $root . '/droost/droost-workflow/.guard-warned-require-run',
       'per-run warn-once markers do not outlive the run',
     );
 
@@ -157,12 +157,12 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
       $this->assertStringContainsString('in progress', $e->getMessage());
       $this->assertStringContainsString('plan', $e->getMessage());
     }
-    $this->assertFileExists($root . '/.droost-workflow/run.json');
+    $this->assertFileExists($root . '/droost/droost-workflow/run.json');
 
     // Abandoning it stays possible — said out loud.
     $archived = $this->facade($executor)->reset($root, force: TRUE);
     $this->assertFileExists($archived);
-    $this->assertFileDoesNotExist($root . '/.droost-workflow/run.json');
+    $this->assertFileDoesNotExist($root . '/droost/droost-workflow/run.json');
   }
 
   /**
@@ -171,11 +171,11 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
   public function testResetArchivesCorruptRecordsWithoutOverwriting(): void {
     $root = $this->makeRoot();
     $executor = $this->allGatesPass();
-    mkdir($root . '/.droost-workflow', 0755, TRUE);
+    mkdir($root . '/droost/droost-workflow', 0755, TRUE);
 
-    file_put_contents($root . '/.droost-workflow/run.json', 'FIRST-GARBAGE');
+    file_put_contents($root . '/droost/droost-workflow/run.json', 'FIRST-GARBAGE');
     $first = $this->facade($executor)->reset($root);
-    file_put_contents($root . '/.droost-workflow/run.json', 'SECOND-GARBAGE');
+    file_put_contents($root . '/droost/droost-workflow/run.json', 'SECOND-GARBAGE');
     $second = $this->facade($executor)->reset($root);
 
     $this->assertNotSame($first, $second, 'the second archive gets its own name');
@@ -192,7 +192,7 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
     $this->driveToCompletion($executor, $root);
 
     // With history in the way as a FILE, mkdir and rename both must fail.
-    file_put_contents($root . '/.droost-workflow/history', 'in the way');
+    file_put_contents($root . '/droost/droost-workflow/history', 'in the way');
 
     try {
       $this->facade($executor)->reset($root);
@@ -203,7 +203,7 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
       $this->assertStringContainsString('nothing was cleared', $e->getMessage());
     }
     $this->assertFileExists(
-      $root . '/.droost-workflow/run.json',
+      $root . '/droost/droost-workflow/run.json',
       'nothing was deleted on the failed archive',
     );
   }
