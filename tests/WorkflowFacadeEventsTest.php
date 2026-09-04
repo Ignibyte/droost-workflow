@@ -146,6 +146,77 @@ final class WorkflowFacadeEventsTest extends WorkflowTestCase {
   }
 
   /**
+   * In interactive mode the same events fire — driven by answers, not advances.
+   */
+  public function testLifecycleEventsFireInInteractiveMode(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: interactive\nseekers:\n  on: false\n");
+    $executor = $this->allGatesPass();
+    $listener = new class() extends NullWorkflowListener {
+
+      /**
+       * The events seen, in order.
+       *
+       * @var list<string>
+       */
+      public array $log = [];
+
+      /**
+       * {@inheritdoc}
+       */
+      public function onRunStart(RunState $state): void {
+        $this->log[] = 'start';
+      }
+
+      /**
+       * {@inheritdoc}
+       */
+      public function onPhaseChange(RunState $state, Phase $from, Phase $to): void {
+        $this->log[] = 'phase:' . $from->value . '>' . $to->value;
+      }
+
+      /**
+       * {@inheritdoc}
+       */
+      public function onRunComplete(RunState $state): void {
+        $this->log[] = 'complete';
+      }
+
+    };
+
+    // Interactive holds at every phase: run() begins and pauses, and the ANSWER
+    // advances. So phase-change and completion fire from the answer path, not
+    // just the agentic advance path — the mode the Jira work must run in too.
+    for ($i = 0; $i < 16; $i++) {
+      $outcome = $this->facade($executor, $listener)->run($root);
+      if ($outcome->outcome === Outcome::Completed) {
+        break;
+      }
+      if ($outcome->outcome !== Outcome::Paused) {
+        break;
+      }
+      $answered = $this->facade($executor, $listener)->answer($root, 'continue');
+      if ($answered->currentPhase === NULL) {
+        break;
+      }
+    }
+
+    $state = (new RunStateStore($root))->load();
+    $this->assertNotNull($state);
+    $this->assertNull($state->currentPhase, 'the interactive run reached its end');
+    $this->assertSame(
+      [
+        'start',
+        'phase:' . Phase::Plan->value . '>' . Phase::Code->value,
+        'phase:' . Phase::Code->value . '>' . Phase::Test->value,
+        'phase:' . Phase::Test->value . '>' . Phase::Complete->value,
+        'complete',
+      ],
+      $listener->log,
+      'interactive fires the same lifecycle events, via the answer path',
+    );
+  }
+
+  /**
    * An executor where every gate passes.
    *
    * @return \Droost\Workflow\Gate\GateExecutorInterface
