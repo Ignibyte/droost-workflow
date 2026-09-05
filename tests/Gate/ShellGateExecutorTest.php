@@ -398,6 +398,55 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * The front-end trio are handed concrete files, never a bare directory.
+   *
+   * A real defect caught live (EMT dogfood): stylelint given the directory
+   * `web/modules/custom` globbed EVERY file under it — .info.yml, .install,
+   * .php, .twig — and parsed each as CSS, raising a CssSyntaxError on all of
+   * them. The tool must see only the files it owns; phpcs/phpstan keep taking
+   * the directory (they filter by extension themselves).
+   */
+  public function testFrontEndTrioScopeToConcreteFiles(): void {
+    $root = $this->makeRoot();
+    // stylelint's binary lives under node_modules/.bin, not vendor/bin.
+    mkdir($root . '/node_modules/.bin', 0755, TRUE);
+    file_put_contents($root . '/node_modules/.bin/stylelint', "#!/bin/sh\nexit 0\n");
+    chmod($root . '/node_modules/.bin/stylelint', 0755);
+    $mod = $root . '/web/modules/custom/fx';
+    mkdir($mod . '/css', 0755, TRUE);
+    file_put_contents($mod . '/css/fx.css', ".a { color: red; }\n");
+    // The non-CSS neighbours a bare directory would sweep in.
+    file_put_contents($mod . '/fx.info.yml', "name: FX\n");
+    file_put_contents($mod . '/fx.module', "<?php\n");
+    file_put_contents($mod . '/fx.libraries.yml', "fx: {}\n");
+    $seen = [];
+    $executor = new ShellGateExecutor(
+      function (array $argv) use (&$seen): array {
+        $seen = $argv;
+        return [0, '[]', ''];
+      },
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(
+      new GateSettings('stylelint', TRUE, [
+        'paths' => 'web/modules/custom,web/themes/custom',
+      ]),
+      $root,
+    );
+
+    $this->assertSame(GateStatus::Passed, $result->status);
+    // The one real stylesheet is passed by its concrete path...
+    $this->assertContains('web/modules/custom/fx/css/fx.css', $seen);
+    // ...and none of the non-CSS neighbours, nor the bare directory that
+    // would have swept them in, is ever handed to stylelint.
+    $this->assertNotContains('web/modules/custom', $seen);
+    $this->assertNotContains('web/modules/custom/fx/fx.info.yml', $seen);
+    $this->assertNotContains('web/modules/custom/fx/fx.module', $seen);
+    $this->assertNotContains('web/modules/custom/fx/fx.libraries.yml', $seen);
+  }
+
+  /**
    * A paths lever whose scope holds nothing is a labeled pass, not a run.
    *
    * PHPStan exits non-zero on a path set with no PHP in it, so running would

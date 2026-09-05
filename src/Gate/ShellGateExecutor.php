@@ -58,6 +58,18 @@ final class ShellGateExecutor implements GateExecutorInterface {
   ];
 
   /**
+   * Gates that must receive concrete files, never a bare directory.
+   *
+   * The phpcs and phpstan gates take a directory and filter by extension
+   * themselves. The front-end trio do NOT: handed a directory, stylelint and
+   * prettier treat every file under it as their own language — a module's
+   * .yml, .php and .twig all parsed as CSS, each raising a CssSyntaxError
+   * (caught live on the EMT dogfood). So for these the scope is expanded to
+   * the matching files before invocation, and the tool sees only what it owns.
+   */
+  private const FILE_SCOPED = ['eslint', 'stylelint', 'prettier'];
+
+  /**
    * Directory names that hold vendored code, never the project's own.
    *
    * A theme with a build step keeps `node_modules/` on disk; a module with
@@ -108,6 +120,13 @@ final class ShellGateExecutor implements GateExecutorInterface {
     // repo's own config); a list otherwise — possibly empty, see below.
     $scoped = $this->scopedPaths($gate, $root);
     if (is_array($scoped)) {
+      // The front-end trio lint the files they are handed; a bare directory
+      // makes them parse everything under it as their own language. Expand a
+      // non-empty scope to the concrete matching files (the empty case is
+      // still the labeled "nothing to analyse" pass below).
+      if ($scoped !== [] && in_array($gate->name, self::FILE_SCOPED, TRUE)) {
+        $scoped = $this->analysableFiles($gate, $root);
+      }
       $argv = array_merge($argv, $scoped);
     }
     $invocation = implode(' ', $argv);
@@ -354,6 +373,66 @@ final class ShellGateExecutor implements GateExecutorInterface {
       }
     }
     return FALSE;
+  }
+
+  /**
+   * The concrete files a file-scoped gate should analyse, root-relative.
+   *
+   * Walks the gate's configured paths and returns every file the tool owns
+   * (by extension), skipping vendored trees — so the front-end trio see only
+   * the JS/CSS under the custom-code dirs, never the .yml/.php/.twig a bare
+   * directory would sweep in. A directly-named file with a matching extension
+   * passes through as-is. Deterministically ordered so the invocation string
+   * and findings are stable across runs.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate's resolved levers.
+   * @param string $root
+   *   The project root (already trimmed).
+   *
+   * @return list<string>
+   *   Root-relative file paths, sorted.
+   */
+  private function analysableFiles(GateSettings $gate, string $root): array {
+    $extensions = self::ANALYSABLE[$gate->name] ?? [];
+    $paths = $gate->option('paths');
+    $files = [];
+    foreach (explode(',', is_string($paths) ? $paths : '') as $path) {
+      $path = trim($path);
+      if ($path === '') {
+        continue;
+      }
+      $abs = $root . '/' . $path;
+      if (is_file($abs)) {
+        if (in_array(strtolower(pathinfo($abs, PATHINFO_EXTENSION)), $extensions, TRUE)) {
+          $files[] = $path;
+        }
+        continue;
+      }
+      if (!is_dir($abs)) {
+        continue;
+      }
+      try {
+        $walk = new \RecursiveIteratorIterator(
+          new \RecursiveCallbackFilterIterator(
+            new \RecursiveDirectoryIterator($abs, \FilesystemIterator::SKIP_DOTS),
+            static fn (\SplFileInfo $current): bool => !($current->isDir() && in_array($current->getFilename(), self::VENDORED_DIRS, TRUE)),
+          ),
+        );
+      }
+      catch (\UnexpectedValueException) {
+        continue;
+      }
+      foreach ($walk as $file) {
+        if ($file instanceof \SplFileInfo
+          && $file->isFile()
+          && in_array(strtolower($file->getExtension()), $extensions, TRUE)) {
+          $files[] = substr($file->getPathname(), strlen($root) + 1);
+        }
+      }
+    }
+    sort($files);
+    return $files;
   }
 
   /**
