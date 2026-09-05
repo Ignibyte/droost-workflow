@@ -88,12 +88,16 @@ final class WorkflowFacade {
    *
    * @param string $projectRoot
    *   The repository.
+   * @param list<string> $takeUpstream
+   *   Pack destinations whose local drift is discarded in favour of the
+   *   shipped version. The single value 'all' takes every drifted file. Empty
+   *   (the default) keeps every user-edited file, as drift-aware init does.
    *
    * @return \Droost\Workflow\Pack\InitReport
    *   What was written and what was left alone.
    */
-  public function init(string $projectRoot): InitReport {
-    return (new PackMaterializer())->init($projectRoot);
+  public function init(string $projectRoot, array $takeUpstream = []): InitReport {
+    return (new PackMaterializer())->init($projectRoot, $takeUpstream);
   }
 
   /**

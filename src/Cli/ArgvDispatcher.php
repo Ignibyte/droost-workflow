@@ -88,7 +88,7 @@ final class ArgvDispatcher {
 
     try {
       return match ($verb) {
-        'init' => $this->init($projectRoot),
+        'init' => $this->init($projectRoot, $argv),
         'status' => $this->status($projectRoot),
         'run' => $this->run($projectRoot, $argv),
         'answer' => $this->answer($projectRoot, $argv),
@@ -117,12 +117,28 @@ final class ArgvDispatcher {
    *
    * @param string $projectRoot
    *   The repository.
+   * @param list<string> $argv
+   *   The command arguments; `--take-upstream=all` or
+   *   `--take-upstream=<path>[,<path>...]` discards those files' drift and
+   *   takes the shipped version instead of keeping the local edit.
    *
    * @return int
    *   The exit code.
    */
-  private function init(string $projectRoot): int {
-    $report = $this->facade()->init($projectRoot);
+  private function init(string $projectRoot, array $argv): int {
+    $takeUpstream = [];
+    foreach ($argv as $arg) {
+      if (!is_string($arg) || !str_starts_with($arg, '--take-upstream=')) {
+        continue;
+      }
+      foreach (explode(',', substr($arg, strlen('--take-upstream='))) as $value) {
+        $value = trim($value);
+        if ($value !== '') {
+          $takeUpstream[] = $value;
+        }
+      }
+    }
+    $report = $this->facade()->init($projectRoot, $takeUpstream);
     $this->say($report->summary());
     return self::EXIT_OK;
   }

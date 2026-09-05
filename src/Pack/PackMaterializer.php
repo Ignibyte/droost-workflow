@@ -46,6 +46,10 @@ final class PackMaterializer {
    *
    * @param string $projectRoot
    *   The repository to install into.
+   * @param list<string> $takeUpstream
+   *   Pack destinations whose local drift is discarded in favour of the
+   *   shipped version. The single value 'all' takes every drifted file. Empty
+   *   (the default) keeps every user-edited file, as drift-aware init does.
    *
    * @return \Droost\Workflow\Pack\InitReport
    *   What was written and what was left alone.
@@ -57,8 +61,12 @@ final class PackMaterializer {
    *   When the project root is empty, the filesystem root, or not a
    *   directory.
    */
-  public function init(string $projectRoot): InitReport {
+  public function init(string $projectRoot, array $takeUpstream = []): InitReport {
     $root = TypedArray::requireProjectRoot($projectRoot);
+    // --take-upstream: 'all', or specific destination paths, whose drift is
+    // deliberately discarded to take the shipped version. Everything else that
+    // drifted is still kept.
+    $takeAll = in_array('all', $takeUpstream, TRUE);
 
     // Check every directory before writing anything. A half-installed pack
     // where the refusal happened on the sixth file is worse than one that
@@ -81,14 +89,18 @@ final class PackMaterializer {
         ? $lock[$destination]
         : NULL;
       $to = $root . '/' . $destination;
-      if ($lastShipped !== NULL && is_file($to)
-        && !hash_equals($lastShipped, hash('sha256', (string) file_get_contents($to)))) {
-        // Edited since droost shipped it — keep it, hold the lock at what we
-        // last wrote so the next init still sees the edit.
+      $drifted = $lastShipped !== NULL && is_file($to)
+        && !hash_equals($lastShipped, hash('sha256', (string) file_get_contents($to)));
+      $take = $takeAll || in_array($destination, $takeUpstream, TRUE);
+      if ($drifted && !$take) {
+        // Edited since droost shipped it, and not named in --take-upstream:
+        // keep it, hold the lock at what we last wrote so the next init still
+        // sees the edit.
         $report = $report->withDrifted($destination);
         $newLock[$destination] = $lastShipped;
         continue;
       }
+      // Not drifted (refresh), or drifted but --take-upstream said take it.
       $this->writeFile($destination, $to, $shipped);
       $report = $report->withWritten($destination);
       $newLock[$destination] = hash('sha256', $shipped);

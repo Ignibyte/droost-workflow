@@ -89,6 +89,18 @@ gates:
   playwright:     { on: false }
   coverage:       { on: false, min: 0 }
 
+  # THE FRONT-END TRIO: eslint, stylelint, prettier — the JS/CSS analogue of
+  # the PHP static pair, first-class gates that run at code and complete. Off
+  # here (a custom repo opts in); factory turns all three on. Each finds its
+  # own config (.eslintrc, .stylelintrc, .prettierrc) and runs from
+  # node_modules/.bin, so a repo with no front-end toolchain reports
+  # tool-missing rather than a silent pass. prettier runs in --check mode
+  # (it reports drift, never rewrites). Like the PHP pair they accept `paths`
+  # — comma-separated repo-relative files or directories. Uncomment to arm:
+  # eslint:         { on: true, paths: "web/modules/custom,web/themes/custom" }
+  # stylelint:      { on: true, paths: "web/themes/custom" }
+  # prettier:       { on: true, paths: "web/modules/custom,web/themes/custom" }
+
   # Artifacts are truth. Recommended on even in a light run: a run that stops
   # checking whether the page renders is not light, it is blind.
   #

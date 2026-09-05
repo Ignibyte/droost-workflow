@@ -82,6 +82,51 @@ class PackMaterializerTest extends WorkflowTestCase {
   }
 
   /**
+   * REQ-003: --take-upstream discards a drifted file for the shipped version.
+   *
+   * The escape hatch from the keep-my-edits default: an operator who WANTS
+   * droost's version back names the file (or 'all'), and init overwrites the
+   * local edit instead of preserving it as drift.
+   */
+  public function testTakeUpstreamDiscardsNamedDrift(): void {
+    $root = $this->makeRoot();
+    $materializer = new PackMaterializer();
+    $materializer->init($root);
+
+    $relative = '.claude/skills/workflow-plan/SKILL.md';
+    $skill = $root . '/' . $relative;
+    $pristine = file_get_contents($skill);
+    file_put_contents($skill, "my tuned version\n");
+
+    // Name exactly this file: its drift is discarded, the shipped version
+    // returns, and it is reported written (not drifted).
+    $report = $materializer->init($root, [$relative]);
+
+    $this->assertSame($pristine, file_get_contents($skill));
+    $this->assertContains($relative, $report->written);
+    $this->assertNotContains($relative, $report->drifted);
+  }
+
+  /**
+   * REQ-003: --take-upstream=all discards every drifted file at once.
+   */
+  public function testTakeUpstreamAllDiscardsEveryDrift(): void {
+    $root = $this->makeRoot();
+    $materializer = new PackMaterializer();
+    $materializer->init($root);
+
+    $relative = '.claude/skills/workflow-plan/SKILL.md';
+    $skill = $root . '/' . $relative;
+    $pristine = file_get_contents($skill);
+    file_put_contents($skill, "my tuned version\n");
+
+    $report = $materializer->init($root, ['all']);
+
+    $this->assertSame($pristine, file_get_contents($skill));
+    $this->assertSame([], $report->drifted);
+  }
+
+  /**
    * An unedited pack file is refreshed on re-init (the lock still matches).
    */
   public function testReInitRefreshesUnmodifiedFiles(): void {
