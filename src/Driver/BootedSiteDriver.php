@@ -104,6 +104,40 @@ final class BootedSiteDriver implements SiteDriverInterface {
   }
 
   /**
+   * The first few frames of a throwable, one "Class::method()" per line.
+   *
+   * Enough to place a render failure without carrying a whole stack into
+   * run.json; frames without a class (closures, includes) fall back to
+   * file:line.
+   *
+   * @param \Throwable $e
+   *   The throwable.
+   *
+   * @return list<string>
+   *   Up to five frames, innermost first.
+   */
+  private static function traceTail(\Throwable $e): array {
+    $frames = [];
+    foreach (array_slice($e->getTrace(), 0, 5) as $frame) {
+      $class = $frame['class'] ?? NULL;
+      $type = $frame['type'] ?? NULL;
+      $function = $frame['function'] ?? NULL;
+      $file = $frame['file'] ?? NULL;
+      $line = $frame['line'] ?? NULL;
+      if (is_string($class) && is_string($function)) {
+        $frames[] = $class . (is_string($type) ? $type : '::') . $function . '()';
+      }
+      elseif (is_string($function)) {
+        $frames[] = $function . '()';
+      }
+      elseif (is_string($file) && is_int($line)) {
+        $frames[] = basename($file) . ':' . $line;
+      }
+    }
+    return $frames;
+  }
+
+  /**
    * Checks one route, returning a finding when it did not render.
    *
    * @param string $path
@@ -122,11 +156,21 @@ final class BootedSiteDriver implements SiteDriverInterface {
     }
     catch (\Throwable $e) {
       // An exception IS the finding. Letting it escape would fail the whole
-      // gate run rather than recording that one route is broken.
+      // gate run rather than recording that one route is broken. The origin
+      // rides with it: D70 round 2 recorded "threw Error: Call to a member
+      // function access() on null" once, never reproduced it, and had no file,
+      // line or frame to reason from — a transient nobody could diagnose.
       return [
         'route' => $path,
         'status' => NULL,
-        'problem' => 'threw ' . $e::class . ': ' . $e->getMessage(),
+        'problem' => sprintf(
+          'threw %s: %s at %s:%d',
+          $e::class,
+          $e->getMessage(),
+          basename($e->getFile()),
+          $e->getLine(),
+        ),
+        'trace' => self::traceTail($e),
       ];
     }
 
