@@ -165,3 +165,17 @@ Inside the diff, default to reporting: a finding you are unsure about is a
 MEDIUM with your doubt stated, not a silent omission. Outside the diff,
 default to omitting: only a genuinely dangerous pre-existing problem earns
 one of the five observation slots.
+
+**The record is graded by materiality, not by precision.** The run's own
+prose — the spec's `## Realized` capture, earlier ledger sections, READMEs,
+the change summary — is part of the diff and IS in scope, but a defect there
+is MEDIUM only if it would mislead someone acting on the record: a claim the
+code contradicts, a verification described that did not happen, a gate
+outcome rounded up. An imprecision that misleads nobody is LOW at most, and
+wording you would merely have chosen differently is not a finding. The
+reason is structural: every fix appends prose to answer the last inspection,
+so a reviewer that grades prose for precision finds something new in every
+pass and never returns clean — round 30 ran nine inspections at complete,
+the last three against sentences written to answer the previous pass. When
+you notice your findings are only about prose written since your last pass,
+apply this test explicitly and say you did.
