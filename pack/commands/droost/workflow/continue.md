@@ -20,8 +20,8 @@ declares the browser tier. Everything below assumes an open run.
 
 Reads `droost.workflow.yml` for the levers and works the phases **in the one
 order that exists**: `plan → code → test → complete`. Every run walks all of
-them — minor changes included. What varies between a heavy and a light run is
-the weight each phase carries, never the path. (0.4 folded the old document
+them — minor changes included. What varies between the top and the bottom of
+the effort dial is the weight each phase carries, never the path. (0.4 folded the old document
 phase into complete: capturing what was built is the first half of presenting
 it.)
 
@@ -40,18 +40,30 @@ one; `none` = no browser this session (the rendered check is the floor and
 always runs — `none` is not a failure). The test phase branches on this and
 the final report says which tier actually ran.
 
-## The two weights
+## The dial, and its two weights
 
-The preset decides the artifact weight (and the file can override any lever):
+The preset is one graded dial for how much the run VERIFIES —
+`low | medium | high | xhigh | max` (and `custom`, the spelled-out baseline).
+Read the frozen, canonical name from run.json (`factory` records as `max`,
+`light` as `medium`). The dial decides the gates and thresholds (engine-side)
+and the artefact weight (your side); the file can override any lever. Two
+things never move with it: a spec always exists, and the brain — guidelines,
+search, the wiki as knowledge — is always used. Five points, two weights:
 
-- **factory** — the full EARS spec, written to
-  `droost/droost-workflow/spec-<slug>.md`. Gates: everything on. Enforcement
-  defaults hard.
-- **light** — a SHORTER spec in the same EARS shape: what was asked, what
-  will change, and a handful of "When <trigger>, the <system> shall
-  <response>" criteria — written to `droost/droost-workflow/tmp-spec-<slug>.md`
-  and presented back in chat at complete. Light trims depth, never format:
-  one spec shape everywhere is what the seeker grades against.
+- **Full weight — `high`, `xhigh`, `max`, `custom`** — the full EARS spec,
+  written to `droost/droost-workflow/spec-<slug>.md`; the capture is recorded
+  in the wiki at complete. Enforcement defaults hard from `high` up. At `max`
+  the functional suites are REQUIRED to exist — a missing phpunit or
+  playwright suite fails the gate rather than passing labelled-empty.
+- **Light weight — `medium`, `low`** — a SHORTER spec in the same EARS shape:
+  what was asked, what will change, and a handful of "When <trigger>, the
+  <system> shall <response>" criteria — written to
+  `droost/droost-workflow/tmp-spec-<slug>.md` and presented back in chat at
+  complete. Depth trims, never format: one spec shape everywhere is what the
+  seeker grades against. At `low` there is additionally NO wiki: `wiki_fresh`
+  is off and the complete phase writes no wiki pages; phpunit is off BY
+  PRESET (the test phase runs only the browser check) and reports `off`,
+  never `passed` — that is the level's declared trade, not a green suite.
 
 Either way the spec file exists BEFORE code does; complete presents the
 realized plan against it.
@@ -247,8 +259,9 @@ wrecks the very gates this pipeline runs.
 The `complete` phase captures what was built, then presents the diff and the
 full gate report — including every gate that was skipped and why, the seeker
 ledger, and which browser tier verified the work. That report is the run's
-product just as much as the code is. In a light run, the spec and the change
-summary are presented in chat; in a factory run they are recorded artifacts.
+product just as much as the code is. At `medium` and `low` the spec and the
+change summary are presented in chat; from `high` up they are recorded
+artifacts, and the wiki is written (at `low` it is not — `wiki_fresh` is off).
 
 The finished record persists as `droost/droost-workflow/run.json` until it is
 cleared — `drush droost:workflow:reset` archives it to

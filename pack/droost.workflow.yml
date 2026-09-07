@@ -7,9 +7,10 @@
 # gate should show up in review as a diff.
 #
 # Everything below is written out explicitly. That is deliberate — a file
-# that named no preset would resolve to `factory` (strictest), because a repo
-# that has said nothing has not opted out of anything. Naming `custom` is how
-# you choose the gentler set on purpose.
+# that named no preset would resolve to `max` (the top of the dial, tests
+# required to exist included), because a repo that has said nothing has not
+# opted out of anything. Naming a level, or `custom`, is how you choose a
+# gentler set on purpose — in a line a reviewer can see.
 
 # agentic | interactive
 #   agentic     — run plan through complete without stopping.
@@ -45,9 +46,10 @@ preset: custom
 #   ACTIVE — outside a run the hooks are silent by construction. hard blocks
 #   out-of-phase actions; soft warns once per phase; off stands the hooks
 #   down and leaves only the gates. Orthogonal to the preset on purpose: you
-#   MAY pair factory gates with enforcement off. Not advised — but this file
+#   MAY pair max gates with enforcement off. Not advised — but this file
 #   is a reviewable diff, and a visible loosening is the honest way to allow
-#   it. (Preset defaults: factory → hard, light → soft.)
+#   it. (Preset defaults: hard from `high` up; soft at `low`, `medium` and
+#   `custom`.)
 enforcement: soft
 
 # require_run: hard | soft | off
@@ -103,7 +105,7 @@ gates:
 
   # THE FRONT-END TRIO: eslint, stylelint, prettier — the JS/CSS analogue of
   # the PHP static pair, first-class gates that run at code and complete. Off
-  # here (a custom repo opts in); factory turns all three on. Each finds its
+  # here (a custom repo opts in); `xhigh` and `max` turn all three on. Each finds its
   # own config (.eslintrc, .stylelintrc, .prettierrc) and runs from
   # node_modules/.bin, so a repo with no front-end toolchain reports
   # tool-missing rather than a silent pass. prettier runs in --check mode
@@ -113,8 +115,9 @@ gates:
   # stylelint:      { on: true, paths: "web/themes/custom" }
   # prettier:       { on: true, paths: "web/modules/custom,web/themes/custom" }
 
-  # Artifacts are truth. Recommended on even in a light run: a run that stops
-  # checking whether the page renders is not light, it is blind.
+  # Artifacts are truth. On at every level of the dial, `low` included — the
+  # one check `low` keeps in its test phase: a run that stops checking whether
+  # the page renders is not light, it is blind.
   #
   # No droost MCP tool renders a page, so this gate is implemented by the
   # live-site surface rather than by droost — which means a run with no

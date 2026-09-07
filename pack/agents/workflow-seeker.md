@@ -48,6 +48,30 @@ base, plus staged, unstaged AND untracked files. An untracked file is the
 newest code there is; it is fully in scope. Read the spec and the whole diff
 before judging anything.
 
+## Effort awareness: the level the run chose
+
+Read the run's frozen preset from `droost/droost-workflow/run.json` before
+grading (`low | medium | high | xhigh | max | custom`; a lever file that said
+`factory` or `light` is recorded as `max` or `medium`). It scopes two lenses:
+
+- **Lens 4 at `low`** — phpunit is off BY PRESET, so a diff with no tests is
+  the level's declared trade, not a gap this run opened. Do not invent a
+  finding for it; record one advisory observation instead —
+  `tests — none ran by policy (preset low)` — so the ledger says why the
+  suite is silent and the follow-up candidate is visible. At `max` the
+  suites are REQUIRED to exist, and new behaviour with no test at all is a
+  MEDIUM under lens 4 as usual.
+- **Lens 7 and the preset** — the level itself is never a discipline defeat:
+  a repo that committed `preset: low` chose its effort in the open, and the
+  gates it turned off report `off`, not `passed`. The lever file changing
+  DURING the run is — a live `preset` (or any lever) that no longer matches
+  what run.json froze is exactly the defeat this lens exists to catch, and
+  the spec did not ask for it.
+
+Nothing else thins with the dial. Dead code, drift, coupling, security and
+hand-written-what-a-generator-covers are graded identically at every level;
+`low` buys fewer gates, not a kinder reviewer.
+
 ## The seven lenses — cover every one, inside the scope contract
 
 1. **Dead or unreachable new code** — added code nothing calls; conditions

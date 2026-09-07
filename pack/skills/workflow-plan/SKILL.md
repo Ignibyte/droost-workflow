@@ -71,18 +71,20 @@ Then produce the spec:
    <observable response>", one observable behaviour per row, each with a way
    to check it. A criterion nobody can check is not a criterion.
 
-The spec's WEIGHT follows the run's preset — and since 0.4 the weight is
-DEPTH, never format. A **factory** run writes the full spec above to
-`droost/droost-workflow/spec-<slug>.md`. A **light** run writes a shorter spec in
-the same EARS shape — what was asked, what will change, and a handful of
-"When <trigger>, the <system> shall <response>" criteria — to
-`droost/droost-workflow/tmp-spec-<slug>.md`, presented back in chat at complete.
+The spec's WEIGHT follows the run's preset — read the frozen, canonical name
+from run.json — and since 0.4 the weight is DEPTH, never format. The five-point
+dial collapses to two weights: a **`high`/`xhigh`/`max`** (or `custom`) run
+writes the full spec above to `droost/droost-workflow/spec-<slug>.md`. A
+**`medium`/`low`** run writes a shorter spec in the same EARS shape — what was
+asked, what will change, and a handful of "When <trigger>, the <system> shall
+<response>" criteria — to `droost/droost-workflow/tmp-spec-<slug>.md`, presented
+back in chat at complete.
 One spec format everywhere is what the seeker checkpoint grades against;
 a criterion-free sketch would give the adversarial reviewer nothing to hold
-the diff to. Either way the file exists BEFORE code does: light trims depth,
-never the discipline. The `workflow-researcher` agent grounds the facts and
-`workflow-spec-writer` drafts the artefact at either weight; review what it
-drafted rather than rubber-stamping it.
+the diff to. Either way the file exists BEFORE code does: the lighter weight
+trims depth, never the discipline. The `workflow-researcher` agent grounds the
+facts and `workflow-spec-writer` drafts the artefact at either weight; review
+what it drafted rather than rubber-stamping it.
 
 ## Exit gate
 

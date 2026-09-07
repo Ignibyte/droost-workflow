@@ -19,8 +19,8 @@ its switch and thresholds, `phase_gates` — which gates are due at which
 phase, so "why did plan run nothing" is answerable from status alone — and
 the `toolchain` rows: per gate, the binary it would run and whether it is
 present, so armed-and-broken is visible before a run hits it. A repo with no
-lever file resolves to `factory`, the strictest set, because a repo that has
-said nothing has not opted out of anything.
+lever file resolves to `max`, the top of the dial (tests required to exist
+included), because a repo that has said nothing has not opted out of anything.
 
 This is useful on its own: it is how someone checks what their configuration
 actually resolves to before committing to a run.

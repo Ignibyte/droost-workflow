@@ -32,8 +32,8 @@ file to exist. So the sequence is:
 1. **Load the `workflow-plan` skill** and do the plan work: the spec comes
    before any code. `workflow-researcher` grounds it in the real site or
    repo; `workflow-spec-writer` drafts it at the preset's weight (a full EARS
-   spec at `factory`, a shorter same-shape spec at `light`). The spec file
-   exists BEFORE code does.
+   spec at `high`/`xhigh`/`max`, a shorter same-shape spec at `medium`/`low`).
+   The spec file exists BEFORE code does, at every level of the dial.
 2. **Invoke the run surface, declaring the spec** —
    `vendor/bin/droost-workflow run --spec=droost/droost-workflow/spec-<slug>.md`
    (the drush and MCP surfaces take the same option). This BEGINS the run

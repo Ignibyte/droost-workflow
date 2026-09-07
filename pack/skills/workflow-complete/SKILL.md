@@ -72,10 +72,23 @@ Tools that help — every one needs a booted site:
 Do the capture BEFORE this phase's `run`: the wiki gate below checks what
 this half just wrote, and the re-run covers these writes like any others.
 
-In a **light** run the capture is ALSO presented in chat — but the
-`## Realized` section still lands in the spec file first (the engine's
-requirement does not thin with the preset; depth does). Same three
-questions, lighter medium.
+The capture's WEIGHT follows the run's preset — read the frozen, canonical
+name from run.json:
+
+- **`high`, `xhigh`, `max` (and `custom`)** — the full capture: the
+  `## Realized` section, READMEs, and the wiki pages this change touches
+  written through `droost_wiki_write`, so `wiki_fresh` has something true to
+  check.
+- **`medium`** — the capture is ALSO presented in chat, and the wiki is still
+  written: `wiki_fresh` is on at this level.
+- **`low`** — the capture is presented in chat and there is NO wiki step:
+  `wiki_fresh` is off by preset, so write no wiki pages (a write nobody
+  checks is a page that goes stale unnoticed) and say in the report that the
+  wiki was not touched at this level — not that it is fresh.
+
+At every level the `## Realized` section still lands in the spec file first:
+the engine's requirement does not thin with the preset; depth does. Same
+three questions, lighter medium.
 
 ### Second half: present
 
@@ -83,7 +96,8 @@ This phase's `run` re-executes the FULL enabled gate set — the terminal
 safety net. A regression introduced since the test phase is caught now
 rather than shipped, and `wiki_fresh` runs here for the first time — the
 only phase at which it CAN be true, because this phase just wrote the
-documentation it checks.
+documentation it checks. (At `low` it does not run at all and the report
+shows it `off` — the level's declared trade, listed like any other gate.)
 
 **Present the gate report before you say anything is done.** Not a summary
 of it — the report: every gate the run was configured for, and what happened
@@ -95,9 +109,13 @@ to each one. Four outcomes, none interchangeable:
 | failed | the gate ran and the artefact did not |
 | skipped, no site | the gate could not run — **this is not a pass** |
 | tool missing | the gate was enabled but its tool was not installed |
+| off | the preset (or the lever file) turned the gate off — **not a pass** either; name the level that decided it |
 
 Then present, in order:
 
+- the effort level the run was held to — the frozen preset name, so the
+  reader knows whether "no phpunit result" means a failure or a `low` run
+  that never asked for one;
 - the diff — what changed, file by file;
 - the realized plan against the original acceptance criteria, naming any
   criterion that was not met;
@@ -112,11 +130,13 @@ Only then, if the repo wants it, commit.
 The temptation at this phase is to round up: to describe a run with three
 skipped gates as "all checks passed", because nothing failed. Resist it.
 Nothing failed and three things were never checked are different sentences,
-and only one of them is true.
+and only one of them is true. The same holds one level down: a `low` run
+whose phpunit reads `off` did not pass its tests — it declared it would not
+run them, and the report says exactly that.
 
 ## Exit gate
 
-The capture exists (or was presented, in a light run), the report has been
+The capture exists (or was presented, at `medium`/`low`), the report has been
 presented in full — skips, ledger and browser tier included — and the run is
 recorded as complete. Tell the operator the finished record persists until
 `drush droost:workflow:reset` archives it — the next run starts after that,
