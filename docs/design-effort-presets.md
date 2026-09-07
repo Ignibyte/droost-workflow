@@ -1,6 +1,6 @@
 # Design — effort presets: one dial for how hard the workflow cranks
 
-Status: **P1 BUILT 2026-09-07 (engine `0daefb4`); P2 BUILT 2026-09-07 (pack `8d84f97`, module docs `5e56d79`); gate green: 434 tests.** P3–P5 open.
+Status: **BUILT THROUGH P5, 2026-09-07.** P1 engine `0daefb4`; P2 pack `8d84f97` + module docs `5e56d79`; P3 engine `ff3640b` + module `d14c827`; P4 engine `a8fa0c9` + module `d14c827`; P5 eval tickets T25 (low) / T26 (max) written and smoke-tested, **not yet run against a subject**. Engine gate green (442 tests / 2054 assertions); module gate green. Open: run T25/T26 rounds; the `high` front-end-trio-when-lint-config-exists probe stays deferred.
 The engine scale, `required`, preset-only mandatory relaxation, aliases, the
 seeker default and the run-record bool reader are shipped. P2 (pack briefs), P3
 (report annotation), P4 (ergonomics + bulletin) and P5 (evals) remain. The
@@ -269,12 +269,39 @@ agent's briefs and the engine's gates disagree.
   lever template documents the scale; `continue`'s outcome table gains `off`
   and the report leads with the level. Module docs (`5e56d79`): adoption
   guide, project page, e2e plan (§6 medium, §6b low, §7 max).
-- **P3 — report/status.** Annotate "off by preset X"; print the level.
-- **P4 — ergonomics + docs.** `--preset` vocabulary, optional `workflow:effort`,
-  README table, bulletin for the default/`required` change.
-- **P5 — evals.** Two tickets minimum: **T-low** proves the test phase runs
-  only the browser check and the report says `off`, not `passed`; **T-max**
-  proves a missing regression suite *blocks* completion.
+- **P3 — report/status. BUILT (engine `ff3640b`, module `d14c827`).** An off
+  result says why — `GateRunner::offReason()` compares the frozen preset's
+  base with the gate: "by preset low" (the level dropped it), "by the lever
+  file (preset xhigh turns it on)" (a visible loosening), "by the lever file
+  (custom levers)"; the reason is the summary AND the `skip_reason`, so every
+  surface prints it beside the status word. The run envelope carries
+  `preset`; the drush status header prints `effort <level>`; off rows print
+  their reason. Nothing new is recorded.
+- **P4 — ergonomics + docs. BUILT (engine `a8fa0c9`, module `d14c827`).**
+  `drush droost:workflow:install --preset=<level>` writes a TUNING-ONLY lever
+  file (measured paths; wiki_fresh off with its reason where no bundle) so the
+  level actually drives — never `on:` switches, seekers or retries, because
+  an explicit switch overrides the dial; `custom` still writes the spelled-out
+  file. `EffortSwitch` (engine, framework-free) rewrites the one `preset:`
+  line, re-loads to prove the file parses (rolling back if not), names the
+  alias and the gate switches the file still spells out; `drush
+  droost:workflow:effort <level>` wraps it as the OPERATOR's command (TTY
+  required; the pack guard refuses it from the agent's shell like gate-waive
+  and bypass; a bare `effort` only reports). Bulletin 2.0.0-alpha5 item 5:
+  the default moved factory → max WITH required suites. README: "Off says
+  why", "Moving the dial is one command".
+- **P5 — evals. TICKETS WRITTEN (T25, T26), not yet run.** **T25 (low)** —
+  a /health endpoint; the accept reads run.json: phpunit `off` / "by preset
+  low" at test and complete, never passed, no retries spent; rendered check
+  ran; wiki_fresh off; quasi-spec; no wiki write; lever file byte-identical
+  to base. **T26 (max, all-gates room)** — a configurable site-notice block;
+  a COMPLETED run with phpunit and playwright both passed and real (not
+  labelled-empty; ≥2 assertions; a spec asserting the notice) is the proof
+  that required suites held; a waiver on either required suite fails the
+  accept; full spec with the seeker ledger; wiki_fresh passed, or on a room
+  without a bundle exactly "off — by the lever file (preset max turns it
+  on)". Both smoke-run clean against the harness. The operator sets the
+  level in setup; the prompts never mention effort.
 
 ## 11. Risks
 
