@@ -29,6 +29,20 @@ class NullWorkflowListener implements WorkflowListenerInterface {
   /**
    * {@inheritdoc}
    */
+  public function onPhaseBegin(RunState $state, Phase $phase): void {
+    // Intentionally empty.
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function onPhaseEnd(RunState $state, Phase $phase): void {
+    // Intentionally empty.
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   public function onPhaseChange(RunState $state, Phase $from, Phase $to): void {
     // Intentionally empty.
   }

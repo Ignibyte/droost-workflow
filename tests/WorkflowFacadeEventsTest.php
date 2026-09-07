@@ -100,6 +100,108 @@ final class WorkflowFacadeEventsTest extends WorkflowTestCase {
   }
 
   /**
+   * Per-phase begin/end bracket each cycle step, paired with the changes.
+   *
+   * The finer-grained seam an ECA event bridge rides: every phase entered gets
+   * exactly one begin (the first at run start, the rest as the run advances in)
+   * and exactly one end (on the advance out, or at completion for the last),
+   * with the phase-change sitting between the end it leaves and the begin it
+   * enters. begin/end never fire on a non-advance.
+   */
+  public function testPerPhaseBeginAndEndBracketEachCycleStep(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\nseekers:\n  on: false\n");
+    $executor = $this->allGatesPass();
+    $listener = new class() extends NullWorkflowListener {
+
+      /**
+       * The events seen, in order.
+       *
+       * @var list<string>
+       */
+      public array $log = [];
+
+      /**
+       * {@inheritdoc}
+       */
+      public function onRunStart(RunState $state): void {
+        $this->log[] = 'start';
+      }
+
+      /**
+       * {@inheritdoc}
+       */
+      public function onPhaseBegin(RunState $state, Phase $phase): void {
+        $this->log[] = 'begin:' . $phase->value;
+      }
+
+      /**
+       * {@inheritdoc}
+       */
+      public function onPhaseEnd(RunState $state, Phase $phase): void {
+        $this->log[] = 'end:' . $phase->value;
+      }
+
+      /**
+       * {@inheritdoc}
+       */
+      public function onPhaseChange(RunState $state, Phase $from, Phase $to): void {
+        $this->log[] = 'change:' . $from->value . '>' . $to->value;
+      }
+
+      /**
+       * {@inheritdoc}
+       */
+      public function onRunComplete(RunState $state): void {
+        $this->log[] = 'complete';
+      }
+
+    };
+
+    for ($i = 0; $i < 12; $i++) {
+      $outcome = $this->facade($executor, $listener)->run($root);
+      if ($outcome->outcome !== Outcome::Advanced) {
+        break;
+      }
+    }
+
+    $plan = Phase::Plan->value;
+    $code = Phase::Code->value;
+    $test = Phase::Test->value;
+    $done = Phase::Complete->value;
+    $this->assertSame(
+      [
+        'start',
+        'begin:' . $plan,
+        'end:' . $plan,
+        'change:' . $plan . '>' . $code,
+        'begin:' . $code,
+        'end:' . $code,
+        'change:' . $code . '>' . $test,
+        'begin:' . $test,
+        'end:' . $test,
+        'change:' . $test . '>' . $done,
+        'begin:' . $done,
+        'end:' . $done,
+        'complete',
+      ],
+      $listener->log,
+      'begin/end bracket each phase, the change sits between them',
+    );
+    foreach ([$plan, $code, $test, $done] as $phase) {
+      $this->assertCount(
+        1,
+        array_filter($listener->log, static fn (string $e): bool => $e === 'begin:' . $phase),
+        $phase . ' begins exactly once',
+      );
+      $this->assertCount(
+        1,
+        array_filter($listener->log, static fn (string $e): bool => $e === 'end:' . $phase),
+        $phase . ' ends exactly once',
+      );
+    }
+  }
+
+  /**
    * A listener that throws on every call never stops the run.
    */
   public function testThrowingListenerNeverBreaksTheRun(): void {

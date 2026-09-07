@@ -251,6 +251,11 @@ final class WorkflowFacade {
       $state = RunState::begin($this->newId(), $this->now(), $config);
       $store->save($state);
       $this->notify(fn () => $this->listener->onRunStart($state));
+      // The run's first phase is now active: the first cycle step begins.
+      if ($state->currentPhase !== NULL) {
+        $begin = $state->currentPhase;
+        $this->notify(fn () => $this->listener->onPhaseBegin($state, $begin));
+      }
     }
 
     // The governing spec, resolved once and recorded: declared via --spec,
@@ -738,12 +743,17 @@ final class WorkflowFacade {
    */
   private function announceAdvanceOrComplete(Phase $from, RunState $after): void {
     if ($after->currentPhase === NULL) {
+      // The final phase ended; then the run completed.
+      $this->notify(fn () => $this->listener->onPhaseEnd($after, $from));
       $this->notify(fn () => $this->listener->onRunComplete($after));
       return;
     }
     if ($after->currentPhase !== $from) {
       $to = $after->currentPhase;
+      // The left phase ended, the run changed phase, the entered phase began.
+      $this->notify(fn () => $this->listener->onPhaseEnd($after, $from));
       $this->notify(fn () => $this->listener->onPhaseChange($after, $from, $to));
+      $this->notify(fn () => $this->listener->onPhaseBegin($after, $to));
     }
   }
 
