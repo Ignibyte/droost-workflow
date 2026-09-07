@@ -1,7 +1,8 @@
 # Design — effort presets: one dial for how hard the workflow cranks
 
-Status: DESIGN, 2026-09-07. Owner-directed. Not built. The decisions marked
-**OWNER** at the end need a call before P1 starts.
+Status: DESIGN — **all owner decisions made 2026-09-07; ready to build P1.**
+Owner-directed. Not yet built. The decisions marked **OWNER** through the body
+are resolved in §12.
 
 ## 1. The idea
 
@@ -280,14 +281,22 @@ agent's briefs and the engine's gates disagree.
 - **Threshold creep** — keep `xhigh`/`max` thresholds reachable; the factory
   doctrine already warns that an unhittable default gets turned off.
 
-## 12. Decisions needed (OWNER)
+## 12. Decisions — DECIDED 2026-09-07 (owner)
 
-1. May `low` drop phpunit under the §3a guardrails? *(Recommend yes.)*
-2. `factory`/`light`: keep as names, or alias to `max`/`medium`? *(Recommend alias.)*
-3. Default → `max` with `required` (behaviour change, bulletined), or keep
-   `required` opt-in? *(Recommend the former — it is the doctrine.)*
-4. Seekers off at `low`? *(Recommend yes — `low` is for fast iteration; it is
-   one reviewable line to turn back on.)*
-5. Front-end trio at `high`: on only when a lint config exists outside core?
-6. Is `medium` exactly `light`, or should it also drop the wiki (wiki_fresh
-   off, chat docs)? *(Recommend exactly light — least surprise.)*
+1. **`low` may drop phpunit** under the §3a guardrails: never the default;
+   reports `Off`, never `Passed`; annotated "off by preset low" in the report;
+   the seeker is told. A `gates:` override still can never disarm a mandatory
+   gate — the preset base is the only path, and it is one loud line.
+2. **`factory` → `max` and `light` → `medium` become resolving aliases**,
+   reported under the new name with a one-line notice. One five-point scale
+   plus `custom`. (Synonyms resolve; only retirements — `fast` — are refused.)
+3. **Default (absent) → `max` WITH `required`.** A repo that has said nothing
+   gets the strictest set, tests-must-exist included. Ship with a bulletin
+   entry and a lever-report notice — the doctrine working visibly.
+4. **Seekers default OFF at `low`, ON at `medium` and above.** One reviewable
+   line (`seekers: { on: true }`) re-arms it for a repo that wants it at low.
+5. **Front-end trio at `high`: on only when a lint config exists outside
+   core** (`.eslintrc*`/`.stylelintrc*`/`.prettierrc*` in the repo, not just
+   `web/core`); at `xhigh`/`max` unconditionally on (tool-missing blocks, which
+   is correct there). Resolves the P8.1 open question scale-shaped.
+6. **`medium` is exactly `light`** — least surprise for repos on it today.
