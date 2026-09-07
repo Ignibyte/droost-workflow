@@ -251,7 +251,7 @@ final class WorkflowConfig {
       return new self(
         self::readMode($root, $source, $base->mode),
         Phase::canonical(),
-        self::readGates($root, $source, $base->gates, $deprecations),
+        self::scopeTrioLikeThePair(self::readGates($root, $source, $base->gates, $deprecations)),
         $base->name,
         $root->has('max_gate_retries')
           ? $root->intInRange(
@@ -590,6 +590,45 @@ final class WorkflowConfig {
     }
 
     return $phases;
+  }
+
+  /**
+   * Scopes the front-end trio to the PHP pair's paths when the file gave none.
+   *
+   * From xhigh up the level turns eslint, stylelint and prettier on, and the
+   * executor scopes each ONLY by its own `paths` — with none, they run
+   * unscoped over the repository root. phpcs's `paths` already names where
+   * the project's own code lives, and it is the same place for both, so an
+   * unscoped trio gate takes them. A trio gate given its own paths keeps them;
+   * one the level leaves off is not touched. Found preparing D70 round 2.
+   *
+   * @param array<string, \Droost\Workflow\Config\GateSettings> $gates
+   *   Every known gate, resolved.
+   *
+   * @return array<string, \Droost\Workflow\Config\GateSettings>
+   *   The same set, the trio scoped.
+   */
+  private static function scopeTrioLikeThePair(array $gates): array {
+    $pair = $gates['phpcs']->option('paths') ?? NULL;
+    if (!is_string($pair) || $pair === '') {
+      return $gates;
+    }
+    foreach (['eslint', 'stylelint', 'prettier'] as $name) {
+      $gate = $gates[$name] ?? NULL;
+      if ($gate === NULL || !$gate->on || $gate->option('paths') !== NULL) {
+        continue;
+      }
+      $options = [];
+      foreach (GateSettings::optionNames($name) as $option) {
+        $value = $gate->option($option);
+        if ($value !== NULL) {
+          $options[$option] = $value;
+        }
+      }
+      $options['paths'] = $pair;
+      $gates[$name] = new GateSettings($name, TRUE, $options);
+    }
+    return $gates;
   }
 
   /**

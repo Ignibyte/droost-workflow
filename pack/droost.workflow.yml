@@ -105,7 +105,9 @@ gates:
 
   # THE FRONT-END TRIO: eslint, stylelint, prettier — the JS/CSS analogue of
   # the PHP static pair, first-class gates that run at code and complete. Off
-  # here (a custom repo opts in); `xhigh` and `max` turn all three on. Each finds its
+  # here (a custom repo opts in); `xhigh` and `max` turn all three on. Given
+  # no `paths` of their own they take phpcs's, so a level never lints the
+  # repository root. Each finds its
   # own config (.eslintrc, .stylelintrc, .prettierrc) and runs from
   # node_modules/.bin, so a repo with no front-end toolchain reports
   # tool-missing rather than a silent pass. prettier runs in --check mode

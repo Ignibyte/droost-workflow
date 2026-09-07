@@ -111,6 +111,12 @@ the agent proposes the level, a human sets it. A bare `effort` only reports.
 `drush droost:workflow:install --preset=<level>` writes a fresh file at a
 level, carrying tuning only (the measured paths) so the level actually drives.
 
+**The trio follows the pair.** From `xhigh` up the level turns `eslint`,
+`stylelint` and `prettier` on, and each is scoped by its own `paths`. Given
+none, a trio gate takes `phpcs`'s `paths` — the project's own code is the same
+place for both — so a hand-written `preset: max` with only the PHP pair scoped
+never lints the repository root. A trio gate given its own `paths` keeps them.
+
 **The phases are not levers.** Since 0.3 every run walks the canonical
 order, minor changes included — `plan → code → test → complete` since 0.4
 folded document into complete — and the `phases:` key is deprecated and
