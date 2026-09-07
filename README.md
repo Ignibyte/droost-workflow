@@ -101,6 +101,16 @@ The reason rides as the result's `skip_reason`, and every run envelope
 carries `preset`, the level the run was held to: "no phpunit result" is
 readable as a failure or as a `low` run that never asked for one.
 
+**Moving the dial is one command** — `drush droost:workflow:effort <level>`
+rewrites the `preset:` line, proves the file still loads (rolling back if
+not), names the canonical level an alias resolved to, and lists the gate
+switches the file still spells out (each overrides the dial). It is the
+operator's command like `gate-waive` and `bypass`: it refuses without an
+interactive terminal and the pack's guard refuses it from the agent's shell —
+the agent proposes the level, a human sets it. A bare `effort` only reports.
+`drush droost:workflow:install --preset=<level>` writes a fresh file at a
+level, carrying tuning only (the measured paths) so the level actually drives.
+
 **The phases are not levers.** Since 0.3 every run walks the canonical
 order, minor changes included — `plan → code → test → complete` since 0.4
 folded document into complete — and the `phases:` key is deprecated and

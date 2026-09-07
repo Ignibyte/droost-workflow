@@ -335,6 +335,10 @@ final class GuardTest extends WorkflowTestCase {
         'drush dwfgw phpstan "vendor stub"',
         'vendor/bin/drush droost:workflow:bypass "hotfix"',
         'ddev drush dwfby "just this once" --project=/x',
+        // Moving the effort dial names a level: the operator's act.
+        'ddev drush droost:workflow:effort low',
+        'drush dwfe --project=/x high',
+        'ddev drush droost:workflow:effort factory',
       ] as $command) {
         [$exit, , $stderr] = $this->guard($root, 'operator-commands', [
           'tool_input' => ['command' => $command],
@@ -366,6 +370,9 @@ final class GuardTest extends WorkflowTestCase {
     foreach ([
       'ddev drush droost:workflow:bypass --off',
       'drush dwfby --off',
+      // A bare effort only reports the current level.
+      'ddev drush droost:workflow:effort',
+      'drush dwfe --project=/x',
       'ddev drush droost:gate allow_entity_write off',
       'drush config:set --input-format=yaml droost.settings allow_entity_write false -y',
       'ddev drush droost:gate allow_scaffold',
