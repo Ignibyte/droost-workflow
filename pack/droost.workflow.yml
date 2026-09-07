@@ -20,14 +20,24 @@
 # and interactive respectively.
 mode: agentic
 
-# custom | factory | light
-#   factory — everything on, strict. The software factory. Full EARS spec.
-#   light   — the same phases at lighter weight: a SHORTER spec in the same
-#             EARS shape (presented in chat at complete), the mandatory trio
-#             with phpstan at level 2, and the rendered check. Light is not
-#             a shorter path — nothing skips, and the format never thins.
-#   custom  — the values spelled out below.
-# (`fast` was renamed `light` in 0.3; the old name is refused with a pointer.)
+# custom | low | medium | high | xhigh | max — one dial for how hard the
+# workflow VERIFIES. A spec is always written and the brain is always used at
+# every level; the dial scales gates, thresholds and written artefacts only.
+# Consent (the write wall, require_run) is never in a preset.
+#   low    — basic static checks, NO tests, the browser check, no wiki. Seeker
+#            off. The one level whose base turns a mandatory gate off — allowed
+#            only here because this line is loud and reviewable; the gate is
+#            recorded off, never passed. Never the default.
+#   medium — the mandatory trio with phpstan 2, the rendered check, a shorter
+#            EARS spec, docs in chat. (Formerly `light`, unchanged.)
+#   high   — solid static + unit tests (phpstan 6), no slow tiers; hard.
+#   xhigh  — + coverage/mutation at 60, the front-end trio, phpstan 8.
+#   max    — everything strict AND tests required to exist (phpunit and
+#            playwright carry required: true — a missing suite FAILS). The
+#            default when no preset is named. (Formerly `factory` + required.)
+#   custom — not a point on the dial: the values spelled out below.
+# `factory`/`light` still load as aliases of max/medium (recorded under the
+# canonical name, with a notice). `fast` was retired in 0.3 and is refused.
 preset: custom
 
 # hard | soft | off
@@ -67,7 +77,9 @@ gates:
   # put it.
   #
   # THE MANDATORY TRIO (0.4): phpcs, phpstan and phpunit cannot be turned
-  # off — they are the toolchain Drupal core itself develops with. Their
+  # off from this block — they are the toolchain Drupal core itself develops
+  # with. (The `low` preset's BASE is the one place phpunit is off: one loud
+  # line above, recorded off, never passed.) Their
   # tuning levers below still apply; an `on: false` here is recorded as a
   # deprecation notice and superseded. A site that cannot run one of them
   # yet gets an honest labeled answer, never a silent pass.

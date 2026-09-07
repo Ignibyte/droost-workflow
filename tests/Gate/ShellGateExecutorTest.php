@@ -663,6 +663,28 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * With `required`, an empty suite is a FAILURE — the top of the dial.
+   *
+   * Same runner output as the labelled pass above; the lever alone flips the
+   * verdict, so a max run cannot complete without tests that exist.
+   */
+  public function testPhpunitEmptySuiteFailsWhenRequired(): void {
+    $root = $this->rootWithBinaries(['phpunit']);
+    $executor = new ShellGateExecutor(
+      static fn (): array => [0, "PHPUnit 12.5\n\nNo tests executed!\n", ''],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(
+      new GateSettings('phpunit', TRUE, ['required' => TRUE]),
+      $root,
+    );
+
+    $this->assertSame(GateStatus::Failed, $result->status);
+    $this->assertStringContainsString('required', $result->summary);
+  }
+
+  /**
    * A project root with stub binaries in place.
    *
    * @param list<string> $tools

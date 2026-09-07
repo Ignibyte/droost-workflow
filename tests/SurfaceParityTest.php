@@ -42,7 +42,8 @@ class SurfaceParityTest extends WorkflowTestCase {
     // offset-on-mixed error at level max.
     $levers = $cli['levers'];
     $this->assertIsArray($levers);
-    $this->assertSame('light', $levers['preset']);
+    // `light` is an alias of `medium`; the record carries the canonical name.
+    $this->assertSame('medium', $levers['preset']);
     // Status explains WHEN each gate runs, so "why did plan run nothing"
     // is answerable without reading the engine.
     $phaseGates = $levers['phase_gates'];

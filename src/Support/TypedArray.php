@@ -289,6 +289,36 @@ final class TypedArray {
   }
 
   /**
+   * A required value that may be an integer, a string or a boolean.
+   *
+   * For a gate's recorded options, whose vocabulary spans all three — a level
+   * (int or word), a standard (string) and a flag such as `required` (bool).
+   * Like intOrString() it never coerces: the run record must read back
+   * exactly the types it was written with, or a report could claim a lever
+   * it never had.
+   *
+   * @param string $key
+   *   The key.
+   *
+   * @return int|string|bool
+   *   The value.
+   *
+   * @throws \Droost\Workflow\Support\DataError
+   *   When absent or not a scalar of one of the three types.
+   */
+  public function scalar(string $key): int|string|bool {
+    $value = $this->require($key);
+    if (!is_int($value) && !is_string($value) && !is_bool($value)) {
+      throw DataError::wrongType(
+        $this->path($key),
+        'an integer, a string or a boolean',
+        $value,
+      );
+    }
+    return $value;
+  }
+
+  /**
    * A required list of strings.
    *
    * @param string $key

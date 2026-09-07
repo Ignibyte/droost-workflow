@@ -1372,7 +1372,9 @@ final class RunState {
         if ($option === 'on') {
           continue;
         }
-        $out[$option] = $levers->intOrString($option);
+        // Options span int (a level), string (a standard) and bool (a flag
+        // such as `required`); read them back as written, never coerced.
+        $out[$option] = $levers->scalar($option);
       }
       $gates[$name] = $out;
     }

@@ -94,8 +94,13 @@ final class GateSettings {
    * The options each gate accepts, and how each is read.
    *
    * Types: "string", "percent" (an integer 0-100), "level" (0-9, "max" or
-   * "off"), "paths" (comma-separated repo-relative paths). A gate absent
-   * from a row accepts nothing but "on".
+   * "off"), "paths" (comma-separated repo-relative paths), "flag" (true or
+   * false). A gate absent from a row accepts nothing but "on".
+   *
+   * `required` (a flag on the functional gates) is what the top of the dial
+   * means by "regressions forced": with it set, a missing or empty suite is a
+   * FAILURE rather than the labelled nothing-to-run pass. The default, off,
+   * is right for a fresh site whose first test the test phase will write.
    *
    * Only the static pair takes `paths`: they are the two tools that can be
    * pointed at a directory with nothing but argv, which is what a repo with
@@ -106,9 +111,9 @@ final class GateSettings {
   private const GATE_OPTIONS = [
     'phpcs' => ['standard' => 'string', 'paths' => 'paths'],
     'phpstan' => ['level' => 'level', 'paths' => 'paths'],
-    'phpunit' => [],
+    'phpunit' => ['required' => 'flag'],
     'mutation' => ['msi_min' => 'percent'],
-    'playwright' => [],
+    'playwright' => ['required' => 'flag'],
     'coverage' => ['min' => 'percent'],
     'rendered_check' => ['routes' => 'string'],
     'config_clean' => [],
@@ -146,7 +151,7 @@ final class GateSettings {
    *   The gate name, one of self::KNOWN_GATES.
    * @param bool $on
    *   Whether the gate runs.
-   * @param array<string, int|string> $options
+   * @param array<string, int|string|bool> $options
    *   The gate's typed options, keyed by option name. Booleans are absent by
    *   design: "on" is the only switch a gate has, and a second boolean option
    *   would be a second way to disable something.
@@ -364,10 +369,10 @@ final class GateSettings {
    * @param string $key
    *   The option name.
    *
-   * @return int|string|null
+   * @return int|string|bool|null
    *   The value, or NULL when this gate carries no such option.
    */
-  public function option(string $key): int|string|NULL {
+  public function option(string $key): int|string|bool|NULL {
     return $this->options[$key] ?? NULL;
   }
 
@@ -389,18 +394,19 @@ final class GateSettings {
    * @param string $option
    *   The option name.
    *
-   * @return int|string
+   * @return int|string|bool
    *   The value.
    *
    * @throws \Droost\Workflow\Support\DataError
    *   When the value has the wrong type or falls outside its range.
    */
-  private function readOption(TypedArray $node, string $option): int|string {
+  private function readOption(TypedArray $node, string $option): int|string|bool {
     $type = self::GATE_OPTIONS[$this->name][$option] ?? 'string';
     return match ($type) {
       'percent' => $node->intInRange($option, 0, 100),
       'level' => $this->readLevel($node, $option),
       'paths' => $this->readPaths($node, $option),
+      'flag' => $node->bool($option),
       default => $this->readToolArgument($node, $option),
     };
   }

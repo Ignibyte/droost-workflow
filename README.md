@@ -43,7 +43,7 @@ A single repo-root file, `droost.workflow.yml`, is the source of truth:
 
 ```yaml
 mode: agentic                   # agentic | interactive
-preset: custom                  # custom | factory | light
+preset: custom                  # custom | low | medium | high | xhigh | max
 enforcement: soft               # hard | soft | off — the hooks, mid-run only
 require_run: hard               # hard | soft | off — custom-code edits with NO active run
 gates:
@@ -69,21 +69,29 @@ Claude Code or Codex user reads the same file with no site at all; it is dev
 tooling and belongs with the code it gates; and it belongs in review, where
 loosening a gate shows up as a diff.
 
-### Presets
+### Presets — one dial for how hard the workflow verifies
 
 A preset is a **base**, not an alternative to per-gate control — explicit
-`gates:` entries are applied over it, so "factory but without Playwright" is
-one line rather than a fork.
+`gates:` entries are applied over it, so "max but without Playwright" is one
+line rather than a fork. Since 2.0 the presets form one graded dial. Two
+things never move with it: a spec is always written, and the brain
+(guidelines, search, the wiki as knowledge) is always used — the dial scales
+what is *verified* and what artefacts are *written*, never what the agent must
+know. Consent (the write wall, `require_run`) is not in a preset at all.
 
-- **`factory`** — everything on, strict. The software factory. The full EARS
-  spec; enforcement defaults `hard`.
-- **`light`** — the same phases at lighter weight: a SHORTER spec in the same
-  EARS shape presented in chat, the mandatory trio with phpstan at level 2,
-  the rendered check; enforcement defaults `soft`. Light is not a shorter
-  path — nothing skips, and the spec format never thins. (Renamed from
-  `fast` in 0.3; the old name is refused with a pointer.)
-- **`custom`** — the values shown above; the ergonomic middle, and what `init`
-  writes for you.
+| Level | Verification |
+|---|---|
+| **`low`** | basic static checks (phpcs, phpstan 1); **no tests**; the browser check; no wiki. Seeker off, enforcement `soft`. The one level whose base turns a mandatory gate off — allowed here and only here, because `preset: low` is one loud reviewable line, never the default; the gate is recorded `off`, never `passed`. |
+| **`medium`** | the mandatory trio with phpstan 2, the rendered check, a shorter EARS spec, docs in chat. (Formerly `light`, unchanged.) |
+| **`high`** | solid static analysis + unit tests (phpstan 6), no slow tiers; enforcement `hard`. (The shipped `custom` gate set, named on the dial.) |
+| **`xhigh`** | + coverage and mutation at 60, the front-end trio, phpstan 8. |
+| **`max`** | everything on, strict — phpstan max, mutation 80, coverage 80 — and tests **required to exist**: `phpunit` and `playwright` carry `required: true`, so a missing or empty suite is a *failure*, not a labelled pass. (Formerly `factory`, plus `required`.) |
+| **`custom`** | not a point on the dial: "no opinion — my `gates:` block is the truth", the spelled-out baseline `init` writes so choosing it is visible in a diff. Same gates as `high`. |
+
+`factory` and `light` still load as **aliases** of `max` and `medium` — the run
+records the canonical name and a notice says so. (`fast` was retired in 0.3
+and is refused with a pointer.) Switching levels is one line; a run is frozen
+under the level it started with, so a mid-run edit reshapes the *next* run.
 
 **The phases are not levers.** Since 0.3 every run walks the canonical
 order, minor changes included — `plan → code → test → complete` since 0.4
@@ -92,7 +100,9 @@ ignored (with a notice). What varies between heavy and light is the weight
 each phase carries, never the path.
 
 **The mandatory trio is not a lever either.** Since 0.4, `phpcs`, `phpstan`
-and `phpunit` cannot be turned off — they are the toolchain Drupal core
+and `phpunit` cannot be turned off from the `gates:` block (the one exception
+is the `low` preset's *base*, which drops `phpunit` — one loud reviewable
+line, recorded `off`, never `passed`) — they are the toolchain Drupal core
 itself develops with (exactly what `drupal/core-dev` ships). Their tuning
 levers (standard, level, paths) still apply; an `on: false`, or phpstan's
 `level: off`, is recorded as a deprecation notice and superseded. A repo
@@ -142,9 +152,10 @@ cannot find reports **tool missing**, which blocks, never passes.
 
 Three details worth knowing:
 
-- **Anything that does not name a preset resolves to `factory`** — no file, an
+- **Anything that does not name a preset resolves to `max`** — no file, an
   empty file, or a file that sets other things but never mentions one. A repo
-  that has said nothing has not opted out of anything. This is deliberately
+  that has said nothing has not opted out of anything — tests-must-exist
+  included, since 2.0. This is deliberately
   one rule rather than three: an earlier revision defaulted a file that exists
   to `custom`, which meant `touch droost.workflow.yml` turned mutation,
   playwright and coverage off and dropped PHPStan from max to 6, silently. If

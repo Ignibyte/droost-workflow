@@ -211,23 +211,31 @@ final class WorkflowConfig {
     }
 
     try {
-      $preset = $root->optionalString(
+      $deprecations = [];
+      $declared = $root->optionalString(
         'preset',
         PresetResolver::DEFAULT_PRESET,
       ) ?? PresetResolver::DEFAULT_PRESET;
-      if (isset(PresetResolver::RENAMED_PRESETS[$preset])) {
+      if (isset(PresetResolver::RENAMED_PRESETS[$declared])) {
         throw ConfigError::renamedPreset(
           $source,
-          $preset,
-          PresetResolver::RENAMED_PRESETS[$preset],
+          $declared,
+          PresetResolver::RENAMED_PRESETS[$declared],
         );
       }
-      if (!PresetResolver::isKnown($preset)) {
+      if (!PresetResolver::isKnown($declared)) {
         throw ConfigError::unknownPreset(
           $source,
-          $preset,
+          $declared,
           PresetResolver::KNOWN_PRESETS,
         );
+      }
+      // An alias (factory → max, light → medium) resolves and is recorded
+      // under its canonical name, with a notice so the file can be brought in
+      // line — a synonym is not a retirement, so it is not refused.
+      $preset = PresetResolver::canonical($declared);
+      if ($preset !== $declared) {
+        $deprecations[] = ConfigError::aliasedPresetNotice($source, $declared, $preset);
       }
       $base = PresetResolver::resolve($preset);
 
@@ -235,7 +243,6 @@ final class WorkflowConfig {
       // sequence. A present key is still VALIDATED — a typo should surface,
       // not vanish into a notice — and then superseded, with the supersession
       // recorded where every lever report will show it.
-      $deprecations = [];
       if ($root->has('phases')) {
         self::readPhases($root, $source);
         $deprecations[] = ConfigError::phasesDeprecationNotice($source);
@@ -256,7 +263,7 @@ final class WorkflowConfig {
         $provenance,
         self::readEnforcement($root, $source, $base->enforcement),
         $deprecations,
-        self::readSeekers($root, $source),
+        self::readSeekers($root, $source, $base->seekers),
         // Preset-independent on purpose: building must engage the pipeline
         // whatever the gate weight, so the default is hard everywhere and the
         // lever is the only thing that loosens it.
@@ -360,6 +367,9 @@ final class WorkflowConfig {
    *   The document root.
    * @param string $source
    *   The document label.
+   * @param bool $default
+   *   The preset's seeker default, used when the file does not say (off only
+   *   at the bottom of the dial, where speed is the point).
    *
    * @return bool
    *   Whether the checkpoint is armed.
@@ -372,17 +382,18 @@ final class WorkflowConfig {
   private static function readSeekers(
     TypedArray $root,
     string $source,
+    bool $default,
   ): bool {
     $node = $root->optionalChild('seekers');
     if ($node === NULL) {
-      return TRUE;
+      return $default;
     }
     foreach ($node->keys() as $key) {
       if (!in_array($key, self::SEEKER_OPTIONS, TRUE)) {
         throw ConfigError::unknownSeekersOption($source, $key);
       }
     }
-    return $node->optionalBool('on', TRUE);
+    return $node->optionalBool('on', $default);
   }
 
   /**
@@ -633,12 +644,20 @@ final class WorkflowConfig {
         );
       }
       $entry = $node->child($name);
-      // The mandatory trio cannot be disarmed. A disarm attempt is treated
-      // exactly like the retired phases key: validated vocabulary, recorded
-      // notice, superseded value — never silently obeyed, never fatal. The
-      // stripped entry still overlays, so tuning levers beside the attempt
-      // ("on: false" next to a paths list) keep their effect.
-      if (in_array($name, GateSettings::MANDATORY, TRUE)) {
+      // The mandatory trio cannot be disarmed FROM THIS BLOCK. A disarm
+      // attempt is treated exactly like the retired phases key: validated
+      // vocabulary, recorded notice, superseded value — never silently
+      // obeyed, never fatal. The stripped entry still overlays, so tuning
+      // levers beside the attempt ("on: false" next to a paths list) keep
+      // their effect.
+      //
+      // The guard on the base's own switch is the one deliberate exception:
+      // the `low` preset's BASE turns phpunit off — the mandate exists to stop
+      // a gate being disarmed silently, and `preset: low` is one loud line, so
+      // the base is allowed what an override is not. When the base already
+      // has the gate off, `on: false` here is redundant, not an attempt, and
+      // earns no notice claiming the gate "stays on".
+      if (in_array($name, GateSettings::MANDATORY, TRUE) && $gates[$name]->on) {
         $raw = $entry->toArray();
         $attempted = [];
         if (array_key_exists('on', $raw) && $raw['on'] === FALSE) {

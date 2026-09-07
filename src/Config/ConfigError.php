@@ -579,6 +579,38 @@ final class ConfigError extends \RuntimeException {
   }
 
   /**
+   * The notice recorded when a file names a preset by its alias.
+   *
+   * A notice, not an error: the alias resolves and the run proceeds under the
+   * canonical name. The message exists so the recorded levers and the file
+   * can be reconciled at leisure.
+   *
+   * @param string $source
+   *   The config path.
+   * @param string $alias
+   *   The name the file used.
+   * @param string $canonical
+   *   The name it resolved to.
+   *
+   * @return string
+   *   The notice.
+   */
+  public static function aliasedPresetNotice(
+    string $source,
+    string $alias,
+    string $canonical,
+  ): string {
+    return sprintf(
+      '%s: preset "%s" is an alias of "%s" — resolved and recorded as "%s"; '
+      . 'name it directly when convenient',
+      $source,
+      $alias,
+      $canonical,
+      $canonical,
+    );
+  }
+
+  /**
    * The notice recorded for the retired phases key.
    *
    * @param string $source

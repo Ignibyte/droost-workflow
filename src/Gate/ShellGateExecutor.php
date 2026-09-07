@@ -194,6 +194,20 @@ final class ShellGateExecutor implements GateExecutorInterface {
     if ($gate->name === 'phpunit'
       && $exit === 0
       && str_contains($stdout, 'No tests executed')) {
+      if ($gate->option('required') === TRUE) {
+        // The top of the dial: a suite that does not exist is the defect, not
+        // a fresh start. `required` turns the labelled pass below into a
+        // failure, so a max run cannot complete without tests that exist.
+        return GateResult::ran(
+          $gate->name,
+          GateStatus::Failed,
+          $exit,
+          $elapsed,
+          'phpunit FAILED — NO TESTS RAN, and this preset requires a test suite to exist (required: true). Write the tests; a run at this level cannot complete without them.',
+          [],
+          $invocation,
+        );
+      }
       // The config exists and the runner worked; there is simply nothing to
       // run yet. A labeled pass, so it can never be mistaken for a clean
       // suite — and the first test the test phase writes hardens this gate
@@ -227,6 +241,24 @@ final class ShellGateExecutor implements GateExecutorInterface {
           $invocation,
         );
       }
+    }
+
+    if ($gate->name === 'playwright'
+      && $gate->option('required') === TRUE
+      && $exit === 0
+      && (str_contains($stdout, 'No tests found') || str_contains($stderr, 'No tests found'))) {
+      // `playwright test` exits non-zero on an empty suite, so this is
+      // defensive — but `required` must hold even if a future runner exits
+      // zero on nothing: at the top of the dial no suite is a failure.
+      return GateResult::ran(
+        $gate->name,
+        GateStatus::Failed,
+        $exit,
+        $elapsed,
+        'playwright FAILED — no tests found, and this preset requires a browser suite to exist (required: true).',
+        [],
+        $invocation,
+      );
     }
 
     return GateResult::ran(

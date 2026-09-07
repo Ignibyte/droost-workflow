@@ -26,6 +26,10 @@ final class Preset {
    *   Every known gate, keyed by name.
    * @param \Droost\Workflow\Config\Enforcement $enforcement
    *   How hard the harness hooks hold the phase discipline mid-run.
+   * @param bool $seekers
+   *   Whether the adversarial-review checkpoint is armed unless the file says
+   *   otherwise. Off only at the bottom of the dial (low), where speed is the
+   *   point and one line arms it back.
    */
   public function __construct(
     public readonly string $name,
@@ -33,6 +37,7 @@ final class Preset {
     public readonly int $maxGateRetries,
     public readonly array $gates,
     public readonly Enforcement $enforcement = Enforcement::Soft,
+    public readonly bool $seekers = TRUE,
   ) {}
 
 }

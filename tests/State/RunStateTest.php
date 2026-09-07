@@ -30,7 +30,8 @@ class RunStateTest extends TestCase {
     $this->assertSame(PhaseStatus::Active, $state->statusOf(Phase::Plan));
     $this->assertSame(PhaseStatus::Pending, $state->statusOf(Phase::Code));
     $this->assertSame(Provenance::BuiltIn, $state->provenance);
-    $this->assertSame(2, $state->maxGateRetries);
+    // The built-in default is the top of the dial (max), which retries 3x.
+    $this->assertSame(3, $state->maxGateRetries);
   }
 
   /**

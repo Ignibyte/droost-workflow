@@ -28,8 +28,10 @@ class WorkflowConfigTest extends WorkflowTestCase {
    * the optional tiers stay switchable.
    */
   public function testMandatoryGatesCannotBeDisarmed(): void {
+    // The canonical top of the dial: `factory` would resolve the same but add
+    // an alias notice, and this test counts exactly the mandatory notices.
     $config = WorkflowConfig::fromArray([
-      'preset' => 'factory',
+      'preset' => 'max',
       'gates' => [
         'phpcs' => ['on' => FALSE, 'paths' => 'web/modules/custom'],
         'phpunit' => ['on' => FALSE],
@@ -136,7 +138,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
   }
 
   /**
-   * REQ-005: anything that names no preset resolves to factory.
+   * REQ-005: anything that names no preset resolves to max (top of the dial).
    *
    * One rule, three situations. An earlier revision gave a file that exists
    * the weaker "custom" set, so creating an empty file silently turned three
@@ -148,7 +150,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
    *   The provenance the loader should report.
    */
   #[DataProvider('unspecifiedPresetCases')]
-  public function testUnspecifiedPresetIsAlwaysFactory(
+  public function testUnspecifiedPresetIsAlwaysMax(
     ?string $yaml,
     Provenance $expected,
   ): void {
@@ -159,7 +161,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
     $config = WorkflowConfig::load($root);
     $builtIn = WorkflowConfig::builtIn();
 
-    $this->assertSame('factory', $config->preset);
+    $this->assertSame('max', $config->preset);
     $this->assertSame($expected, $config->provenance);
     $this->assertSame($builtIn->resolvedGates(), $config->resolvedGates());
     $this->assertTrue($config->gate('playwright')->on);
@@ -279,7 +281,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
       ],
       'option on a gate with none' => [
         ['gates' => ['phpunit' => ['min' => 1]]],
-        'droost.workflow.yml: gate "phpunit" has no option "min" (accepts: on)',
+        'droost.workflow.yml: gate "phpunit" has no option "min" (accepts: on, required)',
       ],
       'unknown phase' => [
         ['phases' => ['plan', 'deploy', 'complete']],
@@ -292,8 +294,8 @@ class WorkflowConfigTest extends WorkflowTestCase {
       ],
       'unknown preset' => [
         ['preset' => 'turbo'],
-        'droost.workflow.yml: unknown preset "turbo" (known: custom, factory, '
-        . 'light)',
+        'droost.workflow.yml: unknown preset "turbo" (known: custom, low, '
+        . 'medium, high, xhigh, max)',
       ],
       'dropped plan' => [
         ['phases' => ['code', 'complete']],
