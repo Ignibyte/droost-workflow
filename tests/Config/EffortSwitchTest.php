@@ -124,4 +124,66 @@ class EffortSwitchTest extends WorkflowTestCase {
     $this->assertSame([], EffortSwitch::overrides("preset: max\ngates:\n  phpstan: { paths: \"x\" }\n"));
   }
 
+  /**
+   * The delta names what the move changes for the next run — the bill.
+   */
+  public function testDeltaNamesWhatTheMoveChanges(): void {
+    $root = $this->makeRootWithConfig("preset: low\n");
+
+    $delta = EffortSwitch::apply($root, 'max')->delta();
+
+    $this->assertContains('phpunit: off → on (required to exist)', $delta);
+    $this->assertContains('playwright: off → on (required to exist)', $delta);
+    $this->assertContains('mutation: off → on (msi ≥ 80)', $delta);
+    $this->assertContains('coverage: off → on (min 80)', $delta);
+    $this->assertContains('wiki_fresh: off → on', $delta);
+    $this->assertContains('phpstan: level 1 → max', $delta);
+    $this->assertContains('seekers: off → on', $delta);
+    $this->assertContains('enforcement: soft → hard', $delta);
+    $this->assertContains('gate retries: 1 → 3', $delta);
+    $this->assertNotContains('rendered_check: off → on', $delta, 'a gate on at both levels is not a change');
+
+    $back = EffortSwitch::apply($root, 'low')->delta();
+    $this->assertContains('phpunit: on → off', $back);
+    $this->assertContains('enforcement: hard → soft', $back);
+
+    $this->assertSame([], EffortSwitch::apply($root, 'low')->delta(), 'the same level changes nothing');
+  }
+
+  /**
+   * A file that spells out every switch reports an honest empty gate delta.
+   */
+  public function testDeltaIsEmptyWhereTheFileOverrides(): void {
+    $root = $this->makeRootWithConfig(
+      "preset: high\ngates:\n  mutation: { on: false, msi_min: 0 }\n  playwright: { on: false }\n  coverage: { on: false, min: 0 }\n",
+    );
+
+    $delta = EffortSwitch::apply($root, 'max')->delta();
+
+    $this->assertNotContains('mutation: off → on (msi ≥ 80)', $delta, 'the file kept mutation off');
+    $this->assertNotContains('playwright: off → on (required to exist)', $delta);
+    $this->assertContains('phpunit: required (unset) → yes', $delta, 'phpunit is not spelled out, so max still requires it');
+    $this->assertContains('eslint: off → on', $delta, 'the trio is not spelled out either');
+  }
+
+  /**
+   * A preview computes the same change and writes nothing.
+   */
+  public function testPreviewWritesNothing(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nenforcement: soft\n");
+    $before = (string) file_get_contents($root . '/' . WorkflowConfig::FILENAME);
+
+    $change = EffortSwitch::preview($root, 'factory');
+
+    $this->assertSame('custom', $change->previous);
+    $this->assertSame('max', $change->level);
+    $this->assertSame('factory', $change->alias);
+    $this->assertTrue($change->moved());
+    $this->assertSame('max', $change->config->preset);
+    $this->assertContains('phpunit: required (unset) → yes', $change->delta());
+    $this->assertNotContains('enforcement: soft → hard', $change->delta(), 'the file spells enforcement out, so the move leaves it');
+    $this->assertSame($before, file_get_contents($root . '/' . WorkflowConfig::FILENAME), 'a preview writes nothing');
+    $this->assertSame('custom', WorkflowConfig::load($root)->preset);
+  }
+
 }

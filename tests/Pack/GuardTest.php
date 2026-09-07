@@ -370,9 +370,12 @@ final class GuardTest extends WorkflowTestCase {
     foreach ([
       'ddev drush droost:workflow:bypass --off',
       'drush dwfby --off',
-      // A bare effort only reports the current level.
+      // A bare effort only reports the current level; a preview shows the
+      // bill of a level without writing — how an agent grounds a proposal.
       'ddev drush droost:workflow:effort',
       'drush dwfe --project=/x',
+      'ddev drush droost:workflow:effort max --preview',
+      'drush dwfe --preview high',
       'ddev drush droost:gate allow_entity_write off',
       'drush config:set --input-format=yaml droost.settings allow_entity_write false -y',
       'ddev drush droost:gate allow_scaffold',

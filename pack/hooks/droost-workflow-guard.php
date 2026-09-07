@@ -188,9 +188,9 @@ exit(0);
  * running with permissions bypassed has a shell, and Drush is a shell command
  * — so the harness is where the agent's hand has to be stopped. Recognises
  * the full command names and the Drush aliases (dwfgw, dwfby, dwfe);
- * `bypass --off` re-arms the wall and a bare `effort` only reports, so both
- * are always allowed. Exit 2 with the reason on stderr; the agent is told to
- * ask the operator.
+ * `bypass --off` re-arms the wall, and a bare `effort` or an `effort <level>
+ * --preview` only reports, so those are always allowed. Exit 2 with the reason
+ * on stderr; the agent is told to ask the operator.
  */
 function operator_commands_guard(): void {
   $payload = json_decode((string) stream_get_contents(STDIN), TRUE);
@@ -208,11 +208,13 @@ function operator_commands_guard(): void {
     }
     $which = 'bypass';
   }
-  elseif (preg_match('/(?:droost:workflow:effort|(?<![\w-])dwfe)\b(?=.*\s(?:custom|low|medium|high|xhigh|max|factory|light)\b)/', $command) === 1) {
+  elseif (preg_match('/(?:droost:workflow:effort|(?<![\w-])dwfe)\b(?!.*--preview\b)(?=.*\s(?:custom|low|medium|high|xhigh|max|factory|light)\b)/', $command) === 1) {
     // Moving the dial is the operator's act whichever way it goes — down is
     // a loosening, and either way it is a lever change the file records.
-    // Only a command that NAMES a level is refused: a bare `effort` reports
-    // the current level and is anyone's to ask.
+    // Only a command that NAMES a level and would WRITE is refused: a bare
+    // `effort` reports the current level, and `effort <level> --preview`
+    // shows the bill without writing — both are anyone's to ask, and the
+    // preview is exactly how an agent should ground a level it proposes.
     $which = 'effort';
   }
   elseif (preg_match('/(?:droost:gate|(?<![\w-])dgate)\s+allow_\w+\s+(?:on|true|1|yes|arm|armed)\b/i', $command) === 1

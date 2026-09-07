@@ -65,6 +65,17 @@ search, the wiki as knowledge — is always used. Five points, two weights:
   PRESET (the test phase runs only the browser check) and reports `off`,
   never `passed` — that is the level's declared trade, not a green suite.
 
+**You cannot move the dial — propose it.** `drush droost:workflow:effort
+<level>` is the operator's command: the guard refuses it from your shell, and
+editing `droost.workflow.yml` yourself is the defeat the seeker's lens 7
+names. When the level does not fit the work — a change that deserves tests at
+`low`, a docs-only tweak held to `max` — say so and hand the operator the
+exact command with your reason. Ground the proposal first with
+`drush droost:workflow:effort <level> --preview`, which is read-only and
+allowed: it prints the bill — every gate, threshold, the seeker, enforcement
+and the retry bound the move would change for the NEXT run. The run in
+progress stays frozen at its level either way.
+
 Either way the spec file exists BEFORE code does; complete presents the
 realized plan against it.
 

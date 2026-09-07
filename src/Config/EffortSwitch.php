@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Config;
 
+use Symfony\Component\Yaml\Exception\ParseException;
+use Symfony\Component\Yaml\Yaml;
+
 /**
  * Moves the effort dial: rewrites the `preset:` line of a lever file.
  *
@@ -55,7 +58,7 @@ final class EffortSwitch {
         $root,
       ));
     }
-    $previous = WorkflowConfig::load($root)->preset;
+    $previousConfig = WorkflowConfig::load($root);
     $canonical = PresetResolver::canonical($level);
     $before = (string) file_get_contents($path);
     $after = self::rewrite($before, $canonical);
@@ -68,11 +71,74 @@ final class EffortSwitch {
       throw $e;
     }
     return new EffortChange(
-      $previous,
+      $previousConfig->preset,
       $canonical,
       $level === $canonical ? NULL : $level,
       self::overrides($after),
       $config,
+      $previousConfig,
+    );
+  }
+
+  /**
+   * What apply() would do, without writing anything.
+   *
+   * The bill before the first run: the rewritten text is resolved in memory
+   * and compared with the file as it stands, so an operator (or an agent
+   * proposing a level) can read what the move changes for the next run before
+   * anyone commits to it. Read-only, so it needs no operator terminal.
+   *
+   * @param string $root
+   *   The project root holding droost.workflow.yml.
+   * @param string $level
+   *   The level to preview: a known preset, or one of its aliases.
+   *
+   * @return \Droost\Workflow\Config\EffortChange
+   *   The change as it would be, delta included.
+   *
+   * @throws \InvalidArgumentException
+   *   When the level is unknown or there is no lever file.
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When the file does not load as it stands, or would not after the move.
+   */
+  public static function preview(string $root, string $level): EffortChange {
+    if (!PresetResolver::isKnown($level)) {
+      throw new \InvalidArgumentException(sprintf(
+        'Unknown preset "%s" (known: %s; factory and light load as aliases of max and medium).',
+        $level,
+        implode(', ', PresetResolver::KNOWN_PRESETS),
+      ));
+    }
+    $path = rtrim($root, '/') . '/' . WorkflowConfig::FILENAME;
+    if (!is_file($path)) {
+      throw new \InvalidArgumentException(sprintf(
+        'No %s at %s — nothing to preview. `drush droost:workflow:install` (or `droost-workflow init`) writes one.',
+        WorkflowConfig::FILENAME,
+        $root,
+      ));
+    }
+    $previousConfig = WorkflowConfig::load($root);
+    $canonical = PresetResolver::canonical($level);
+    $after = self::rewrite((string) file_get_contents($path), $canonical);
+    try {
+      $parsed = Yaml::parse($after);
+    }
+    catch (ParseException $e) {
+      throw ConfigError::unparseable(WorkflowConfig::FILENAME, $e, $path);
+    }
+    if ($parsed === NULL) {
+      $parsed = [];
+    }
+    if (!is_array($parsed)) {
+      throw ConfigError::notMapping(WorkflowConfig::FILENAME, get_debug_type($parsed));
+    }
+    return new EffortChange(
+      $previousConfig->preset,
+      $canonical,
+      $level === $canonical ? NULL : $level,
+      self::overrides($after),
+      WorkflowConfig::fromArray($parsed, WorkflowConfig::FILENAME . ' (preview)'),
+      $previousConfig,
     );
   }
 
