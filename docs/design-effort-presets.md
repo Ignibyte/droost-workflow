@@ -1,8 +1,10 @@
 # Design — effort presets: one dial for how hard the workflow cranks
 
-Status: DESIGN — **all owner decisions made 2026-09-07; ready to build P1.**
-Owner-directed. Not yet built. The decisions marked **OWNER** through the body
-are resolved in §12.
+Status: **P1 BUILT 2026-09-07 (engine `0daefb4`, gate green: 434 tests).**
+The engine scale, `required`, preset-only mandatory relaxation, aliases, the
+seeker default and the run-record bool reader are shipped. P2 (pack briefs), P3
+(report annotation), P4 (ergonomics + bulletin) and P5 (evals) remain. The
+decisions marked **OWNER** through the body are resolved in §12.
 
 ## 1. The idea
 
