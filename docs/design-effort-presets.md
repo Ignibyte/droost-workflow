@@ -1,6 +1,6 @@
 # Design — effort presets: one dial for how hard the workflow cranks
 
-Status: **P1 BUILT 2026-09-07 (engine `0daefb4`, gate green: 434 tests).**
+Status: **P1 BUILT 2026-09-07 (engine `0daefb4`); P2 BUILT 2026-09-07 (pack `8d84f97`, module docs `5e56d79`); gate green: 434 tests.** P3–P5 open.
 The engine scale, `required`, preset-only mandatory relaxation, aliases, the
 seeker default and the run-record bool reader are shipped. P2 (pack briefs), P3
 (report annotation), P4 (ergonomics + bulletin) and P5 (evals) remain. The
@@ -261,9 +261,14 @@ agent's briefs and the engine's gates disagree.
   cannot disarm); aliases per the OWNER call. Tests: resolution per level,
   override-cannot-disarm, preset-may-disarm-loudly, `required` semantics,
   freeze. `composer lint` green.
-- **P2 — pack briefs.** Spec-writer (depth), complete-phase (documentation
-  weight), seeker (effort awareness) branch on the five names; lever template
-  documents the scale.
+- **P2 — pack briefs. BUILT 2026-09-07 (`8d84f97`).** Spec-writer (depth),
+  complete-phase (documentation weight — no wiki step at `low`), seeker
+  (effort awareness — no tests at `low` is one advisory observation, never a
+  finding; the lever file changing mid-run is the defeat) branch on the five
+  names, every brief reading the frozen canonical name from run.json; the
+  lever template documents the scale; `continue`'s outcome table gains `off`
+  and the report leads with the level. Module docs (`5e56d79`): adoption
+  guide, project page, e2e plan (§6 medium, §6b low, §7 max).
 - **P3 — report/status.** Annotate "off by preset X"; print the level.
 - **P4 — ergonomics + docs.** `--preset` vocabulary, optional `workflow:effort`,
   README table, bulletin for the default/`required` change.
