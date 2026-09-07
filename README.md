@@ -107,7 +107,15 @@ not), names the canonical level an alias resolved to, and lists the gate
 switches the file still spells out (each overrides the dial). It is the
 operator's command like `gate-waive` and `bypass`: it refuses without an
 interactive terminal and the pack's guard refuses it from the agent's shell —
-the agent proposes the level, a human sets it. A bare `effort` only reports.
+the agent proposes the level, a human sets it. A bare `effort` only reports,
+and `effort <level> --preview` prints **the bill** — every gate, threshold,
+the seeker, enforcement and the retry bound the move would change for the
+next run — without writing, so an operator sees what raising the level
+applies to existing code before the first run pays for it (round 30 raised a
+room to `max` and the first run met 26 legacy phpstan errors), and an agent
+can ground the level it proposes. A real move prints the same list after it
+lands; an empty list on a move says why (every touched gate is spelled out in
+the file).
 `drush droost:workflow:install --preset=<level>` writes a fresh file at a
 level, carrying tuning only (the measured paths) so the level actually drives.
 

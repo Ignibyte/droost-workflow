@@ -289,7 +289,14 @@ agent's briefs and the engine's gates disagree.
   required; the pack guard refuses it from the agent's shell like gate-waive
   and bypass; a bare `effort` only reports). Bulletin 2.0.0-alpha5 item 5:
   the default moved factory → max WITH required suites. README: "Off says
-  why", "Moving the dial is one command".
+  why", "Moving the dial is one command". **Addendum from round 2 (engine
+  `b3e34a5`, module `57fb928`):** `EffortChange::delta()` lists what a move
+  changes for the NEXT run (resolved before vs resolved after, file overrides
+  included); `EffortSwitch::preview()` computes it without writing; `drush
+  droost:workflow:effort <level> --preview` prints it read-only (guard-allowed,
+  so an agent can ground a proposal) and a real move prints it after landing;
+  `continue.md` tells the agent to propose the exact command rather than touch
+  the file.
 - **P5 — evals. TICKETS WRITTEN (T25, T26), not yet run.** **T25 (low)** —
   a /health endpoint; the accept reads run.json: phpunit `off` / "by preset
   low" at test and complete, never passed, no retries spent; rendered check
