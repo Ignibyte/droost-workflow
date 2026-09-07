@@ -71,7 +71,9 @@ final class RunOutcome {
    * differ in how they PRINT this, never in what it says.
    *
    * @return array<string, mixed>
-   *   The envelope: outcome, current_phase, report, awaiting, and the
+   *   The envelope: outcome, current_phase, preset (the effort level the run
+   *   is held to — the frozen, canonical name, so a reader can tell a gate
+   *   the level dropped from one that failed), report, awaiting, and the
    *   retries block (attempts per gate, the bound, and whether the budget
    *   is exhausted).
    */
@@ -79,6 +81,7 @@ final class RunOutcome {
     return [
       'outcome' => $this->outcome->value,
       'current_phase' => $this->state->currentPhase?->value,
+      'preset' => $this->state->preset,
       'report' => $this->report?->toArray(),
       'awaiting' => $this->question?->toArray(),
       'retries' => [

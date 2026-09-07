@@ -151,6 +151,53 @@ class GateRunnerTest extends WorkflowTestCase {
   }
 
   /**
+   * An off result says what turned it off: the level, or the file.
+   *
+   * "off" alone cannot distinguish the dial doing its job (preset low has no
+   * phpunit, and the repo chose that in one reviewable line) from a
+   * lever-file override switching off something the level turns on — the
+   * second is a loosening a reader must be able to see. The reason rides as
+   * the skip reason too, so every surface that prints reasons beside
+   * non-passes prints this one.
+   */
+  public function testOffResultsSayWhatTurnedThemOff(): void {
+    $runner = new GateRunner($this->recordingExecutor(), new NullSiteDriver());
+    $byGate = static function (array $results, string $gate): ?GateResult {
+      foreach ($results as $result) {
+        if ($result instanceof GateResult && $result->gate === $gate) {
+          return $result;
+        }
+      }
+      return NULL;
+    };
+
+    // The level dropped it: low's base has no phpunit.
+    $report = $runner->run($this->beginWith(['preset' => 'low']), Phase::Test, '/tmp');
+    $phpunit = $byGate($report->results, 'phpunit');
+    $this->assertInstanceOf(GateResult::class, $phpunit);
+    $this->assertSame(GateStatus::Off, $phpunit->status);
+    $this->assertSame('by preset low', $phpunit->skipReason);
+    $this->assertSame('off — by preset low', $phpunit->summary);
+    $this->assertSame('off', $phpunit->toArray()['status'], 'a gate the level drops is off, never passed');
+
+    // The file turned off a gate its level turns on: a visible loosening.
+    $report = $runner->run(
+      $this->beginWith(['preset' => 'xhigh', 'gates' => ['mutation' => ['on' => FALSE]]]),
+      Phase::Test,
+      '/tmp',
+    );
+    $mutation = $byGate($report->results, 'mutation');
+    $this->assertInstanceOf(GateResult::class, $mutation);
+    $this->assertSame('by the lever file (preset xhigh turns it on)', $mutation->skipReason);
+
+    // Custom has no opinion to compare against: the file is the truth.
+    $report = $runner->run($this->beginWith(['preset' => 'custom']), Phase::Test, '/tmp');
+    $mutation = $byGate($report->results, 'mutation');
+    $this->assertInstanceOf(GateResult::class, $mutation);
+    $this->assertSame('by the lever file (custom levers)', $mutation->skipReason);
+  }
+
+  /**
    * REQ-002: a site gate with no driver is skipped, and never passed.
    */
   public function testSiteGateWithNoDriverIsSkippedNotPassed(): void {

@@ -6,6 +6,7 @@ namespace Droost\Workflow\Gate;
 
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Config\PresetResolver;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\State\RunState;
 
@@ -101,7 +102,7 @@ final class GateRunner {
       }
       else {
         [$levers, $drift] = $this->withLiveTuning($name, $levers, $live[$name] ?? NULL);
-        $result = $this->runOne($name, $levers, $projectRoot);
+        $result = $this->runOne($name, $levers, $projectRoot, $state->preset);
         if ($drift !== []) {
           $result = new GateResult(
             $result->gate,
@@ -172,6 +173,8 @@ final class GateRunner {
    *   The gate's recorded levers.
    * @param string $projectRoot
    *   The repository to run in.
+   * @param string $preset
+   *   The run's frozen preset name, for saying what turned an off gate off.
    *
    * @return \Droost\Workflow\Gate\GateResult
    *   What happened.
@@ -180,10 +183,11 @@ final class GateRunner {
     string $name,
     array $levers,
     string $projectRoot,
+    string $preset,
   ): GateResult {
     $on = $levers['on'] ?? FALSE;
     if ($on !== TRUE) {
-      return GateResult::off($name);
+      return GateResult::off($name, $this->offReason($preset, $name));
     }
 
     $gate = $this->settings($name, $levers);
@@ -205,6 +209,41 @@ final class GateRunner {
     }
 
     return $this->executor->execute($gate, $projectRoot);
+  }
+
+  /**
+   * Why a gate that did not run is off — the level, or the file.
+   *
+   * An `off` row that says only "off" leaves the reader to guess between two
+   * opposite situations: the repo chose a level that drops the gate (`low`
+   * has no phpunit — the dial doing its job, in a line a reviewer saw), or a
+   * lever-file override switched off something the level turns on — a
+   * loosening. The frozen preset name and the built-in base are enough to
+   * tell them apart, so nothing new is recorded to say it.
+   *
+   * @param string $preset
+   *   The run's frozen preset name.
+   * @param string $name
+   *   The gate.
+   *
+   * @return string
+   *   The reason, phrased to follow the word "off".
+   */
+  private function offReason(string $preset, string $name): string {
+    if (GateSettings::isCustom($name)) {
+      // A repo's own gate has no built-in base to be compared against.
+      return 'by the lever file';
+    }
+    if ($preset === 'custom') {
+      return 'by the lever file (custom levers)';
+    }
+    $base = PresetResolver::resolve($preset)->gates[$name] ?? NULL;
+    if ($base === NULL) {
+      return 'by the lever file';
+    }
+    return $base->on
+      ? sprintf('by the lever file (preset %s turns it on)', $preset)
+      : sprintf('by preset %s', $preset);
   }
 
   /**

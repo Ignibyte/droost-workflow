@@ -59,12 +59,26 @@ final class GateResult {
    *
    * @param string $gate
    *   The gate name.
+   * @param string $reason
+   *   What turned it off, phrased to follow "off —": the level ("by preset
+   *   low") or the file ("by the lever file (preset xhigh turns it on)"). It
+   *   rides as the skip reason too, so a renderer that prints a reason beside
+   *   every non-pass shows it next to the status word, and "off" is never
+   *   left to be read as "skipped".
    *
    * @return self
    *   The result.
    */
-  public static function off(string $gate): self {
-    return new self($gate, GateStatus::Off, summary: 'configured off');
+  public static function off(
+    string $gate,
+    string $reason = 'by the lever file',
+  ): self {
+    return new self(
+      $gate,
+      GateStatus::Off,
+      summary: 'off — ' . $reason,
+      skipReason: $reason,
+    );
   }
 
   /**

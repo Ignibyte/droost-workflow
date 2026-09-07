@@ -93,6 +93,14 @@ records the canonical name and a notice says so. (`fast` was retired in 0.3
 and is refused with a pointer.) Switching levels is one line; a run is frozen
 under the level it started with, so a mid-run edit reshapes the *next* run.
 
+**Off says why.** A gate a level turns off is reported `off — by preset
+<level>`; a gate the file turns off against its level reads `off — by the
+lever file (preset <level> turns it on)` — the same status word, so a reader
+can tell the dial doing its job from a loosening without opening the file.
+The reason rides as the result's `skip_reason`, and every run envelope
+carries `preset`, the level the run was held to: "no phpunit result" is
+readable as a failure or as a `low` run that never asked for one.
+
 **The phases are not levers.** Since 0.3 every run walks the canonical
 order, minor changes included — `plan → code → test → complete` since 0.4
 folded document into complete — and the `phases:` key is deprecated and

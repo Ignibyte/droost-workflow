@@ -74,7 +74,7 @@ class WorkflowFacadeRetryTest extends WorkflowTestCase {
     // The envelope carries the whole story for a caller.
     $envelope = $fourth->toArray();
     $this->assertSame(
-      ['outcome', 'current_phase', 'report', 'awaiting', 'retries'],
+      ['outcome', 'current_phase', 'preset', 'report', 'awaiting', 'retries'],
       array_keys($envelope),
     );
     $this->assertSame(

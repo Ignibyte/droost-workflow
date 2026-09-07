@@ -276,9 +276,10 @@ class SurfaceParityTest extends WorkflowTestCase {
 
     $envelope = $outcome->toArray();
     $this->assertSame(
-      ['outcome', 'current_phase', 'report', 'awaiting', 'retries'],
+      ['outcome', 'current_phase', 'preset', 'report', 'awaiting', 'retries'],
       array_keys($envelope),
     );
+    $this->assertSame('custom', $envelope['preset'], 'the envelope names the level the run is held to');
     $retries = $envelope['retries'];
     $this->assertIsArray($retries);
     $this->assertSame(
