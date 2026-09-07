@@ -125,6 +125,15 @@ none, a trio gate takes `phpcs`'s `paths` — the project's own code is the same
 place for both — so a hand-written `preset: max` with only the PHP pair scoped
 never lints the repository root. A trio gate given its own `paths` keeps them.
 
+**A waiver can reopen a terminally failed phase.** When a gate spends the
+retry budget, `run` refuses and the record says why; recovery used to be
+`reset` alone. Now the operator's `drush droost:workflow:gate-waive <gate>
+"<reason>"` — signed from a terminal, refused from the agent's shell — also
+reopens the phase when it covers every gate that killed it: the phase runs
+again with those gates recorded as **waived**, never passed, and the reason
+rides in the report. A waiver on some other gate changes nothing, and the
+mandatory trio still cannot be waived at all.
+
 **The phases are not levers.** Since 0.3 every run walks the canonical
 order, minor changes included — `plan → code → test → complete` since 0.4
 folded document into complete — and the `phases:` key is deprecated and

@@ -14,6 +14,7 @@ use Droost\Workflow\Event\NullWorkflowListener;
 use Droost\Workflow\Event\WorkflowListenerInterface;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateRunner;
+use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\ShellGateExecutor;
 use Droost\Workflow\Gate\SiteDriverInterface;
 use Droost\Workflow\Mode\ModeEngine;
@@ -285,11 +286,24 @@ final class WorkflowFacade {
     }
 
     if ($state->statusOf($phase) === PhaseStatus::Failed) {
-      // The phase spent its retry budget. Re-running would silently restart
-      // a run the engine already declared over — so nothing executes, and
-      // the envelope's retries block says why. Recovery is deliberate:
-      // reset() archives the record, then a fresh run begins.
-      return new RunOutcome(Outcome::Failed, $state);
+      if (!$this->waiversCoverTheFailure($state, $phase)) {
+        // The phase spent its retry budget. Re-running would silently restart
+        // a run the engine already declared over — so nothing executes, and
+        // the envelope's retries block says why. Recovery is deliberate:
+        // reset() archives the record, then a fresh run begins — or the
+        // operator WAIVES every gate that killed the phase (below).
+        return new RunOutcome(Outcome::Failed, $state);
+      }
+      // Every gate that killed the phase has since been waived by the
+      // operator — a signed, reasoned act through the terminal, refused from
+      // the agent's shell. That is the one deliberate recovery short of
+      // reset: the phase reopens and runs again with those gates recorded
+      // as WAIVED (never passed), so a long governed run is not lost to a
+      // gate the operator has answered for. D70 round 2: a rendered_check
+      // that failed only inside the gate run, on a page that rendered 200
+      // every other way, would otherwise have cost a four-hour run at max.
+      $state = $state->withPhaseStatus($phase, PhaseStatus::Active);
+      $store->save($state);
     }
 
     // The spec holds up its end before the phase runs. Leaving plan needs
@@ -637,6 +651,50 @@ final class WorkflowFacade {
       ->withGateWaiver($gate, trim($reason), $this->now());
     $store->save($waived);
     return $waived;
+  }
+
+  /**
+   * Whether every gate that terminally failed a phase has since been waived.
+   *
+   * Read from the phase's recorded report: the gates whose status blocked
+   * the advance (failed, tool missing) must each carry an operator waiver.
+   * A phase with no recorded report, or no blocking row, was not failed by
+   * a gate and is not reopened by this route.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The terminally failed phase.
+   *
+   * @return bool
+   *   TRUE when a waiver covers every blocking gate of the last report.
+   */
+  private function waiversCoverTheFailure(RunState $state, Phase $phase): bool {
+    $report = $state->gateResults[$phase->value] ?? NULL;
+    if (!is_array($report) || !is_array($report['gates'] ?? NULL)) {
+      return FALSE;
+    }
+    $blocking = [];
+    foreach ($report['gates'] as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $gate = $row['gate'] ?? NULL;
+      $status = $row['status'] ?? NULL;
+      if (is_string($gate) && is_string($status)
+        && in_array($status, [GateStatus::Failed->value, GateStatus::ErrorToolMissing->value], TRUE)) {
+        $blocking[] = $gate;
+      }
+    }
+    if ($blocking === []) {
+      return FALSE;
+    }
+    foreach ($blocking as $gate) {
+      if (!isset($state->gateWaivers[$gate])) {
+        return FALSE;
+      }
+    }
+    return TRUE;
   }
 
   /**
