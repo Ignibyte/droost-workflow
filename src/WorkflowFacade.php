@@ -152,6 +152,12 @@ final class WorkflowFacade {
     $status['run'] = [
       'run_id' => $state->runId,
       'started_at' => $state->startedAt,
+      // The level the run is HELD to — frozen at begin, so it may lawfully
+      // differ from levers.preset above after a mid-run lever edit. Without
+      // it the drush report's header read "effort ?" (D70 round 1, T25):
+      // the renderer asked the status document for a key that was only in
+      // run.json.
+      'preset' => $state->preset,
       'effective_mode' => $state->effectiveMode()->value,
       'current_phase' => $state->currentPhase?->value,
       // The judgment half of the record: whether the checkpoint is armed,
