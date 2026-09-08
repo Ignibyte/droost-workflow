@@ -89,6 +89,29 @@ final class BaselineWriterTest extends WorkflowTestCase {
   }
 
   /**
+   * A clean tree measures phpstan as zero, never as "not measured".
+   *
+   * PHPStan refuses to write a baseline from zero errors unless told an
+   * empty one is fine; the first live bill on the clean room read
+   * "not measured — phpstan did not write a baseline (exit 1)" for a gate
+   * with nothing to inherit. Zero is a number the manifest records.
+   */
+  public function testCleanTreeMeasuresPhpstanAsZero(): void {
+    $this->phpstanCount = 0;
+    $root = $this->legacyRoot();
+    $writer = $this->writer();
+
+    $measured = $writer->measure(WorkflowConfig::load($root), $root);
+    $this->assertArrayNotHasKey('phpstan', $measured->skipped, 'zero findings is a measurement');
+
+    $manifest = $writer->write($root, $measured, 'max', 'abc123');
+    $this->assertSame(0, $manifest->count('phpstan'));
+    $baseline = BaselineStore::load($root);
+    $this->assertNotNull($baseline);
+    $this->assertSame(0, $baseline->phpstanInheritedCount());
+  }
+
+  /**
    * A refresh drops paid-off debt and keeps the rest.
    */
   public function testRefreshShrinks(): void {
@@ -291,9 +314,16 @@ final class BaselineWriterTest extends WorkflowTestCase {
             return [$messages === [] ? 0 : 2, $report, ''];
 
           case 'phpstan':
+            // The real tool: zero errors + --generate-baseline is a refusal
+            // (exit 1) unless --allow-empty-baseline is passed too.
+            $this->assertContains('--allow-empty-baseline', $argv, 'a clean tree must still measure (phpstan refuses an empty baseline without the flag)');
             foreach ($argv as $arg) {
               $this->assertStringStartsNotWith('--error-format', $arg, 'phpstan refuses --error-format beside --generate-baseline');
               if (str_starts_with($arg, '--generate-baseline=')) {
+                if ($this->phpstanCount === 0) {
+                  file_put_contents($cwd . '/' . substr($arg, strlen('--generate-baseline=')), "parameters:\n\tignoreErrors: []\n");
+                  continue;
+                }
                 $entries = '';
                 for ($i = 0; $i < $this->phpstanCount; $i++) {
                   $entries .= "\t\t-\n\t\t\tmessage: '#Debt {$i}#'\n\t\t\tcount: 1\n\t\t\tpath: ../../web/a.php\n";

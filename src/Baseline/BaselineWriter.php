@@ -375,20 +375,52 @@ final class BaselineWriter {
     }
     $scratch = BaselineStore::DIR . '/' . self::PHPSTAN_SCRATCH;
     $path = $root . '/' . $scratch;
-    $run = $this->executor->measure($settings, $root, ['--generate-baseline=' . $scratch], ['--error-format=']);
+    // A clean tree is a measurement too: without `--allow-empty-baseline`
+    // phpstan refuses to write a baseline from zero errors (exit 1, "No
+    // errors were found"), and a gate with nothing to inherit read as "not
+    // measured" — the first live bill on the clean room said exactly that.
+    $run = $this->executor->measure(
+      $settings,
+      $root,
+      ['--generate-baseline=' . $scratch, '--allow-empty-baseline'],
+      ['--error-format='],
+    );
     if ($run === NULL) {
       return [NULL, 'tool missing or nothing to analyse'];
     }
     if (!is_file($path)) {
-      $line = strtok(trim($run['stderr']) !== '' ? $run['stderr'] : $run['stdout'], "\n");
+      $line = self::firstMeaningfulLine($run['stderr'] . "\n" . $run['stdout']);
       return [
         NULL,
-        sprintf('phpstan did not write a baseline (exit %d)%s', $run['exit'], $line === FALSE ? '' : ': ' . $line),
+        sprintf('phpstan did not write a baseline (exit %d)%s', $run['exit'], $line === NULL ? '' : ': ' . $line),
       ];
     }
     $neon = (string) file_get_contents($path);
     @unlink($path);
     return [$neon, NULL];
+  }
+
+  /**
+   * The first line of tool output that says something.
+   *
+   * PHPStan opens every run with "Note: Using configuration file …", which
+   * is the line a naive first-line pick reported as the reason it failed.
+   *
+   * @param string $output
+   *   The tool's output, stderr first.
+   *
+   * @return string|null
+   *   The line, or NULL when nothing was said.
+   */
+  private static function firstMeaningfulLine(string $output): ?string {
+    foreach (preg_split('/\R/', $output) ?: [] as $line) {
+      $line = trim($line, " \t[]");
+      if ($line === '' || str_starts_with($line, 'Note:')) {
+        continue;
+      }
+      return $line;
+    }
+    return NULL;
   }
 
   /**
