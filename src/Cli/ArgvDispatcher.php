@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Cli;
 
+use Droost\Workflow\Baseline\BaselineError;
 use Droost\Workflow\Config\ConfigError;
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Gate\NullSiteDriver;
@@ -97,12 +98,13 @@ final class ArgvDispatcher {
         'declare-browser' => $this->declareBrowser($projectRoot, $argv),
         'declare-tasks' => $this->declareTasks($projectRoot, $argv),
         'reset' => $this->reset($projectRoot, $argv),
+        'baseline' => $this->baseline($projectRoot, $argv),
         default => $this->unknown($verb),
       };
     }
     // Every failure this package raises is typed, and each one is already
     // phrased for a human — so the handler prints rather than re-explains.
-    catch (ConfigError | StateError | PackError | SeekerError $e) {
+    catch (ConfigError | StateError | PackError | SeekerError | BaselineError $e) {
       $this->fail($e->getMessage());
       return self::EXIT_USAGE;
     }
@@ -338,6 +340,49 @@ final class ArgvDispatcher {
   }
 
   /**
+   * The adoption baseline: the bill, the record, or a write.
+   *
+   * `--status` and `--measure` are read-only and anyone's to ask. A write
+   * (first, or `--refresh`, or `--refresh --grow --reason=…`) is the
+   * operator's act; this surface has no terminal check of its own because it
+   * IS the operator's terminal — the pack guard is what refuses the agent's
+   * shell. There is no site here, so config_clean is never measured.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The arguments.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function baseline(string $projectRoot, array $argv): int {
+    $flags = array_slice($argv, 1);
+    if (in_array('--status', $flags, TRUE)) {
+      $this->say($this->encode($this->facade()->baselineStatus($projectRoot)));
+      return self::EXIT_OK;
+    }
+    if (in_array('--measure', $flags, TRUE)) {
+      $this->say($this->encode($this->facade()->baselineMeasure($projectRoot)));
+      return self::EXIT_OK;
+    }
+    $reason = NULL;
+    foreach ($flags as $flag) {
+      if (str_starts_with($flag, '--reason=')) {
+        $reason = substr($flag, strlen('--reason='));
+      }
+    }
+    $written = $this->facade()->baselineWrite(
+      $projectRoot,
+      in_array('--refresh', $flags, TRUE),
+      in_array('--grow', $flags, TRUE),
+      $reason,
+    );
+    $this->say($this->encode($written));
+    return self::EXIT_OK;
+  }
+
+  /**
    * Reports an unknown verb.
    *
    * @param string $verb
@@ -372,6 +417,12 @@ final class ArgvDispatcher {
                        one task per phase (claude-code, codex, other, none)
       reset [--force]  clear a finished run (archives its record to
                        .droost-workflow/history/); --force abandons a live one
+      baseline         write the adoption baseline (droost/baseline/): the
+                       debt the tree carries today, inherited from then on.
+                       --measure shows the bill without writing; --status
+                       shows the recorded baseline; --refresh re-measures
+                       (paid-off debt drops, growth is refused unless
+                       --grow --reason="…"). Writing is the operator's act.
 
     Every site-dependent gate reports "skipped, no site" here, with its
     reason. That is deliberate: this surface tells you what it could not

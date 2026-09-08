@@ -144,13 +144,16 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   The repository.
    * @param list<string> $extraArgv
    *   Arguments appended to the gate's own.
+   * @param list<string> $withoutPrefixes
+   *   Argument prefixes to drop from the gate's own argv first (phpstan
+   *   refuses `--error-format` beside `--generate-baseline`).
    *
    * @return array{argv: list<string>, exit: int, stdout: string, stderr: string}|null
    *   The run, or NULL when nothing could run: a custom gate (its cmd is the
    *   gate, not a tool), a missing binary, a missing suite config, or paths
    *   with nothing to analyse.
    */
-  public function measure(GateSettings $gate, string $projectRoot, array $extraArgv = []): ?array {
+  public function measure(GateSettings $gate, string $projectRoot, array $extraArgv = [], array $withoutPrefixes = []): ?array {
     $root = rtrim($projectRoot, '/');
     if (GateSettings::isCustom($gate->name)) {
       return NULL;
@@ -164,7 +167,18 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       && !is_file($root . '/phpunit.xml.dist')) {
       return NULL;
     }
-    $argv = [...$prepared['argv'], ...$extraArgv];
+    $kept = array_values(array_filter(
+      $prepared['argv'],
+      static function (string $arg) use ($withoutPrefixes): bool {
+        foreach ($withoutPrefixes as $prefix) {
+          if (str_starts_with($arg, $prefix)) {
+            return FALSE;
+          }
+        }
+        return TRUE;
+      },
+    ));
+    $argv = [...$kept, ...$extraArgv];
     /** @var array{int, string, string} $outcome */
     $outcome = ($this->runner)($argv, $root, $this->timeout);
     return ['argv' => $argv, 'exit' => $outcome[0], 'stdout' => $outcome[1], 'stderr' => $outcome[2]];

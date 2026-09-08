@@ -6,6 +6,7 @@ namespace Droost\Workflow;
 
 use Droost\Workflow\Baseline\BaselineError;
 use Droost\Workflow\Baseline\BaselineStore;
+use Droost\Workflow\Baseline\BaselineWriter;
 use Droost\Workflow\Cli\CliProcess;
 use Droost\Workflow\State\StateError;
 use Droost\Workflow\Vcs\CliVcs;
@@ -229,6 +230,103 @@ final class WorkflowFacade {
    */
   public function baselineStatus(string $projectRoot): array {
     return $this->baselineSummary($projectRoot, WorkflowConfig::load($projectRoot));
+  }
+
+  /**
+   * The bill: what each consulting gate would inherit if baselined now.
+   *
+   * Read-only, so anyone may ask — the agent included, which is how it
+   * grounds a proposal to baseline. Runs every consulting tool the level
+   * turns on, so on a large tree it takes as long as a code-phase gate run.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string>|null $configDrift
+   *   The site's current config drift, from the live surface, or NULL.
+   *
+   * @return array<string, mixed>
+   *   The level, the per-gate bill, and the gates that could not be measured.
+   */
+  public function baselineMeasure(string $projectRoot, ?array $configDrift = NULL): array {
+    $config = WorkflowConfig::load($projectRoot);
+    $measured = $this->writer()->measure($config, $projectRoot, $configDrift);
+    return [
+      'level' => $config->preset,
+      'bill' => $measured->bill(),
+      'skipped' => $measured->skipped,
+    ];
+  }
+
+  /**
+   * Writes the adoption baseline, or refreshes it under the ratchet.
+   *
+   * The OPERATOR's act: the surfaces demand a terminal and the pack guard
+   * refuses the agent's shell. Refused while a run is active, because a
+   * baseline that changes under a run fails every gate that consults it.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param bool $refresh
+   *   Re-measure an existing baseline (paid-off debt drops).
+   * @param bool $grow
+   *   Allow the refresh to record more debt than before.
+   * @param string|null $reason
+   *   Why growth is accepted; required with $grow.
+   * @param list<string>|null $configDrift
+   *   The site's current config drift, from the live surface, or NULL.
+   *
+   * @return array<string, mixed>
+   *   The manifest written, the bill, the skipped gates, and the new hash.
+   *
+   * @throws \Droost\Workflow\Baseline\BaselineError
+   *   When a run is active, a first write finds a baseline, a refresh finds
+   *   none, growth is refused, or --grow lacks its reason.
+   */
+  public function baselineWrite(
+    string $projectRoot,
+    bool $refresh = FALSE,
+    bool $grow = FALSE,
+    ?string $reason = NULL,
+    ?array $configDrift = NULL,
+  ): array {
+    $active = (new RunStateStore($projectRoot))->load();
+    if ($active !== NULL && $active->currentPhase !== NULL) {
+      throw BaselineError::runActive();
+    }
+    $config = WorkflowConfig::load($projectRoot);
+    $measured = $this->writer()->measure($config, $projectRoot, $configDrift);
+    $manifest = $this->writer()->write(
+      $projectRoot,
+      $measured,
+      $config->preset,
+      $this->vcs->head($projectRoot),
+      $refresh,
+      $grow,
+      $reason,
+    );
+    return [
+      'manifest' => $manifest->toArray(),
+      'bill' => $measured->bill(),
+      'skipped' => $measured->skipped,
+      'hash' => BaselineStore::hash($projectRoot),
+      'dir' => BaselineStore::DIR,
+    ];
+  }
+
+  /**
+   * The baseline writer for this surface.
+   *
+   * @return \Droost\Workflow\Baseline\BaselineWriter
+   *   The writer.
+   *
+   * @throws \LogicException
+   *   When this facade's executor cannot measure (a test fake).
+   */
+  private function writer(): BaselineWriter {
+    if (!$this->executor instanceof ShellGateExecutor) {
+      throw new \LogicException('baseline measurement needs the shell executor — this facade was built with another.');
+    }
+    return new BaselineWriter($this->executor, $this->clock);
   }
 
   /**

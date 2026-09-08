@@ -69,6 +69,37 @@ final class BaselineError extends \RuntimeException {
   }
 
   /**
+   * A first write where a baseline already exists.
+   *
+   * @param string $root
+   *   The project root.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function alreadyExists(string $root): self {
+    return new self(sprintf(
+      '%s/%s already holds a baseline — use --refresh to re-measure it '
+      . '(paid-off debt drops; growth needs --grow --reason="…").',
+      rtrim($root, '/'),
+      BaselineStore::DIR,
+    ));
+  }
+
+  /**
+   * A write while a run is active.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function runActive(): self {
+    return new self(
+      'a run is active — a baseline that changes under a run fails every gate '
+      . 'that consults it. Finish or reset the run, then write the baseline.',
+    );
+  }
+
+  /**
    * Nothing to refresh.
    *
    * @param string $root
