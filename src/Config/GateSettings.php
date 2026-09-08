@@ -77,6 +77,24 @@ final class GateSettings {
   public const CUSTOM_PREFIX = 'custom:';
 
   /**
+   * What a gate does with a blocking result: fail the phase, or only say so.
+   *
+   * `block` is every gate's default and the only behaviour that existed
+   * before the mode arrived. `report` runs the gate exactly as before but
+   * turns a blocking outcome into GateStatus::Reported — the findings ride
+   * the report, the seeker reads them, the phase advances. It is the second
+   * switch a gate has after `on`, and like `on` it is frozen into the run at
+   * begin: WHETHER a gate blocks may not change under a half-finished run,
+   * only HOW it runs (its tuning) is re-read at gate time.
+   */
+  public const MODES = ['block', 'report'];
+
+  /**
+   * The mode every gate starts in.
+   */
+  public const DEFAULT_MODE = 'block';
+
+  /**
    * What a custom gate's name (the key under gates.custom) may look like.
    */
   private const CUSTOM_NAME = '#^[a-z0-9][a-z0-9_-]*$#';
@@ -244,9 +262,9 @@ final class GateSettings {
       }
     }
     foreach ($node->keys() as $given) {
-      if (!in_array($given, ['on', 'phase', 'cmd'], TRUE)) {
+      if (!in_array($given, ['on', 'phase', 'cmd', 'mode'], TRUE)) {
         throw ConfigError::invalidCustomGate($source, $key, sprintf(
-          'unknown option "%s" (accepted: on, phase, cmd)',
+          'unknown option "%s" (accepted: on, phase, cmd, mode)',
           $given,
         ));
       }
@@ -292,10 +310,51 @@ final class GateSettings {
         'cmd must be a non-empty single-line command',
       );
     }
-    return new self(self::CUSTOM_PREFIX . $key, $node->bool('on'), [
+    $options = [
       'cmd' => $cmd,
       'phase' => $phase,
-    ]);
+    ];
+    // `mode` is optional here because block is every gate's default; only
+    // `report` is recorded, so an unchanged file resolves to unchanged levers.
+    if ($node->has('mode') && self::readModeWord($node) === 'report') {
+      $options['mode'] = 'report';
+    }
+    return new self(self::CUSTOM_PREFIX . $key, $node->bool('on'), $options);
+  }
+
+  /**
+   * What this gate does with a blocking result.
+   *
+   * @return string
+   *   'block' (the default) or 'report'.
+   */
+  public function mode(): string {
+    return ($this->options['mode'] ?? NULL) === 'report' ? 'report' : self::DEFAULT_MODE;
+  }
+
+  /**
+   * Reads the `mode` word: block or report.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $node
+   *   The gate's mapping, which has a `mode` key.
+   *
+   * @return string
+   *   The mode.
+   *
+   * @throws \Droost\Workflow\Support\DataError
+   *   When the word is outside block|report.
+   */
+  private static function readModeWord(TypedArray $node): string {
+    $word = $node->string('mode');
+    if (!in_array($word, self::MODES, TRUE)) {
+      throw new DataError($node->path('mode'), sprintf(
+        '%s must be "block" (fail the phase on a blocking result) or "report" '
+        . '(record it and advance) — got "%s"',
+        $node->path('mode'),
+        $word,
+      ));
+    }
+    return $word;
   }
 
   /**
@@ -331,12 +390,14 @@ final class GateSettings {
   public function overlay(TypedArray $node, string $source): self {
     $accepted = self::optionNames($this->name);
     foreach ($node->keys() as $key) {
-      if ($key !== 'on' && !in_array($key, $accepted, TRUE)) {
+      // `on` and `mode` are the two switches every gate has; the accepted
+      // list is the gate's tuning vocabulary.
+      if ($key !== 'on' && $key !== 'mode' && !in_array($key, $accepted, TRUE)) {
         throw ConfigError::unknownGateOption(
           $source,
           $this->name,
           $key,
-          $accepted,
+          [...$accepted, 'mode'],
         );
       }
     }
@@ -345,6 +406,16 @@ final class GateSettings {
     foreach ($accepted as $option) {
       if ($node->has($option)) {
         $options[$option] = $this->readOption($node, $option);
+      }
+    }
+    if ($node->has('mode')) {
+      // Recorded only as `report`: block is the default, and an explicit
+      // `mode: block` resolves to the same levers as saying nothing.
+      if (self::readModeWord($node) === 'report') {
+        $options['mode'] = 'report';
+      }
+      else {
+        unset($options['mode']);
       }
     }
 

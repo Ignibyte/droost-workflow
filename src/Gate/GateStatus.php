@@ -7,12 +7,14 @@ namespace Droost\Workflow\Gate;
 /**
  * What happened to one gate.
  *
- * Five words, and the two that mean "it did not run" are deliberately not one
- * word. A gate skipped because there is no site is an ordinary fact about a
- * CLI run; a gate whose tool is not installed is a broken setup. Same absence
- * of a result, opposite consequences — collapsing them is how "fast mode" and
- * "nothing was checked" become indistinguishable in a report, which is the
- * failure this whole package exists to prevent.
+ * Seven words, and the ones that mean "it did not run" or "it did not block"
+ * are deliberately not one word. A gate skipped because there is no site is an
+ * ordinary fact about a CLI run; a gate whose tool is not installed is a broken
+ * setup; a gate that found problems in report mode is a finding nobody may
+ * mistake for a pass. Same absence of a blocking result, opposite meanings —
+ * collapsing them is how "fast mode" and "nothing was checked" become
+ * indistinguishable in a report, which is the failure this whole package
+ * exists to prevent.
  */
 enum GateStatus: string {
 
@@ -21,6 +23,13 @@ enum GateStatus: string {
 
   // The gate ran and the artefact did not satisfy it.
   case Failed = 'failed';
+
+  // The gate ran in REPORT mode and found problems (or could not run): the
+  // phase advances anyway, the findings ride the report, and the status is
+  // visibly neither a pass nor a block. A lever-file `mode: report` (or a
+  // contributed gate's declared default) is the only thing that produces
+  // it, and the mandatory trio can never be put in that mode.
+  case Reported = 'reported';
 
   // Environmental: the gate needs a booted site and there is none. Does not
   // block the run, and is never rendered as a pass.
@@ -72,6 +81,7 @@ enum GateStatus: string {
     return match ($this) {
       self::Passed => 'passed',
       self::Failed => 'FAILED',
+      self::Reported => 'REPORTED (report mode, not blocking)',
       self::SkippedNoSite => 'skipped — no site',
       self::ErrorToolMissing => 'ERROR — tool missing',
       self::Off => 'off',

@@ -707,6 +707,13 @@ final class WorkflowConfig {
           $attempted[] = 'level: off';
           unset($raw['level']);
         }
+        // Report mode on a mandatory gate is a disarm by another name: the
+        // gate would run and the phase would advance over its failure. Same
+        // treatment — validated, noticed, superseded.
+        if (($raw['mode'] ?? NULL) === 'report') {
+          $attempted[] = 'mode: report';
+          unset($raw['mode']);
+        }
         if ($attempted !== []) {
           $deprecations[] = ConfigError::mandatoryGateNotice(
             $source,

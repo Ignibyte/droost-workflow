@@ -277,11 +277,11 @@ class WorkflowConfigTest extends WorkflowTestCase {
       'unknown gate option' => [
         ['gates' => ['phpcs' => ['levl' => 1]]],
         'droost.workflow.yml: gate "phpcs" has no option "levl" '
-        . '(accepts: on, standard, paths)',
+        . '(accepts: on, standard, paths, mode)',
       ],
       'option on a gate with none' => [
         ['gates' => ['phpunit' => ['min' => 1]]],
-        'droost.workflow.yml: gate "phpunit" has no option "min" (accepts: on, required)',
+        'droost.workflow.yml: gate "phpunit" has no option "min" (accepts: on, required, mode)',
       ],
       'unknown phase' => [
         ['phases' => ['plan', 'deploy', 'complete']],

@@ -145,6 +145,7 @@ class PhaseReportTest extends TestCase {
     $this->assertSame([
       'passed' => 0,
       'failed' => 1,
+      'reported' => 0,
       'skipped-no-site' => 1,
       'error-tool-missing' => 1,
       'off' => 1,

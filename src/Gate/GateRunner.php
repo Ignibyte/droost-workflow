@@ -102,7 +102,7 @@ final class GateRunner {
       }
       else {
         [$levers, $drift] = $this->withLiveTuning($name, $levers, $live[$name] ?? NULL);
-        $result = $this->runOne($name, $levers, $projectRoot, $state->preset);
+        $result = $this->inReportMode($levers, $this->runOne($name, $levers, $projectRoot, $state->preset));
         if ($drift !== []) {
           $result = new GateResult(
             $result->gate,
@@ -209,6 +209,42 @@ final class GateRunner {
     }
 
     return $this->executor->execute($gate, $projectRoot);
+  }
+
+  /**
+   * Turns a blocking result into REPORTED when the gate is in report mode.
+   *
+   * The mode comes from the run's FROZEN levers, like `on`: whether a gate may
+   * block is not something a mid-run lever edit gets to change. Only the two
+   * blocking statuses are affected — a pass stays a pass, an off gate stays
+   * off, a skip stays a skip — and the original summary is kept so the report
+   * still says exactly what the tool found; the prefix says why the phase
+   * moved on regardless.
+   *
+   * @param array<string, int|string|bool> $levers
+   *   The gate's frozen levers.
+   * @param \Droost\Workflow\Gate\GateResult $result
+   *   What the gate reported.
+   *
+   * @return \Droost\Workflow\Gate\GateResult
+   *   The result, demoted to Reported when the mode says so.
+   */
+  private function inReportMode(array $levers, GateResult $result): GateResult {
+    if (($levers['mode'] ?? GateSettings::DEFAULT_MODE) !== 'report'
+      || !$result->status->blocksAdvance()) {
+      return $result;
+    }
+    return new GateResult(
+      $result->gate,
+      GateStatus::Reported,
+      $result->exitCode,
+      $result->durationMs,
+      sprintf('report — %s (mode: report; would block in mode: block)', $result->summary),
+      $result->findings,
+      $result->truncated,
+      $result->skipReason,
+      $result->invocation,
+    );
   }
 
   /**
