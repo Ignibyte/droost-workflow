@@ -434,8 +434,11 @@ final class WorkflowFacade {
     foreach ($baseline->manifest->gates as $gate => $entry) {
       $gates[$gate] = $entry['count'];
     }
+    // Assigned, not unioned: `+` keeps the LEFT operand's keys, so the FALSE
+    // placeholder above won every time and a present, lever-on baseline
+    // reported "present but OFF (strict mode)" on the first live room.
+    $block['honoured'] = $config->baseline;
     return $block + [
-      'honoured' => $config->baseline,
       'generated_at' => $baseline->manifest->generatedAt,
       'generated_commit' => $baseline->manifest->generatedCommit,
       'preset' => $baseline->manifest->preset,
