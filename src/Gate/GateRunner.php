@@ -60,11 +60,15 @@ final class GateRunner {
    *   Answers which files the run has changed since its base commit, for the
    *   baseline context. NULL means "unknown", which the gates treat as
    *   nothing changed — the conservative reading for inherited whole files.
+   * @param list<\Droost\Workflow\Config\ContributedGate> $contributed
+   *   The gates enabled modules declare, so re-reading the lever file at gate
+   *   time resolves the same set the run froze.
    */
   public function __construct(
     private readonly GateExecutorInterface $executor,
     private readonly SiteDriverInterface $driver,
     private readonly ?VcsInterface $vcs = NULL,
+    private readonly array $contributed = [],
   ) {}
 
   /**
@@ -360,6 +364,10 @@ final class GateRunner {
       // A repo's own gate has no built-in base to be compared against.
       return 'by the lever file';
     }
+    if (GateSettings::isContributed($name)) {
+      // A module declares its gate ON; only gates.contributed turns it off.
+      return 'by the lever file (gates.contributed — the declaring module turns it on)';
+    }
     if ($preset === 'custom') {
       return 'by the lever file (custom levers)';
     }
@@ -392,7 +400,7 @@ final class GateRunner {
       return [];
     }
     try {
-      return WorkflowConfig::load($projectRoot)->resolvedGates();
+      return WorkflowConfig::load($projectRoot, $this->contributed)->resolvedGates();
     }
     catch (\Throwable) {
       return [];
@@ -416,7 +424,8 @@ final class GateRunner {
    *   The levers to run with, and a human line per option that changed.
    */
   private function withLiveTuning(string $name, array $frozen, ?array $current): array {
-    if ($current === NULL || GateSettings::isCustom($name)) {
+    if ($current === NULL || GateSettings::isCustom($name) || GateSettings::isContributed($name)) {
+      // Custom and contributed gates: their `cmd` is the gate, not a tuning.
       return [$frozen, []];
     }
     $drift = [];

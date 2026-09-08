@@ -155,7 +155,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    */
   public function measure(GateSettings $gate, string $projectRoot, array $extraArgv = [], array $withoutPrefixes = []): ?array {
     $root = rtrim($projectRoot, '/');
-    if (GateSettings::isCustom($gate->name)) {
+    if ($gate->runsOwnCommand()) {
       return NULL;
     }
     $prepared = $this->prepare($gate, $root);
@@ -231,7 +231,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    */
   private function run(GateSettings $gate, string $projectRoot, ?BaselineContext $context): GateResult {
     $root = rtrim($projectRoot, '/');
-    if (GateSettings::isCustom($gate->name)) {
+    if ($gate->runsOwnCommand()) {
       return $this->executeCustom($gate, $root);
     }
     $prepared = $this->prepare($gate, $root);
@@ -632,12 +632,20 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       return GateResult::toolMissing($gate->name, $cmd);
     }
 
+    // A contributed gate declared what its verdict means; a failure repeats
+    // it, so the report never shows an exit code nobody can read (D72).
+    $summary = $this->summarise($gate->name, $exit, $stdout, $stderr);
+    $verdict = $gate->option('verdict');
+    if ($exit !== 0 && is_string($verdict) && $verdict !== '') {
+      $summary .= ' — what this means: ' . $verdict;
+    }
+
     return GateResult::ran(
       $gate->name,
       $exit === 0 ? GateStatus::Passed : GateStatus::Failed,
       $exit,
       $elapsed,
-      $this->summarise($gate->name, $exit, $stdout, $stderr),
+      $summary,
       $this->findings($stdout),
       $cmd,
     );

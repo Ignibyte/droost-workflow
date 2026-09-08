@@ -11,6 +11,7 @@ use Droost\Workflow\Cli\CliProcess;
 use Droost\Workflow\State\StateError;
 use Droost\Workflow\Vcs\CliVcs;
 use Droost\Workflow\Vcs\VcsInterface;
+use Droost\Workflow\Config\ContributedGate;
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\PhaseGateMap;
@@ -86,6 +87,11 @@ final class WorkflowFacade {
    * @param \Droost\Workflow\Vcs\VcsInterface|null $vcs
    *   Version-control facts: the base commit frozen at begin and the files
    *   changed since. Defaults to the git binary; a test injects a fake.
+   * @param list<\Droost\Workflow\Config\ContributedGate> $contributed
+   *   The gates enabled modules declare (D72). The Drupal surfaces pass their
+   *   catalog; the standalone CLI has no modules and passes none. Every lever
+   *   load this facade performs resolves against the same list, so the run's
+   *   frozen set and the status document agree.
    */
   public function __construct(
     private readonly GateExecutorInterface $executor,
@@ -95,6 +101,7 @@ final class WorkflowFacade {
     private readonly mixed $ids,
     ?WorkflowListenerInterface $listener = NULL,
     ?VcsInterface $vcs = NULL,
+    private readonly array $contributed = [],
   ) {
     $this->listener = $listener ?? new NullWorkflowListener();
     $this->vcs = $vcs ?? new CliVcs(CliProcess::run(...));
@@ -129,7 +136,7 @@ final class WorkflowFacade {
    *   to guess which.
    */
   public function status(string $projectRoot): array {
-    $config = WorkflowConfig::load($projectRoot);
+    $config = WorkflowConfig::load($projectRoot, $this->contributed);
     $state = (new RunStateStore($projectRoot))->load();
 
     $status = [
@@ -151,6 +158,19 @@ final class WorkflowFacade {
         // Whether a committed adoption baseline is honoured (strict mode when
         // FALSE). What it holds is the `baseline` block below.
         'baseline' => $config->baseline,
+        // The gates enabled modules contributed (D72), with their provenance
+        // and the sentence each declared for its verdict — "not moved by the
+        // dial": a level change never turns these on or off.
+        'contributed' => array_map(
+          static fn (ContributedGate $gate): array => [
+            'provider' => $gate->provider,
+            'phases' => $gate->phases,
+            'default_mode' => $gate->defaultMode,
+            'command' => $gate->command,
+            'verdict' => $gate->verdict,
+          ],
+          $config->contributedGates,
+        ),
       ],
       // The adoption baseline: present or not, honoured or not, what each
       // gate inherits — so "why did phpstan pass over 123 errors" is
@@ -229,7 +249,7 @@ final class WorkflowFacade {
    *   manifest reports `error` rather than pretending to be absent.
    */
   public function baselineStatus(string $projectRoot): array {
-    return $this->baselineSummary($projectRoot, WorkflowConfig::load($projectRoot));
+    return $this->baselineSummary($projectRoot, WorkflowConfig::load($projectRoot, $this->contributed));
   }
 
   /**
@@ -248,7 +268,7 @@ final class WorkflowFacade {
    *   The level, the per-gate bill, and the gates that could not be measured.
    */
   public function baselineMeasure(string $projectRoot, ?array $configDrift = NULL): array {
-    $config = WorkflowConfig::load($projectRoot);
+    $config = WorkflowConfig::load($projectRoot, $this->contributed);
     $measured = $this->writer()->measure($config, $projectRoot, $configDrift);
     return [
       'level' => $config->preset,
@@ -293,7 +313,7 @@ final class WorkflowFacade {
     if ($active !== NULL && $active->currentPhase !== NULL) {
       throw BaselineError::runActive();
     }
-    $config = WorkflowConfig::load($projectRoot);
+    $config = WorkflowConfig::load($projectRoot, $this->contributed);
     $measured = $this->writer()->measure($config, $projectRoot, $configDrift);
     $manifest = $this->writer()->write(
       $projectRoot,
@@ -403,6 +423,7 @@ final class WorkflowFacade {
     $rows = [];
     foreach ($config->gates as $name => $gate) {
       if (GateSettings::isCustom($name)
+        || GateSettings::isContributed($name)
         || in_array($name, GateRunner::SITE_GATES, TRUE)) {
         continue;
       }
@@ -440,7 +461,7 @@ final class WorkflowFacade {
     $state = $store->load();
 
     if ($state === NULL) {
-      $config = WorkflowConfig::load($projectRoot);
+      $config = WorkflowConfig::load($projectRoot, $this->contributed);
       // Frozen with the levers: where the tree is, and which baseline the
       // run is held to (none when the lever refuses one). A baseline that
       // moves under the run is then caught by every gate that consults it.
@@ -1044,7 +1065,7 @@ final class WorkflowFacade {
    */
   private function engine(): ModeEngine {
     return new ModeEngine(
-      new GateRunner($this->executor, $this->driver, $this->vcs),
+      new GateRunner($this->executor, $this->driver, $this->vcs, $this->contributed),
       $this->sink,
     );
   }

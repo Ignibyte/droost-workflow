@@ -527,6 +527,61 @@ final class ConfigError extends \RuntimeException {
   }
 
   /**
+   * The gates.contributed block names a gate no enabled module declares.
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $id
+   *   The bare id the file used.
+   * @param list<string> $declared
+   *   The ids the enabled modules declare.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function unknownContributedGate(
+    string $source,
+    string $id,
+    array $declared,
+  ): self {
+    return new self($source, sprintf(
+      'gates.contributed.%s: no enabled module declares a gate "%s" (declared: %s). '
+      . 'A contributed gate arrives by enabling its module; the lever file only '
+      . 'sets `on` and `mode` for one that exists.',
+      $id,
+      $id,
+      $declared === [] ? 'none' : implode(', ', $declared),
+    ));
+  }
+
+  /**
+   * A gates.contributed.<id> entry carries a key other than on or mode.
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $id
+   *   The bare gate id.
+   * @param string $key
+   *   The unknown key.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function unknownContributedOption(
+    string $source,
+    string $id,
+    string $key,
+  ): self {
+    return new self($source, sprintf(
+      'gates.contributed.%s accepts only "on" and "mode" — got "%s". The '
+      . 'command, phases and verdict are the declaring module\'s contract; a '
+      . 'different scan is a gates.custom entry.',
+      $id,
+      $key,
+    ));
+  }
+
+  /**
    * The baseline block carries an option it does not define.
    *
    * @param string $source

@@ -77,6 +77,22 @@ final class GateSettings {
   public const CUSTOM_PREFIX = 'custom:';
 
   /**
+   * The prefix carried by gates a MODULE contributes (D72).
+   *
+   * `module:snyk` is declared in code by droost_snyk and joins the run when
+   * the module is enabled; the lever file may override only `on` and `mode`
+   * for it (under `gates.contributed.snyk`). A different prefix from custom
+   * gates so a repo's own `custom:snyk` and a module's never collide, and so
+   * a report's provenance is legible from the name alone.
+   */
+  public const MODULE_PREFIX = 'module:';
+
+  /**
+   * The two switches the lever file may override on a contributed gate.
+   */
+  private const CONTRIBUTED_OVERRIDES = ['on', 'mode'];
+
+  /**
    * What a gate does with a blocking result: fail the phase, or only say so.
    *
    * `block` is every gate's default and the only behaviour that existed
@@ -198,7 +214,75 @@ final class GateSettings {
    *   TRUE when known.
    */
   public static function isKnown(string $name): bool {
-    return in_array($name, self::KNOWN_GATES, TRUE) || self::isCustom($name);
+    return in_array($name, self::KNOWN_GATES, TRUE) || self::isCustom($name) || self::isContributed($name);
+  }
+
+  /**
+   * Whether a name denotes a module-contributed gate.
+   *
+   * @param string $name
+   *   The candidate name.
+   *
+   * @return bool
+   *   TRUE for a well-formed module:<id>.
+   */
+  public static function isContributed(string $name): bool {
+    if (!str_starts_with($name, self::MODULE_PREFIX)) {
+      return FALSE;
+    }
+    return preg_match(self::CUSTOM_NAME, substr($name, strlen(self::MODULE_PREFIX))) === 1;
+  }
+
+  /**
+   * Whether this gate runs its own command rather than a known tool.
+   *
+   * Custom and contributed gates both carry a `cmd` the executor runs through
+   * the shell; the executor's dispatch turns on this, not on the prefix.
+   *
+   * @return bool
+   *   TRUE for custom and contributed gates.
+   */
+  public function runsOwnCommand(): bool {
+    return self::isCustom($this->name) || self::isContributed($this->name);
+  }
+
+  /**
+   * A contributed gate with the lever file's override applied.
+   *
+   * Only `on` and `mode` may be overridden: the command, the phases and the
+   * verdict are the declaring module's contract. A repo that wants a
+   * different scan writes a custom gate; a repo that wants this one to block
+   * writes `mode: block`, in one line, in a reviewable diff.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $node
+   *   The gates.contributed.<id> mapping.
+   * @param string $source
+   *   The document label, for error messages.
+   *
+   * @return self
+   *   A new GateSettings; this one is unchanged.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When the mapping names anything but `on` or `mode`.
+   * @throws \Droost\Workflow\Support\DataError
+   *   When a value has the wrong type.
+   */
+  public function overlayContributed(TypedArray $node, string $source): self {
+    foreach ($node->keys() as $key) {
+      if (!in_array($key, self::CONTRIBUTED_OVERRIDES, TRUE)) {
+        throw ConfigError::unknownContributedOption($source, substr($this->name, strlen(self::MODULE_PREFIX)), $key);
+      }
+    }
+    $options = $this->options;
+    if ($node->has('mode')) {
+      if (self::readModeWord($node) === 'report') {
+        $options['mode'] = 'report';
+      }
+      else {
+        unset($options['mode']);
+      }
+    }
+    return new self($this->name, $node->optionalBool('on', $this->on), $options);
   }
 
   /**

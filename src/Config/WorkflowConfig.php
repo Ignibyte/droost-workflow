@@ -109,6 +109,10 @@ final class WorkflowConfig {
    *   — a baseline exists because an operator wrote it — and `baseline: { on:
    *   false }` is strict mode, a visible refusal in one line. Meaningless when
    *   the project has no baseline.
+   * @param array<string, \Droost\Workflow\Config\ContributedGate> $contributedGates
+   *   The gates enabled modules declared (D72), keyed by resolved name, kept
+   *   for provenance: status and the report say which module a `module:*`
+   *   gate came from and what its verdict means.
    */
   private function __construct(
     public readonly Mode $mode,
@@ -123,6 +127,7 @@ final class WorkflowConfig {
     public readonly Enforcement $requireRun = Enforcement::Hard,
     public readonly ?WorkItemSettings $workItem = NULL,
     public readonly bool $baseline = TRUE,
+    public readonly array $contributedGates = [],
   ) {}
 
   /**
@@ -130,6 +135,12 @@ final class WorkflowConfig {
    *
    * @param string $projectRoot
    *   The repo root to look in.
+   * @param list<\Droost\Workflow\Config\ContributedGate>|null $contributed
+   *   The gates enabled modules declare (D72). A surface that knows them
+   *   passes the list (possibly empty); NULL means the caller has no catalog
+   *   to consult — a `gates.contributed` block is then left unresolved rather
+   *   than refused, because the caller is reading other levers and cannot
+   *   tell a typo from a gate it simply cannot see.
    *
    * @return self
    *   The resolved configuration; built-in factory defaults when no file
@@ -141,7 +152,7 @@ final class WorkflowConfig {
    *   When the project root is empty, is the filesystem root, or is not a
    *   directory.
    */
-  public static function load(string $projectRoot): self {
+  public static function load(string $projectRoot, ?array $contributed = NULL): self {
     $path = TypedArray::requireProjectRoot($projectRoot)
       . '/' . self::FILENAME;
 
@@ -149,7 +160,7 @@ final class WorkflowConfig {
     // reads as "no file" and would hand back the built-in levers — the exact
     // silent substitution the checks below exist to refuse.
     if (!is_link($path) && !file_exists($path)) {
-      return self::builtIn();
+      return self::fromArray([], '<built-in defaults>', Provenance::BuiltIn, $contributed);
     }
 
     // Everything below is the same principle: something IS there, so silently
@@ -185,7 +196,7 @@ final class WorkflowConfig {
       throw ConfigError::notMapping(self::FILENAME, 'a list');
     }
 
-    return self::fromArray($parsed, self::FILENAME, Provenance::File);
+    return self::fromArray($parsed, self::FILENAME, Provenance::File, $contributed);
   }
 
   /**
@@ -207,6 +218,9 @@ final class WorkflowConfig {
    *   The document label, for error messages.
    * @param \Droost\Workflow\Config\Provenance $provenance
    *   Where the document came from.
+   * @param list<\Droost\Workflow\Config\ContributedGate>|null $contributed
+   *   The gates enabled modules declare, or NULL when the caller has no
+   *   catalog (see load()).
    *
    * @return self
    *   The resolved configuration.
@@ -219,6 +233,7 @@ final class WorkflowConfig {
     array $raw,
     string $source,
     Provenance $provenance = Provenance::File,
+    ?array $contributed = NULL,
   ): self {
     $root = TypedArray::authored($raw);
 
@@ -266,10 +281,20 @@ final class WorkflowConfig {
         $deprecations[] = ConfigError::phasesDeprecationNotice($source);
       }
 
+      // Module-contributed gates join the base set after the named gates, on
+      // by default: enabling the module was the opt-in. The lever file may
+      // then override on/mode under gates.contributed (readGates).
+      $declared = [];
+      $baseGates = $base->gates;
+      foreach ($contributed ?? [] as $gate) {
+        $declared[$gate->name()] = $gate;
+        $baseGates[$gate->name()] = $gate->toSettings();
+      }
+
       return new self(
         self::readMode($root, $source, $base->mode),
         Phase::canonical(),
-        self::scopeTrioLikeThePair(self::readGates($root, $source, $base->gates, $deprecations)),
+        self::scopeTrioLikeThePair(self::readGates($root, $source, $baseGates, $deprecations, $contributed)),
         $base->name,
         $root->has('max_gate_retries')
           ? $root->intInRange(
@@ -288,6 +313,7 @@ final class WorkflowConfig {
         self::readRequireRun($root, $source, Enforcement::Hard),
         self::readWorkItem($root, $source),
         self::readBaseline($root, $source),
+        $declared,
       );
     }
     catch (DataError $e) {
@@ -690,6 +716,9 @@ final class WorkflowConfig {
    *   The preset's gate set.
    * @param list<string> $deprecations
    *   Accumulates supersession notices (mandatory-gate disarm attempts).
+   * @param list<\Droost\Workflow\Config\ContributedGate>|null $contributed
+   *   The declared contributed gates, or NULL when the caller has no catalog
+   *   — a gates.contributed block is then left unresolved, not refused.
    *
    * @return array<string, \Droost\Workflow\Config\GateSettings>
    *   Every known gate, resolved.
@@ -704,6 +733,7 @@ final class WorkflowConfig {
     string $source,
     array $base,
     array &$deprecations = [],
+    ?array $contributed = NULL,
   ): array {
     $node = $root->optionalChild('gates');
     if ($node === NULL) {
@@ -720,6 +750,23 @@ final class WorkflowConfig {
         foreach ($node->child('custom')->keys() as $key) {
           $gates[GateSettings::CUSTOM_PREFIX . $key] =
             GateSettings::customFromNode($key, $node->child('custom')->child($key), $source);
+        }
+        continue;
+      }
+      // gates.contributed OVERRIDES gates modules declared: on and mode only.
+      // Without a catalog the block cannot be resolved and is left alone (see
+      // load()); with one, an id no module declares is a typo to surface.
+      if ($name === 'contributed') {
+        if ($contributed === NULL) {
+          continue;
+        }
+        $declaredIds = array_map(static fn (ContributedGate $g): string => $g->id, $contributed);
+        foreach ($node->child('contributed')->keys() as $id) {
+          $resolved = GateSettings::MODULE_PREFIX . $id;
+          if (!isset($gates[$resolved])) {
+            throw ConfigError::unknownContributedGate($source, $id, $declaredIds);
+          }
+          $gates[$resolved] = $gates[$resolved]->overlayContributed($node->child('contributed')->child($id), $source);
         }
         continue;
       }

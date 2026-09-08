@@ -258,7 +258,9 @@ final class RunState {
    */
   private static function weaveCustomGates(array $phaseGates, array $gates): array {
     foreach ($gates as $name => $gate) {
-      if (!GateSettings::isCustom($name)) {
+      // Custom gates (the lever file's) and contributed gates (a module's)
+      // both declare their own phases; the engine map knows neither.
+      if (!GateSettings::isCustom($name) && !GateSettings::isContributed($name)) {
         continue;
       }
       // `phase` is one phase or a comma-separated list (GateSettings validates
