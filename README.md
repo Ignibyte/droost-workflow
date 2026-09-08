@@ -220,7 +220,13 @@ Most gates carry their thresholds inline — `phpcs.standard`,
 `phpstan.level`, `coverage.min`, `mutation.msi_min`. One is easy to miss:
 `rendered_check.routes` is a comma-separated list of internal paths the
 live surface renders (`routes: "/,/pricing"`); omitted, it renders `/`.
-The option vocabulary is closed per gate — anything else is refused by name.
+On a Drupal site the render happens in a **fresh drush process**
+(`droost:workflow:render-probe`, answering in the gate result's own JSON),
+never inside the process running the gates: round 30 watched an in-process
+sub-request throw three times from an MCP server alive for hours while every
+fresh process rendered the same route fine, so the render leaves the process
+the way `wiki_fresh` always has. The option vocabulary is closed per gate —
+anything else is refused by name.
 
 ### Unknown keys are errors
 
@@ -395,7 +401,7 @@ on a real Drupal 11.4.4 site:
 
 | Surface | `rendered_check` |
 |---|---|
-| live (drush) | **passed** — "1 route(s) rendered", a real sub-request to `/` |
+| live (drush) | **passed** — "1 route(s) rendered", a real render of `/` in a fresh drush process |
 | standalone | **skipped, no site** — with the reason recorded |
 
 That difference is the entire point. The CLI surface is not a degraded live
