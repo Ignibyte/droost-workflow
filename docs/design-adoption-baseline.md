@@ -1,6 +1,6 @@
 # Design — D71 Adoption baseline: inherited debt vs new findings
 
-Status: **DESIGNED 2026-09-07, not built.** Owner-directed: *"we will have to
+Status: **DESIGNED AND DECIDED 2026-09-07 (§11), not built.** Owner-directed: *"we will have to
 figure out a baseline effort because so many code bases out there will be this
 exact way."* Source finding: the EMT dogfood ledger (droost `docs/EMT-DOGFOOD-
 LEDGER.md`, product finding 2) and T26's 26 pre-existing phpstan-max errors.
@@ -151,12 +151,18 @@ record failing test ids as inherited failures.)
   one shows the ratchet; the agent's attempt at `--refresh` is refused by
   name. Run on the clean room, then on EMT for real.
 
-## 11. Decisions for the owner
+## 11. Decisions — taken by the owner 2026-09-07
 
-1. **Key-based inherited (default here) vs boy-scout** (touching a file makes
-   all of its debt yours).
-2. **Thresholds ratchet (§7)** — in the first cut, or later.
-3. **The lever.** Presence of the manifest turns the baseline on; a one-line
-   `baseline: { on: false }` in `droost.workflow.yml` lets a repo refuse to
-   honour a committed baseline (strict mode), visibly. Keep or drop.
-4. **Name.** `baseline` (used here) or `inherited`.
+1. **Changed lines only.** An inherited finding stays inherited until the
+   line carrying it changes; touching a file does not make the rest of its
+   debt yours. (The boy-scout alternative was declined.)
+2. **Thresholds ratchet in the first cut** (§7): coverage and MSI floors are
+   part of P1, not a later phase.
+3. **The strict-mode lever stays.** Presence of the manifest turns the
+   baseline on; `baseline: { on: false }` in `droost.workflow.yml` refuses a
+   committed baseline, visibly, in one line.
+4. **The name is `baseline`** — the directory, the manifest, the drush verb
+   and the lever all use it.
+
+Status after these: DESIGNED AND DECIDED; build order P1 → P4 as §10, after
+the `droost_ui_patterns` extraction (done 2026-09-07).
