@@ -65,11 +65,20 @@ $stateDir = (is_dir($root . '/.droost-workflow')
   ? '.droost-workflow'
   : 'droost/droost-workflow';
 
+// The payload is read ONCE: several branches below consult it, and a stream
+// read twice is empty the second time.
+$stdin = (string) stream_get_contents(STDIN);
+
 if ($mode === 'operator-commands') {
   // Run state is irrelevant here: bypass is granted precisely when there is
   // no run, and a waiver during one. The rule is about WHO, not WHEN.
-  operator_commands_guard();
+  operator_commands_guard($stdin);
   exit(0);
+}
+
+if ($mode === 'pre-tool-use') {
+  // Run or no run, the adoption baseline is never the agent's to edit.
+  baseline_dir_guard($stdin);
 }
 
 $stateFile = $root . '/' . $stateDir . '/run.json';
@@ -78,7 +87,7 @@ if (!is_file($stateFile)) {
   // there is one moment governance gets skipped entirely: a code edit with no
   // run at all, the agent quietly building outside the pipeline. require_run
   // guards exactly that, and ONLY that (pre-tool-use, custom code paths).
-  require_run_guard($root, $mode);
+  require_run_guard($root, $mode, $stdin);
   exit(0);
 }
 $document = json_decode((string) file_get_contents($stateFile), TRUE);
@@ -86,7 +95,7 @@ if (!is_array($document)) {
   // Unreadable is not a licence. A run that cannot be read is not an ACTIVE
   // run, and require_run guards exactly the no-active-run case — otherwise
   // junk written into run.json would be a silent, permanent self-disarm.
-  require_run_guard($root, $mode);
+  require_run_guard($root, $mode, $stdin);
   exit(0);
 }
 
@@ -95,20 +104,20 @@ if (!is_string($phase) || $phase === '') {
   // A run with no current phase has ended; the record is history, not law —
   // and history does not stand the wall down. The finished ticket's run.json
   // sits here until reset, which must not leave the NEXT ticket ungoverned.
-  require_run_guard($root, $mode);
+  require_run_guard($root, $mode, $stdin);
   exit(0);
 }
 $phases = is_array($document['phases'] ?? NULL) ? $document['phases'] : [];
 $phaseStatus = is_string($phases[$phase] ?? NULL) ? $phases[$phase] : '';
 if ($phase === 'complete' && $phaseStatus === 'passed') {
-  require_run_guard($root, $mode);
+  require_run_guard($root, $mode, $stdin);
   exit(0);
 }
 if ($phaseStatus === 'failed') {
   // A failed run is a legitimate outcome, already recorded. Holding the
   // agent hostage to a phase it cannot pass would punish the honesty — but
   // an ended run does not license ungoverned building either.
-  require_run_guard($root, $mode);
+  require_run_guard($root, $mode, $stdin);
   exit(0);
 }
 
@@ -129,7 +138,7 @@ $warnOnce = static function (string $message) use ($root, $stateDir, $mode, $pha
   echo json_encode(['systemMessage' => $message]);
 };
 
-$payload = json_decode((string) stream_get_contents(STDIN), TRUE);
+$payload = json_decode($stdin, TRUE);
 $payload = is_array($payload) ? $payload : [];
 
 if ($mode === 'pre-tool-use') {
@@ -189,11 +198,17 @@ exit(0);
  * — so the harness is where the agent's hand has to be stopped. Recognises
  * the full command names and the Drush aliases (dwfgw, dwfby, dwfe);
  * `bypass --off` re-arms the wall, and a bare `effort` or an `effort <level>
- * --preview` only reports, so those are always allowed. Exit 2 with the reason
- * on stderr; the agent is told to ask the operator.
+ * --preview` only reports, so those are always allowed. The adoption baseline
+ * (`droost:workflow:baseline`, `droost-workflow baseline`) is the operator's
+ * too — a baseline the agent can write is a finding it can hide — while its
+ * `--status` and `--measure` only read and are anyone's to ask. Exit 2 with
+ * the reason on stderr; the agent is told to ask the operator.
+ *
+ * @param string $stdin
+ *   The hook payload, read once by the caller.
  */
-function operator_commands_guard(): void {
-  $payload = json_decode((string) stream_get_contents(STDIN), TRUE);
+function operator_commands_guard(string $stdin): void {
+  $payload = json_decode($stdin, TRUE);
   $input = is_array($payload) && is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
   $command = is_string($input['command'] ?? NULL) ? $input['command'] : '';
   if ($command === '') {
@@ -201,6 +216,13 @@ function operator_commands_guard(): void {
   }
   if (preg_match('/droost:workflow:gate-waive\b|(?<![\w-])dwfgw\b/', $command) === 1) {
     $which = 'gate-waive';
+  }
+  elseif (preg_match('/(?:droost:workflow:baseline|(?<![\w-])dwfbl|droost-workflow\s+baseline)\b(?!.*--(?:status|measure)\b)/', $command) === 1) {
+    // Writing or refreshing the baseline decides what counts as inherited
+    // debt for every later run. The bill (--measure) and the record
+    // (--status) are read-only and exactly how an agent grounds a proposal
+    // to baseline; the write is the operator's.
+    $which = 'baseline';
   }
   elseif (preg_match('/droost:workflow:bypass\b|(?<![\w-])dwfby\b/', $command) === 1) {
     if (preg_match('/\s--off\b/', $command) === 1) {
@@ -241,6 +263,43 @@ function operator_commands_guard(): void {
 }
 
 /**
+ * Refuses any agent edit under droost/baseline/, run or no run.
+ *
+ * The adoption baseline says which findings are inherited and which are new
+ * for every later run. It is measured and written by the operator's command
+ * from a terminal — never typed, never edited by hand, and never by an
+ * agent, whose edit there is the one move that makes its own finding
+ * disappear. A run in flight would also fail every consulting gate the
+ * moment the directory's hash moved; refusing here says why first.
+ *
+ * @param string $stdin
+ *   The hook payload, read once by the caller.
+ */
+function baseline_dir_guard(string $stdin): void {
+  $payload = json_decode($stdin, TRUE);
+  $payload = is_array($payload) ? $payload : [];
+  $input = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
+  $file = $input['file_path'] ?? ($input['notebook_path'] ?? '');
+  $file = is_string($file) ? $file : '';
+  if ($file === '') {
+    return;
+  }
+  if (preg_match('#(^|/)droost/baseline(/|$)#', $file) !== 1) {
+    return;
+  }
+  fwrite(STDERR, sprintf(
+    'droost/baseline/ is the OPERATOR\'s adoption record — it is written by '
+    . '`drush droost:workflow:baseline` (or `droost-workflow baseline`) from '
+    . 'their terminal and never edited by hand or by an agent. If debt was '
+    . 'paid, ask the operator to run `droost:workflow:baseline --refresh`; if '
+    . 'new debt must be accepted, `--refresh --grow --reason="…"`. '
+    . '(Refused: %s)',
+    $file,
+  ));
+  exit(2);
+}
+
+/**
  * Refuses ungoverned custom-code edits when no run is ACTIVE (require_run).
  *
  * The one gap "no run, no opinion" leaves open: an agent quietly building
@@ -266,8 +325,10 @@ function operator_commands_guard(): void {
  *   The project root (cwd).
  * @param string $mode
  *   The hook mode; only 'pre-tool-use' acts.
+ * @param string $stdin
+ *   The hook payload, read once by the caller.
  */
-function require_run_guard(string $root, string $mode): void {
+function require_run_guard(string $root, string $mode, string $stdin): void {
   if ($mode !== 'pre-tool-use') {
     return;
   }
@@ -282,7 +343,8 @@ function require_run_guard(string $root, string $mode): void {
   if ($level === 'off') {
     return;
   }
-  $payload = json_decode((string) stream_get_contents(STDIN), TRUE);
+  $payload = json_decode($stdin, TRUE);
+  $payload = is_array($payload) ? $payload : [];
   $input = is_array(($payload['tool_input'] ?? NULL)) ? $payload['tool_input'] : [];
   $file = $input['file_path'] ?? ($input['notebook_path'] ?? '');
   $file = is_string($file) ? $file : '';

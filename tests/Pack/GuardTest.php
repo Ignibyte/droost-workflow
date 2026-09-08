@@ -339,6 +339,13 @@ final class GuardTest extends WorkflowTestCase {
         'ddev drush droost:workflow:effort low',
         'drush dwfe --project=/x high',
         'ddev drush droost:workflow:effort factory',
+        // Writing or growing the adoption baseline decides what every later
+        // run inherits: a baseline the agent can write is a finding it can
+        // hide (D71).
+        'ddev drush droost:workflow:baseline',
+        'drush dwfbl --refresh',
+        'ddev drush droost:workflow:baseline --refresh --grow --reason="legacy"',
+        'vendor/bin/droost-workflow baseline --refresh',
       ] as $command) {
         [$exit, , $stderr] = $this->guard($root, 'operator-commands', [
           'tool_input' => ['command' => $command],
@@ -376,6 +383,11 @@ final class GuardTest extends WorkflowTestCase {
       'drush dwfe --project=/x',
       'ddev drush droost:workflow:effort max --preview',
       'drush dwfe --preview high',
+      // The bill and the record are read-only: exactly how an agent grounds a
+      // proposal to baseline.
+      'ddev drush droost:workflow:baseline --measure',
+      'drush dwfbl --status',
+      'vendor/bin/droost-workflow baseline --status',
       'ddev drush droost:gate allow_entity_write off',
       'drush config:set --input-format=yaml droost.settings allow_entity_write false -y',
       'ddev drush droost:gate allow_scaffold',
@@ -393,6 +405,38 @@ final class GuardTest extends WorkflowTestCase {
     // An empty or missing command is not a refusal either.
     [$exit] = $this->guard($root, 'operator-commands', []);
     $this->assertSame(0, $exit);
+  }
+
+  /**
+   * The baseline directory is never the agent's to edit — run or no run (D71).
+   *
+   * The one edit that makes the agent's own finding disappear. Refused at
+   * every run state, before the wall or the phase rules get a say; a file
+   * merely NAMED like the directory is not it.
+   */
+  public function testBaselineDirectoryIsNeverTheAgentsToEdit(): void {
+    $roots = [
+      'no run' => $this->makeRoot(),
+      'plan' => $this->rootWithRun('plan', 'active', 'hard'),
+      'code' => $this->rootWithRun('code', 'active', 'soft'),
+      'ended' => $this->rootWithRun('complete', 'passed', 'hard'),
+    ];
+    foreach ($roots as $label => $root) {
+      foreach (['droost/baseline/phpcs.json', '/abs/repo/droost/baseline/baseline.json', 'droost/baseline'] as $path) {
+        [$exit, , $stderr] = $this->guard($root, 'pre-tool-use', [
+          'tool_input' => ['file_path' => $path],
+        ]);
+        $this->assertSame(2, $exit, "$label: $path must be refused");
+        $this->assertStringContainsString("OPERATOR's adoption record", $stderr);
+        $this->assertStringContainsString('--refresh', $stderr);
+      }
+    }
+    // A sibling that only sounds alike is judged by the ordinary rules.
+    [$exit, , $stderr] = $this->guard($this->makeRoot(), 'pre-tool-use', [
+      'tool_input' => ['file_path' => 'docs/droost-baseline-notes.md'],
+    ]);
+    $this->assertSame(0, $exit);
+    $this->assertSame('', $stderr);
   }
 
   /**
