@@ -58,8 +58,13 @@ gates:
   rendered_check: { on: true }                 # artifacts are truth
   config_clean:   { on: true }                 # a fresh cex produces zero diff
   wiki_fresh:     { on: true }                 # the project's own docs still match the code
+  # every gate also takes mode: block | report — report records a failure and
+  # advances (never on the mandatory trio)
   # custom:                                    # your own commands as gates
   #   semgrep: { on: true, phase: code, cmd: "semgrep scan --error --quiet" }
+  # contributed:                               # gates enabled MODULES declare (module:<id>)
+  #   snyk: { mode: block }                    # on and mode only; the rest is the module's
+# baseline: { on: false }                      # strict mode: ignore a committed droost/baseline/
 max_gate_retries: 2
 ```
 
@@ -228,6 +233,70 @@ fresh process rendered the same route fine, so the render leaves the process
 the way `wiki_fresh` always has. The option vocabulary is closed per gate —
 anything else is refused by name.
 
+**Every gate has a second switch after `on`: `mode`.** `block` (the default,
+and the only behaviour that existed before) fails the phase on a blocking
+result. `report` runs the gate exactly as before but records the failure as
+`REPORTED` — the findings ride the report, the seeker reads them, the phase
+advances — and nothing reads as a pass. It is frozen into the run like `on`:
+whether a gate may block is not something a mid-run edit changes. The
+mandatory trio can never be put in report mode; that would be a disarm by
+another name, and the attempt is noticed and superseded like `on: false`.
+
+### Inherited debt — the adoption baseline
+
+A legacy project fails these gates on debt the first change never touched:
+hundreds of phpstan errors, forty phpcs findings, config drift nobody will fix
+this month. The baseline is the operator's snapshot of that debt, written
+once from a terminal, committed beside the lever file in `droost/baseline/`:
+
+```bash
+drush droost:workflow:baseline --measure    # the bill: what each gate would inherit (read-only)
+drush droost:workflow:baseline              # write it (operator terminal); commit droost/baseline/
+drush droost:workflow:baseline --refresh    # re-measure: paid-off debt drops, growth is refused
+drush droost:workflow:baseline --refresh --grow --reason="legacy import"   # accept more, on record
+vendor/bin/droost-workflow baseline [--status|--measure|--refresh …]         # the same, standalone
+```
+
+From then on a consulting gate — phpcs, phpstan, eslint, stylelint, prettier,
+coverage, mutation, config_clean — answers two questions. **Inherited** is a
+finding the baseline records: reported, counted, never failing. **New** is
+everything else, and fails as before. The line reads `passed — 0 new, 123
+inherited`, never a bare pass. A finding is keyed by file, rule, message and
+the text of its line, so a line that shifts stays inherited and a line that is
+edited becomes new — touching a file does not make its whole debt yours.
+phpstan runs through the baseline's own generated file; prettier's recorded
+files are inherited until the run touches them; coverage and mutation pass at
+or above their recorded floor when they miss the level's target, with the
+target named (the ratchet — the floor rises on refresh, never falls).
+
+The run freezes the baseline's hash at begin. A baseline added, removed or
+edited under a run fails every consulting gate with "the baseline changed
+during the run"; the pack guard refuses the agent's shell from writing it
+and the agent's editor from touching the directory; the seeker names any
+move a defeat. `baseline: { on: false }` in the lever file is strict mode,
+one visible line. Design: `docs/design-adoption-baseline.md`.
+
+### Contributed gates
+
+A module can contribute a gate the way it contributes a Drush command: a
+`#[DroostGate]` plugin (droost's `droost_workflow` submodule defines the type)
+declaring the command, the phases, a default mode and — required — a sentence
+saying what its verdict means. Enable the module and `module:<id>` joins every
+run at those phases, on by default, with the module recorded as provenance and
+the sentence repeated on a failure. `droost_snyk` is the reference: `snyk
+test` at code and test, report mode, until the site says otherwise:
+
+```yaml
+gates:
+  contributed:
+    snyk: { mode: block }     # or { on: false }
+```
+
+Those two keys are all the lever file may set on a contributed gate — the
+command, phases and verdict are the module's contract, a different scan is a
+`gates.custom` entry. The dial never moves a contributed gate. Design:
+`docs/design-contributed-gates.md`.
+
 ### Unknown keys are errors
 
 A loader that shrugs at `phpstain:` hands back a run with static analysis
@@ -320,15 +389,20 @@ report has to be able to describe the run honestly.
 
 ## The pack
 
-The phases ship as a `.claude/` pack — one skill per phase, three commands
-(`/droost:workflow:start` begins a run, `/droost:workflow:continue` advances
-it, `/droost:workflow:status` inspects), five agents (the plan researcher
-and spec-writer, the adversarial `workflow-seeker`, the
-one-finding-at-a-time `workflow-bug-fixer`, and `droost-debugger`, which
-flips xdebug on for a stubborn failure and back off after), and a shared
-partial on using droost. Installing it into a repo writes:
+The phases ship as a `.claude/` pack — seven skills (the three entry verbs
+`workflow-start`, `workflow-continue` and `workflow-status`, and one skill per
+phase), three slash commands that are one-paragraph pointers to the verb
+skills (`/droost:workflow:start`, `/droost:workflow:continue`,
+`/droost:workflow:status` — Claude Code's way in; every other host reads the
+skill itself, which is why the procedure lives there and not in the
+command), five agents (the plan researcher and spec-writer, the adversarial
+`workflow-seeker`, the one-finding-at-a-time `workflow-bug-fixer`, and
+`droost-debugger`, which flips xdebug on for a stubborn failure and back off
+after), and a shared partial on using droost. Installing it into a repo
+writes:
 
 ```
+.claude/skills/workflow-{start,continue,status}/SKILL.md
 .claude/skills/workflow-{plan,code,test,complete}/SKILL.md
 .claude/commands/droost/workflow/{start,continue,status}.md
 .claude/agents/workflow-{researcher,spec-writer,seeker,bug-fixer}.md
@@ -338,11 +412,19 @@ partial on using droost. Installing it into a repo writes:
 droost.workflow.yml          # only if you don't already have one
 ```
 
-Each skill states four things: its entry gate, the work, its exit gate, and
-**what it can and cannot check without a booted site**. That last section is
-the point. Nearly every droost tool needs a running site, so a CLI run has
+Each phase skill states four things: its entry gate, the work, its exit gate,
+and **what it can and cannot check without a booted site**. That last section
+is the point. Nearly every droost tool needs a running site, so a CLI run has
 real blind spots — and a run that hides them produces a report nobody should
 trust.
+
+The guard hook is the one host-specific piece: it is a Claude Code pre-tool
+hook, and it refuses the operator's commands from the agent's shell (a waiver,
+a bypass, moving the dial, writing the baseline) and any agent edit under
+`droost/baseline/`. On a host without pre-tool hooks the status document's
+run half says so — `enforcement.effective: advisory` — because the gates still
+hold the run server-side but nothing stops an out-of-phase edit, and a report
+must not claim a discipline the host never had.
 
 **Ownership is explicit.** Every directory the pack owns gets a
 `.droost-workflow-pack` marker. Re-running the installer refreshes those
@@ -387,6 +469,7 @@ vendor/bin/droost-workflow init
 vendor/bin/droost-workflow status
 vendor/bin/droost-workflow run
 vendor/bin/droost-workflow reset      # archive a finished run, start clean
+vendor/bin/droost-workflow baseline --measure   # the inherited-debt bill; a bare `baseline` writes it
 
 # Against a live site.
 drush droost:workflow:status
@@ -394,6 +477,7 @@ drush droost:workflow:run
 drush droost:workflow:answer "yes, continue"
 drush droost:workflow:swap agentic
 drush droost:workflow:reset
+drush droost:workflow:baseline --measure        # the same bill, config_clean included
 ```
 
 The only thing that differs is what the site-dependent gates can say. Verified
