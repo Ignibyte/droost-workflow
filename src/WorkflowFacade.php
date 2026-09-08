@@ -202,6 +202,11 @@ final class WorkflowFacade {
       // the renderer asked the status document for a key that was only in
       // run.json.
       'preset' => $state->preset,
+      // What the run asked enforcement to be, and what it CAN be on the host
+      // the session declared: the wall and the phase guard are Claude Code
+      // hooks, and a host without pre-tool hooks holds `hard` with nothing.
+      // Said here so a report never claims a discipline the host never had.
+      'enforcement' => $this->enforcementOnHost($state),
       'effective_mode' => $state->effectiveMode()->value,
       'current_phase' => $state->currentPhase?->value,
       // The judgment half of the record: whether the checkpoint is armed,
@@ -234,6 +239,51 @@ final class WorkflowFacade {
       'answered' => count($state->qaHistory),
     ];
     return $status;
+  }
+
+  /**
+   * The enforcement a run requested, and what it amounts to on its host.
+   *
+   * Enforcement is the harness hooks — the write wall, the plan-phase guard,
+   * the mid-phase stop challenge — and those are Claude Code hooks. The
+   * declared task surface is the best proxy for the host the session runs
+   * in: `claude-code` runs the pack's hooks; `codex`, `other` and `none` have
+   * no pre-tool hook to run them, so `hard` there is ADVISORY — the briefs
+   * carry the rules as instructions, and the gates still hold the run
+   * server-side, but nothing stops an out-of-phase edit. An undeclared
+   * surface is reported as requested, with the caveat.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   *
+   * @return array{requested: string, effective: string, reason: string}
+   *   The requested level, the effective one, and why.
+   */
+  private function enforcementOnHost(RunState $state): array {
+    $requested = $state->enforcement->value;
+    if ($requested === 'off') {
+      return ['requested' => 'off', 'effective' => 'off', 'reason' => 'the lever turned enforcement off'];
+    }
+    if ($state->tasks === NULL) {
+      return [
+        'requested' => $requested,
+        'effective' => $requested,
+        'reason' => 'the host surface is undeclared (declare-tasks); the pack hooks enforce wherever the host runs them',
+      ];
+    }
+    if ($state->tasks === 'claude-code') {
+      return ['requested' => $requested, 'effective' => $requested, 'reason' => 'the declared host runs the pack hooks'];
+    }
+    return [
+      'requested' => $requested,
+      'effective' => 'advisory',
+      'reason' => sprintf(
+        'the declared host surface (%s) runs no pre-tool hooks: the write wall and the phase guard cannot fire there. '
+        . 'The gates still hold the run server-side and the briefs carry the rules as instructions, but an '
+        . 'out-of-phase edit is not stopped.',
+        $state->tasks,
+      ),
+    ];
   }
 
   /**

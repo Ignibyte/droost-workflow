@@ -77,7 +77,7 @@ class PackContentLintTest extends TestCase {
    * @param string $source
    *   The pack-relative path of a skill file.
    */
-  #[DataProvider('skillFiles')]
+  #[DataProvider('phaseSkillFiles')]
   public function testEverySkillHasTheFourSections(string $source): void {
     $body = $this->read($source);
 
@@ -106,7 +106,7 @@ class PackContentLintTest extends TestCase {
   }
 
   /**
-   * The five phase skills.
+   * Every skill in the pack: the phase skills and the entry verbs.
    *
    * @return array<string, array{string}>
    *   Case name to pack-relative path.
@@ -117,6 +117,25 @@ class PackContentLintTest extends TestCase {
       if (str_starts_with($source, 'skills/')) {
         $cases[$source] = [$source];
       }
+    }
+    return $cases;
+  }
+
+  /**
+   * The phase skills only — the ones that gate work and degrade without a site.
+   *
+   * The entry verbs (start, continue, status) are procedures, not phases:
+   * they have no entry gate or exit gate of their own, and "without a site"
+   * is a fact about the phases they drive.
+   *
+   * @return array<string, array{string}>
+   *   Case name to pack-relative path.
+   */
+  public static function phaseSkillFiles(): array {
+    $cases = [];
+    foreach (['plan', 'code', 'test', 'complete'] as $phase) {
+      $source = 'skills/workflow-' . $phase . '/SKILL.md';
+      $cases[$source] = [$source];
     }
     return $cases;
   }

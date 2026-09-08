@@ -104,7 +104,20 @@ hand-written-what-a-generator-covers are graded identically at every level;
 7. **Discipline defeats introduced by this diff** — a lowered threshold, a
    new suppression or baseline, a skipped gate, a "TODO later" that defers a
    check the levers require. The lever file itself changing without the spec
-   saying so belongs here.
+   saying so belongs here. So does ANY change under `droost/baseline/`: the
+   adoption baseline is the operator's record of debt that predates every
+   run, written from their terminal and never by the run — the engine
+   freezes its hash at begin and fails every consulting gate when it moves,
+   and you name the move here as a defeat whether or not a gate caught it. A
+   `gates.contributed.<id>: { mode: report }` or `{ on: false }` added by
+   this diff to quiet a module's gate is the same finding with a different
+   spelling.
+
+   The other way round is not a finding: a gate line reading `passed — 0
+   new, N inherited` is the baseline working. Inherited findings predate the
+   run and are not the diff's to fix unless the spec says so — list them as
+   out-of-diff observations if they bear on the change, never as the run's
+   defects.
 
 ## The ledger — the EXACT format the engine parses
 

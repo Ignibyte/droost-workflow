@@ -45,6 +45,14 @@ final class PackManifest {
    * handled separately: it is the user's, written once and never refreshed.
    */
   public const FILES = [
+    // The entry verbs as skills (D72): start, continue and status are read by
+    // every host; the slash commands below are Claude Code pointers to them.
+    'skills/workflow-start/SKILL.md'
+    => '.claude/skills/workflow-start/SKILL.md',
+    'skills/workflow-continue/SKILL.md'
+    => '.claude/skills/workflow-continue/SKILL.md',
+    'skills/workflow-status/SKILL.md'
+    => '.claude/skills/workflow-status/SKILL.md',
     'skills/workflow-plan/SKILL.md'
     => '.claude/skills/workflow-plan/SKILL.md',
     'skills/workflow-code/SKILL.md'
