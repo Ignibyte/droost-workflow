@@ -76,6 +76,19 @@ code and test, report mode; a Semgrep gate is the same five lines. The
 verdict sentence covers exit 0, 1 and 2, and a missing binary reads as
 tool-missing, recorded in report mode.
 
+**The third door (R31-F3, found in the first live round).** The standalone
+`droost-workflow` binary boots no Drupal, and the T27 subject began its run
+there: the run was held to the lever file's gates only, `module:snyk` never
+joined, and neither status nor the record said the set was shorter. Fixed by
+asking the site the way the wiki gate and the render probe already do:
+`DrushCatalogResolver` runs `vendor/bin/drush droost:workflow:catalog` (a new
+read-only command printing each declaration through `ContributedGate::toArray()`)
+and reads the rows back through `fromArray()`, refusing a malformed row by
+name. No drush, or a site that cannot answer, resolves to NONE — never a
+refusal, because a repo with no site is what the standalone surface is for —
+and status prints `levers.contributed_source` on every surface so a shorter
+set never reads as the whole.
+
 ## 5. Skills over slash commands
 
 The pack's three entry verbs — start, continue, status — are skills

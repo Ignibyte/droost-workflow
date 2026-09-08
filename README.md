@@ -297,6 +297,15 @@ command, phases and verdict are the module's contract, a different scan is a
 `gates.custom` entry. The dial never moves a contributed gate. Design:
 `docs/design-contributed-gates.md`.
 
+Every door sees the same set. The drush commands and the MCP tools read the
+site's catalog directly; the standalone `droost-workflow` binary boots no
+Drupal, so it asks `vendor/bin/drush droost:workflow:catalog` before it
+resolves a lever. Status says which it was — `levers.contributed_source` —
+and when there is no drush, or the site cannot answer, it says the set was
+resolved from the lever file alone rather than presenting the shorter set as
+the whole (a run begun on that surface in the first live round was held to
+fewer gates than the same run through drush, and nothing said so).
+
 ### Unknown keys are errors
 
 A loader that shrugs at `phpstain:` hands back a run with static analysis
