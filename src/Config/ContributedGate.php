@@ -119,6 +119,66 @@ final class ContributedGate {
   }
 
   /**
+   * This declaration as a transportable row.
+   *
+   * The shape `drush droost:workflow:catalog` prints and the standalone
+   * surface reads back (R31-F3): a run begun with no booted site must be held
+   * to the same contributed gates as one begun through drush or the MCP tool.
+   *
+   * @return array{id: string, provider: string, phases: list<string>, command: string, mode: string, verdict: string}
+   *   The row.
+   */
+  public function toArray(): array {
+    return [
+      'id' => $this->id,
+      'provider' => $this->provider,
+      'phases' => $this->phases,
+      'command' => $this->command,
+      'mode' => $this->defaultMode,
+      'verdict' => $this->verdict,
+    ];
+  }
+
+  /**
+   * A declaration read back from a row, refused by name when malformed.
+   *
+   * @param array<array-key, mixed> $row
+   *   A row as toArray() writes it (`default_mode` is accepted for `mode`).
+   *
+   * @return self
+   *   The declaration, validated exactly as a constructed one.
+   *
+   * @throws \InvalidArgumentException
+   *   When a field is missing or of the wrong type — the row's id is named
+   *   where one is present.
+   */
+  public static function fromArray(array $row): self {
+    $id = $row['id'] ?? NULL;
+    $label = is_string($id) && $id !== '' ? $id : '(no id)';
+    foreach (['id', 'provider', 'command', 'verdict'] as $key) {
+      if (!isset($row[$key]) || !is_string($row[$key])) {
+        throw new \InvalidArgumentException(sprintf('Contributed gate row %s: "%s" must be a string.', $label, $key));
+      }
+    }
+    $phases = $row['phases'] ?? NULL;
+    if (!is_array($phases)) {
+      throw new \InvalidArgumentException(sprintf('Contributed gate row %s: "phases" must be a list of phase names.', $label));
+    }
+    $names = [];
+    foreach ($phases as $phase) {
+      if (!is_string($phase)) {
+        throw new \InvalidArgumentException(sprintf('Contributed gate row %s: every phase must be a string.', $label));
+      }
+      $names[] = $phase;
+    }
+    $mode = $row['mode'] ?? $row['default_mode'] ?? GateSettings::DEFAULT_MODE;
+    if (!is_string($mode)) {
+      throw new \InvalidArgumentException(sprintf('Contributed gate row %s: "mode" must be a string.', $label));
+    }
+    return new self((string) $row['id'], (string) $row['provider'], $names, (string) $row['command'], $mode, (string) $row['verdict']);
+  }
+
+  /**
    * This gate as resolved levers, before any lever-file override.
    *
    * @return \Droost\Workflow\Config\GateSettings

@@ -92,6 +92,10 @@ final class WorkflowFacade {
    *   catalog; the standalone CLI has no modules and passes none. Every lever
    *   load this facade performs resolves against the same list, so the run's
    *   frozen set and the status document agree.
+   * @param string|null $contributedSource
+   *   Where that list came from, for status (R31-F3): the booted site's
+   *   catalog, drush asked from the standalone binary, or the reason none
+   *   could be resolved. NULL lets the facade say "none resolved".
    */
   public function __construct(
     private readonly GateExecutorInterface $executor,
@@ -102,6 +106,7 @@ final class WorkflowFacade {
     ?WorkflowListenerInterface $listener = NULL,
     ?VcsInterface $vcs = NULL,
     private readonly array $contributed = [],
+    private readonly ?string $contributedSource = NULL,
   ) {
     $this->listener = $listener ?? new NullWorkflowListener();
     $this->vcs = $vcs ?? new CliVcs(CliProcess::run(...));
@@ -171,6 +176,11 @@ final class WorkflowFacade {
           ],
           $config->contributedGates,
         ),
+        // Where this surface got that list (R31-F3): a booted site reads its
+        // own catalog; the standalone binary asks drush; a surface that could
+        // resolve none says so here rather than presenting a shorter set as
+        // the whole truth.
+        'contributed_source' => $this->contributedSource(),
       ],
       // The adoption baseline: present or not, honoured or not, what each
       // gate inherits — so "why did phpstan pass over 123 errors" is
@@ -397,6 +407,20 @@ final class WorkflowFacade {
       throw new \LogicException('baseline measurement needs the shell executor — this facade was built with another.');
     }
     return new BaselineWriter($this->executor, $this->clock);
+  }
+
+  /**
+   * Where this surface's contributed gates came from, for status (R31-F3).
+   *
+   * @return string
+   *   The surface's own sentence when it gave one; otherwise "none resolved"
+   *   for an empty list, so a shorter gate set never reads as the whole.
+   */
+  private function contributedSource(): string {
+    if ($this->contributedSource !== NULL) {
+      return $this->contributedSource;
+    }
+    return $this->contributed === [] ? 'none resolved by this surface' : 'declared to this surface';
   }
 
   /**

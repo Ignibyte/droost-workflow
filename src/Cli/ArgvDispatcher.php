@@ -6,6 +6,7 @@ namespace Droost\Workflow\Cli;
 
 use Droost\Workflow\Baseline\BaselineError;
 use Droost\Workflow\Config\ConfigError;
+use Droost\Workflow\Config\DrushCatalogResolver;
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Gate\ShellGateExecutor;
@@ -140,7 +141,7 @@ final class ArgvDispatcher {
         }
       }
     }
-    $report = $this->facade()->init($projectRoot, $takeUpstream);
+    $report = $this->facade($projectRoot)->init($projectRoot, $takeUpstream);
     $this->say($report->summary());
     return self::EXIT_OK;
   }
@@ -155,7 +156,7 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function status(string $projectRoot): int {
-    $status = $this->facade()->status($projectRoot);
+    $status = $this->facade($projectRoot)->status($projectRoot);
     $this->say($this->encode($status));
     return self::EXIT_OK;
   }
@@ -178,7 +179,7 @@ final class ArgvDispatcher {
         $spec = substr($arg, 7);
       }
     }
-    $outcome = $this->facade()->run($projectRoot, $spec);
+    $outcome = $this->facade($projectRoot)->run($projectRoot, $spec);
     $this->say($this->encode($outcome->toArray()));
 
     // A paused run has not failed; it is waiting. Only a genuine failure
@@ -208,7 +209,7 @@ final class ArgvDispatcher {
       $this->fail('answer needs the answer: droost-workflow answer "yes"');
       return self::EXIT_USAGE;
     }
-    $state = $this->facade()->answer($projectRoot, $text);
+    $state = $this->facade($projectRoot)->answer($projectRoot, $text);
     // Answering IS the check-in the pause was for, so the run moved on;
     // say where it now stands rather than a bare acknowledgment.
     $this->say($state->currentPhase === NULL
@@ -239,7 +240,7 @@ final class ArgvDispatcher {
       ));
       return self::EXIT_USAGE;
     }
-    $this->facade()->swap($projectRoot, $mode);
+    $this->facade($projectRoot)->swap($projectRoot, $mode);
     $this->say('swapped to ' . $mode->value);
     return self::EXIT_OK;
   }
@@ -264,7 +265,7 @@ final class ArgvDispatcher {
       );
       return self::EXIT_USAGE;
     }
-    $record = $this->facade()->recordSeeker($projectRoot, $text);
+    $record = $this->facade($projectRoot)->recordSeeker($projectRoot, $text);
     $this->say($this->encode($record));
     // Recording findings is a SUCCESSFUL report — the run's advance is
     // where a dirty inspection bites, not here.
@@ -291,7 +292,7 @@ final class ArgvDispatcher {
       );
       return self::EXIT_USAGE;
     }
-    $this->facade()->declareBrowser($projectRoot, $word);
+    $this->facade($projectRoot)->declareBrowser($projectRoot, $word);
     $this->say('browser: ' . $word);
     return self::EXIT_OK;
   }
@@ -316,7 +317,7 @@ final class ArgvDispatcher {
       ));
       return self::EXIT_USAGE;
     }
-    $this->facade()->declareTasks($projectRoot, $word);
+    $this->facade($projectRoot)->declareTasks($projectRoot, $word);
     $this->say('tasks: ' . $word);
     return self::EXIT_OK;
   }
@@ -334,7 +335,7 @@ final class ArgvDispatcher {
    */
   private function reset(string $projectRoot, array $argv): int {
     $force = in_array('--force', $argv, TRUE);
-    $archived = $this->facade()->reset($projectRoot, $force);
+    $archived = $this->facade($projectRoot)->reset($projectRoot, $force);
     $this->say('run cleared — record archived to ' . $archived);
     return self::EXIT_OK;
   }
@@ -359,11 +360,11 @@ final class ArgvDispatcher {
   private function baseline(string $projectRoot, array $argv): int {
     $flags = array_slice($argv, 1);
     if (in_array('--status', $flags, TRUE)) {
-      $this->say($this->encode($this->facade()->baselineStatus($projectRoot)));
+      $this->say($this->encode($this->facade($projectRoot)->baselineStatus($projectRoot)));
       return self::EXIT_OK;
     }
     if (in_array('--measure', $flags, TRUE)) {
-      $this->say($this->encode($this->facade()->baselineMeasure($projectRoot)));
+      $this->say($this->encode($this->facade($projectRoot)->baselineMeasure($projectRoot)));
       return self::EXIT_OK;
     }
     $reason = NULL;
@@ -372,7 +373,7 @@ final class ArgvDispatcher {
         $reason = substr($flag, strlen('--reason='));
       }
     }
-    $written = $this->facade()->baselineWrite(
+    $written = $this->facade($projectRoot)->baselineWrite(
       $projectRoot,
       in_array('--refresh', $flags, TRUE),
       in_array('--grow', $flags, TRUE),
@@ -433,10 +434,24 @@ final class ArgvDispatcher {
   /**
    * A facade wired for the siteless surface.
    *
+   * Siteless, not blind: the gates enabled modules contribute (D72) live in
+   * the site, so this surface asks drush for them before it resolves a single
+   * lever (R31-F3 — a run begun here was held to fewer gates than the same run
+   * through drush, and nothing said so). No drush, or a site that cannot
+   * answer, resolves to none, with the reason in `levers.contributed_source`.
+   *
+   * @param string $projectRoot
+   *   The repository the verb acts on.
+   *
    * @return \Droost\Workflow\WorkflowFacade
    *   The facade.
    */
-  private function facade(): WorkflowFacade {
+  private function facade(string $projectRoot): WorkflowFacade {
+    $catalog = (new DrushCatalogResolver(
+      static function (array $argv, string $cwd, int $timeout): array {
+        return CliProcess::run($argv, $cwd, $timeout);
+      },
+    ))->resolve($projectRoot);
     return new WorkflowFacade(
       new ShellGateExecutor(
         static function (array $argv, string $cwd, int $timeout): array {
@@ -448,6 +463,10 @@ final class ArgvDispatcher {
       new RunStateOnlySink(),
       $this->clock,
       $this->ids,
+      NULL,
+      NULL,
+      $catalog['gates'],
+      $catalog['source'],
     );
   }
 
