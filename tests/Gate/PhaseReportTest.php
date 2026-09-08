@@ -165,6 +165,8 @@ class PhaseReportTest extends TestCase {
       'truncated' => FALSE,
       'skip_reason' => NULL,
       'invocation' => 'vendor/bin/phpcs -q',
+      'inherited' => NULL,
+      'new' => NULL,
     ], $gates[0]);
   }
 

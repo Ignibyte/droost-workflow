@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Gate;
 
+use Droost\Workflow\Baseline\BaselineAwareExecutorInterface;
+use Droost\Workflow\Baseline\BaselineContext;
+use Droost\Workflow\Baseline\FindingParsers;
 use Droost\Workflow\Config\GateSettings;
 
 /**
@@ -20,8 +23,15 @@ use Droost\Workflow\Config\GateSettings;
  * came through GateSettings, which constrains tool arguments to characters no
  * shell would interpret — but building the command as a list means no future
  * lever can reintroduce that risk by being less careful.
+ *
+ * With a baseline context (D71) the verdict of the consulting gates turns on
+ * NEW findings only: the linters' output is partitioned by finding key,
+ * phpstan runs through the baseline's wrapper config, prettier's unformatted
+ * files are matched against the recorded list and the run's changed files,
+ * and the two metric gates pass at or above their recorded floor when they
+ * miss the level's target. Every such result carries both counts.
  */
-final class ShellGateExecutor implements GateExecutorInterface {
+final class ShellGateExecutor implements BaselineAwareExecutorInterface {
 
   /**
    * How long a gate may run before it is killed, in seconds.
@@ -110,10 +120,70 @@ final class ShellGateExecutor implements GateExecutorInterface {
    * {@inheritdoc}
    */
   public function execute(GateSettings $gate, string $projectRoot): GateResult {
+    return $this->run($gate, $projectRoot, NULL);
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function executeWithBaseline(GateSettings $gate, string $projectRoot, BaselineContext $context): GateResult {
+    return $this->run($gate, $projectRoot, $context);
+  }
+
+  /**
+   * Runs a gate's tool and returns its raw output, with no verdict.
+   *
+   * The baseline writer's entry point: the same binary resolution, argv and
+   * path scoping a real gate run uses, so what is measured at adoption is
+   * exactly what the gate will judge later. Extra arguments are appended
+   * (phpstan's `--generate-baseline=…`, for one).
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate's resolved levers.
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $extraArgv
+   *   Arguments appended to the gate's own.
+   *
+   * @return array{argv: list<string>, exit: int, stdout: string, stderr: string}|null
+   *   The run, or NULL when nothing could run: a custom gate (its cmd is the
+   *   gate, not a tool), a missing binary, a missing suite config, or paths
+   *   with nothing to analyse.
+   */
+  public function measure(GateSettings $gate, string $projectRoot, array $extraArgv = []): ?array {
     $root = rtrim($projectRoot, '/');
     if (GateSettings::isCustom($gate->name)) {
-      return $this->executeCustom($gate, $root);
+      return NULL;
     }
+    $prepared = $this->prepare($gate, $root);
+    if (!is_file($prepared['binary']) || $prepared['scoped'] === []) {
+      return NULL;
+    }
+    if (in_array($gate->name, ['phpunit', 'coverage'], TRUE)
+      && !is_file($root . '/phpunit.xml')
+      && !is_file($root . '/phpunit.xml.dist')) {
+      return NULL;
+    }
+    $argv = [...$prepared['argv'], ...$extraArgv];
+    /** @var array{int, string, string} $outcome */
+    $outcome = ($this->runner)($argv, $root, $this->timeout);
+    return ['argv' => $argv, 'exit' => $outcome[0], 'stdout' => $outcome[1], 'stderr' => $outcome[2]];
+  }
+
+  /**
+   * The binary, argv and scope a named gate runs with.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate's resolved levers.
+   * @param string $root
+   *   The project root (already trimmed).
+   *
+   * @return array{binary: string, argv: list<string>, scoped: list<string>|null}
+   *   The absolute binary path, the full argv (scope appended), and the
+   *   scoped paths — NULL when the gate carries no paths lever, an empty list
+   *   when every configured path holds nothing the tool reads.
+   */
+  private function prepare(GateSettings $gate, string $root): array {
     $binary = $this->binaryFor($gate->name);
     $argv = $this->argvFor($gate, $root . '/' . $binary);
     // NULL when the gate carries no paths lever (the tool discovers the
@@ -128,6 +198,51 @@ final class ShellGateExecutor implements GateExecutorInterface {
         $scoped = $this->analysableFiles($gate, $root);
       }
       $argv = array_merge($argv, $scoped);
+    }
+    return ['binary' => $root . '/' . $binary, 'argv' => $argv, 'scoped' => $scoped];
+  }
+
+  /**
+   * Runs a gate, against the whole tree or against a baseline.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate's resolved levers.
+   * @param string $projectRoot
+   *   The repository.
+   * @param \Droost\Workflow\Baseline\BaselineContext|null $context
+   *   The baseline the run is held to, or NULL for none.
+   *
+   * @return \Droost\Workflow\Gate\GateResult
+   *   The verdict.
+   */
+  private function run(GateSettings $gate, string $projectRoot, ?BaselineContext $context): GateResult {
+    $root = rtrim($projectRoot, '/');
+    if (GateSettings::isCustom($gate->name)) {
+      return $this->executeCustom($gate, $root);
+    }
+    $prepared = $this->prepare($gate, $root);
+    $binary = substr($prepared['binary'], strlen($root) + 1);
+    $argv = $prepared['argv'];
+    $scoped = $prepared['scoped'];
+    $baseline = $context?->baseline;
+    if ($baseline !== NULL && $gate->name === 'phpstan' && $baseline->phpstanWrapper() !== NULL) {
+      // The wrapper includes the project's own config AND the recorded
+      // baseline, so phpstan reports only what the baseline does not carry.
+      // `--level` on argv still wins over the wrapper's, as it does over the
+      // project's file: the level is the dial's, never the baseline's.
+      $argv[] = '-c';
+      $argv[] = $baseline->phpstanWrapper();
+    }
+    $msiFloor = $baseline?->metric('msi');
+    $msiTarget = $gate->option('msi_min');
+    $msiTarget = is_int($msiTarget) ? $msiTarget : 0;
+    if ($msiFloor !== NULL && $gate->name === 'mutation' && $msiFloor < $msiTarget) {
+      // The ratchet: infection fails the run below --min-msi, so it is told
+      // the inherited floor and the summary names the level's target.
+      $argv = array_map(
+        static fn (string $arg): string => str_starts_with($arg, '--min-msi=') ? sprintf('--min-msi=%.2f', $msiFloor) : $arg,
+        $argv,
+      );
     }
     $invocation = implode(' ', $argv);
 
@@ -188,7 +303,15 @@ final class ShellGateExecutor implements GateExecutorInterface {
         $stderr,
         $elapsed,
         $invocation,
+        $baseline?->metric('coverage'),
       );
+    }
+
+    if ($baseline !== NULL) {
+      $partitioned = $this->againstBaseline($gate, $context, $root, $exit, $stdout, $stderr, $elapsed, $invocation, $msiFloor, $msiTarget);
+      if ($partitioned !== NULL) {
+        return $partitioned;
+      }
     }
 
     if ($gate->name === 'phpunit'
@@ -270,6 +393,175 @@ final class ShellGateExecutor implements GateExecutorInterface {
       $this->findings($stdout),
       $invocation,
     );
+  }
+
+  /**
+   * A consulting gate's verdict against the baseline, or NULL to fall back.
+   *
+   * NULL — the whole-tree verdict — when the baseline records nothing for
+   * this gate, or when the tool's output is not the machine format expected
+   * (a tool that could not start is judged by its exit code, as always).
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate's resolved levers.
+   * @param \Droost\Workflow\Baseline\BaselineContext|null $context
+   *   The baseline context (non-NULL here; typed for the caller's shape).
+   * @param string $root
+   *   The project root.
+   * @param int $exit
+   *   The tool's exit code.
+   * @param string $stdout
+   *   Standard output.
+   * @param string $stderr
+   *   Standard error.
+   * @param int $elapsed
+   *   Milliseconds spent.
+   * @param string $invocation
+   *   The command that ran.
+   * @param float|null $msiFloor
+   *   The inherited MSI floor, when one is recorded.
+   * @param int $msiTarget
+   *   The level's MSI threshold.
+   *
+   * @return \Droost\Workflow\Gate\GateResult|null
+   *   The partitioned verdict, or NULL.
+   */
+  private function againstBaseline(
+    GateSettings $gate,
+    ?BaselineContext $context,
+    string $root,
+    int $exit,
+    string $stdout,
+    string $stderr,
+    int $elapsed,
+    string $invocation,
+    ?float $msiFloor,
+    int $msiTarget,
+  ): ?GateResult {
+    if ($context === NULL) {
+      return NULL;
+    }
+    $baseline = $context->baseline;
+    $name = $gate->name;
+
+    if (in_array($name, ['phpcs', 'eslint', 'stylelint'], TRUE) && $baseline->has($name)) {
+      $findings = match ($name) {
+        'phpcs' => FindingParsers::phpcs($stdout, $root),
+        'eslint' => FindingParsers::eslint($stdout, $root),
+        default => FindingParsers::stylelint($stdout, $root),
+      };
+      if ($findings === [] && $exit !== 0 && $this->phpcsTotals($stdout) === NULL && trim($stdout) !== '' && !str_starts_with(trim($stdout), '[') && !str_starts_with(trim($stdout), '{')) {
+        // Non-zero with no machine output: the tool did not run to a report.
+        return NULL;
+      }
+      $new = [];
+      $inherited = 0;
+      $warnings = 0;
+      foreach ($findings as $finding) {
+        if (!$finding['error']) {
+          $warnings++;
+          continue;
+        }
+        if ($baseline->inherits($name, $finding['key'])) {
+          $inherited++;
+          continue;
+        }
+        $new[] = [
+          'file' => $finding['file'],
+          'line' => $finding['line'],
+          'rule' => $finding['rule'],
+          'message' => $finding['message'],
+        ];
+      }
+      $status = $new === [] ? GateStatus::Passed : GateStatus::Failed;
+      $summary = $new === []
+        ? sprintf('%s passed — 0 new, %d inherited%s', $name, $inherited, $warnings > 0 ? sprintf(' (%d warning(s), never failing)', $warnings) : '')
+        : sprintf(
+          '%s FAILED — %d new error(s) the baseline does not record (%d inherited): %s:%d %s',
+          $name,
+          count($new),
+          $inherited,
+          $new[0]['file'],
+          $new[0]['line'],
+          $new[0]['message'],
+        );
+      return GateResult::ran($name, $status, $exit, $elapsed, $summary, $new, $invocation)
+        ->withBaselineCounts($inherited, count($new));
+    }
+
+    if ($name === 'phpstan' && $baseline->phpstanWrapper() !== NULL) {
+      $newCount = FindingParsers::phpstanErrorCount($stdout);
+      if ($newCount === NULL && $exit !== 0) {
+        // Not the JSON report: phpstan itself failed (config, memory). The
+        // exit-code verdict says so without inventing counts.
+        return NULL;
+      }
+      $inherited = $baseline->phpstanInheritedCount();
+      $newCount ??= 0;
+      $status = $exit === 0 ? GateStatus::Passed : GateStatus::Failed;
+      $summary = $status === GateStatus::Passed
+        ? sprintf('phpstan passed — 0 new, %d inherited', $inherited)
+        : sprintf('phpstan FAILED — %d new error(s) the baseline does not record (%d inherited)', $newCount, $inherited);
+      return GateResult::ran('phpstan', $status, $exit, $elapsed, $summary, $this->findings($stdout), $invocation)
+        ->withBaselineCounts($inherited, $newCount);
+    }
+
+    if ($name === 'prettier' && $baseline->has('prettier')) {
+      $unformatted = FindingParsers::prettierUnformatted($stdout, $stderr, $root);
+      if ($unformatted === [] && $exit !== 0) {
+        // Prettier failed without naming a file (a syntax error, a bad
+        // config): the exit code is the verdict.
+        return NULL;
+      }
+      $recorded = $baseline->prettierFiles();
+      $inherited = [];
+      $new = [];
+      foreach ($unformatted as $file) {
+        // A recorded file stays inherited until the run touches it: then
+        // formatting it is part of the change (prettier --write is mechanical).
+        if (in_array($file, $recorded, TRUE) && !$context->changed($file)) {
+          $inherited[] = $file;
+        }
+        else {
+          $new[] = $file;
+        }
+      }
+      $status = $new === [] ? GateStatus::Passed : GateStatus::Failed;
+      $summary = $new === []
+        ? sprintf('prettier passed — 0 new, %d inherited unformatted file(s)', count($inherited))
+        : sprintf('prettier FAILED — %d unformatted file(s) the baseline does not cover (%d inherited): %s', count($new), count($inherited), implode(', ', array_slice($new, 0, 5)));
+      return GateResult::ran(
+        'prettier',
+        $status,
+        $exit,
+        $elapsed,
+        $summary,
+        array_map(static fn (string $file): array => ['file' => $file], $new),
+        $invocation,
+      )->withBaselineCounts(count($inherited), count($new));
+    }
+
+    if ($name === 'mutation' && $msiFloor !== NULL && $exit === 0) {
+      $measured = FindingParsers::msiPercent($stdout);
+      if ($measured !== NULL && $measured < $msiTarget) {
+        return GateResult::ran(
+          'mutation',
+          GateStatus::Passed,
+          $exit,
+          $elapsed,
+          sprintf(
+            'mutation MSI %.1f%% is under the %d%% target but at or above the inherited floor %.1f%% (ratchet — the floor rises on refresh, never falls)',
+            $measured,
+            $msiTarget,
+            $msiFloor,
+          ),
+          [],
+          $invocation,
+        );
+      }
+    }
+
+    return NULL;
   }
 
   /**
@@ -499,6 +791,10 @@ final class ShellGateExecutor implements GateExecutorInterface {
    *   Milliseconds spent.
    * @param string $invocation
    *   The command that ran.
+   * @param float|null $floor
+   *   The inherited coverage floor, when a baseline records one. Below the
+   *   level's target, measured coverage at or above the floor passes with the
+   *   target named (the ratchet); below the floor fails.
    *
    * @return \Droost\Workflow\Gate\GateResult
    *   The verdict.
@@ -510,6 +806,7 @@ final class ShellGateExecutor implements GateExecutorInterface {
     string $stderr,
     int $elapsed,
     string $invocation,
+    ?float $floor = NULL,
   ): GateResult {
     if ($exit !== 0) {
       return GateResult::ran(
@@ -533,8 +830,25 @@ final class ShellGateExecutor implements GateExecutorInterface {
 
     $measured = (float) $matches[1];
     $min = $gate->option('min');
-    $floor = is_int($min) ? $min : 0;
-    $satisfied = $measured >= (float) $floor;
+    $target = is_int($min) ? $min : 0;
+    $satisfied = $measured >= (float) $target;
+
+    if (!$satisfied && $floor !== NULL) {
+      // The ratchet (D71 §7): a legacy repo cannot meet the level's target on
+      // day one, so the inherited floor decides and the target is named.
+      $aboveFloor = $measured >= $floor;
+      return GateResult::ran(
+        $gate->name,
+        $aboveFloor ? GateStatus::Passed : GateStatus::Failed,
+        $exit,
+        $elapsed,
+        $aboveFloor
+          ? sprintf('coverage %.1f%% is under the %d%% target but at or above the inherited floor %.1f%% (ratchet — the floor rises on refresh, never falls)', $measured, $target, $floor)
+          : sprintf('coverage %.1f%% fell BELOW the inherited floor %.1f%% (target %d%%) — the change lost coverage the project already had', $measured, $floor, $target),
+        [],
+        $invocation,
+      );
+    }
 
     return GateResult::ran(
       $gate->name,
@@ -545,7 +859,7 @@ final class ShellGateExecutor implements GateExecutorInterface {
         'coverage %.1f%% %s min %d%%',
         $measured,
         $satisfied ? 'meets' : 'is under',
-        $floor,
+        $target,
       ),
       [],
       $invocation,

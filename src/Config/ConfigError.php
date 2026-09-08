@@ -527,6 +527,29 @@ final class ConfigError extends \RuntimeException {
   }
 
   /**
+   * The baseline block carries an option it does not define.
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $key
+   *   The unknown option.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function unknownBaselineOption(
+    string $source,
+    string $key,
+  ): self {
+    return new self($source, sprintf(
+      'baseline accepts only "on" — got "%s". What the baseline contains is '
+      . 'measured and written by `droost:workflow:baseline`, never typed into '
+      . 'the lever file; the lever only says whether it is honoured.',
+      $key,
+    ));
+  }
+
+  /**
    * The work_item block carries an option it does not define.
    *
    * @param string $source

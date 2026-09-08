@@ -42,7 +42,18 @@ final class WorkflowConfig {
     'require_run',
     'seekers',
     'work_item',
+    'baseline',
   ];
+
+  /**
+   * The options the baseline block accepts.
+   *
+   * `on` only: whether a committed `droost/baseline/` is honoured. Off is
+   * strict mode — every gate judges the whole tree as if no baseline existed
+   * — in one visible line. What the baseline CONTAINS is never a lever; it is
+   * measured and written by the operator's command, not typed.
+   */
+  private const BASELINE_OPTIONS = ['on'];
 
   /**
    * The options the seekers block accepts.
@@ -92,6 +103,12 @@ final class WorkflowConfig {
    *   The optional work_item block: how a run's ticket is fetched and written
    *   back. NULL when the repo declares no integration — the common case. The
    *   engine never consumes it, so its absence changes nothing here.
+   * @param bool $baseline
+   *   Whether a committed adoption baseline (`droost/baseline/`) is honoured:
+   *   gates fail only on findings the baseline does not record. On by default
+   *   — a baseline exists because an operator wrote it — and `baseline: { on:
+   *   false }` is strict mode, a visible refusal in one line. Meaningless when
+   *   the project has no baseline.
    */
   private function __construct(
     public readonly Mode $mode,
@@ -105,6 +122,7 @@ final class WorkflowConfig {
     public readonly bool $seekers = TRUE,
     public readonly Enforcement $requireRun = Enforcement::Hard,
     public readonly ?WorkItemSettings $workItem = NULL,
+    public readonly bool $baseline = TRUE,
   ) {}
 
   /**
@@ -269,11 +287,41 @@ final class WorkflowConfig {
         // lever is the only thing that loosens it.
         self::readRequireRun($root, $source, Enforcement::Hard),
         self::readWorkItem($root, $source),
+        self::readBaseline($root, $source),
       );
     }
     catch (DataError $e) {
       throw ConfigError::fromData($source, $e);
     }
+  }
+
+  /**
+   * Reads the baseline lever: whether a committed baseline is honoured.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   *
+   * @return bool
+   *   TRUE (the default) to honour a baseline, FALSE for strict mode.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When the block carries an option other than `on`.
+   * @throws \Droost\Workflow\Support\DataError
+   *   When `on` is not a boolean.
+   */
+  private static function readBaseline(TypedArray $root, string $source): bool {
+    $node = $root->optionalChild('baseline');
+    if ($node === NULL) {
+      return TRUE;
+    }
+    foreach ($node->keys() as $key) {
+      if (!in_array($key, self::BASELINE_OPTIONS, TRUE)) {
+        throw ConfigError::unknownBaselineOption($source, $key);
+      }
+    }
+    return $node->optionalBool('on', TRUE);
   }
 
   /**

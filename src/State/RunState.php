@@ -146,6 +146,17 @@ final class RunState {
    *   its reason and grant time. Run-scoped by construction — the record
    *   dies with the run — and written only by withGateWaiver(), whose sole
    *   caller is the CLI command: an agent has no surface that can reach it.
+   * @param string|null $baseCommit
+   *   The commit the working tree was at when the run began, or NULL when no
+   *   repository answered. What "the run's changes" means: the seeker's
+   *   cumulative diff has a stated base, and the gates whose inherited
+   *   entries are whole files know which files this run touched.
+   * @param string|null $baselineHash
+   *   The hash of the adoption baseline (`droost/baseline/`) as it stood at
+   *   begin, or NULL when the run is held to none — no baseline, or the lever
+   *   turned it off. Frozen so a baseline that changes under a run is caught
+   *   by every gate that consults it: the file is the operator's, written at
+   *   adoption, and a mid-run edit is a defeat, never a tuning.
    */
   public function __construct(
     public readonly string $runId,
@@ -171,6 +182,8 @@ final class RunState {
     public readonly array $seekerHistory = [],
     public readonly ?string $specPath = NULL,
     public readonly array $gateWaivers = [],
+    public readonly ?string $baseCommit = NULL,
+    public readonly ?string $baselineHash = NULL,
   ) {}
 
   /**
@@ -182,6 +195,10 @@ final class RunState {
    *   When the run began, as an ISO-8601 string.
    * @param \Droost\Workflow\Config\WorkflowConfig $config
    *   The resolved levers.
+   * @param string|null $baseCommit
+   *   The commit the tree is at, or NULL when unknown.
+   * @param string|null $baselineHash
+   *   The adoption baseline's hash to hold the run to, or NULL for none.
    *
    * @return self
    *   A run positioned at its first configured phase.
@@ -190,6 +207,8 @@ final class RunState {
     string $runId,
     string $startedAt,
     WorkflowConfig $config,
+    ?string $baseCommit = NULL,
+    ?string $baselineHash = NULL,
   ): self {
     $phases = [];
     foreach ($config->phases as $index => $phase) {
@@ -215,6 +234,8 @@ final class RunState {
       ),
       enforcement: $config->enforcement,
       seekers: $config->seekers,
+      baseCommit: $baseCommit,
+      baselineHash: $baselineHash,
     );
   }
 
@@ -446,6 +467,8 @@ final class RunState {
       $this->seekerHistory,
       $this->specPath,
       $this->gateWaivers,
+      $this->baseCommit,
+      $this->baselineHash,
     );
   }
 
@@ -531,6 +554,8 @@ final class RunState {
       $this->seekerHistory,
       $this->specPath,
       $this->gateWaivers,
+      $this->baseCommit,
+      $this->baselineHash,
     );
   }
 
@@ -570,6 +595,8 @@ final class RunState {
       $this->seekerHistory,
       $this->specPath,
       $this->gateWaivers,
+      $this->baseCommit,
+      $this->baselineHash,
     );
   }
 
@@ -692,6 +719,8 @@ final class RunState {
       $this->seekerHistory,
       $this->specPath,
       $this->gateWaivers,
+      $this->baseCommit,
+      $this->baselineHash,
     );
   }
 
@@ -819,6 +848,8 @@ final class RunState {
       'gate_waivers' => $this->gateWaivers,
       'browser' => $this->browser,
       'tasks' => $this->tasks,
+      'base_commit' => $this->baseCommit,
+      'baseline_hash' => $this->baselineHash,
     ];
   }
 
@@ -909,6 +940,10 @@ final class RunState {
       self::readSeekerHistory($node, $label),
       $node->optionalString('spec_path', '') ?: NULL,
       self::readGateWaivers($node, $label),
+      // Absent on every run.json written before baselines existed; those
+      // runs were held to none, which is exactly what NULL says.
+      $node->optionalString('base_commit', '') ?: NULL,
+      $node->optionalString('baseline_hash', '') ?: NULL,
     );
   }
 
@@ -987,6 +1022,8 @@ final class RunState {
       $this->seekerHistory,
       $this->specPath,
       $waivers,
+      $this->baseCommit,
+      $this->baselineHash,
     );
   }
 
@@ -1525,6 +1562,8 @@ final class RunState {
       $seekerHistory ?? $this->seekerHistory,
       $specPath ?? $this->specPath,
       $this->gateWaivers,
+      $this->baseCommit,
+      $this->baselineHash,
     );
   }
 

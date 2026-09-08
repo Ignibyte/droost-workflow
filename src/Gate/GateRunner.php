@@ -4,11 +4,18 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Gate;
 
+use Droost\Workflow\Baseline\Baseline;
+use Droost\Workflow\Baseline\BaselineAwareExecutorInterface;
+use Droost\Workflow\Baseline\BaselineAwareSiteDriverInterface;
+use Droost\Workflow\Baseline\BaselineContext;
+use Droost\Workflow\Baseline\BaselineError;
+use Droost\Workflow\Baseline\BaselineStore;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\PresetResolver;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\State\RunState;
+use Droost\Workflow\Vcs\VcsInterface;
 
 /**
  * Executes a phase's gates and says whether the run may continue.
@@ -49,10 +56,15 @@ final class GateRunner {
    *   Runs the gates that need only a checkout.
    * @param \Droost\Workflow\Gate\SiteDriverInterface $driver
    *   Runs the gates that need a site.
+   * @param \Droost\Workflow\Vcs\VcsInterface|null $vcs
+   *   Answers which files the run has changed since its base commit, for the
+   *   baseline context. NULL means "unknown", which the gates treat as
+   *   nothing changed — the conservative reading for inherited whole files.
    */
   public function __construct(
     private readonly GateExecutorInterface $executor,
     private readonly SiteDriverInterface $driver,
+    private readonly ?VcsInterface $vcs = NULL,
   ) {}
 
   /**
@@ -85,6 +97,7 @@ final class GateRunner {
   ): PhaseReport {
     $report = new PhaseReport($phase);
     $live = $this->liveTuning($projectRoot);
+    [$context, $tamper] = $this->baselineFor($state, $projectRoot);
 
     foreach ($state->gatesDueFor($phase) as $name => $levers) {
       $waiver = $state->gateWaivers[$name] ?? NULL;
@@ -100,9 +113,26 @@ final class GateRunner {
           skipReason: $waiver['reason'],
         );
       }
+      elseif ($tamper !== NULL && in_array($name, Baseline::CONSULTING, TRUE)) {
+        // The baseline on disk is not the one this run froze at begin. Every
+        // gate that would have consulted it fails instead of running: a
+        // baseline is the operator's adoption record, and one that moves
+        // under a run is the defeat the whole design exists to refuse. The
+        // gates that never consult it (phpunit, the browser check) run as
+        // usual — the tree is still the tree.
+        $result = GateResult::ran(
+          $name,
+          GateStatus::Failed,
+          1,
+          0,
+          sprintf('%s FAILED — %s', $name, $tamper),
+          [],
+          'baseline integrity check',
+        );
+      }
       else {
         [$levers, $drift] = $this->withLiveTuning($name, $levers, $live[$name] ?? NULL);
-        $result = $this->inReportMode($levers, $this->runOne($name, $levers, $projectRoot, $state->preset));
+        $result = $this->inReportMode($levers, $this->runOne($name, $levers, $projectRoot, $state->preset, $context));
         if ($drift !== []) {
           $result = new GateResult(
             $result->gate,
@@ -114,6 +144,8 @@ final class GateRunner {
             $result->truncated,
             $result->skipReason,
             $result->invocation,
+            $result->inherited,
+            $result->new,
           );
         }
       }
@@ -175,6 +207,8 @@ final class GateRunner {
    *   The repository to run in.
    * @param string $preset
    *   The run's frozen preset name, for saying what turned an off gate off.
+   * @param \Droost\Workflow\Baseline\BaselineContext|null $context
+   *   The baseline the run is held to, or NULL when there is none.
    *
    * @return \Droost\Workflow\Gate\GateResult
    *   What happened.
@@ -184,6 +218,7 @@ final class GateRunner {
     array $levers,
     string $projectRoot,
     string $preset,
+    ?BaselineContext $context,
   ): GateResult {
     $on = $levers['on'] ?? FALSE;
     if ($on !== TRUE) {
@@ -191,6 +226,7 @@ final class GateRunner {
     }
 
     $gate = $this->settings($name, $levers);
+    $consults = $context !== NULL && in_array($name, Baseline::CONSULTING, TRUE);
 
     if (in_array($name, self::SITE_GATES, TRUE)) {
       if (!$this->driver->available()) {
@@ -205,10 +241,62 @@ final class GateRunner {
           sprintf('%s (no site driver implements it)', $name),
         );
       }
+      if ($consults && $this->driver instanceof BaselineAwareSiteDriverInterface) {
+        return $this->driver->runWithBaseline($gate, $projectRoot, $context);
+      }
       return $this->driver->run($gate, $projectRoot);
     }
 
+    if ($consults && $this->executor instanceof BaselineAwareExecutorInterface) {
+      return $this->executor->executeWithBaseline($gate, $projectRoot, $context);
+    }
     return $this->executor->execute($gate, $projectRoot);
+  }
+
+  /**
+   * The baseline context for this run, or why none can be built.
+   *
+   * The run froze a hash at begin (NULL when it is held to no baseline). The
+   * disk must still say the same: a baseline added, removed or edited under a
+   * run is tampering, and every consulting gate is told so instead of run.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return array{\Droost\Workflow\Baseline\BaselineContext|null, string|null}
+   *   The context (NULL for no baseline), and the tamper reason (NULL when
+   *   the disk matches the frozen record).
+   */
+  private function baselineFor(RunState $state, string $projectRoot): array {
+    $now = BaselineStore::hash($projectRoot);
+    if ($now !== $state->baselineHash) {
+      return [
+        NULL,
+        sprintf(
+          'the baseline changed during the run (frozen %s, now %s). A baseline '
+          . 'is written at adoption by the operator and may not move under a '
+          . 'run — restore droost/baseline/ to what it was, or reset the run.',
+          BaselineStore::short($state->baselineHash),
+          BaselineStore::short($now),
+        ),
+      ];
+    }
+    if ($state->baselineHash === NULL) {
+      return [NULL, NULL];
+    }
+    try {
+      $baseline = BaselineStore::load($projectRoot);
+    }
+    catch (BaselineError $e) {
+      return [NULL, 'the baseline cannot be read: ' . $e->getMessage()];
+    }
+    if ($baseline === NULL) {
+      return [NULL, NULL];
+    }
+    $changed = $this->vcs?->changedFiles($projectRoot, $state->baseCommit) ?? [];
+    return [new BaselineContext($baseline, $changed), NULL];
   }
 
   /**
@@ -244,6 +332,8 @@ final class GateRunner {
       $result->truncated,
       $result->skipReason,
       $result->invocation,
+      $result->inherited,
+      $result->new,
     );
   }
 

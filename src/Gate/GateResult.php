@@ -41,6 +41,14 @@ final class GateResult {
    *   Why the gate did not run, when it did not.
    * @param string|null $invocation
    *   The command that ran, or that would have.
+   * @param int|null $inherited
+   *   How many findings the adoption baseline already recorded — reported,
+   *   counted, never failing — or NULL when the gate consulted no baseline.
+   *   Always printed beside a pass when set: `passed — 0 new, 123 inherited`
+   *   is the whole point; a bare "passed" over inherited debt would hide it.
+   * @param int|null $new
+   *   How many findings the baseline does NOT record — the ones the verdict
+   *   turns on — or NULL when no baseline was consulted.
    */
   public function __construct(
     public readonly string $gate,
@@ -52,7 +60,36 @@ final class GateResult {
     public readonly bool $truncated = FALSE,
     public readonly ?string $skipReason = NULL,
     public readonly ?string $invocation = NULL,
+    public readonly ?int $inherited = NULL,
+    public readonly ?int $new = NULL,
   ) {}
+
+  /**
+   * This result with the baseline partition recorded.
+   *
+   * @param int $inherited
+   *   Findings the baseline records.
+   * @param int $new
+   *   Findings it does not.
+   *
+   * @return self
+   *   A new result carrying both counts.
+   */
+  public function withBaselineCounts(int $inherited, int $new): self {
+    return new self(
+      $this->gate,
+      $this->status,
+      $this->exitCode,
+      $this->durationMs,
+      $this->summary,
+      $this->findings,
+      $this->truncated,
+      $this->skipReason,
+      $this->invocation,
+      $inherited,
+      $new,
+    );
+  }
 
   /**
    * A gate that is configured off.
@@ -187,6 +224,8 @@ final class GateResult {
       'truncated' => $this->truncated,
       'skip_reason' => $this->skipReason,
       'invocation' => $this->invocation,
+      'inherited' => $this->inherited,
+      'new' => $this->new,
     ];
   }
 

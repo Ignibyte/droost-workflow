@@ -4,7 +4,12 @@ declare(strict_types=1);
 
 namespace Droost\Workflow;
 
+use Droost\Workflow\Baseline\BaselineError;
+use Droost\Workflow\Baseline\BaselineStore;
+use Droost\Workflow\Cli\CliProcess;
 use Droost\Workflow\State\StateError;
+use Droost\Workflow\Vcs\CliVcs;
+use Droost\Workflow\Vcs\VcsInterface;
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\PhaseGateMap;
@@ -53,6 +58,11 @@ final class WorkflowFacade {
   private readonly WorkflowListenerInterface $listener;
 
   /**
+   * Answers where the tree is (base commit) and what changed since.
+   */
+  private readonly VcsInterface $vcs;
+
+  /**
    * Constructs a WorkflowFacade.
    *
    * @param \Droost\Workflow\Gate\GateExecutorInterface $executor
@@ -72,6 +82,9 @@ final class WorkflowFacade {
    *   Optional and defaults to a no-op, so the CLI and every existing caller
    *   are unaffected; the Drupal surfaces inject a bridge that re-broadcasts to
    *   hooks. A notification, never the record — see the interface.
+   * @param \Droost\Workflow\Vcs\VcsInterface|null $vcs
+   *   Version-control facts: the base commit frozen at begin and the files
+   *   changed since. Defaults to the git binary; a test injects a fake.
    */
   public function __construct(
     private readonly GateExecutorInterface $executor,
@@ -80,8 +93,10 @@ final class WorkflowFacade {
     private readonly mixed $clock,
     private readonly mixed $ids,
     ?WorkflowListenerInterface $listener = NULL,
+    ?VcsInterface $vcs = NULL,
   ) {
     $this->listener = $listener ?? new NullWorkflowListener();
+    $this->vcs = $vcs ?? new CliVcs(CliProcess::run(...));
   }
 
   /**
@@ -132,7 +147,14 @@ final class WorkflowFacade {
         // The work-item integration for status: how a run's ticket is fetched
         // and written back. NULL when the repo declares none.
         'work_item' => $config->workItem?->toArray(),
+        // Whether a committed adoption baseline is honoured (strict mode when
+        // FALSE). What it holds is the `baseline` block below.
+        'baseline' => $config->baseline,
       ],
+      // The adoption baseline: present or not, honoured or not, what each
+      // gate inherits — so "why did phpstan pass over 123 errors" is
+      // answerable from status alone.
+      'baseline' => $this->baselineSummary($projectRoot, $config),
       // Whether each named gate's tool could actually run here, probed via
       // the executor's own path mapping — the reported row and the executed
       // path are the same fact. Without this, armed-and-working was
@@ -175,6 +197,10 @@ final class WorkflowFacade {
       'gate_waivers' => $state->gateWaivers,
       'browser' => $state->browser,
       'tasks' => $state->tasks,
+      // Where the run started and which baseline it is held to — frozen at
+      // begin, so a report can say what "new" was measured against.
+      'base_commit' => $state->baseCommit,
+      'baseline_hash' => $state->baselineHash,
       'phases' => array_map(
         static fn ($s): string => $s->value,
         $state->phases,
@@ -187,6 +213,68 @@ final class WorkflowFacade {
       'answered' => count($state->qaHistory),
     ];
     return $status;
+  }
+
+  /**
+   * The adoption baseline, as a status document block.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return array<string, mixed>
+   *   `present`, `honoured`, `dir`, and when present: when and at which
+   *   commit it was written, the level then in force, per-gate inherited
+   *   counts, how many times it grew, and its current hash. An unreadable
+   *   manifest reports `error` rather than pretending to be absent.
+   */
+  public function baselineStatus(string $projectRoot): array {
+    return $this->baselineSummary($projectRoot, WorkflowConfig::load($projectRoot));
+  }
+
+  /**
+   * The baseline block for a resolved configuration.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param \Droost\Workflow\Config\WorkflowConfig $config
+   *   The resolved levers (for the `baseline.on` switch).
+   *
+   * @return array<string, mixed>
+   *   The block.
+   */
+  private function baselineSummary(string $projectRoot, WorkflowConfig $config): array {
+    $block = [
+      'present' => BaselineStore::exists($projectRoot),
+      'honoured' => FALSE,
+      'lever' => $config->baseline,
+      'dir' => BaselineStore::DIR,
+    ];
+    if (!$block['present']) {
+      return $block;
+    }
+    try {
+      $baseline = BaselineStore::load($projectRoot);
+    }
+    catch (BaselineError $e) {
+      $block['error'] = $e->getMessage();
+      return $block;
+    }
+    if ($baseline === NULL) {
+      return $block;
+    }
+    $gates = [];
+    foreach ($baseline->manifest->gates as $gate => $entry) {
+      $gates[$gate] = $entry['count'];
+    }
+    return $block + [
+      'honoured' => $config->baseline,
+      'generated_at' => $baseline->manifest->generatedAt,
+      'generated_commit' => $baseline->manifest->generatedCommit,
+      'preset' => $baseline->manifest->preset,
+      'gates' => $gates,
+      'grown' => count($baseline->manifest->grown),
+      'hash' => BaselineStore::hash($projectRoot),
+    ];
   }
 
   /**
@@ -255,7 +343,16 @@ final class WorkflowFacade {
 
     if ($state === NULL) {
       $config = WorkflowConfig::load($projectRoot);
-      $state = RunState::begin($this->newId(), $this->now(), $config);
+      // Frozen with the levers: where the tree is, and which baseline the
+      // run is held to (none when the lever refuses one). A baseline that
+      // moves under the run is then caught by every gate that consults it.
+      $state = RunState::begin(
+        $this->newId(),
+        $this->now(),
+        $config,
+        $this->vcs->head($projectRoot),
+        $config->baseline ? BaselineStore::hash($projectRoot) : NULL,
+      );
       $store->save($state);
       $this->notify(fn () => $this->listener->onRunStart($state));
       // The run's first phase is now active: the first cycle step begins.
@@ -849,7 +946,7 @@ final class WorkflowFacade {
    */
   private function engine(): ModeEngine {
     return new ModeEngine(
-      new GateRunner($this->executor, $this->driver),
+      new GateRunner($this->executor, $this->driver, $this->vcs),
       $this->sink,
     );
   }
