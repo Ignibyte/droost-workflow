@@ -304,7 +304,13 @@ resolves a lever. Status says which it was — `levers.contributed_source` —
 and when there is no drush, or the site cannot answer, it says the set was
 resolved from the lever file alone rather than presenting the shorter set as
 the whole (a run begun on that surface in the first live round was held to
-fewer gates than the same run through drush, and nothing said so).
+fewer gates than the same run through drush, and nothing said so). And a run
+that WAS begun blind — the binary run on a host where drush cannot reach the
+site — catches up: the first surface that can see the catalog weaves the
+missing gates into the run's record at the phase it is about to run, they run
+from then on (complete re-runs everything, so no run finishes without them),
+and the record says so — `run.contributed_source` names the door that began
+it, `run.late_woven` names each gate and the phase it joined at.
 
 ### Unknown keys are errors
 

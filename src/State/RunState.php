@@ -157,6 +157,16 @@ final class RunState {
    *   turned it off. Frozen so a baseline that changes under a run is caught
    *   by every gate that consults it: the file is the operator's, written at
    *   adoption, and a mid-run edit is a defeat, never a tuning.
+   * @param array<string, string> $lateWoven
+   *   Contributed gates that joined AFTER begin, by name, with the phase at
+   *   which they joined. A run begun on a surface that could not see the
+   *   site's contributed catalog froze a shorter set; the first surface that
+   *   can see it weaves the missing gates in (R31-F3/F5), so every door is
+   *   held to the same gates — and the record says which joined late.
+   * @param string|null $contributedSource
+   *   Where the surface that BEGAN the run got its contributed gates — the
+   *   booted site's catalog, drush asked from the standalone binary, or the
+   *   reason none could be resolved. Frozen so a shorter set explains itself.
    */
   public function __construct(
     public readonly string $runId,
@@ -184,6 +194,8 @@ final class RunState {
     public readonly array $gateWaivers = [],
     public readonly ?string $baseCommit = NULL,
     public readonly ?string $baselineHash = NULL,
+    public readonly array $lateWoven = [],
+    public readonly ?string $contributedSource = NULL,
   ) {}
 
   /**
@@ -199,6 +211,9 @@ final class RunState {
    *   The commit the tree is at, or NULL when unknown.
    * @param string|null $baselineHash
    *   The adoption baseline's hash to hold the run to, or NULL for none.
+   * @param string|null $contributedSource
+   *   Where this surface got the contributed gates it resolved, for the
+   *   record.
    *
    * @return self
    *   A run positioned at its first configured phase.
@@ -209,6 +224,7 @@ final class RunState {
     WorkflowConfig $config,
     ?string $baseCommit = NULL,
     ?string $baselineHash = NULL,
+    ?string $contributedSource = NULL,
   ): self {
     $phases = [];
     foreach ($config->phases as $index => $phase) {
@@ -236,6 +252,91 @@ final class RunState {
       seekers: $config->seekers,
       baseCommit: $baseCommit,
       baselineHash: $baselineHash,
+      contributedSource: $contributedSource,
+    );
+  }
+
+  /**
+   * Contributed gates joining a run that was begun without them.
+   *
+   * The frozen-set invariant — a run is measured against exactly what its
+   * own document says — is kept by AMENDING the document, on record: each
+   * gate joins the resolved set, is placed at its declared phases from the
+   * current one onward (never into a phase already left) and at complete,
+   * where everything enabled re-runs; `late_woven` names it and the phase it
+   * joined at. So a run begun on a surface blind to the catalog cannot
+   * complete without the gates the site declared, and the report says how
+   * they got there. Gates already in the set, and names that are not
+   * contributed gates, are ignored.
+   *
+   * @param array<string, \Droost\Workflow\Config\GateSettings> $gates
+   *   The contributed gates the advancing surface resolved, by name.
+   * @param \Droost\Workflow\Config\Phase $at
+   *   The phase about to run.
+   *
+   * @return self
+   *   A new instance.
+   */
+  public function withLateContributed(array $gates, Phase $at): self {
+    $resolved = $this->resolvedGates;
+    $phaseGates = $this->phaseGates;
+    $late = $this->lateWoven;
+    $order = array_keys($this->phases);
+    $from = array_search($at->value, $order, TRUE);
+    foreach ($gates as $name => $gate) {
+      if (!GateSettings::isContributed($name) || array_key_exists($name, $resolved)) {
+        continue;
+      }
+      $resolved[$name] = $gate->toArray();
+      $declared = $gate->option('phase');
+      $targets = is_string($declared) ? explode(',', $declared) : [];
+      $targets[] = Phase::Complete->value;
+      foreach (array_unique($targets) as $target) {
+        $index = array_search($target, $order, TRUE);
+        if ($index === FALSE || !isset($phaseGates[$target])) {
+          continue;
+        }
+        if ($from !== FALSE && $index < $from) {
+          // A phase already passed stays as its report recorded it.
+          continue;
+        }
+        if (!in_array($name, $phaseGates[$target], TRUE)) {
+          $phaseGates[$target][] = $name;
+        }
+      }
+      $late[$name] = $at->value;
+    }
+    if ($late === $this->lateWoven) {
+      return $this;
+    }
+    return new self(
+      $this->runId,
+      $this->startedAt,
+      $this->mode,
+      $this->modeOverride,
+      $this->preset,
+      $this->maxGateRetries,
+      $this->provenance,
+      $resolved,
+      $this->phases,
+      $this->currentPhase,
+      $this->gateResults,
+      $this->awaiting,
+      $this->qaHistory,
+      $this->feedbackAttempts,
+      $phaseGates,
+      $this->enforcement,
+      $this->seekers,
+      $this->seeker,
+      $this->browser,
+      $this->tasks,
+      $this->seekerHistory,
+      $this->specPath,
+      $this->gateWaivers,
+      $this->baseCommit,
+      $this->baselineHash,
+      $late,
+      $this->contributedSource,
     );
   }
 
@@ -471,6 +572,8 @@ final class RunState {
       $this->gateWaivers,
       $this->baseCommit,
       $this->baselineHash,
+      $this->lateWoven,
+      $this->contributedSource,
     );
   }
 
@@ -558,6 +661,8 @@ final class RunState {
       $this->gateWaivers,
       $this->baseCommit,
       $this->baselineHash,
+      $this->lateWoven,
+      $this->contributedSource,
     );
   }
 
@@ -599,6 +704,8 @@ final class RunState {
       $this->gateWaivers,
       $this->baseCommit,
       $this->baselineHash,
+      $this->lateWoven,
+      $this->contributedSource,
     );
   }
 
@@ -723,6 +830,8 @@ final class RunState {
       $this->gateWaivers,
       $this->baseCommit,
       $this->baselineHash,
+      $this->lateWoven,
+      $this->contributedSource,
     );
   }
 
@@ -852,6 +961,8 @@ final class RunState {
       'tasks' => $this->tasks,
       'base_commit' => $this->baseCommit,
       'baseline_hash' => $this->baselineHash,
+      'late_woven' => $this->lateWoven,
+      'contributed_source' => $this->contributedSource,
     ];
   }
 
@@ -946,7 +1057,43 @@ final class RunState {
       // runs were held to none, which is exactly what NULL says.
       $node->optionalString('base_commit', '') ?: NULL,
       $node->optionalString('baseline_hash', '') ?: NULL,
+      self::readLateWoven($node, $label),
+      $node->optionalString('contributed_source', '') ?: NULL,
     );
+  }
+
+  /**
+   * Reads which contributed gates joined after begin, and where.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $node
+   *   The run node.
+   * @param string $label
+   *   The state file's label for messages.
+   *
+   * @return array<string, string>
+   *   Gate name to the phase it joined at.
+   *
+   * @throws \Droost\Workflow\State\StateError
+   *   When an entry is not a contributed gate name mapped to a phase name.
+   */
+  private static function readLateWoven(TypedArray $node, string $label): array {
+    $woven = $node->optionalChild('late_woven');
+    if ($woven === NULL) {
+      return [];
+    }
+    $out = [];
+    foreach ($woven->keys() as $name) {
+      $phase = $woven->scalar($name);
+      if (!GateSettings::isContributed($name) || !is_string($phase) || Phase::tryFrom($phase) === NULL) {
+        throw StateError::corrupt($label, sprintf(
+          'late_woven must map a module:<id> gate to a phase name; got "%s" => %s',
+          $name,
+          var_export($phase, TRUE),
+        ));
+      }
+      $out[$name] = $phase;
+    }
+    return $out;
   }
 
   /**
@@ -1026,6 +1173,8 @@ final class RunState {
       $waivers,
       $this->baseCommit,
       $this->baselineHash,
+      $this->lateWoven,
+      $this->contributedSource,
     );
   }
 
@@ -1566,6 +1715,8 @@ final class RunState {
       $this->gateWaivers,
       $this->baseCommit,
       $this->baselineHash,
+      $this->lateWoven,
+      $this->contributedSource,
     );
   }
 

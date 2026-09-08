@@ -53,15 +53,18 @@ final class DrushCatalogResolver {
    * @param string $projectRoot
    *   The repository.
    *
-   * @return array{gates: list<\Droost\Workflow\Config\ContributedGate>, source: string}
-   *   The declarations (possibly none) and a sentence naming their source or
-   *   the reason none could be resolved.
+   * @return array{gates: list<\Droost\Workflow\Config\ContributedGate>|null, source: string}
+   *   The declarations — an empty list when the site answered that it has
+   *   none, NULL when nothing could be resolved (so a lever file's
+   *   `gates.contributed` block is left alone rather than refused as naming a
+   *   gate "no module declares") — and a sentence naming the source or the
+   *   reason.
    */
   public function resolve(string $projectRoot): array {
     $drush = $projectRoot . '/' . self::DRUSH;
     if (!is_file($drush)) {
       return [
-        'gates' => [],
+        'gates' => NULL,
         'source' => sprintf(
           'unresolved — no %s in this repository, so gates enabled modules contribute cannot be seen from this surface; a run begun here is held to the lever file\'s gates only',
           self::DRUSH,
@@ -73,7 +76,7 @@ final class DrushCatalogResolver {
     if ($exit !== 0) {
       $line = self::firstLine($stderr !== '' ? $stderr : $stdout);
       return [
-        'gates' => [],
+        'gates' => NULL,
         'source' => sprintf(
           'unresolved — `%s` exited %d%s; a run begun here is held to the lever file\'s gates only',
           $invocation,
@@ -85,7 +88,7 @@ final class DrushCatalogResolver {
     $rows = self::decode($stdout);
     if ($rows === NULL) {
       return [
-        'gates' => [],
+        'gates' => NULL,
         'source' => sprintf('unresolved — `%s` printed no JSON list; a run begun here is held to the lever file\'s gates only', $invocation),
       ];
     }
@@ -93,7 +96,7 @@ final class DrushCatalogResolver {
     foreach ($rows as $row) {
       if (!is_array($row)) {
         return [
-          'gates' => [],
+          'gates' => NULL,
           'source' => sprintf('unresolved — `%s` printed a row that is not an object; a run begun here is held to the lever file\'s gates only', $invocation),
         ];
       }
@@ -102,7 +105,7 @@ final class DrushCatalogResolver {
       }
       catch (\InvalidArgumentException $e) {
         return [
-          'gates' => [],
+          'gates' => NULL,
           'source' => sprintf('unresolved — `%s`: %s; a run begun here is held to the lever file\'s gates only', $invocation, $e->getMessage()),
         ];
       }

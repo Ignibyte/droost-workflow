@@ -87,10 +87,13 @@ final class WorkflowFacade {
    * @param \Droost\Workflow\Vcs\VcsInterface|null $vcs
    *   Version-control facts: the base commit frozen at begin and the files
    *   changed since. Defaults to the git binary; a test injects a fake.
-   * @param list<\Droost\Workflow\Config\ContributedGate> $contributed
+   * @param list<\Droost\Workflow\Config\ContributedGate>|null $contributed
    *   The gates enabled modules declare (D72). The Drupal surfaces pass their
-   *   catalog; the standalone CLI has no modules and passes none. Every lever
-   *   load this facade performs resolves against the same list, so the run's
+   *   catalog (an empty list when no module contributes); the standalone CLI
+   *   passes what drush answered, or NULL when nothing could be resolved —
+   *   and NULL leaves a lever file's `gates.contributed` block alone rather
+   *   than refusing it as naming a gate no module declares. Every lever load
+   *   this facade performs resolves against the same list, so the run's
    *   frozen set and the status document agree.
    * @param string|null $contributedSource
    *   Where that list came from, for status (R31-F3): the booted site's
@@ -105,7 +108,7 @@ final class WorkflowFacade {
     private readonly mixed $ids,
     ?WorkflowListenerInterface $listener = NULL,
     ?VcsInterface $vcs = NULL,
-    private readonly array $contributed = [],
+    private readonly ?array $contributed = NULL,
     private readonly ?string $contributedSource = NULL,
   ) {
     $this->listener = $listener ?? new NullWorkflowListener();
@@ -237,6 +240,10 @@ final class WorkflowFacade {
       // begin, so a report can say what "new" was measured against.
       'base_commit' => $state->baseCommit,
       'baseline_hash' => $state->baselineHash,
+      // Which door began the run, as far as contributed gates go, and which
+      // of them a later, seeing surface had to weave in (R31-F3/F5).
+      'contributed_source' => $state->contributedSource,
+      'late_woven' => $state->lateWoven,
       'phases' => array_map(
         static fn ($s): string => $s->value,
         $state->phases,
@@ -420,7 +427,10 @@ final class WorkflowFacade {
     if ($this->contributedSource !== NULL) {
       return $this->contributedSource;
     }
-    return $this->contributed === [] ? 'none resolved by this surface' : 'declared to this surface';
+    if ($this->contributed === NULL) {
+      return 'none resolved by this surface';
+    }
+    return $this->contributed === [] ? 'declared to this surface (none)' : 'declared to this surface';
   }
 
   /**
@@ -548,6 +558,7 @@ final class WorkflowFacade {
         $config,
         $this->vcs->head($projectRoot),
         $config->baseline ? BaselineStore::hash($projectRoot) : NULL,
+        $this->contributedSource(),
       );
       $store->save($state);
       $this->notify(fn () => $this->listener->onRunStart($state));
@@ -628,6 +639,13 @@ final class WorkflowFacade {
       );
     }
 
+    // Every door, the same gates (R31-F3/F5): a run begun on a surface that
+    // could not see the site's contributed catalog froze a shorter set. A
+    // surface that CAN see it weaves the missing gates in here, on record,
+    // before this phase's gates run — and complete re-runs everything, so no
+    // run finishes without the gates the site declared.
+    $state = $this->weaveLateContributed($state, $phase, $projectRoot, $store);
+
     $outcome = $this->engine()->runPhase(
       $state,
       $phase,
@@ -639,6 +657,42 @@ final class WorkflowFacade {
     $this->announceAdvanceOrComplete($phase, $advanced->state);
 
     return $advanced;
+  }
+
+  /**
+   * Weaves contributed gates this surface can see and the run's record lacks.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run about to be gated.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase about to run.
+   * @param string $projectRoot
+   *   The repository.
+   * @param \Droost\Workflow\State\RunStateStore $store
+   *   Where the amended record is saved.
+   *
+   * @return \Droost\Workflow\State\RunState
+   *   The run, amended and saved when anything joined; otherwise unchanged.
+   */
+  private function weaveLateContributed(RunState $state, Phase $phase, string $projectRoot, RunStateStore $store): RunState {
+    if ($this->contributed === NULL || $this->contributed === []) {
+      return $state;
+    }
+    $config = WorkflowConfig::load($projectRoot, $this->contributed);
+    $missing = [];
+    foreach ($config->gates as $name => $settings) {
+      if (GateSettings::isContributed($name) && !array_key_exists($name, $state->resolvedGates)) {
+        $missing[$name] = $settings;
+      }
+    }
+    if ($missing === []) {
+      return $state;
+    }
+    $woven = $state->withLateContributed($missing, $phase);
+    if ($woven !== $state) {
+      $store->save($woven);
+    }
+    return $woven;
   }
 
   /**
@@ -1142,7 +1196,7 @@ final class WorkflowFacade {
    */
   private function engine(): ModeEngine {
     return new ModeEngine(
-      new GateRunner($this->executor, $this->driver, $this->vcs, $this->contributed),
+      new GateRunner($this->executor, $this->driver, $this->vcs, $this->contributed ?? []),
       $this->sink,
     );
   }

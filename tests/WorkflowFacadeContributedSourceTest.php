@@ -34,11 +34,27 @@ final class WorkflowFacadeContributedSourceTest extends WorkflowTestCase {
   }
 
   /**
-   * A surface with no source and no gates says it resolved none.
+   * No catalog reads as none resolved; an empty catalog as declared none.
+   *
+   * NULL and [] are different facts: a surface that could not ask (the
+   * host binary with no reachable drush) versus a site that answered
+   * "nothing". Only the second may refuse a lever file's entry under
+   * `gates.contributed` as naming a gate no module declares.
    */
-  public function testNoSourceAndNoGatesReadsAsNoneResolved(): void {
+  public function testNullAndEmptyCatalogsReadDifferently(): void {
     $root = $this->makeRootWithConfig("preset: high\n");
-    $this->assertSame('none resolved by this surface', $this->levers($this->facade([], NULL), $root)['contributed_source']);
+    $this->assertSame('none resolved by this surface', $this->levers($this->facade(NULL, NULL), $root)['contributed_source']);
+    $this->assertSame('declared to this surface (none)', $this->levers($this->facade([], NULL), $root)['contributed_source']);
+  }
+
+  /**
+   * A lever entry for a contributed gate survives a surface that cannot see.
+   */
+  public function testUnresolvedCatalogLeavesTheLeverBlockAlone(): void {
+    $root = $this->makeRootWithConfig("preset: high\ngates:\n  contributed:\n    snyk: { mode: block }\n");
+    $levers = $this->levers($this->facade(NULL, 'unresolved — no drush'), $root);
+    $this->assertSame([], $levers['contributed'], 'nothing resolved, nothing refused');
+    $this->assertSame('unresolved — no drush', $levers['contributed_source']);
   }
 
   /**
@@ -66,15 +82,15 @@ final class WorkflowFacadeContributedSourceTest extends WorkflowTestCase {
   /**
    * A facade whose gates all pass.
    *
-   * @param list<\Droost\Workflow\Config\ContributedGate> $contributed
-   *   The declarations.
+   * @param list<\Droost\Workflow\Config\ContributedGate>|null $contributed
+   *   The declarations, or NULL for a surface that resolved no catalog.
    * @param string|null $source
    *   Where they came from.
    *
    * @return \Droost\Workflow\WorkflowFacade
    *   The facade.
    */
-  private function facade(array $contributed, ?string $source): WorkflowFacade {
+  private function facade(?array $contributed, ?string $source): WorkflowFacade {
     $executor = new class() implements GateExecutorInterface {
 
       /**

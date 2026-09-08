@@ -32,11 +32,13 @@ final class DrushCatalogResolverTest extends WorkflowTestCase {
     $snyk = new ContributedGate('snyk', 'droost_snyk', ['code', 'test'], 'snyk test', 'report', 'exit 0: clean; exit 1: findings.');
     $resolved = $this->resolver(0, "Note: chatter first\n" . json_encode([$snyk->toArray()], JSON_THROW_ON_ERROR))->resolve($root);
 
-    $this->assertCount(1, $resolved['gates']);
-    $this->assertSame('module:snyk', $resolved['gates'][0]->name());
-    $this->assertSame('droost_snyk', $resolved['gates'][0]->provider);
-    $this->assertSame('report', $resolved['gates'][0]->defaultMode);
-    $this->assertSame(['code', 'test'], $resolved['gates'][0]->phases);
+    $gates = $resolved['gates'];
+    $this->assertNotNull($gates);
+    $this->assertCount(1, $gates);
+    $this->assertSame('module:snyk', $gates[0]->name());
+    $this->assertSame('droost_snyk', $gates[0]->provider);
+    $this->assertSame('report', $gates[0]->defaultMode);
+    $this->assertSame(['code', 'test'], $gates[0]->phases);
     $this->assertStringContainsString('the booted site, asked through `vendor/bin/drush droost:workflow:catalog` (1 contributed gate)', $resolved['source']);
     $this->assertSame([$root . '/vendor/bin/drush', 'droost:workflow:catalog', '--no-interaction'], $this->argv);
   }
@@ -62,7 +64,7 @@ final class DrushCatalogResolverTest extends WorkflowTestCase {
       return [0, '[]', ''];
     });
     $resolved = $resolver->resolve($root);
-    $this->assertSame([], $resolved['gates']);
+    $this->assertNull($resolved['gates'], 'unresolved is NOT an empty catalog');
     $this->assertStringContainsString('unresolved — no vendor/bin/drush', $resolved['source']);
     $this->assertStringContainsString("held to the lever file's gates only", $resolved['source']);
     $this->assertFalse($called, 'nothing is run when there is no drush to run');
@@ -73,7 +75,7 @@ final class DrushCatalogResolverTest extends WorkflowTestCase {
    */
   public function testDrushFailureIsUnresolvedWithItsWords(): void {
     $resolved = $this->resolver(1, '', "Note: Using configuration file x\n [error]  Command \"droost:workflow:catalog\" is not defined.\n")->resolve($this->rootWithDrush());
-    $this->assertSame([], $resolved['gates']);
+    $this->assertNull($resolved['gates']);
     $this->assertStringContainsString('exited 1 (error]  Command "droost:workflow:catalog" is not defined.)', $resolved['source']);
   }
 
@@ -82,13 +84,13 @@ final class DrushCatalogResolverTest extends WorkflowTestCase {
    */
   public function testBadOutputIsUnresolvedNotHalfRead(): void {
     $noJson = $this->resolver(0, "Drupal bootstrapped.\n")->resolve($this->rootWithDrush());
-    $this->assertSame([], $noJson['gates']);
+    $this->assertNull($noJson['gates']);
     $this->assertStringContainsString('printed no JSON list', $noJson['source']);
 
     $good = (new ContributedGate('a', 'mod_a', ['code'], 'a-cmd', 'block', 'A verdict.'))->toArray();
     $bad = ['id' => 'b', 'provider' => 'mod_b', 'phases' => 'code', 'command' => 'b', 'verdict' => 'B.'];
     $half = $this->resolver(0, json_encode([$good, $bad], JSON_THROW_ON_ERROR))->resolve($this->rootWithDrush());
-    $this->assertSame([], $half['gates'], 'one malformed row voids the catalog rather than passing a partial set as whole');
+    $this->assertNull($half['gates'], 'one malformed row voids the catalog rather than passing a partial set as whole');
     $this->assertStringContainsString('Contributed gate row b: "phases" must be a list of phase names.', $half['source']);
   }
 

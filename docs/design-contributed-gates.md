@@ -89,6 +89,27 @@ refusal, because a repo with no site is what the standalone surface is for —
 and status prints `levers.contributed_source` on every surface so a shorter
 set never reads as the whole.
 
+**The late weave (R31-F5, the redo round).** The fix above was correct and
+not sufficient: the redo subject ran the binary on the HOST, where
+`vendor/bin/drush` exists but cannot reach the site, so the resolver
+answered "unresolved" — honestly — and the run still froze the lever file's
+gates only. A frozen set decided by the door is the wrong invariant; the
+right one is that a run is measured against exactly what its own document
+says, and the document may be amended on record. So `RunState` gained two
+frozen facts, `contributed_source` (the door that began the run) and
+`late_woven` (gate → the phase it joined at), and
+`RunState::withLateContributed()`: before any phase's gates run, a surface
+that can see the catalog weaves the contributed gates the record lacks —
+into the resolved set, into their declared phases from the current one
+onward (never a phase already left) and into complete. They run from then
+on; complete re-runs everything; a lever `on: false` is honoured on the
+woven gate exactly as on a begun one. Two facts had to stay distinct for
+this to be honest: a surface that resolved NO catalog passes NULL and leaves
+a lever file's `gates.contributed` block alone, while a site that answered
+"none" passes [] and may refuse that block as naming a gate no module
+declares. `WorkflowFacadeLateWeaveTest` pins blind-begin → seeing-advance →
+blind-advance, the seeing-begin no-op, and the lever's `on: false`.
+
 ## 5. Skills over slash commands
 
 The pack's three entry verbs — start, continue, status — are skills
