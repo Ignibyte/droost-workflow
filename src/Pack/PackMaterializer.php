@@ -316,14 +316,15 @@ final class PackMaterializer {
     $existing = is_file($path) ? (string) file_get_contents($path) : '';
 
     // Ignore the RESOLVED state dir (the visible droost/droost-workflow for a
-    // fresh init, the legacy hidden dir for a project still on it). Either
-    // spelling already present — for the new dir or the legacy one — is kept.
+    // fresh init, the legacy hidden dir for a project still on it). Only that
+    // directory's own spellings count as already covered: a project upgraded
+    // from the hidden dir carries `.droost-workflow/` in its ignore file, and
+    // that line says nothing about droost/droost-workflow/ — treating it as
+    // cover left the first upgraded site's visible run state (with its
+    // preserved legacy history) one `git add -A` away from being committed.
+    // The legacy line stays where it is; the visible one is appended.
     $stateDir = RunStateStore::resolveStateDir($root);
-    $already = [
-      $stateDir, $stateDir . '/', '/' . $stateDir, '/' . $stateDir . '/',
-      '.droost-workflow', '.droost-workflow/',
-      '/.droost-workflow', '/.droost-workflow/',
-    ];
+    $already = [$stateDir, $stateDir . '/', '/' . $stateDir, '/' . $stateDir . '/'];
     foreach (explode("\n", $existing) as $line) {
       if (in_array(trim($line), $already, TRUE)) {
         return $report->withKept($relative);

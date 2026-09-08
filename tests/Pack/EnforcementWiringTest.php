@@ -261,4 +261,31 @@ final class EnforcementWiringTest extends WorkflowTestCase {
     );
   }
 
+  /**
+   * The legacy dir's ignore entry does not cover the visible dir.
+   *
+   * A project upgraded from the hidden `.droost-workflow/` carries that
+   * line; once its runs live in droost/droost-workflow/ the line says
+   * nothing about them. Treating it as cover left the first upgraded site's
+   * visible run state one `git add -A` away from being committed.
+   */
+  public function testLegacyIgnoreEntryDoesNotCoverTheVisibleStateDir(): void {
+    // No legacy dir on disk, so the state dir resolves to the visible one.
+    $upgraded = $this->makeRoot();
+    file_put_contents($upgraded . '/.gitignore', "vendor/\n.droost-workflow/\n");
+    $report = (new PackMaterializer())->init($upgraded);
+    $this->assertContains('.gitignore', $report->written);
+    $contents = (string) file_get_contents($upgraded . '/.gitignore');
+    $this->assertStringContainsString(".droost-workflow/\n", $contents, 'the legacy line is left where it is');
+    $this->assertStringContainsString("droost/droost-workflow/\n", $contents, 'the visible dir is appended');
+
+    // A project still ON the legacy dir is covered by the legacy line.
+    $legacy = $this->makeRoot();
+    mkdir($legacy . '/.droost-workflow');
+    file_put_contents($legacy . '/.gitignore', ".droost-workflow/\n");
+    $report = (new PackMaterializer())->init($legacy);
+    $this->assertContains('.gitignore', $report->kept);
+    $this->assertSame(".droost-workflow/\n", file_get_contents($legacy . '/.gitignore'));
+  }
+
 }
