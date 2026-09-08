@@ -1,6 +1,6 @@
 # Design — D71 Adoption baseline: inherited debt vs new findings
 
-Status: **BUILT P1–P3 2026-09-08** (engine `d6b5884` core, `7c4bd9c` writer and ratchet, `1a099c5` guard; droost `835bc70` live surface) — one deviation from the text below: the directory is **`droost/baseline/`**, beside `droost/wiki`, not `droost/workflow/baseline/`, because the run-state directory is gitignored and a baseline must be committed and reviewed. P4 is the T27 round (`scripts/evals/`). Decided 2026-09-07 (§11). Owner-directed: *"we will have to
+Status: **BUILT P1–P3 2026-09-08** (engine `d6b5884` core, `7c4bd9c` writer and ratchet, `1a099c5` guard; droost `835bc70` live surface) — one deviation from the text below: the directory is **`droost/baseline/`**, beside `droost/wiki`, not `droost/workflow/baseline/`, because the run-state directory is gitignored and a baseline must be committed and reviewed. **P4 DONE 2026-09-08:** T27 rounds 1 and 2 ACCEPTED live on the clean room (`phpstan passed — 0 new, 26 inherited` both times, baseline byte-identical, no ignores; droost `scripts/evals/RESULTS.md` round 31). Decided 2026-09-07 (§11). Owner-directed: *"we will have to
 figure out a baseline effort because so many code bases out there will be this
 exact way."* Source finding: the EMT dogfood ledger (droost `docs/EMT-DOGFOOD-
 LEDGER.md`, product finding 2) and T26's 26 pre-existing phpstan-max errors.
