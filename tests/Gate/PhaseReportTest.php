@@ -148,6 +148,7 @@ class PhaseReportTest extends TestCase {
       'reported' => 0,
       'skipped-no-site' => 1,
       'error-tool-missing' => 1,
+      'error-tool-failed' => 0,
       'off' => 1,
       'waived' => 0,
     ], $document['tally']);

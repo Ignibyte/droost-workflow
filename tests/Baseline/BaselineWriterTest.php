@@ -235,6 +235,30 @@ final class BaselineWriterTest extends WorkflowTestCase {
   }
 
   /**
+   * A tool that could not run is "not measured", never zero findings.
+   *
+   * The first real site to measure at xhigh got "eslint would inherit 0"
+   * while eslint was crashing on core's scaffolded config (F-EMT-9b). A
+   * baseline that records a clean bill for a tool that never read a file
+   * makes the tool's first real run fail on debt the record denies.
+   */
+  public function testToolThatCouldNotRunIsNotMeasuredAsZero(): void {
+    $root = $this->legacyRoot();
+    file_put_contents($root . '/node_modules/.bin/eslint', '');
+    mkdir($root . '/web/modules/custom/fx/js', 0775, TRUE);
+    file_put_contents($root . '/web/modules/custom/fx/js/fx.js', "console.log(1);\n");
+
+    $measured = $this->writer()->measure(WorkflowConfig::load($root), $root);
+
+    $this->assertArrayNotHasKey('eslint', $measured->findings, 'a crash is not a measurement');
+    $this->assertArrayHasKey('eslint', $measured->skipped);
+    $this->assertStringStartsWith('eslint could not run (exit 2)', $measured->skipped['eslint']);
+    $this->assertStringContainsString('gates.eslint.config', $measured->skipped['eslint']);
+    // The tools that did run are still measured.
+    $this->assertArrayHasKey('phpcs', $measured->findings);
+  }
+
+  /**
    * Only what the level turns on is measured.
    */
   public function testOffGatesAreNotMeasured(): void {
@@ -332,6 +356,16 @@ final class BaselineWriterTest extends WorkflowTestCase {
               }
             }
             return [0, '', ''];
+
+          case 'eslint':
+            // The live crash (F-EMT-9b): core's scaffolded config extends
+            // plugins the project never installed; eslint exits 2 with a
+            // banner and reads nothing.
+            return [
+              2,
+              '',
+              "Oops! Something went wrong! :(\n\nESLint: 8.57.1\n\nESLint couldn't find the config \"airbnb-base\" to extend from.\n",
+            ];
 
           case 'prettier':
             $lines = array_map(static fn (string $f): string => '[warn] ' . $f, $this->unformatted);

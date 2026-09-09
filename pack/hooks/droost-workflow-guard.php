@@ -188,6 +188,51 @@ if ($mode === 'stop') {
 exit(0);
 
 /**
+ * The part of a Bash command the operator-command patterns may read.
+ *
+ * A heredoc body fed to something that is not an interpreter — `cat > file`,
+ * `gh pr create --body-file -`, `git commit -F -`, `tee` — is text the agent is
+ * writing FOR a human, and quoting the operator's command there is exactly
+ * what this guard's own refusal asks it to do ("show the operator the exact
+ * command"). A live run was refused for putting `drush
+ * droost:workflow:gate-waive …` in a pull-request body (F-EMT-11). Such bodies
+ * are dropped before matching. A heredoc piped into a shell or a language
+ * runtime (`bash <<EOF`, `ddev exec … <<EOF`, `drush php:script - <<EOF`) is
+ * still code and stays in the scan, as does everything outside heredocs.
+ *
+ * @param string $command
+ *   The command as the agent typed it.
+ *
+ * @return string
+ *   The command with data-only heredoc bodies removed.
+ */
+function operator_commands_scan_text(string $command): string {
+  $interpreter = '/(?:^|[|;&(`]|\$\()\s*(?:sudo\s+(?:-\S+\s+)*)?(?:env\s+(?:\S+=\S*\s+)*)?'
+    . '(?:sh|bash|zsh|dash|ksh|fish|eval|source|\.|php|python3?|perl|node|ruby|expect|tmux|ssh|docker'
+    . '|ddev\s+(?:exec|ssh)|lando\s+(?:ssh|exec)|fin\s+(?:exec|ssh)|drush\s+(?:php:?\S*|ev|scr))(?:\s|$)/';
+  $lines = preg_split('/\R/', $command) ?: [];
+  $kept = [];
+  $count = count($lines);
+  for ($i = 0; $i < $count; $i++) {
+    $line = $lines[$i];
+    $kept[] = $line;
+    if (preg_match('/<<-?\s*([\'"]?)([A-Za-z_][A-Za-z0-9_]*)\1/', $line, $m) !== 1
+      || preg_match($interpreter, $line) === 1) {
+      continue;
+    }
+    // A data heredoc: skip to its terminator, keeping the terminator line.
+    $tag = $m[2];
+    for ($i++; $i < $count; $i++) {
+      if (trim($lines[$i]) === $tag) {
+        $kept[] = $lines[$i];
+        break;
+      }
+    }
+  }
+  return implode("\n", $kept);
+}
+
+/**
  * Refuses the operator's commands when the agent's shell issues them.
  *
  * `droost:workflow:gate-waive`, `droost:workflow:bypass` and
@@ -214,6 +259,7 @@ function operator_commands_guard(string $stdin): void {
   if ($command === '') {
     return;
   }
+  $command = operator_commands_scan_text($command);
   if (preg_match('/droost:workflow:gate-waive\b|(?<![\w-])dwfgw\b/', $command) === 1) {
     $which = 'gate-waive';
   }

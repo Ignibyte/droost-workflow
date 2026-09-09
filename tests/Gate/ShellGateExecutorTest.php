@@ -398,6 +398,170 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * A tool that crashes is "could not run", never a failing lint (F-EMT-9).
+   *
+   * Live at xhigh on a Drupal site: eslint walked up to core's scaffolded
+   * .eslintrc.json, could not load the plugins it extends, exited 2 with a
+   * banner — and the phase read that as findings. A crash names the
+   * environment, not the code; it still fails closed, and the summary says
+   * why and what lever fixes it.
+   */
+  public function testToolThatCrashesIsCouldNotRunNotFindings(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/node_modules/.bin', 0755, TRUE);
+    file_put_contents($root . '/node_modules/.bin/eslint', "#!/bin/sh\nexit 2\n");
+    chmod($root . '/node_modules/.bin/eslint', 0755);
+    mkdir($root . '/web/modules/custom/fx/js', 0755, TRUE);
+    file_put_contents($root . '/web/modules/custom/fx/js/fx.js', "console.log(1);\n");
+    $executor = new ShellGateExecutor(
+      static fn (): array => [
+        2,
+        '',
+        "Oops! Something went wrong! :(\n\nESLint: 8.57.1\n\nESLint couldn't find the config \"airbnb-base\" to extend from. Please check that the name of the config is correct.\n",
+      ],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(
+      new GateSettings('eslint', TRUE, ['paths' => 'web/modules/custom']),
+      $root,
+    );
+
+    $this->assertSame(GateStatus::ErrorToolFailed, $result->status);
+    $this->assertTrue($result->status->blocksAdvance(), 'fails closed, like a missing tool');
+    $this->assertSame([], $result->findings, 'a crash is not findings');
+    $this->assertStringStartsWith('eslint could not run (exit 2): ESLint couldn\'t find the config "airbnb-base"', $result->summary);
+    $this->assertStringContainsString('gates.eslint.config', $result->summary);
+    $this->assertSame('ERROR — tool could not run', $result->status->label());
+
+    // The exit codes that mean "found problems" keep their verdict.
+    $lint = new ShellGateExecutor(
+      static fn (): array => [
+        1,
+        '[{"filePath":"/x/fx.js","messages":[{"ruleId":"semi","message":"Missing semicolon.","line":1,"severity":2}]}]',
+        '',
+      ],
+      static fn (): int => 0,
+    );
+    $this->assertSame(GateStatus::Failed, $lint->execute(new GateSettings('eslint', TRUE, ['paths' => 'web/modules/custom']), $root)->status);
+  }
+
+  /**
+   * Each tool's exit codes for "could not run" versus "found problems".
+   *
+   * @param string $gate
+   *   The gate.
+   * @param int $exit
+   *   The exit code.
+   * @param bool $crash
+   *   Whether it means the tool did not run.
+   */
+  #[DataProvider('crashExitCases')]
+  public function testToolFailedToRunKnowsEachToolsVocabulary(string $gate, int $exit, bool $crash): void {
+    $this->assertSame($crash, ShellGateExecutor::toolFailedToRun($gate, $exit));
+  }
+
+  /**
+   * Exit-code vocabulary per tool.
+   *
+   * @return array<string, array{string, int, bool}>
+   *   Gate, exit, whether it is a crash.
+   */
+  public static function crashExitCases(): array {
+    return [
+      'eslint 1 is findings' => ['eslint', 1, FALSE],
+      'eslint 2 is a crash' => ['eslint', 2, TRUE],
+      'stylelint 2 is findings' => ['stylelint', 2, FALSE],
+      'stylelint 1 is a fatal' => ['stylelint', 1, TRUE],
+      'stylelint 78 is a bad config' => ['stylelint', 78, TRUE],
+      'prettier 1 is unformatted files' => ['prettier', 1, FALSE],
+      'prettier 2 is a crash' => ['prettier', 2, TRUE],
+      'phpcs 2 is fixable errors' => ['phpcs', 2, FALSE],
+      'phpcs 3 is a processing error' => ['phpcs', 3, TRUE],
+      'phpstan is never classified here' => ['phpstan', 255, FALSE],
+    ];
+  }
+
+  /**
+   * The `config` lever pins the project's own file and turns discovery off.
+   *
+   * ESLint's spelling depends on the major installed: 8 (eslintrc) takes
+   * --no-eslintrc, 9 (flat config) --no-config-lookup. stylelint and
+   * prettier take --config. Without the lever nothing is added.
+   *
+   * @param string $gate
+   *   The gate.
+   * @param string|null $eslintVersion
+   *   The installed eslint version to fake, or NULL for none installed.
+   * @param list<string> $expected
+   *   The argv fragments the lever must add, in order, before the files.
+   */
+  #[DataProvider('configLeverCases')]
+  public function testConfigLeverPinsTheProjectsOwnConfig(string $gate, ?string $eslintVersion, array $expected): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/node_modules/.bin', 0755, TRUE);
+    file_put_contents($root . '/node_modules/.bin/' . $gate, "#!/bin/sh\nexit 0\n");
+    chmod($root . '/node_modules/.bin/' . $gate, 0755);
+    if ($eslintVersion !== NULL) {
+      mkdir($root . '/node_modules/eslint', 0755, TRUE);
+      file_put_contents(
+        $root . '/node_modules/eslint/package.json',
+        json_encode(['name' => 'eslint', 'version' => $eslintVersion]),
+      );
+    }
+    mkdir($root . '/web/modules/custom/fx/js', 0755, TRUE);
+    mkdir($root . '/web/modules/custom/fx/css', 0755, TRUE);
+    file_put_contents($root . '/web/modules/custom/fx/js/fx.js', "console.log(1);\n");
+    file_put_contents($root . '/web/modules/custom/fx/css/fx.css', ".a{}\n");
+    $seen = [];
+    $executor = new ShellGateExecutor(
+      function (array $argv) use (&$seen): array {
+        $seen = $argv;
+        return [0, '[]', ''];
+      },
+      static fn (): int => 0,
+    );
+
+    $executor->execute(
+      new GateSettings($gate, TRUE, ['paths' => 'web/modules/custom', 'config' => '.lintrc.json']),
+      $root,
+    );
+    $tail = array_slice($seen, 1);
+    $this->assertSame(
+      $expected,
+      array_slice($tail, 1, count($expected)),
+      'the lever\'s flags follow the format flag',
+    );
+    $this->assertStringStartsWith('web/modules/custom/fx/', (string) end($seen), 'the files still come last');
+
+    $bare = new ShellGateExecutor(
+      function (array $argv) use (&$seen): array {
+        $seen = $argv;
+        return [0, '[]', ''];
+      },
+      static fn (): int => 0,
+    );
+    $bare->execute(new GateSettings($gate, TRUE, ['paths' => 'web/modules/custom']), $root);
+    $this->assertNotContains('--config', $seen, 'no lever, no flags: discovery as before');
+  }
+
+  /**
+   * The config lever's spelling per tool and eslint major.
+   *
+   * @return array<string, array{string, string|null, list<string>}>
+   *   Gate, faked eslint version, expected flags.
+   */
+  public static function configLeverCases(): array {
+    return [
+      'eslint 8 (eslintrc)' => ['eslint', '8.57.1', ['--no-eslintrc', '--config', '.lintrc.json']],
+      'eslint 9 (flat config)' => ['eslint', '9.12.0', ['--no-config-lookup', '--config', '.lintrc.json']],
+      'eslint unknown reads as current' => ['eslint', NULL, ['--no-config-lookup', '--config', '.lintrc.json']],
+      'stylelint' => ['stylelint', NULL, ['--config', '.lintrc.json']],
+      'prettier' => ['prettier', NULL, ['--config', '.lintrc.json']],
+    ];
+  }
+
+  /**
    * The front-end trio are handed concrete files, never a bare directory.
    *
    * A real defect caught live (EMT dogfood): stylelint given the directory

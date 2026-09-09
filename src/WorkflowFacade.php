@@ -1029,7 +1029,11 @@ final class WorkflowFacade {
       $gate = $row['gate'] ?? NULL;
       $status = $row['status'] ?? NULL;
       if (is_string($gate) && is_string($status)
-        && in_array($status, [GateStatus::Failed->value, GateStatus::ErrorToolMissing->value], TRUE)) {
+        && in_array($status, [
+          GateStatus::Failed->value,
+          GateStatus::ErrorToolMissing->value,
+          GateStatus::ErrorToolFailed->value,
+        ], TRUE)) {
         $blocking[] = $gate;
       }
     }

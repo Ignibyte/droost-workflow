@@ -165,6 +165,45 @@ final class GateResult {
   }
 
   /**
+   * A gate whose tool is installed but could not run.
+   *
+   * @param string $gate
+   *   The gate name.
+   * @param int $exitCode
+   *   The tool's exit code.
+   * @param string $line
+   *   The tool's own first line of explanation ('' when it gave none).
+   * @param string $hint
+   *   What to do about it, phrased for the lever file.
+   * @param string $invocation
+   *   The command that ran.
+   *
+   * @return self
+   *   The result: fails closed, carries no findings.
+   */
+  public static function toolFailed(
+    string $gate,
+    int $exitCode,
+    string $line,
+    string $hint,
+    string $invocation,
+  ): self {
+    return new self(
+      $gate,
+      GateStatus::ErrorToolFailed,
+      exitCode: $exitCode,
+      summary: sprintf(
+        '%s could not run (exit %d)%s — %s',
+        $gate,
+        $exitCode,
+        $line === '' ? '' : ': ' . $line,
+        $hint,
+      ),
+      invocation: $invocation,
+    );
+  }
+
+  /**
    * Caps a finding list, reporting whether anything was dropped.
    *
    * @param string $gate

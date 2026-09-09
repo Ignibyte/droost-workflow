@@ -199,7 +199,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    */
   private function prepare(GateSettings $gate, string $root): array {
     $binary = $this->binaryFor($gate->name);
-    $argv = $this->argvFor($gate, $root . '/' . $binary);
+    $argv = $this->argvFor($gate, $root . '/' . $binary, $root);
     // NULL when the gate carries no paths lever (the tool discovers the
     // repo's own config); a list otherwise — possibly empty, see below.
     $scoped = $this->scopedPaths($gate, $root);
@@ -308,6 +308,20 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     $outcome = ($this->runner)($argv, $root, $this->timeout);
     [$exit, $stdout, $stderr] = $outcome;
     $elapsed = $this->tick() - $started;
+
+    if (self::toolFailedToRun($gate->name, $exit)) {
+      // The tool itself broke — a config it could not load, a crash before
+      // it read a file. Not a verdict on the code: a failing lint names
+      // files, a crash names the environment. Reported as such, with the
+      // tool's own words and what to do about it, and it still fails closed.
+      return GateResult::toolFailed(
+        $gate->name,
+        $exit,
+        self::causeLine($stderr, $stdout),
+        self::toolFailedHint($gate->name),
+        $invocation,
+      );
+    }
 
     if ($gate->name === 'coverage') {
       return $this->coverageVerdict(
@@ -941,11 +955,13 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   The gate's resolved levers.
    * @param string $binary
    *   The absolute path to the tool.
+   * @param string $root
+   *   The project root (the installed eslint's version lives under it).
    *
    * @return list<string>
    *   The argv array.
    */
-  private function argvFor(GateSettings $gate, string $binary): array {
+  private function argvFor(GateSettings $gate, string $binary, string $root): array {
     $standard = $gate->option('standard');
     $level = $gate->option('level');
     $msi = $gate->option('msi_min');
@@ -983,9 +999,13 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       // node-equipped site — eslint 9 flat-config lints a directory directly
       // (eslint 8 wanted --ext); stylelint prefers file globs, so a bare
       // directory in `paths` is refined to a glob on the first real run.
-      'eslint' => [$binary, '--format=json'],
-      'stylelint' => [$binary, '--formatter=json'],
-      'prettier' => [$binary, '--check'],
+      // A `config` lever pins the project's own file and turns discovery
+      // off (see frontEndConfigArgs()) — without it, on a Drupal site, the
+      // cascade reaches core's scaffolded .eslintrc.json and eslint crashes
+      // before it reads a file (F-EMT-9).
+      'eslint' => [$binary, '--format=json', ...$this->frontEndConfigArgs($gate, $root)],
+      'stylelint' => [$binary, '--formatter=json', ...$this->frontEndConfigArgs($gate, $root)],
+      'prettier' => [$binary, '--check', ...$this->frontEndConfigArgs($gate, $root)],
       // Drush exits non-zero when any page is stale, orphaned or invalid, so
       // the gate needs no parsing — the command IS the verdict.
       'wiki_fresh' => [$binary, 'droost:wiki:status'],
@@ -1022,6 +1042,123 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       'playwright' => [$binary, 'test'],
       default => [$binary],
     };
+  }
+
+  /**
+   * Whether a named tool's exit code says "I could not run".
+   *
+   * As opposed to "I ran and found problems": eslint exits 2 on a fatal or
+   * a config it cannot load (1 is findings); stylelint exits 1 on a fatal,
+   * 64 on bad usage and 78 on a bad config (its findings are exit 2);
+   * prettier exits 2 on a fatal (unformatted files are exit 1); phpcs exits
+   * 3 on a processing error (findings are 1 and 2). Public so the baseline
+   * measure refuses to record a crash as zero findings.
+   *
+   * @param string $gate
+   *   The gate name.
+   * @param int $exit
+   *   The tool's exit code.
+   *
+   * @return bool
+   *   TRUE when the tool did not get as far as judging anything.
+   */
+  public static function toolFailedToRun(string $gate, int $exit): bool {
+    return match ($gate) {
+      'eslint', 'prettier' => $exit === 2,
+      'stylelint' => in_array($exit, [1, 64, 78], TRUE),
+      'phpcs' => $exit === 3,
+      default => FALSE,
+    };
+  }
+
+  /**
+   * What to do when a named tool could not run, phrased for the lever file.
+   *
+   * @param string $gate
+   *   The gate name.
+   *
+   * @return string
+   *   The hint.
+   */
+  public static function toolFailedHint(string $gate): string {
+    return match ($gate) {
+      'eslint' => 'eslint walked up to a config it cannot load — on a Drupal site that is core\'s scaffolded .eslintrc.json, whose plugins only core\'s own yarn install provides. Point gates.eslint.config at this project\'s own config (its package.json lint script names it); the gate then pins it and turns discovery off.',
+      'stylelint' => 'stylelint could not load its config — point gates.stylelint.config at this project\'s own stylelint config.',
+      'prettier' => 'prettier could not run — check gates.prettier.config (its own config) and the syntax of the file it names.',
+      'phpcs' => 'phpcs hit a processing error — check the ruleset gates.phpcs.standard names and that it resolves from the project root.',
+      default => 'the tool could not run; fix its configuration before the gate can judge anything.',
+    };
+  }
+
+  /**
+   * The config flags a front-end lint gate takes from its `config` lever.
+   *
+   * With no lever the tool discovers config the way it always did. With one,
+   * the project's own file is pinned and discovery is off — eslint's flags
+   * changed with flat config, so the major installed decides the spelling.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate.
+   * @param string $root
+   *   The project root.
+   *
+   * @return list<string>
+   *   The extra argv, possibly empty.
+   */
+  private function frontEndConfigArgs(GateSettings $gate, string $root): array {
+    $config = $gate->option('config');
+    if (!is_string($config) || $config === '') {
+      return [];
+    }
+    return match ($gate->name) {
+      'eslint' => $this->eslintMajor($root) >= 9
+        ? ['--no-config-lookup', '--config', $config]
+        : ['--no-eslintrc', '--config', $config],
+      'stylelint', 'prettier' => ['--config', $config],
+      default => [],
+    };
+  }
+
+  /**
+   * The installed eslint's major version.
+   *
+   * @param string $root
+   *   The project root.
+   *
+   * @return int
+   *   The major; 9 when it cannot be read (flat config is the current
+   *   default and the eslintrc spelling the legacy one).
+   */
+  private function eslintMajor(string $root): int {
+    $raw = @file_get_contents($root . '/node_modules/eslint/package.json');
+    $decoded = is_string($raw) ? json_decode($raw, TRUE) : NULL;
+    $version = is_array($decoded) && is_string($decoded['version'] ?? NULL) ? $decoded['version'] : '';
+    return preg_match('/^(\d+)\./', $version, $m) === 1 ? (int) $m[1] : 9;
+  }
+
+  /**
+   * The line in a tool's output that says why it could not run.
+   *
+   * @param string $stderr
+   *   The tool's stderr.
+   * @param string $stdout
+   *   The tool's stdout.
+   *
+   * @return string
+   *   The first line that is not a banner, capped; '' when there is none.
+   */
+  private static function causeLine(string $stderr, string $stdout): string {
+    $text = trim($stderr) !== '' ? $stderr : $stdout;
+    // ESLint prefaces the cause with a banner ("Oops! Something went wrong!
+    // :(" and its version); the line after those is the one worth reading.
+    foreach (preg_split('/\R/', trim($text)) ?: [] as $line) {
+      $line = trim($line);
+      if ($line === '' || str_starts_with($line, 'Oops!') || str_starts_with($line, 'ESLint:')) {
+        continue;
+      }
+      return mb_substr($line, 0, 200);
+    }
+    return '';
   }
 
   /**

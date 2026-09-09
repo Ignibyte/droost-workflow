@@ -34,9 +34,15 @@ file to exist. So the sequence is:
    repo; `workflow-spec-writer` drafts it at the preset's weight (a full EARS
    spec at `high`/`xhigh`/`max`, a shorter same-shape spec at `medium`/`low`).
    The spec file exists BEFORE code does, at every level of the dial.
-2. **Invoke the run surface, declaring the spec** —
-   `vendor/bin/droost-workflow run --spec=droost/droost-workflow/spec-<slug>.md`
-   (the drush and MCP surfaces take the same option). This BEGINS the run
+2. **Invoke the run surface, declaring the spec.** On a project with a
+   working site use the SITE-BACKED surface —
+   `drush droost:workflow:run --spec=droost/droost-workflow/spec-<slug>.md`
+   (or the droost MCP run tool, which takes the same option). The standalone
+   `vendor/bin/droost-workflow run --spec=…` is for a checkout with no site:
+   through it every site-dependent gate (`config_clean`, `rendered_check`)
+   comes back skipped with its reason, and an agentic run does not circle
+   back to run them — a live run advanced its whole code phase through the
+   binary with the site up, and config_clean never ran. This BEGINS the run
    (writes `droost/droost-workflow/run.json`), records WHICH document governs it,
    and gates the plan phase — which requires the spec's `## Tooling plan`
    section to be present before the run may leave plan. On a project holding

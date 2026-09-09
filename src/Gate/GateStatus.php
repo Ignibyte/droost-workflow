@@ -40,6 +40,15 @@ enum GateStatus: string {
   // is broken, not lenient.
   case ErrorToolMissing = 'error-tool-missing';
 
+  // Misconfigured the other way: the tool is installed and could not run — a
+  // config it cannot load, a crash before it read a file. Fails closed like a
+  // missing tool, and is never rendered as findings: a crash is a fact about
+  // the environment, not a verdict on the code. Found live (F-EMT-9): eslint
+  // at xhigh walked up to Drupal core's scaffolded .eslintrc.json, whose
+  // plugins only core's own yarn install provides, and the phase read the
+  // exit-2 crash as a failing lint.
+  case ErrorToolFailed = 'error-tool-failed';
+
   // Configured off. Visibly distinct from every kind of "could not run".
   case Off = 'off';
 
@@ -55,7 +64,7 @@ enum GateStatus: string {
    *   TRUE for outcomes a run may not advance past.
    */
   public function blocksAdvance(): bool {
-    return $this === self::Failed || $this === self::ErrorToolMissing;
+    return $this === self::Failed || $this === self::ErrorToolMissing || $this === self::ErrorToolFailed;
   }
 
   /**
@@ -84,6 +93,7 @@ enum GateStatus: string {
       self::Reported => 'REPORTED (report mode, not blocking)',
       self::SkippedNoSite => 'skipped — no site',
       self::ErrorToolMissing => 'ERROR — tool missing',
+      self::ErrorToolFailed => 'ERROR — tool could not run',
       self::Off => 'off',
       self::Waived => 'waived by the operator',
     };

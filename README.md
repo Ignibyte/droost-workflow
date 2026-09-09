@@ -129,6 +129,14 @@ level, carrying tuning only (the measured paths) so the level actually drives.
 none, a trio gate takes `phpcs`'s `paths` — the project's own code is the same
 place for both — so a hand-written `preset: max` with only the PHP pair scoped
 never lints the repository root. A trio gate given its own `paths` keeps them.
+Each also takes `config:` — the project's own lint config (the file its
+package.json lint script names), which the gate pins while turning discovery
+off. Set it on a Drupal docroot: left to discover, eslint's cascade reaches
+core's scaffolded `.eslintrc.json`, whose plugins only core's own yarn install
+provides, and the tool crashes before it reads a file. A crash is reported as
+**ERROR — tool could not run**, with the tool's own line and the lever to set:
+it blocks like a missing tool, and it is never counted as findings —
+`baseline --measure` calls such a gate not measurable rather than "0".
 
 **A waiver can reopen a terminally failed phase.** When a gate spends the
 retry budget, `run` refuses and the record says why; recovery used to be

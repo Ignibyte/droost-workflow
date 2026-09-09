@@ -152,12 +152,15 @@ final class GateSettings {
     'rendered_check' => ['routes' => 'string'],
     'config_clean' => [],
     // The front-end lint trio takes `paths` for the same reason the static
-    // PHP pair does: pointed at a directory, each tool discovers the config
-    // Drupal core ships (.eslintrc.json / .stylelintrc.json / .prettierrc.json
-    // in web/core, which a site may extend) with nothing but argv.
-    'eslint' => ['paths' => 'paths'],
-    'stylelint' => ['paths' => 'paths'],
-    'prettier' => ['paths' => 'paths'],
+    // PHP pair does: pointed at a directory, each tool discovers config with
+    // nothing but argv. `config` pins the project's own file instead and
+    // turns discovery off — on a Drupal site discovery reaches core's
+    // scaffolded .eslintrc.json, which extends plugins only core's own yarn
+    // install provides, and eslint crashes before it reads a file (F-EMT-9).
+    // A project's package.json lint script names the file to point at.
+    'eslint' => ['paths' => 'paths', 'config' => 'string'],
+    'stylelint' => ['paths' => 'paths', 'config' => 'string'],
+    'prettier' => ['paths' => 'paths', 'config' => 'string'],
   ];
 
   /**

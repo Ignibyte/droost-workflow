@@ -408,6 +408,50 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * An operator command QUOTED in a data heredoc is not the agent running it.
+   *
+   * The guard's own refusal tells the agent to show the operator the exact
+   * command; a live run did so in a pull-request body written through
+   * `cat > file <<'EOF'` and was refused for it (F-EMT-11). A heredoc fed
+   * to something that is not an interpreter is text for a human and is not
+   * scanned. One piped into a shell — or a real command after the heredoc —
+   * still is.
+   */
+  public function testOperatorCommandsQuotedInDataHeredocsAreNotRefused(): void {
+    $root = $this->makeRoot();
+    $body = "The run is held at code: two gates need the operator.\n"
+      . "Run in your terminal: `ddev drush droost:workflow:gate-waive eslint \"tool crash\"`\n"
+      . "and then `drush droost:workflow:baseline` once the debt is agreed.\n";
+    foreach ([
+      "cat > /tmp/pr-body.md <<'EOF'\n" . $body . "EOF\n",
+      "gh pr create --draft --body-file - <<EOF\n" . $body . "EOF",
+      "git commit -F - <<-'MSG'\n" . $body . "\tMSG\n",
+      "tee notes.md <<\"TXT\" >/dev/null\n" . $body . "TXT",
+    ] as $command) {
+      [$exit, $stdout, $stderr] = $this->guard($root, 'operator-commands', [
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(0, $exit, $command . ' quotes the command for a human and must be allowed');
+      $this->assertSame('', $stdout . $stderr);
+    }
+
+    // The same text fed to an interpreter IS the command; and a real command
+    // outside the heredoc is still seen.
+    foreach ([
+      "bash <<'EOF'\nddev drush droost:workflow:gate-waive eslint \"x\"\nEOF",
+      "ddev exec bash <<EOF\ndrush droost:workflow:gate-waive eslint \"x\"\nEOF",
+      "cat > notes.md <<'EOF'\n" . $body . "EOF\nddev drush droost:workflow:gate-waive eslint \"x\"",
+      "drush php:script - <<'PHP'\n<?php drush droost:workflow:bypass \"hotfix\"\nPHP",
+    ] as $command) {
+      [$exit, , $stderr] = $this->guard($root, 'operator-commands', [
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(2, $exit, $command . ' runs the command and must be refused');
+      $this->assertStringContainsString("OPERATOR's command", $stderr);
+    }
+  }
+
+  /**
    * The baseline directory is never the agent's to edit — run or no run (D71).
    *
    * The one edit that makes the agent's own finding disappear. Refused at
