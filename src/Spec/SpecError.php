@@ -103,4 +103,31 @@ final class SpecError extends \RuntimeException {
     return new self(sprintf('%s has no "%s" section — %s', $path, $heading, $why));
   }
 
+  /**
+   * Acceptance criteria whose "Verified By" cell is empty at complete.
+   *
+   * @param string $path
+   *   The spec, project-relative.
+   * @param list<string> $ids
+   *   The criterion ids without a verification.
+   * @param bool $columnMissing
+   *   Whether the table has no such column at all.
+   *
+   * @return self
+   *   The error, carrying the remedy.
+   */
+  public static function criteriaUnverified(string $path, array $ids, bool $columnMissing): self {
+    return new self(sprintf(
+      '%s: %d acceptance criteri%s without a "%s" entry (%s) — %s. Fill it at the test phase with the test that proves each row (the PHPUnit method or class, or the Playwright spec), or `manual — <reason>` for a criterion no test can prove; the report prints manual as manual, never as passed. Then re-run.',
+      $path,
+      count($ids),
+      count($ids) === 1 ? 'on' : 'a',
+      SpecContract::VERIFIED_COLUMN,
+      implode(', ', $ids),
+      $columnMissing
+        ? 'the acceptance-criteria table has no such column'
+        : 'the cells are empty',
+    ));
+  }
+
 }

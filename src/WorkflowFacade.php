@@ -233,6 +233,12 @@ final class WorkflowFacade {
       // record but must not erase what the earlier ones caught.
       'seeker_history' => $state->seekerHistory,
       'spec' => $state->specPath,
+      // Promise against proof: which criteria name a test, which are
+      // verified by hand (printed as manual, never as passed), which are
+      // still empty — NULL when the spec carries no criteria table.
+      'criteria' => $state->specPath === NULL
+        ? NULL
+        : SpecContract::criteriaVerification($projectRoot, $state->specPath),
       'gate_waivers' => $state->gateWaivers,
       'browser' => $state->browser,
       'tasks' => $state->tasks,
@@ -637,6 +643,19 @@ final class WorkflowFacade {
         . 'itself, for whoever arrives next with none of this context. '
         . 'Write the section, then re-run.',
       );
+    }
+    // And every acceptance criterion names the test that proves it (or an
+    // honest `manual — <reason>`). The pipeline this workflow descends from
+    // failed completion on an empty "Verified By" cell; the first real site
+    // on droost shipped three criteria of nine with no test and passed every
+    // phase, because the link was advice. It is a contract again here —
+    // only where the spec carries a criteria table at all, so a quasi-spec
+    // at medium or low is not held to a table it never had.
+    if ($specPath !== NULL && $phase === Phase::Complete) {
+      $criteria = SpecContract::criteriaVerification($projectRoot, $specPath);
+      if ($criteria !== NULL && $criteria['unverified'] !== []) {
+        throw SpecError::criteriaUnverified($specPath, $criteria['unverified'], $criteria['column_missing']);
+      }
     }
 
     // Every door, the same gates (R31-F3/F5): a run begun on a surface that

@@ -20,8 +20,12 @@ exists at every level:
 2. The constructs to build, each named.
 3. The approach, including what is deliberately NOT being done.
 4. Acceptance criteria in EARS form — "When <trigger>, the <system> shall
-   <observable response>" — one observable behaviour per row, each with a
-   way to check it. A criterion nobody can check is not a criterion.
+   <observable response>" — as a table `| ID | Criterion | Check | Verified By |`:
+   one observable behaviour per row, each with a way to check it, and the
+   `Verified By` cell left EMPTY here. The test phase fills it with the test
+   that proves the row (or `manual — <reason>` when no test can), and the
+   engine refuses to gate complete while any cell is still empty. A
+   criterion nobody can check is not a criterion.
 
 **The quasi-spec — `medium`, `low`**, written to
 `droost/droost-workflow/tmp-spec-<slug>.md`: what was asked, what will change, and

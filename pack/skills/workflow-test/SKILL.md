@@ -80,6 +80,17 @@ CLI-only, so you cannot grant it yourself. Do NOT reach for
 which is a different and much larger decision (two live rounds made
 exactly that mistake).
 
+## Fill `Verified By`
+
+The spec's acceptance-criteria table has a `Verified By` column, empty since
+the plan. For every row, write the test that proves it — the PHPUnit method
+or class, or the Playwright spec — or `manual — <reason>` when no test can,
+saying why. This is the traceability link between what was promised and what
+was checked: `complete` refuses to gate while any cell is empty, and the
+report prints manual as manual, never as passed. A criterion you cannot map
+to a test or to an honest manual reason is a criterion this run has not met;
+say so in the spec rather than leaving the cell blank.
+
 ## Exit gate
 
 Every enabled gate has a result, and the result is one of: passed, failed,

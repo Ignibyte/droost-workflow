@@ -81,6 +81,133 @@ final class SpecContractTest extends WorkflowTestCase {
   }
 
   /**
+   * Every criterion is classified by its "Verified By" cell.
+   *
+   * A test reference verifies; `manual — <reason>` is verified by hand and
+   * never counted as passed; an empty cell or a placeholder is unverified.
+   * An escaped pipe inside a cell is data, not a column boundary.
+   */
+  public function testCriteriaVerificationClassifiesEveryRow(): void {
+    $root = $this->makeRootWithConfig("preset: custom\n");
+    $spec = 'droost/droost-workflow/spec-test-run.md';
+    file_put_contents($root . '/' . $spec, <<<'MD'
+# Spec
+
+## Tooling plan
+
+- x
+
+## Acceptance criteria (EARS)
+
+| ID | Criterion | Check | Verified By |
+|---|---|---|---|
+| AC1 | When a user submits, the system shall save. | drush | `FormTest::testSubmitSaves` |
+| **AC2** | While logged out, the system shall show `a \| b`. | curl | manual — no browser suite in this repo |
+| AC3 | If the CSV is malformed, then the system shall refuse it. | phpunit | |
+| AC4 | The system shall log every export. | grep | — |
+
+## Realized
+
+Words.
+MD
+    );
+
+    $criteria = SpecContract::criteriaVerification($root, $spec);
+    $this->assertNotNull($criteria);
+    $this->assertSame(4, $criteria['total']);
+    $this->assertSame(['AC1'], $criteria['verified']);
+    $this->assertSame(['AC2'], $criteria['manual'], 'bold ids and escaped pipes are read through');
+    $this->assertSame(['AC3', 'AC4'], $criteria['unverified'], 'an empty cell and a dash are both unverified');
+    $this->assertFalse($criteria['column_missing']);
+  }
+
+  /**
+   * A table without the column counts every row unverified, and says so.
+   */
+  public function testCriteriaTableWithoutTheColumnIsAllUnverified(): void {
+    $root = $this->makeRootWithConfig("preset: custom\n");
+    $spec = 'droost/droost-workflow/spec-test-run.md';
+    file_put_contents($root . '/' . $spec, "# Spec\n\n## Acceptance criteria\n\n| ID | Criterion | Check |\n|---|---|---|\n| AC1 | x | y |\n| AC2 | x | y |\n");
+
+    $criteria = SpecContract::criteriaVerification($root, $spec);
+    $this->assertNotNull($criteria);
+    $this->assertTrue($criteria['column_missing']);
+    $this->assertSame(['AC1', 'AC2'], $criteria['unverified']);
+  }
+
+  /**
+   * A spec with no criteria table is not held to one.
+   */
+  public function testNoCriteriaTableIsNothingToHold(): void {
+    $root = $this->makeRootWithConfig("preset: custom\n");
+    $this->assertNull(SpecContract::criteriaVerification($root, 'droost/droost-workflow/spec-test-run.md'), 'the fixture spec has no table');
+    file_put_contents($root . '/droost/droost-workflow/spec-test-run.md', "# Spec\n\n## Acceptance criteria\n\nProse only, no table.\n");
+    $this->assertNull(SpecContract::criteriaVerification($root, 'droost/droost-workflow/spec-test-run.md'));
+  }
+
+  /**
+   * Complete refuses while a criterion's "Verified By" is empty.
+   *
+   * The pipeline this workflow descends from failed completion on exactly
+   * this; the first real site on droost shipped three criteria of nine with
+   * no test and passed, because the link was advice. The refusal names the
+   * rows and the remedy.
+   */
+  public function testCompleteRefusesWithUnverifiedCriteria(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
+    $this->writeCriteriaSpec($root, "| AC1 | When x, the system shall y. | drush | `XTest::testY` |\n| AC2 | When p, the system shall q. | drush | |\n");
+    $facade = $this->facadeForCli();
+    $facade->run($root);
+    $facade->run($root);
+    $facade->run($root);
+
+    $this->expectException(SpecError::class);
+    $this->expectExceptionMessageMatches('/1 acceptance criterion without a "Verified By" entry \(AC2\).*manual — <reason>/s');
+    $facade->run($root);
+  }
+
+  /**
+   * Every criterion verified, by test or honest manual: complete runs.
+   */
+  public function testCompleteRunsWhenEveryCriterionIsVerified(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
+    $this->writeCriteriaSpec($root, "| AC1 | When x, the system shall y. | drush | `XTest::testY` |\n| AC2 | When p, the system shall q. | eye | manual — config-only, checked on the page |\n");
+    $facade = $this->facadeForCli();
+    $facade->run($root);
+    $facade->run($root);
+    $facade->run($root);
+
+    $outcome = $facade->run($root);
+
+    $this->assertNull($outcome->state->currentPhase, 'the run finished');
+    $status = $facade->status($root);
+    $run = $status['run'];
+    $this->assertIsArray($run);
+    $criteria = $run['criteria'];
+    $this->assertIsArray($criteria);
+    $this->assertSame(['AC1'], $criteria['verified']);
+    $this->assertSame(['AC2'], $criteria['manual'], 'manual is its own column in the record, never a pass');
+    $this->assertSame([], $criteria['unverified']);
+  }
+
+  /**
+   * A spec with a tooling plan, a realized capture and the given AC rows.
+   *
+   * @param string $root
+   *   The project root.
+   * @param string $rows
+   *   The table body rows, one per line.
+   */
+  private function writeCriteriaSpec(string $root, string $rows): void {
+    file_put_contents(
+      $root . '/droost/droost-workflow/spec-test-run.md',
+      "# Spec: test run\n\n## Tooling plan\n\n- everything: hand-written (fixture)\n\n"
+      . "## Acceptance criteria\n\n| ID | Criterion | Check | Verified By |\n|---|---|---|---|\n" . $rows
+      . "\n## Realized\n\nFixture capture.\n",
+    );
+  }
+
+  /**
    * The companion realized-<slug>.md satisfies the capture during transition.
    *
    * The pack wrote captures to a sibling file before the section moved into

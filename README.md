@@ -320,6 +320,41 @@ from then on (complete re-runs everything, so no run finishes without them),
 and the record says so — `run.contributed_source` names the door that began
 it, `run.late_woven` names each gate and the phase it joined at.
 
+### Work-item project config
+
+The optional `work_item:` block is the project config of a tracker bridge
+(droost_jira and its kin). The engine never consumes it — it stays
+framework-free and knows nothing of Jira — but it parses and validates the
+block so a typo surfaces in review rather than at the first write, and
+`workflow:status` echoes it. The shape is provider-agnostic on purpose: which
+tracker and cloud, which projects and issue types are workable, how branches
+are named, what the tracker calls its transitions, and a local map of every
+custom field under a name the site chooses, so no module ever hardcodes
+another team's field ids and a team's own layer only ever says
+`developer_notes`:
+
+```yaml
+work_item:
+  provider: jira
+  cloud_id: 46ee8f13-8379-4206-9b1f-f446940f1db1
+  projects: [EMT]
+  eligible_types: [Story, Task, Bug, Sub-Story]
+  branch: { prefixes: { feature: feature, bugfix: bugfix }, base: development }
+  transitions: { in_progress: 21, in_review: 121, done: 31 }   # for a /transition-style command; the engine never fires them
+  fields:
+    developer_notes: { id: customfield_11330, format: adf }
+    testing_notes:   { id: customfield_12335, format: adf }
+    developer_id:    { id: customfield_12317, format: user }
+  track_map: { Bug: bugfix, Story: standard, Task: standard }
+  writeback: { acceptance_criteria: description, dev_notes_field: developer_notes }
+  status_map: {}          # empty is the common case: SCM events move the ticket, not droost
+  publish: { target: confluence, space: DRUP, parent: "4946788355" }
+```
+
+A writeback target that names a `fields` entry resolves to its id. What a
+ticket MUST carry, and what goes into each field, is the bridge's or the
+team's business, never this block's — every write it describes stays gated.
+
 ### Unknown keys are errors
 
 A loader that shrugs at `phpstain:` hands back a run with static analysis
@@ -358,6 +393,20 @@ its own phase, once at the end. `wiki_fresh` is due only here, and only here
 CAN it be true: it asks the site whether the project's own documentation
 still matches the code, and complete is the phase that just wrote it. A
 stale page is read as fact, which is worse than no page.
+
+## Promise against proof: the criteria table
+
+The full spec's acceptance-criteria table carries a `Verified By` column,
+empty at plan. The test phase fills it with the test that proves each row —
+the PHPUnit method or class, or the Playwright spec — or `manual — <reason>`
+for a criterion no test can prove. `complete` refuses to gate while any cell
+is empty (or the column is missing), naming the rows and the remedy; the
+record prints manual as manual, never as passed, and `workflow:status` shows
+the three lists. A quasi-spec at `medium`/`low` has no table and is not held
+to one. The pipeline this workflow descends from failed completion on exactly
+this cell; the first real site on droost shipped three criteria of nine with
+no test and passed every phase while the link was advice, which is why it is a
+contract again.
 
 ## The feedback loop
 
