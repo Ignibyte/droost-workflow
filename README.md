@@ -336,19 +336,19 @@ another team's field ids and a team's own layer only ever says
 ```yaml
 work_item:
   provider: jira
-  cloud_id: 46ee8f13-8379-4206-9b1f-f446940f1db1
-  projects: [EMT]
+  cloud_id: <your Atlassian cloud id>
+  projects: [PROJ]
   eligible_types: [Story, Task, Bug, Sub-Story]
   branch: { prefixes: { feature: feature, bugfix: bugfix }, base: development }
   transitions: { in_progress: 21, in_review: 121, done: 31 }   # for a /transition-style command; the engine never fires them
   fields:
-    developer_notes: { id: customfield_11330, format: adf }
-    testing_notes:   { id: customfield_12335, format: adf }
-    developer_id:    { id: customfield_12317, format: user }
+    developer_notes: { id: customfield_10001, format: adf }
+    testing_notes:   { id: customfield_10002, format: adf }
+    developer_id:    { id: customfield_10003, format: user }
   track_map: { Bug: bugfix, Story: standard, Task: standard }
   writeback: { acceptance_criteria: description, dev_notes_field: developer_notes }
   status_map: {}          # empty is the common case: SCM events move the ticket, not droost
-  publish: { target: confluence, space: DRUP, parent: "4946788355" }
+  publish: { target: confluence, space: DOCS, parent: "<page id>" }
 ```
 
 A writeback target that names a `fields` entry resolves to its id. What a

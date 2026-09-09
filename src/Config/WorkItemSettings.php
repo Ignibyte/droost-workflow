@@ -19,7 +19,7 @@ use Droost\Workflow\Support\TypedArray;
  * shape: which tracker and cloud, which projects and issue types are
  * workable, how branches are named, what the tracker calls its transitions,
  * and — the keystone — a local map of every custom field by a name the site
- * chooses (`fields.developer_notes: { id: customfield_11330, format: adf }`),
+ * chooses (`fields.developer_notes: { id: customfield_10001, format: adf }`),
  * so no provider module ever hardcodes another team's field ids, and the
  * team's own layer only ever says "developer_notes". Which fields a ticket
  * MUST carry, and what goes in them, is that layer's business, never this
@@ -253,7 +253,7 @@ final class WorkItemSettings {
   /**
    * The tracker id a writeback target resolves to, when it names a field.
    *
-   * `writeback.dev_notes_field: developer_notes` → `customfield_11330` when
+   * `writeback.dev_notes_field: developer_notes` → `customfield_10001` when
    * `fields.developer_notes.id` is that; an unmapped name is returned as it
    * is, so a provider can still treat it as a literal field name.
    *
