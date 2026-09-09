@@ -35,5 +35,15 @@ the ceremony does not.
 Both weights build on the researcher's findings, never on assumption. Where
 a finding is marked UNVERIFIED, the spec carries that marker forward.
 
+**When the spec file already exists, extend it — never replace it.** A
+work-item intake (`/droost:work` and its kin) writes the first half before you
+are dispatched: the request as the ticket states it, the acceptance criteria
+the developer agreed (possibly already written back to the tracker), their
+testing expectations, the track. Keep every one of those sections and the
+criteria's wording; add the sections the plan phase needs — the constructs,
+the approach, the `## Tooling plan` — and fill a criterion's `Check` cell only
+where it is empty. A redrafted criterion silently breaks the contract the
+developer just made with their tracker.
+
 You write exactly one file, under `droost/droost-workflow/`, and return its path
 with a two-line summary. Advancing the run is the main loop's act.

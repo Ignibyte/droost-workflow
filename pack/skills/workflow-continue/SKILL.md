@@ -32,7 +32,8 @@ new session picks the run up on a machine with a different capability,
 re-declare it before the test phase — run.json already exists, so it applies:
 
 ```
-vendor/bin/droost-workflow declare-browser playwright-mcp   # or: native | none
+drush droost:workflow:declare-browser playwright-mcp        # site-backed; or: native | none
+vendor/bin/droost-workflow declare-browser playwright-mcp   # the same verb on a checkout with no site
 ```
 
 `playwright-mcp` = you can drive a browser; `native` = the editor gives you
@@ -97,7 +98,9 @@ When the code phase's gates pass, the engine holds the run at
    AND untracked), and the instruction to return its ledger section verbatim.
 2. Append the returned `## Seeker Inspection` section to the spec file,
    word for word. You never edit its rows.
-3. Record it: `vendor/bin/droost-workflow seeker-report < <(the section)` —
+3. Record it: `drush droost:workflow:seeker-report <file>` (site-backed; the
+   standalone `vendor/bin/droost-workflow seeker-report < <(the section)` on a
+   checkout with no site) —
    or pipe the whole spec file; the engine parses the LAST section. The
    parse is the record: counts come from the ledger text, never from a
    summary of it.

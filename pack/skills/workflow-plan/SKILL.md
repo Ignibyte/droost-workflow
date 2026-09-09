@@ -86,6 +86,16 @@ trims depth, never the discipline. The `workflow-researcher` agent grounds the
 facts and `workflow-spec-writer` drafts the artefact at either weight; review
 what it drafted rather than rubber-stamping it.
 
+## When intake already wrote the spec
+
+A work-item command (`/droost:work <KEY>`) may have written
+`droost/droost-workflow/spec-<KEY>.md` before this phase began: the request,
+the agreed acceptance criteria, the testing expectations, the track. That file
+is the run's document — extend it with the constructs, the approach and the
+`## Tooling plan`; do not write a second spec beside it (two spec files make
+the engine refuse to guess which governs), and do not redraft criteria the
+developer agreed and may already have on the ticket.
+
 ## Exit gate
 
 The spec exists, and every acceptance criterion is observable. If you cannot

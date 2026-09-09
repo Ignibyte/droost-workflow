@@ -51,7 +51,8 @@ file to exist. So the sequence is:
    run real; only after it does anything below work.
 3. **Declare your browser tier** — now that run.json exists:
    ```
-   vendor/bin/droost-workflow declare-browser playwright-mcp   # or: native | none
+   drush droost:workflow:declare-browser playwright-mcp        # site-backed; or: native | none
+   vendor/bin/droost-workflow declare-browser playwright-mcp   # the same verb on a checkout with no site
    ```
    - `playwright-mcp` — you hold Playwright MCP tools and can drive a browser.
    - `native` — the editor gives you its own browser (Claude in Chrome, a
@@ -66,7 +67,8 @@ file to exist. So the sequence is:
 4. **Declare your task surface** — whether this session can show a human
    where the run is:
    ```
-   vendor/bin/droost-workflow declare-tasks claude-code   # or: codex | other | none
+   drush droost:workflow:declare-tasks claude-code        # site-backed; or: codex | other | none
+   vendor/bin/droost-workflow declare-tasks claude-code   # the same verb on a checkout with no site
    ```
    - `claude-code` — you hold task tools (TaskCreate / TaskUpdate).
    - `codex` — the host's own task list.
