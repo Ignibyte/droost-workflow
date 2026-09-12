@@ -80,6 +80,12 @@ final class PackManifest {
     => '.claude/agents/workflow-bug-fixer.md',
     'agents/droost-debugger.md'
     => '.claude/agents/droost-debugger.md',
+    // The evaluation and observability template. Copied per round, filled by
+    // hand: every lever, the effort it ran at, what it actually did, and the
+    // observability chain that says which of those answers can be trusted.
+    // Shipped rather than remembered because the failure it guards against is
+    // a reading habit, and a habit needs a form in front of it.
+    'templates/evaluation.md' => '.claude/templates/evaluation.md',
   ];
 
   /**
