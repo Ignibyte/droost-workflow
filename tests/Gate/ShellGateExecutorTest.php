@@ -102,13 +102,17 @@ class ShellGateExecutorTest extends WorkflowTestCase {
    */
   public static function argvCases(): array {
     return [
-      'phpcs carries its standard and ignores vendored trees' => [
+      'phpcs carries its standard, the Drupal extensions, and ignores vendored trees' => [
         'phpcs',
         ['standard' => 'Drupal,DrupalPractice'],
         [
           '-q',
           '--report=json',
           '--standard=Drupal,DrupalPractice',
+          // Without this, PHP_CodeSniffer 4 checks `php` only and a Drupal
+          // project whose code is .module/.theme/.install files gets
+          // "No files were checked" — a hard failure on healthy code.
+          '--extensions=php,module,install,inc,theme,profile,engine,css,js',
           '--ignore=*/node_modules/*,*/vendor/*',
         ],
       ],

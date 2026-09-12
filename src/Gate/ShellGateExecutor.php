@@ -409,6 +409,22 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       );
     }
 
+    // PHP_CodeSniffer 4 exits 16 for "No files were checked". That is the
+    // honest labeled pass this executor gives every other empty path set, not a
+    // finding: there is nothing to judge, so nothing failed. Kept as a
+    // backstop even though --extensions above should stop it arising.
+    if ($gate->name === 'phpcs' && $exit === 16) {
+      return GateResult::ran(
+        $gate->name,
+        GateStatus::Passed,
+        $exit,
+        $elapsed,
+        'phpcs found nothing to check under the configured paths — a labeled pass, not a measurement.',
+        [],
+        $invocation,
+      );
+    }
+
     if ($gate->name === 'phpcs' && $exit !== 0) {
       // PHP_CodeSniffer exits non-zero on WARNINGS too, so a committed
       // minified stylesheet ("file appears to be minified") read exactly like
@@ -1007,6 +1023,20 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         '-q',
         '--report=json',
         '--standard=' . (is_string($standard) ? $standard : 'Drupal'),
+        // PHP_CodeSniffer 4 dropped the JS/CSS tokenizers and with them the
+        // wider default extension set: left alone it now checks `php` only.
+        // Neither the Drupal nor the DrupalPractice ruleset declares an
+        // `extensions` arg, so a Drupal project whose custom code lives in
+        // .module/.theme/.install files — which is most of them — got
+        // "ERROR: No files were checked" (exit 16) and a HARD GATE FAILURE
+        // on code that is fine. The gate exposes no `extensions` lever, and
+        // `standard` is frozen into run.json at begin, so a run that hit this
+        // could not be fixed from its own levers OR waived (phpcs is
+        // mandatory): reset was the only exit. Measured on a first real site,
+        // 2026-09-12. ANALYSABLE already holds the right list — the same one
+        // used to decide whether a path holds anything worth running on — so
+        // the tool is now told it rather than left to guess.
+        '--extensions=' . implode(',', self::ANALYSABLE['phpcs']),
         // A theme with a build step keeps node_modules/ on disk (never
         // committed), and the Drupal standard sniffs JS and CSS — so the gate
         // walked vendored JavaScript and reported on it (round 24, R24-F3).
