@@ -370,6 +370,27 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       );
     }
 
+    // PHP_CodeSniffer 4 exits 16 for "No files were checked". Nothing was
+    // judged, so nothing failed — the same labeled pass this executor gives
+    // every other empty path set.
+    //
+    // This MUST precede the baseline partition. againstBaseline() bails out
+    // only on non-empty stdout, so on a project carrying a phpcs baseline an
+    // exit 16 was partitioned into "passed — 0 new, 0 inherited": a confident
+    // verdict over a run that checked no files at all, which is the exact
+    // failure this branch exists to prevent.
+    if ($gate->name === 'phpcs' && $exit === 16) {
+      return GateResult::ran(
+        $gate->name,
+        GateStatus::Passed,
+        $exit,
+        $elapsed,
+        'phpcs found nothing to check under the configured paths — a labeled pass, not a measurement.',
+        [],
+        $invocation,
+      );
+    }
+
     if ($baseline !== NULL) {
       $partitioned = $this->againstBaseline($gate, $context, $root, $exit, $stdout, $stderr, $elapsed, $invocation, $msiFloor, $msiTarget);
       if ($partitioned !== NULL) {
@@ -404,22 +425,6 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         0,
         $elapsed,
         'phpunit passed — NO TESTS RAN. Either this project has no tests yet, or its suite stopped being discovered; the gate cannot tell those apart, so read this as unverified rather than as a pass.',
-        [],
-        $invocation,
-      );
-    }
-
-    // PHP_CodeSniffer 4 exits 16 for "No files were checked". That is the
-    // honest labeled pass this executor gives every other empty path set, not a
-    // finding: there is nothing to judge, so nothing failed. Kept as a
-    // backstop even though --extensions above should stop it arising.
-    if ($gate->name === 'phpcs' && $exit === 16) {
-      return GateResult::ran(
-        $gate->name,
-        GateStatus::Passed,
-        $exit,
-        $elapsed,
-        'phpcs found nothing to check under the configured paths — a labeled pass, not a measurement.',
         [],
         $invocation,
       );
