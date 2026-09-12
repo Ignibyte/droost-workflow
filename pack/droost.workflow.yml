@@ -99,6 +99,11 @@ gates:
 
   phpunit:        { }
 
+  # Every gate that spawns a tool also takes `timeout` (seconds) — how long
+  # it may run before it is killed and reported as "could not run". The
+  # default is 600; xhigh and max give mutation 1800 and coverage 900, since
+  # infection over one kernel-test-heavy module already outruns ten minutes.
+  # Raise it here rather than narrowing what the tool scans.
   mutation:       { on: false, msi_min: 0 }
   playwright:     { on: false }
   coverage:       { on: false, min: 0 }

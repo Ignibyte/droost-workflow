@@ -53,6 +53,48 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * The runner is told each gate's own time: its lever, else the default.
+   */
+  public function testTheRunnerGetsTheGatesTimeout(): void {
+    $root = $this->rootWithBinaries(['infection', 'phpcs']);
+    $seen = [];
+    $executor = new ShellGateExecutor(
+      function (array $argv, string $dir, int $timeout) use (&$seen): array {
+        $seen[] = $timeout;
+        return [0, '', ''];
+      },
+      static fn (): int => 0,
+    );
+
+    $executor->execute(new GateSettings('mutation', TRUE, ['msi_min' => 80, 'timeout' => 1800]), $root);
+    $executor->execute(new GateSettings('phpcs', TRUE, ['standard' => 'Drupal']), $root);
+
+    $this->assertSame([1800, ShellGateExecutor::DEFAULT_TIMEOUT], $seen);
+  }
+
+  /**
+   * A tool killed at the timeout could not run — and the line names the lever.
+   *
+   * F-EMT-23: infection over one kernel-test-heavy module lost the race
+   * against a fixed ten minutes every time; the verdict used to be a bare
+   * exit 124 with nothing to act on.
+   */
+  public function testKilledAtTheTimeoutNamesTheLever(): void {
+    $root = $this->rootWithBinaries(['infection']);
+    $executor = new ShellGateExecutor(
+      static fn (): array => [ShellGateExecutor::EXIT_KILLED, '', ''],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('mutation', TRUE, ['msi_min' => 80, 'timeout' => 1800]), $root);
+
+    $this->assertSame(GateStatus::ErrorToolFailed, $result->status);
+    $this->assertTrue($result->status->blocksAdvance());
+    $this->assertStringContainsString('killed after 1800s', $result->summary);
+    $this->assertStringContainsString('gates.mutation.timeout', $result->summary);
+  }
+
+  /**
    * Gate levers and the argv they must produce.
    *
    * @return array<string, array{string, array<string, int|string>, list<string>}>

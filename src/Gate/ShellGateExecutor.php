@@ -39,6 +39,13 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   public const DEFAULT_TIMEOUT = 600;
 
   /**
+   * The exit code a runner reports when it killed the tool at the timeout.
+   *
+   * GNU timeout's convention, which the drush and CLI runners follow.
+   */
+  public const EXIT_KILLED = 124;
+
+  /**
    * What counts as analysable, per gate that accepts a `paths` lever.
    *
    * Used only to tell "this path holds nothing for the tool" from "the tool
@@ -117,6 +124,20 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   ) {}
 
   /**
+   * How long this gate's tool may run: its `timeout` lever, else the default.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate.
+   *
+   * @return int
+   *   Seconds.
+   */
+  private function timeoutFor(GateSettings $gate): int {
+    $timeout = $gate->option('timeout');
+    return is_int($timeout) && $timeout > 0 ? $timeout : $this->timeout;
+  }
+
+  /**
    * {@inheritdoc}
    */
   public function execute(GateSettings $gate, string $projectRoot): GateResult {
@@ -180,7 +201,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     ));
     $argv = [...$kept, ...$extraArgv];
     /** @var array{int, string, string} $outcome */
-    $outcome = ($this->runner)($argv, $root, $this->timeout);
+    $outcome = ($this->runner)($argv, $root, $this->timeoutFor($gate));
     return ['argv' => $argv, 'exit' => $outcome[0], 'stdout' => $outcome[1], 'stderr' => $outcome[2]];
   }
 
@@ -305,9 +326,23 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
 
     $started = $this->tick();
     /** @var array{int, string, string} $outcome */
-    $outcome = ($this->runner)($argv, $root, $this->timeout);
+    $outcome = ($this->runner)($argv, $root, $this->timeoutFor($gate));
     [$exit, $stdout, $stderr] = $outcome;
     $elapsed = $this->tick() - $started;
+
+    if ($exit === self::EXIT_KILLED) {
+      // The runner killed the tool at the gate's timeout. Not a verdict on
+      // the code either: nothing was judged. The line names the lever that
+      // raises it, because the number is the whole finding (F-EMT-23: a
+      // fixed ten minutes lost the race against infection every time).
+      return GateResult::toolFailed(
+        $gate->name,
+        $exit,
+        sprintf('killed after %ds — the gate\'s timeout', $this->timeoutFor($gate)),
+        sprintf('raise gates.%s.timeout (seconds) in droost.workflow.yml, or narrow what the tool scans; the tool produced no verdict.', $gate->name),
+        $invocation,
+      );
+    }
 
     if (self::toolFailedToRun($gate->name, $exit)) {
       // The tool itself broke — a config it could not load, a crash before
@@ -638,7 +673,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     $cmd = is_string($cmd) ? $cmd : '';
     $started = $this->tick();
     /** @var array{int, string, string} $outcome */
-    $outcome = ($this->runner)(['/bin/sh', '-c', $cmd], $root, $this->timeout);
+    $outcome = ($this->runner)(['/bin/sh', '-c', $cmd], $root, $this->timeoutFor($gate));
     [$exit, $stdout, $stderr] = $outcome;
     $elapsed = $this->tick() - $started;
 

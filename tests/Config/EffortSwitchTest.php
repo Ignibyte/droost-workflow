@@ -134,8 +134,8 @@ class EffortSwitchTest extends WorkflowTestCase {
 
     $this->assertContains('phpunit: off → on (required to exist)', $delta);
     $this->assertContains('playwright: off → on (required to exist)', $delta);
-    $this->assertContains('mutation: off → on (msi ≥ 80)', $delta);
-    $this->assertContains('coverage: off → on (min 80)', $delta);
+    $this->assertContains('mutation: off → on (msi ≥ 80, timeout 1800s)', $delta);
+    $this->assertContains('coverage: off → on (min 80, timeout 900s)', $delta);
     $this->assertContains('wiki_fresh: off → on', $delta);
     $this->assertContains('phpstan: level 1 → max', $delta);
     $this->assertContains('seekers: off → on', $delta);
@@ -160,7 +160,7 @@ class EffortSwitchTest extends WorkflowTestCase {
 
     $delta = EffortSwitch::apply($root, 'max')->delta();
 
-    $this->assertNotContains('mutation: off → on (msi ≥ 80)', $delta, 'the file kept mutation off');
+    $this->assertNotContains('mutation: off → on (msi ≥ 80, timeout 1800s)', $delta, 'the file kept mutation off');
     $this->assertNotContains('playwright: off → on (required to exist)', $delta);
     $this->assertContains('phpunit: required (unset) → yes', $delta, 'phpunit is not spelled out, so max still requires it');
     $this->assertContains('eslint: off → on', $delta, 'the trio is not spelled out either');

@@ -215,6 +215,10 @@ final class PresetResolver {
    * Coverage and mutation on at 60, the front-end trio on, phpstan at 8.
    * A repo with no node toolchain reports tool-missing on the trio — which
    * blocks, and is correct at this level: you asked for the front-end gates.
+   * The two slow tiers carry their own time: mutation may run thirty
+   * minutes and coverage fifteen before the executor kills them — a
+   * mutation run over one kernel-test-heavy Drupal module already needs
+   * more than the executor's ten-minute default (F-EMT-23).
    *
    * @return \Droost\Workflow\Config\Preset
    *   The base lever set.
@@ -229,9 +233,9 @@ final class PresetResolver {
       'stylelint' => new GateSettings('stylelint', TRUE),
       'prettier' => new GateSettings('prettier', TRUE),
       'phpunit' => new GateSettings('phpunit', TRUE),
-      'mutation' => new GateSettings('mutation', TRUE, ['msi_min' => 60]),
+      'mutation' => new GateSettings('mutation', TRUE, ['msi_min' => 60, 'timeout' => 1800]),
       'playwright' => new GateSettings('playwright', TRUE),
-      'coverage' => new GateSettings('coverage', TRUE, ['min' => 60]),
+      'coverage' => new GateSettings('coverage', TRUE, ['min' => 60, 'timeout' => 900]),
       'rendered_check' => new GateSettings('rendered_check', TRUE),
       'config_clean' => new GateSettings('config_clean', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', TRUE),
@@ -264,9 +268,9 @@ final class PresetResolver {
       'stylelint' => new GateSettings('stylelint', TRUE),
       'prettier' => new GateSettings('prettier', TRUE),
       'phpunit' => new GateSettings('phpunit', TRUE, ['required' => TRUE]),
-      'mutation' => new GateSettings('mutation', TRUE, ['msi_min' => 80]),
+      'mutation' => new GateSettings('mutation', TRUE, ['msi_min' => 80, 'timeout' => 1800]),
       'playwright' => new GateSettings('playwright', TRUE, ['required' => TRUE]),
-      'coverage' => new GateSettings('coverage', TRUE, ['min' => 80]),
+      'coverage' => new GateSettings('coverage', TRUE, ['min' => 80, 'timeout' => 900]),
       'rendered_check' => new GateSettings('rendered_check', TRUE),
       'config_clean' => new GateSettings('config_clean', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', TRUE),

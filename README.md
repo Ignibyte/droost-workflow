@@ -230,7 +230,11 @@ Three details worth knowing:
 ### Gate options
 
 Most gates carry their thresholds inline — `phpcs.standard`,
-`phpstan.level`, `coverage.min`, `mutation.msi_min`. One is easy to miss:
+`phpstan.level`, `coverage.min`, `mutation.msi_min`. Every gate that spawns
+a tool also takes `timeout` (seconds) before the executor kills it and
+reports "could not run"; the default is 600, and `xhigh`/`max` give
+mutation 1800 and coverage 900 because infection over one kernel-test-heavy
+module already outruns ten minutes. One is easy to miss:
 `rendered_check.routes` is a comma-separated list of internal paths the
 live surface renders (`routes: "/,/pricing"`); omitted, it renders `/`.
 On a Drupal site the render happens in a **fresh drush process**

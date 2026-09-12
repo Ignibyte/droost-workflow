@@ -141,14 +141,22 @@ final class GateSettings {
    * no tool configs of its own — a Drupal site root, most importantly —
    * needs. phpunit is deliberately excluded: a test run is defined by its
    * config file (bootstrap, env), and a bare path would invent a suite.
+   *
+   * Every gate that spawns a tool takes `timeout` (seconds): how long the
+   * tool may run before the executor kills it. The executor's default is
+   * ten minutes, which a mutation run over one kernel-test-heavy module
+   * already exceeds (F-EMT-23) — the slow tiers carry longer defaults from
+   * xhigh up, and a repo raises any of them here. The two gates the site
+   * driver answers (rendered_check, config_clean) spawn nothing and take
+   * none.
    */
   private const GATE_OPTIONS = [
-    'phpcs' => ['standard' => 'string', 'paths' => 'paths'],
-    'phpstan' => ['level' => 'level', 'paths' => 'paths'],
-    'phpunit' => ['required' => 'flag'],
-    'mutation' => ['msi_min' => 'percent'],
-    'playwright' => ['required' => 'flag'],
-    'coverage' => ['min' => 'percent'],
+    'phpcs' => ['standard' => 'string', 'paths' => 'paths', 'timeout' => 'seconds'],
+    'phpstan' => ['level' => 'level', 'paths' => 'paths', 'timeout' => 'seconds'],
+    'phpunit' => ['required' => 'flag', 'timeout' => 'seconds'],
+    'mutation' => ['msi_min' => 'percent', 'timeout' => 'seconds'],
+    'playwright' => ['required' => 'flag', 'timeout' => 'seconds'],
+    'coverage' => ['min' => 'percent', 'timeout' => 'seconds'],
     'rendered_check' => ['routes' => 'string'],
     'config_clean' => [],
     // The front-end lint trio takes `paths` for the same reason the static
@@ -158,9 +166,10 @@ final class GateSettings {
     // scaffolded .eslintrc.json, which extends plugins only core's own yarn
     // install provides, and eslint crashes before it reads a file (F-EMT-9).
     // A project's package.json lint script names the file to point at.
-    'eslint' => ['paths' => 'paths', 'config' => 'string'],
-    'stylelint' => ['paths' => 'paths', 'config' => 'string'],
-    'prettier' => ['paths' => 'paths', 'config' => 'string'],
+    'eslint' => ['paths' => 'paths', 'config' => 'string', 'timeout' => 'seconds'],
+    'stylelint' => ['paths' => 'paths', 'config' => 'string', 'timeout' => 'seconds'],
+    'prettier' => ['paths' => 'paths', 'config' => 'string', 'timeout' => 'seconds'],
+    'wiki_fresh' => ['timeout' => 'seconds'],
   ];
 
   /**
@@ -562,6 +571,8 @@ final class GateSettings {
     $type = self::GATE_OPTIONS[$this->name][$option] ?? 'string';
     return match ($type) {
       'percent' => $node->intInRange($option, 0, 100),
+      // At least a second; a day is the ceiling anyone should ever want.
+      'seconds' => $node->intInRange($option, 1, 86400),
       'level' => $this->readLevel($node, $option),
       'paths' => $this->readPaths($node, $option),
       'flag' => $node->bool($option),
