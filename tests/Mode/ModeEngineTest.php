@@ -32,6 +32,29 @@ use Droost\Workflow\State\RunStateStore;
 class ModeEngineTest extends WorkflowTestCase {
 
   /**
+   * A scratch project root, one per test.
+   *
+   * These tests used the literal `/tmp`, so every one of them wrote its
+   * evidence store into a single shared location and inherited whatever a
+   * previous test — or a previous RUN, or a stray probe — had left there. Nine
+   * of them failed the moment the engine began reporting a broken store, and
+   * the broken store was a 4MB file left by an unrelated experiment hours
+   * earlier.
+   *
+   * A test whose result depends on what else has touched `/tmp` can pass or
+   * fail for reasons unconnected to the code, which is the same class of
+   * problem as a fixture that invents its own input.
+   */
+  private string $root;
+
+  /**
+   * {@inheritdoc}
+   */
+  protected function setUp(): void {
+    $this->root = $this->makeRoot();
+  }
+
+  /**
    * The moment every test uses, so nothing depends on a real clock.
    */
   private const NOW = '2026-07-27T10:00:00+00:00';
@@ -46,7 +69,7 @@ class ModeEngineTest extends WorkflowTestCase {
     $outcome = $engine->runPhase(
       $this->begin(['mode' => 'automated']),
       Phase::Plan,
-      '/tmp',
+      $this->root,
       self::NOW,
     );
 
@@ -92,7 +115,7 @@ class ModeEngineTest extends WorkflowTestCase {
     $outcome = $engine->runPhase(
       $this->begin(['mode' => 'pair']),
       Phase::Plan,
-      '/tmp',
+      $this->root,
       self::NOW,
     );
 
@@ -126,7 +149,7 @@ class ModeEngineTest extends WorkflowTestCase {
     $first = $engine->runPhase(
       $this->begin(['mode' => 'pair', 'seekers' => ['on' => FALSE]]),
       Phase::Code,
-      '/tmp',
+      $this->root,
       self::NOW,
     );
     $ranOnce = $executor->count;
@@ -135,7 +158,7 @@ class ModeEngineTest extends WorkflowTestCase {
     $second = $engine->runPhase(
       $first->state,
       Phase::Code,
-      '/tmp',
+      $this->root,
       self::NOW,
     );
 
@@ -153,7 +176,7 @@ class ModeEngineTest extends WorkflowTestCase {
     $paused = $engine->runPhase(
       $this->begin(['mode' => 'pair']),
       Phase::Plan,
-      '/tmp',
+      $this->root,
       self::NOW,
     )->state;
 
@@ -189,7 +212,7 @@ class ModeEngineTest extends WorkflowTestCase {
     $state = $this->begin(['mode' => 'pair']);
 
     $state = $engine->swap($state, Mode::Agentic, self::NOW);
-    $outcome = $engine->runPhase($state, Phase::Plan, '/tmp', self::NOW);
+    $outcome = $engine->runPhase($state, Phase::Plan, $this->root, self::NOW);
 
     $this->assertSame(Mode::Agentic, $engine->effectiveMode($state));
     $this->assertSame(Outcome::Advanced, $outcome->outcome);
@@ -209,7 +232,7 @@ class ModeEngineTest extends WorkflowTestCase {
     $paused = $engine->runPhase(
       $this->begin(['mode' => 'pair']),
       Phase::Plan,
-      '/tmp',
+      $this->root,
       self::NOW,
     )->state;
     $this->assertNotNull($paused->awaiting);
@@ -304,7 +327,7 @@ class ModeEngineTest extends WorkflowTestCase {
     $outcome = $engine->runPhase(
       $this->begin(['mode' => 'pair']),
       Phase::Code,
-      '/tmp',
+      $this->root,
       self::NOW,
     );
 
@@ -336,7 +359,7 @@ class ModeEngineTest extends WorkflowTestCase {
       'seekers' => ['on' => FALSE],
     ])->advanceTo(Phase::Code);
 
-    $first = $engine->runPhase($state, Phase::Code, '/tmp', self::NOW);
+    $first = $engine->runPhase($state, Phase::Code, $this->root, self::NOW);
     $this->assertSame(Outcome::Failed, $first->outcome);
     $this->assertSame(
       ['phpcs' => 1, 'phpstan' => 1],
@@ -344,7 +367,7 @@ class ModeEngineTest extends WorkflowTestCase {
     );
     $this->assertFalse($first->exhausted());
 
-    $second = $engine->runPhase($first->state, Phase::Code, '/tmp', self::NOW);
+    $second = $engine->runPhase($first->state, Phase::Code, $this->root, self::NOW);
     $this->assertSame(Outcome::Failed, $second->outcome);
     $this->assertSame(
       ['phpcs' => 2, 'phpstan' => 2],
@@ -352,7 +375,7 @@ class ModeEngineTest extends WorkflowTestCase {
     );
     $this->assertFalse($second->exhausted());
 
-    $third = $engine->runPhase($second->state, Phase::Code, '/tmp', self::NOW);
+    $third = $engine->runPhase($second->state, Phase::Code, $this->root, self::NOW);
     $this->assertSame(Outcome::Failed, $third->outcome);
     // The budget was already spent, so no further attempt is counted.
     $this->assertSame(
@@ -379,7 +402,7 @@ class ModeEngineTest extends WorkflowTestCase {
     $outcome = $engine->runPhase(
       $this->begin(['max_gate_retries' => 0])->advanceTo(Phase::Code),
       Phase::Code,
-      '/tmp',
+      $this->root,
       self::NOW,
     );
 
@@ -423,7 +446,7 @@ class ModeEngineTest extends WorkflowTestCase {
     $outcome = $engine->runPhase(
       $this->begin(['max_gate_retries' => 2])->advanceTo(Phase::Code),
       Phase::Code,
-      '/tmp',
+      $this->root,
       self::NOW,
     );
 
@@ -468,7 +491,7 @@ class ModeEngineTest extends WorkflowTestCase {
       'seekers' => ['on' => FALSE],
     ])->advanceTo(Phase::Code);
 
-    $failed = $engine->runPhase($state, Phase::Code, '/tmp', self::NOW);
+    $failed = $engine->runPhase($state, Phase::Code, $this->root, self::NOW);
     $this->assertSame(
       ['phpcs' => 1],
       $failed->state->feedbackAttempts,
@@ -476,7 +499,7 @@ class ModeEngineTest extends WorkflowTestCase {
     );
 
     $flaky->fixed = TRUE;
-    $passed = $engine->runPhase($failed->state, Phase::Code, '/tmp', self::NOW);
+    $passed = $engine->runPhase($failed->state, Phase::Code, $this->root, self::NOW);
 
     $this->assertSame(Outcome::Advanced, $passed->outcome);
     $this->assertSame(
@@ -496,7 +519,7 @@ class ModeEngineTest extends WorkflowTestCase {
         'seekers' => ['on' => FALSE],
       ]),
       Phase::Complete,
-      '/tmp',
+      $this->root,
       self::NOW,
     );
 
@@ -517,7 +540,7 @@ class ModeEngineTest extends WorkflowTestCase {
     $engine = $this->engine($this->recordingSink());
     $state = $this->begin(['mode' => 'automated'])->advanceTo(Phase::Code);
 
-    $held = $engine->runPhase($state, Phase::Code, '/tmp', self::NOW);
+    $held = $engine->runPhase($state, Phase::Code, $this->root, self::NOW);
     $this->assertSame(Outcome::InspectionDue, $held->outcome);
     $this->assertSame(Phase::Code, $held->state->currentPhase);
     $this->assertSame(
@@ -534,7 +557,7 @@ class ModeEngineTest extends WorkflowTestCase {
       'observations' => 0,
       'reported_at' => self::NOW,
     ]);
-    $stillHeld = $engine->runPhase($dirty, Phase::Code, '/tmp', self::NOW);
+    $stillHeld = $engine->runPhase($dirty, Phase::Code, $this->root, self::NOW);
     $this->assertSame(Outcome::InspectionDue, $stillHeld->outcome);
 
     $clean = $stillHeld->state->withSeekerReport([
@@ -545,7 +568,7 @@ class ModeEngineTest extends WorkflowTestCase {
       'observations' => 2,
       'reported_at' => self::NOW,
     ]);
-    $released = $engine->runPhase($clean, Phase::Code, '/tmp', self::NOW);
+    $released = $engine->runPhase($clean, Phase::Code, $this->root, self::NOW);
     $this->assertSame(Outcome::Advanced, $released->outcome);
 
     // The other boundary: complete demands the clean record too.
@@ -555,7 +578,7 @@ class ModeEngineTest extends WorkflowTestCase {
     $completed = $engine->runPhase(
       $atComplete,
       Phase::Complete,
-      '/tmp',
+      $this->root,
       self::NOW,
     );
     $this->assertSame(Outcome::Completed, $completed->outcome);
@@ -568,7 +591,7 @@ class ModeEngineTest extends WorkflowTestCase {
     $outcome = $this->engine($this->recordingSink())->runPhase(
       $this->begin(['mode' => 'automated']),
       Phase::Plan,
-      '/tmp',
+      $this->root,
       self::NOW,
     );
 
@@ -589,7 +612,7 @@ class ModeEngineTest extends WorkflowTestCase {
     $outcome = $engine->runPhase(
       $this->begin(['mode' => 'interactive']),
       Phase::Plan,
-      '/tmp',
+      $this->root,
       self::NOW,
     );
 
@@ -623,7 +646,7 @@ class ModeEngineTest extends WorkflowTestCase {
       $outcome = $engine->runPhase(
         $this->begin(['mode' => 'interactive', 'seekers' => ['on' => FALSE]]),
         $phase,
-        '/tmp',
+        $this->root,
         self::NOW,
       );
       $question = $outcome->question;
@@ -650,7 +673,7 @@ class ModeEngineTest extends WorkflowTestCase {
     $outcome = $engine->runPhase(
       $this->begin(['mode' => 'interactive', 'seekers' => ['on' => FALSE]]),
       Phase::Code,
-      '/tmp',
+      $this->root,
       self::NOW,
     );
 
@@ -678,7 +701,7 @@ class ModeEngineTest extends WorkflowTestCase {
     $state = $this->begin(['mode' => 'pair']);
     $this->assertSame(Mode::Interactive, $state->mode);
 
-    $outcome = $engine->runPhase($state, Phase::Plan, '/tmp', self::NOW);
+    $outcome = $engine->runPhase($state, Phase::Plan, $this->root, self::NOW);
 
     $this->assertSame(Outcome::Paused, $outcome->outcome);
     $question = $outcome->question;
@@ -695,7 +718,7 @@ class ModeEngineTest extends WorkflowTestCase {
     $this->assertSame(Mode::Agentic, $state->mode);
 
     $outcome = $this->engine($sink)
-      ->runPhase($state, Phase::Plan, '/tmp', self::NOW);
+      ->runPhase($state, Phase::Plan, $this->root, self::NOW);
 
     $this->assertSame(Outcome::Advanced, $outcome->outcome);
     $this->assertSame([], $sink->emitted);
@@ -807,6 +830,55 @@ class ModeEngineTest extends WorkflowTestCase {
       'run-1',
       '2026-07-27T09:00:00+00:00',
       WorkflowConfig::fromArray($raw, 'test'),
+    );
+  }
+
+  /**
+   * A phase whose evidence cannot be written does not pass.
+   *
+   * `EvidenceRecorder::lastError()` was written, documented as existing "so the
+   * surface that cares can say the record is broken", and read by nothing — the
+   * recorder was constructed and discarded on one line. A read-only store file
+   * (a botched chmod, a restored backup, a container UID mismatch) therefore
+   * made every verdict vanish while the phase reported `passed: 2` and
+   * advanced.
+   *
+   * Everything downstream then agreed: the Stop hook found no unresolved rows,
+   * the declaration audit had nothing to audit, and the evaluation rendered its
+   * "this run has no rows" banner telling the reader to check `lastError()` — a
+   * value no surface exposed. The record was not wrong; it was absent, and
+   * nothing in the system could tell the difference from a clean run.
+   */
+  public function testPhaseFailsWhenItsEvidenceCannotBeWritten(): void {
+    $dir = $this->root . '/droost/droost-workflow';
+    mkdir($dir, 0775, TRUE);
+    // A store file nothing can write, in a directory that is writable — which
+    // is exactly what the reported failures produce.
+    file_put_contents($dir . '/evidence.sqlite', 'not a database');
+    chmod($dir . '/evidence.sqlite', 0444);
+
+    $outcome = $this->engine($this->recordingSink())->runPhase(
+      $this->begin(['mode' => 'agentic']),
+      Phase::Code,
+      $this->root,
+      self::NOW,
+    );
+
+    $this->assertSame(
+      Outcome::Failed,
+      $outcome->outcome,
+      'a phase with no record has not been verified in any sense this system can defend',
+    );
+    $this->assertNotNull($outcome->report);
+    $named = array_filter(
+      $outcome->report->results,
+      static fn ($result): bool => $result->gate === 'evidence_record',
+    );
+    $this->assertCount(1, $named, 'the report names the evidence store as what failed');
+    $this->assertStringContainsString(
+      'no record',
+      reset($named)->summary,
+      'and says the gates ran while none of it was kept',
     );
   }
 

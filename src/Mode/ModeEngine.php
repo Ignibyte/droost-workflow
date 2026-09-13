@@ -13,6 +13,7 @@ use Droost\Workflow\Evidence\EvidenceRecorder;
 use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Evidence\Fault;
 use Droost\Workflow\Gate\GateResult;
+use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\PhaseReport;
 use Droost\Workflow\State\PhaseStatus;
@@ -109,8 +110,41 @@ final class ModeEngine {
     // as its own row, and a fingerprint of what each gate examined — which is
     // what lets a green expire when the code under it moves.
     //
-    // Never allowed to fail the phase: the gates have already run by here.
-    (new EvidenceRecorder($projectRoot))->recordPhase($state, $phase->value, $report, $now);
+    // A failure here DOES fail the phase, which reverses what this comment used
+    // to say. `lastError()` was written, documented as "so the surface that
+    // cares can say the record is broken", and read by nothing — the recorder
+    // was constructed and discarded on a single line. So a read-only store file
+    // (a botched chmod, a restored backup, a container UID mismatch) made every
+    // verdict vanish while the phase reported `passed: 2` and advanced. The
+    // Stop hook then found no unresolved rows, the audit had nothing to audit,
+    // and the evaluation rendered its "this run has no rows" banner telling
+    // the reader to check `lastError()` — a value no surface exposed.
+    //
+    // A phase whose evidence could not be written has not been verified in any
+    // sense this system can defend, so it stops. ErrorToolMissing because that
+    // maps to blocked/environment: an unwritable file is not the agent's doing,
+    // and an operator can fix it.
+    $recorder = new EvidenceRecorder($projectRoot);
+    $recorder->recordPhase($state, $phase->value, $report, $now);
+    $recordError = $recorder->lastError();
+    if ($recordError !== NULL) {
+      $report = $report->with(GateResult::ran(
+        'evidence_record',
+        GateStatus::ErrorToolMissing,
+        1,
+        0,
+        sprintf(
+          'The run\'s evidence could not be written, so this phase has no record: %s. Every '
+          . 'gate above ran and none of it was kept. Check the permissions on the state '
+          . 'directory and its evidence.sqlite, then run the phase again.',
+          $recordError,
+        ),
+        [],
+        'evidence store',
+      ));
+
+      return new RunOutcome(Outcome::Failed, $state, $report);
+    }
 
     if (!$report->advance()) {
       return $this->recordFailure($state, $phase, $report);
