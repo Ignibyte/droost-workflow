@@ -897,4 +897,80 @@ final class EvaluationReportTest extends TestCase {
     return '(no row for ' . $gate . ')';
   }
 
+  /**
+   * The legend describes the values the column actually produces.
+   *
+   * Prose in this file goes stale silently, and that is the most dangerous
+   * thing in it: a wrong number invites checking and a wrong sentence does not.
+   * Today alone, the legend told a reader that `unknown` meant "the gate had no
+   * resolvable subject to fingerprint" — which after the split is precisely the
+   * `**EXPIRED** (subject gone)` case, so the legend handed that phrase to the
+   * other cell — while the value it was describing appeared in no legend at
+   * all.
+   *
+   * Asserted as a property, not a string: every value `stillDescribesTheCode()`
+   * can return has to appear in the rendered explanation. The next value added
+   * will be forgotten the same way.
+   */
+  public function testEveryExpiryValueAppearsInTheLegend(): void {
+    $produced = [];
+    mkdir($this->root . '/subject', 0775, TRUE);
+    file_put_contents($this->root . '/subject/a.php', "<?php // one\n");
+    $hash = SubjectHasher::hash($this->root, ['subject']);
+    $this->assertIsString($hash);
+
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
+    $store->record('r1', 'code', new CheckRecord(
+      'gate', 'phpcs', CheckState::Satisfied, Fault::None, 'clean', NULL, $hash, 0, 'phpcs', NULL, 800,
+    ));
+    $store->record('r1', 'code', new CheckRecord(
+      'gate', 'phpunit', CheckState::Satisfied, Fault::None, 'ran', NULL, NULL, 0, 'phpunit', NULL, 900,
+    ));
+    $report = new EvaluationReport($store);
+
+    // Drive each of the four outcomes and collect what renders.
+    $produced[] = $this->expiryOf($report->render('r1', ['phpcs' => $hash]), 'phpcs');
+    file_put_contents($this->root . '/subject/a.php', "<?php // two\n");
+    $moved = SubjectHasher::hash($this->root, ['subject']);
+    $this->assertIsString($moved);
+    $produced[] = $this->expiryOf($report->render('r1', ['phpcs' => $moved]), 'phpcs');
+    $produced[] = $this->expiryOf($report->render('r1', ['phpcs' => NULL]), 'phpcs');
+    $produced[] = $this->expiryOf($report->render('r1', ['phpcs' => $moved]), 'phpunit');
+
+    $rendered = $report->render('r1', ['phpcs' => $moved]);
+    foreach (array_unique($produced) as $value) {
+      $this->assertStringContainsString(
+        $value,
+        $rendered,
+        sprintf('the column can print "%s", so the document has to explain it', $value),
+      );
+    }
+    $this->assertCount(4, array_unique($produced), 'all four outcomes were exercised');
+  }
+
+  /**
+   * §4 does not claim a declaration rests on something droost collected.
+   *
+   * `declared_tests` is `Recorded` and rests on nothing droost collected — by
+   * its own summary. §4's header sentence said `recorded` means measured, and
+   * that sentence is the one a reviewer carries to every other section.
+   */
+  public function testTheGateLegendDoesNotSpeakForDeclarations(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
+    $store->record('r1', 'code', new CheckRecord(
+      'gate', 'phpcs', CheckState::Satisfied, Fault::None, 'clean', NULL, NULL, 0, 'phpcs', NULL, 800,
+    ));
+
+    $report = (new EvaluationReport($store))->render('r1');
+
+    $this->assertStringContainsString('For the GATES in this table', $report);
+    $this->assertStringContainsString(
+      'could not check',
+      $report,
+      'and the third way a row reads green from a distance is named',
+    );
+  }
+
 }

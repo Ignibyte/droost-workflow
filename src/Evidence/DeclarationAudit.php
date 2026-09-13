@@ -320,10 +320,14 @@ final class DeclarationAudit {
             . 'say whether they ran.',
             count($this->declaredTests),
           )
+          // FRONT-LOADED, because the report caps a cell at 200 characters and
+          // the first cut put the disclaimer last — so the table amputated it
+          // at "not a ve", leaving a green-adjacent state, an empty fault and a
+          // list of test names, which reads exactly like a check that passed.
+          // The clause that matters most has to survive the cut.
           : sprintf(
-            '%d planned test(s), recorded: %s. droost cannot see WHICH tests a suite ran — the '
-            . 'gate reports totals, not names — so this is the plan on record, not a '
-            . 'verification of it. Whether the suite passed is the phpunit row in §4.',
+            'NOT VERIFIED — droost cannot see which tests a suite ran, only that one ran and how '
+            . 'many. %d planned, on record: %s.',
             count($this->declaredTests),
             implode(', ', $this->declaredTests),
           ),

@@ -352,7 +352,11 @@ final class EvaluationReport {
       [
         'Spec frozen at',
         self::code(self::text($run, 'spec_frozen_at')),
-        'hashed by droost, over the file run.json names',
+        // Not "hashed by droost" — nothing is hashed and no file is involved.
+        // This is droost's own clock at plan exit, which is a STRONGER
+        // provenance than the digest above it; copying the digest's caveat
+        // onto it gave the weaker claim to the stronger fact.
+        "droost's clock, at plan exit",
       ],
       [
         'Ticket / request',
@@ -601,15 +605,22 @@ final class EvaluationReport {
     }
 
     $out = "## 4. Gate verdicts\n\n"
-      . "A green is not a measurement. The last column says which is which:\n"
+      . "A green is not a measurement. For the GATES in this table —\n"
       . "`satisfied` and `recorded` rest on something droost collected;\n"
       . "`not applicable` and `unblocked by the operator` are honest and are\n"
-      . "NOT measurements; and a measured state with `duration_ms: 0` means the\n"
-      . "tool never spawned. The last column re-measures the FINGERPRINT of\n"
-      . "what each gate examined: `EXPIRED` means the verdict was green about\n"
-      . "code that has since moved, and `unknown` means the gate had no\n"
-      . "resolvable subject to fingerprint — which is NOT the same as\n"
-      . "unchanged.\n\n"
+      . "NOT measurements; `asked for, could not run here` means the gate was\n"
+      . "wanted and this surface could not perform it; and a measured state\n"
+      . "with `duration_ms: 0` means the tool never spawned. (Elsewhere in this\n"
+      . "document `recorded` is also used for a DECLARATION droost kept but\n"
+      . "could not check — that is not a measurement, and the row says so.)\n\n"
+      . "**Still true?** re-measures the fingerprint of what each gate examined,\n"
+      . "as the tree stands now:\n\n"
+      . "- `yes` — the subject is byte-identical to what the verdict was about.\n"
+      . "- `**EXPIRED**` — the subject has changed since. Not a green now.\n"
+      . "- `**EXPIRED** (subject gone)` — the gate HAD a subject and it no\n"
+      . "  longer exists. The most complete form of expiry there is.\n"
+      . "- `unknown` — the gate has no `paths` lever, so there is nothing to\n"
+      . "  fingerprint and there never was. NOT the same as unchanged.\n\n"
       . self::table(
         [
           'Gate', 'Phase', 'State', 'Fault', 'Exit', '`duration_ms`',
@@ -922,9 +933,14 @@ final class EvaluationReport {
         ['Kind', 'Declared', 'Audited in', 'State', 'Fault', 'Summary'],
         $rows,
       )
-      . "\nA declared count with no audit is a promise nobody checked. An audit\n"
-      . "with nothing declared is a check with nothing to hold the diff to —\n"
-      . "both read as green from a distance, and neither is.\n";
+      . "\nThree things read as green from a distance and none of them is.\n"
+      . "A declared count with no audit is a promise nobody checked. An audit\n"
+      . "with nothing declared is a check with nothing to hold the diff to.\n"
+      . "And — the common case, so read the rows rather than the states — an\n"
+      . "audit that RAN and could not check what it was given: `declared_tests`\n"
+      . "is always `recorded`, because droost sees that a suite ran and how many\n"
+      . "tests it held, never which ones. Only `declared_files` is audited\n"
+      . "against the diff.\n";
 
     foreach ($promised as $kind => $values) {
       if ($values === []) {
