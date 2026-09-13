@@ -900,26 +900,42 @@ final class EvidenceStore {
    */
   public function recordSeekerFindings(string $runId, string $phase, int $round, array $findings): void {
     $pdo = $this->connection();
-    $pdo->prepare('DELETE FROM seeker_finding WHERE run_id = ? AND phase = ? AND round = ?')
-      ->execute([$runId, $phase, $round]);
-    if ($findings === []) {
-      return;
+    // One transaction, because this is a DELETE followed by inserts: a crash
+    // between them would leave the round with its previous findings erased and
+    // its new ones unwritten, which reads as a clean inspection. Losing a
+    // finding is the failure this table exists to stop.
+    $owns = !$pdo->inTransaction();
+    if ($owns) {
+      $pdo->exec('BEGIN IMMEDIATE');
     }
-    $insert = $pdo->prepare(
-      'INSERT INTO seeker_finding (run_id, phase, round, ref, severity, location, finding, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    );
-    foreach ($findings as $finding) {
-      $insert->execute([
-        $runId,
-        $phase,
-        $round,
-        self::text($finding, 'id'),
-        self::text($finding, 'severity'),
-        self::text($finding, 'location'),
-        self::text($finding, 'finding'),
-        self::text($finding, 'status'),
-      ]);
+    try {
+      $pdo->prepare('DELETE FROM seeker_finding WHERE run_id = ? AND phase = ? AND round = ?')
+        ->execute([$runId, $phase, $round]);
+      $insert = $pdo->prepare(
+        'INSERT INTO seeker_finding (run_id, phase, round, ref, severity, location, finding, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      );
+      foreach ($findings as $finding) {
+        $insert->execute([
+          $runId,
+          $phase,
+          $round,
+          self::text($finding, 'id'),
+          self::text($finding, 'severity'),
+          self::text($finding, 'location'),
+          self::text($finding, 'finding'),
+          self::text($finding, 'status'),
+        ]);
+      }
+    }
+    catch (\Throwable $e) {
+      if ($owns && $pdo->inTransaction()) {
+        $pdo->exec('ROLLBACK');
+      }
+      throw $e;
+    }
+    if ($owns) {
+      $pdo->exec('COMMIT');
     }
   }
 
