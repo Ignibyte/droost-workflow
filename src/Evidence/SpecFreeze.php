@@ -66,9 +66,30 @@ final class SpecFreeze {
   public const string CRITERIA = '## Acceptance criteria';
 
   /**
-   * The column the test phase is required to fill, excluded from every row.
+   * Columns a LATER gate adjudicates, excluded from the frozen comparison.
+   *
+   * Both are the same situation and the same reasoning. A column that no
+   * plan-phase gate reads is not part of the promise the plan made — and a
+   * column a later gate judges is one a later phase may legitimately have to
+   * correct, because the gate's own refusal tells it to.
+   *
+   * `Verified By` the test phase is REQUIRED to fill. `Evidence` is resolved by
+   * grounding_check at code, and its refusal reads "Cite a class this site
+   * actually has ... or `none: <query>`" — an instruction to edit the cell. The
+   * plan gate checks only that answers are non-blank and all three tiers
+   * appear; it never looks at a citation. So freezing that cell protected
+   * nothing anybody had checked, and forbade the one remedy the failure named.
+   *
+   * What stays frozen in a grounding row is the claim: which tier was searched,
+   * what was asked, and what came back. Swapping THOSE after the fact is the
+   * cheat. The citation is re-resolved against the site on every later phase,
+   * so it is guarded by adjudication rather than by immutability — which is
+   * the stronger of the two anyway.
    */
-  private const string VERIFIED_COLUMN = 'verified by';
+  private const array ADJUDICATED_COLUMNS = [
+    self::CRITERIA => 'verified by',
+    self::GROUNDING => 'evidence',
+  ];
 
   /**
    * Every section this class has an opinion about.
@@ -202,12 +223,13 @@ final class SpecFreeze {
       }
     }
     $verified = NULL;
-    if ($separator !== NULL && $separator > 0 && $heading === self::CRITERIA) {
+    $adjudicated = self::ADJUDICATED_COLUMNS[$heading] ?? NULL;
+    if ($separator !== NULL && $separator > 0 && $adjudicated !== NULL) {
       $header = array_map(
         static fn (string $cell): string => strtolower(trim($cell)),
         self::cells($lines[$separator - 1]),
       );
-      $found = array_search(self::VERIFIED_COLUMN, $header, TRUE);
+      $found = array_search($adjudicated, $header, TRUE);
       $verified = $found === FALSE ? NULL : (int) $found;
     }
     $rows = [];

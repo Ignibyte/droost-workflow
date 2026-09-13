@@ -139,18 +139,53 @@ final class SpecFreezeTest extends TestCase {
   }
 
   /**
-   * Swapping a plan citation for an easier one is caught.
+   * A citation may be corrected, because the gate that judges it says to.
    *
-   * The hole SpecFreeze exists to close: a citation that satisfied the plan
-   * gate, rewritten before the code gate resolved it.
+   * The deadlock this closes: grounding rows freeze at plan, but nothing at
+   * plan looks at a citation — the plan gate checks only that answers are
+   * non-blank and all three tiers appear. grounding_check first RESOLVES them
+   * at code, and its refusal reads "Cite a class this site actually has ... or
+   * `none: <query>`", which is an instruction to edit a frozen cell. Freezing
+   * the Evidence column therefore protected something nobody had checked and
+   * forbade the only remedy the failure named.
    */
-  public function testRewritingPlanCitationIsCaught(): void {
-    $tampered = str_replace('`Drupal\node\Entity\NodeType`', '`none: anything`', $this->spec());
+  public function testCitationMayBeCorrectedAfterTheGateRefusesIt(): void {
+    $plan = "## Grounding\n\n| Phase | Tier | Asked | Found | Evidence |\n"
+      . "|---|---|---|---|---|\n| plan | core | how? | NodeType | `Drupal\\Made\\Up` |\n";
+    $fixed = str_replace('`Drupal\Made\Up`', '`Drupal\node\Entity\NodeType`', $plan);
 
-    $this->assertSame(
-      ['## Grounding (1 row(s) removed or rewritten)'],
-      SpecFreeze::breaches($tampered, $this->spec()),
-    );
+    $this->assertSame([], SpecFreeze::breaches($fixed, $plan));
+  }
+
+  /**
+   * The Evidence column may be ADDED, which the gate also demands.
+   *
+   * A table with no such column fails grounding_check for citing nothing; the
+   * plan gate never required it, so a spec can be frozen without one.
+   */
+  public function testTheEvidenceColumnMayBeAdded(): void {
+    $plan = "## Grounding\n\n| Phase | Tier | Asked | Found |\n|---|---|---|---|\n"
+      . "| plan | core | how? | NodeType |\n";
+    $withColumn = "## Grounding\n\n| Phase | Tier | Asked | Found | Evidence |\n"
+      . "|---|---|---|---|---|\n| plan | core | how? | NodeType | `Drupal\\node\\Entity\\NodeType` |\n";
+
+    $this->assertSame([], SpecFreeze::breaches($withColumn, $plan));
+  }
+
+  /**
+   * Rewriting what was ASKED or FOUND is still caught.
+   *
+   * The citation is guarded by adjudication — it is re-resolved against the
+   * site on every later phase — but the claim about what was looked up and
+   * what came back is guarded by the freeze, because nothing re-runs a
+   * sentence.
+   */
+  public function testRewritingWhatWasAskedIsStillCaught(): void {
+    $plan = "## Grounding\n\n| Phase | Tier | Asked | Found | Evidence |\n"
+      . "|---|---|---|---|---|\n| plan | core | how is a bundle made? | NodeType | `Drupal\\node\\Entity\\NodeType` |\n";
+    $cheat = str_replace('how is a bundle made? | NodeType', 'anything at all? | nothing', $plan);
+
+    $this->assertNotSame([], SpecFreeze::breaches($cheat, $plan));
   }
 
   /**
