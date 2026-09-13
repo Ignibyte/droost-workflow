@@ -574,7 +574,6 @@ final class EvidenceStore {
    *   TRUE when the newest adjudication is satisfied AND was about this code.
    */
   public function stillGreen(string $runId, string $phase, string $name, string $subjectHash): bool {
-    @file_put_contents('/tmp/dr-audit/stillgreen.trace', "CALLED $runId/$phase/$name\n", FILE_APPEND);
     $statement = $this->connection()->prepare(
       'SELECT state, subject_hash FROM check_result
         WHERE run_id = ? AND phase = ? AND name = ?

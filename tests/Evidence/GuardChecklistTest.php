@@ -157,4 +157,50 @@ final class GuardChecklistTest extends TestCase {
     $this->assertStringNotContainsString('playwright', $said);
   }
 
+  /**
+   * The guard's SQL and `CheckState::blocksAdvance()` name the same states.
+   *
+   * There are two definitions of "what stops a phase ending" and they are not
+   * connected. `EvidenceStore::unresolved()` filters with the enum; the guard
+   * cannot call it — it carries no autoloader, deliberately, and must keep
+   * none — so it re-asks the question in raw SQL as `state IN ('blocked',
+   * 'pending')`.
+   *
+   * They agree today. Nothing made them. Add a state, or change what
+   * `blocksAdvance()` returns, and the enum moves while a string literal in a
+   * 540-line procedural script does not — and the thing that silently stops
+   * agreeing is the WALL, which is the one component whose failure mode is
+   * letting a turn end on unresolved work. So the connection is this test.
+   */
+  public function testTheGuardsSqlAgreesWithTheEnum(): void {
+    $guard = file_get_contents(dirname(__DIR__, 2) . '/pack/hooks/droost-workflow-guard.php');
+    $this->assertIsString($guard, 'the guard is where it is expected to be');
+
+    $found = preg_match("/state IN \\(([^)]*)\\)/", $guard, $match);
+    $this->assertSame(1, $found, "the guard still filters with `state IN (…)`");
+
+    // The guard's SQL lives inside a single-quoted PHP string, so every quote
+    // in it arrives here backslash-escaped. Unescape before reading, or the
+    // list comes back empty and the test passes by matching nothing against
+    // nothing — which is the failure mode this test exists to prevent.
+    preg_match_all("/'([a-z_]+)'/", str_replace('\\', '', $match[1]), $states);
+    $inSql = $states[1];
+    sort($inSql);
+    $this->assertNotSame([], $inSql, 'the state list was actually read out of the SQL');
+
+    $fromEnum = [];
+    foreach (CheckState::cases() as $case) {
+      if ($case->blocksAdvance()) {
+        $fromEnum[] = $case->value;
+      }
+    }
+    sort($fromEnum);
+
+    $this->assertSame(
+      $fromEnum,
+      $inSql,
+      'the guard blocks on exactly the states the enum says block; one of the two moved',
+    );
+  }
+
 }
