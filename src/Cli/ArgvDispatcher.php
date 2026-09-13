@@ -101,6 +101,7 @@ final class ArgvDispatcher {
         'declare-changes' => $this->declareChanges($projectRoot, $argv),
         'reset' => $this->reset($projectRoot, $argv),
         'baseline' => $this->baseline($projectRoot, $argv),
+        'evidence' => $this->evidence($projectRoot, $argv),
         default => $this->unknown($verb),
       };
     }
@@ -368,6 +369,52 @@ final class ArgvDispatcher {
   }
 
   /**
+   * Renders the run's evaluation from the evidence store.
+   *
+   * Filling one of these by hand took six files and several hours, and what it
+   * produced was a person's reading of a record they could not query. This is
+   * the record reading itself out.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The arguments: --run=<id>, --write[=<path>].
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function evidence(string $projectRoot, array $argv): int {
+    $runId = NULL;
+    $writeTo = NULL;
+    foreach ($argv as $arg) {
+      if (str_starts_with($arg, '--run=')) {
+        $runId = substr($arg, 6);
+      }
+      if ($arg === '--write') {
+        $writeTo = '';
+      }
+      if (str_starts_with($arg, '--write=')) {
+        $writeTo = substr($arg, 8);
+      }
+    }
+
+    // An empty --write means "you name it": the facade knows the resolved run
+    // id and this does not. The default lands under droost/evidence/ because
+    // that path is deliberately NOT covered by the ignore rule — the SQLite
+    // file stays out of git (binary, unresolvable conflicts on concurrent
+    // runs) and the rendered digest is the review artefact.
+    $result = $this->facade($projectRoot)->evidence($projectRoot, $runId, $writeTo);
+
+    if ($result['written_to'] !== NULL) {
+      $this->say(sprintf('Evaluation for %s written to %s', $result['run_id'], $result['written_to']));
+      return self::EXIT_OK;
+    }
+    $this->say($result['markdown']);
+
+    return self::EXIT_OK;
+  }
+
+  /**
    * Clears a finished run so the next one can start.
    *
    * @param string $projectRoot
@@ -468,6 +515,12 @@ final class ArgvDispatcher {
                        native, none)
       declare-tasks    record the host task surface this session can drive,
                        one task per phase (claude-code, codex, other, none)
+      evidence         render the run's evaluation FROM the record, rather
+                       than writing one about it: --run=<id> for an archived
+                       run, --write[=<path>] to save it (default
+                       droost/evidence/<run>.md). Re-measures the fingerprint
+                       of what every green examined, so a verdict that no
+                       longer describes the code reads EXPIRED.
       reset [--force]  clear a finished run (archives its record to
                        .droost-workflow/history/); --force abandons a live one
       baseline         write the adoption baseline (droost/baseline/): the

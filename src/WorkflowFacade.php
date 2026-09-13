@@ -21,9 +21,11 @@ use Droost\Workflow\Event\NullWorkflowListener;
 use Droost\Workflow\Event\WorkflowListenerInterface;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Evidence\CheckAdjudicatorInterface;
+use Droost\Workflow\Evidence\EvaluationReport;
 use Droost\Workflow\Evidence\DeclarationAudit;
 use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Evidence\SpecFreeze;
+use Droost\Workflow\Evidence\SubjectHasher;
 use Droost\Workflow\Evidence\WorkType;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
@@ -104,6 +106,9 @@ final class WorkflowFacade {
    *   Where that list came from, for status (R31-F3): the booted site's
    *   catalog, drush asked from the standalone binary, or the reason none
    *   could be resolved. NULL lets the facade say "none resolved".
+   * @param \Droost\Workflow\Evidence\CheckAdjudicatorInterface|null $checks
+   *   The contributed checks this surface can ask, or NULL when it has
+   *   none. Asked once per phase, after the gates and before advancing.
    */
   public function __construct(
     private readonly GateExecutorInterface $executor,
@@ -1137,6 +1142,104 @@ final class WorkflowFacade {
     $declared = $this->requireRun($store)->withTasks($tasks);
     $store->save($declared);
     return $declared;
+  }
+
+  /**
+   * The evaluation for a run, generated from the record rather than about it.
+   *
+   * Filling one of these by hand took six files and several hours, and the
+   * hand-filled version is a person's reading of a record they could not query.
+   * Every section here that can be derived IS derived; the ones that need a
+   * human's judgement say so rather than guessing.
+   *
+   * The `still green?` column is why `SubjectHasher` exists. A verdict stored
+   * alone is a sticker; stored beside a fingerprint of what it examined, it
+   * expires by itself when the files move. Recomputing the fingerprints here is
+   * what makes that mechanism real rather than merely present — it was built,
+   * tested, and called by nothing.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string|null $runId
+   *   The run, or NULL for the run recorded in this project's state.
+   * @param string|null $writeTo
+   *   A project-relative path to write to, or NULL to only return the markdown.
+   *
+   * @return array{markdown: string, run_id: string, written_to: string|null}
+   *   The document, the run it describes, and where it was written.
+   *
+   * @throws \Droost\Workflow\State\StateError
+   *   When no run id is given and none can be resolved from the project.
+   */
+  public function evidence(string $projectRoot, ?string $runId = NULL, ?string $writeTo = NULL): array {
+    if ($runId === NULL || trim($runId) === '') {
+      $store = new RunStateStore($projectRoot);
+      $state = $store->load();
+      if ($state === NULL) {
+        throw StateError::noRun($store->label());
+      }
+      $runId = $state->runId;
+    }
+
+    $markdown = (new EvaluationReport(new EvidenceStore($projectRoot)))
+      ->render($runId, $this->currentSubjects($projectRoot));
+
+    $written = NULL;
+    if ($writeTo !== NULL) {
+      // Named from the RESOLVED run id, never from the argument: `--write`
+      // without `--run=` used to land on `droost/evidence/run.md` for every
+      // round, so each run silently overwrote the last one's artefact — and the
+      // artefact is the committed one, the whole point of keeping the SQLite
+      // file out of git.
+      $writeTo = trim($writeTo) === ''
+        ? 'droost/evidence/' . $runId . '.md'
+        : trim($writeTo);
+      $target = rtrim($projectRoot, '/') . '/' . ltrim($writeTo, '/');
+      $directory = dirname($target);
+      if (!is_dir($directory) && !@mkdir($directory, 0775, TRUE) && !is_dir($directory)) {
+        throw StateError::unwritable($target, 'the directory to hold it could not be created');
+      }
+      if (@file_put_contents($target, $markdown) === FALSE) {
+        throw StateError::unwritable($target, 'the file could not be written');
+      }
+      $written = $writeTo;
+    }
+
+    return ['markdown' => $markdown, 'run_id' => $runId, 'written_to' => $written];
+  }
+
+  /**
+   * A fingerprint of what each gate WOULD examine, as the tree stands now.
+   *
+   * Compared against the fingerprint stored beside each green, this is what
+   * turns "the record says phpstan passed" into "phpstan passed, about the code
+   * as it stands right now". A gate whose paths lever resolves to nothing has
+   * no fingerprint and gets none here — NULL is a real answer and is not the
+   * same as "unchanged".
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return array<string, string>
+   *   Gate name to current fingerprint, omitting gates that have none.
+   */
+  private function currentSubjects(string $projectRoot): array {
+    $state = (new RunStateStore($projectRoot))->load();
+    if ($state === NULL) {
+      return [];
+    }
+    $subjects = [];
+    foreach ($state->resolvedGates as $gate => $levers) {
+      if (!is_string($gate) || !is_array($levers)) {
+        continue;
+      }
+      $hash = SubjectHasher::hash($projectRoot, SubjectHasher::fromLever($levers['paths'] ?? NULL));
+      if ($hash !== NULL) {
+        $subjects[$gate] = $hash;
+      }
+    }
+
+    return $subjects;
   }
 
   /**

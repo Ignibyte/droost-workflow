@@ -119,7 +119,7 @@ final class ContributedCheckIntegrationTest extends WorkflowTestCase {
    * The assertion that matters. Every gate green, and the run does not advance
    * — which is the entire proposition of contributing a check, and was false.
    */
-  public function testABlockedCheckStopsAPhaseWithEveryGateGreen(): void {
+  public function testBlockedCheckStopsPhaseWithEveryGateGreen(): void {
     $root = $this->makeRoot();
     $spec = $this->writeSpec($root);
     $calls = [];
@@ -142,7 +142,7 @@ final class ContributedCheckIntegrationTest extends WorkflowTestCase {
    * The other half of the pair: a test that only showed blocking would also
    * pass if checks blocked unconditionally.
    */
-  public function testASatisfiedCheckLetsThePhaseAdvance(): void {
+  public function testSatisfiedCheckLetsThePhaseAdvance(): void {
     $root = $this->makeRoot();
     $spec = $this->writeSpec($root);
     $calls = [];
@@ -191,7 +191,7 @@ final class ContributedCheckIntegrationTest extends WorkflowTestCase {
    * read as the agent's fault — but it cannot pass either, because a check that
    * could not run has not passed.
    */
-  public function testAThrowingAdjudicatorBlocksWithoutCrashing(): void {
+  public function testThrowingAdjudicatorBlocksWithoutCrashing(): void {
     $root = $this->makeRoot();
     $spec = $this->writeSpec($root);
 
@@ -221,7 +221,8 @@ final class ContributedCheckIntegrationTest extends WorkflowTestCase {
       $rows[0]['fault'],
       'somebody else\'s broken plugin is not the agent\'s fault',
     );
-    $this->assertNotSame('', (string) $rows[0]['remedy'], 'and an environment fault names a way out');
+    $this->assertIsString($rows[0]['remedy']);
+    $this->assertNotSame('', $rows[0]['remedy'], 'and an environment fault names a way out');
   }
 
   /**

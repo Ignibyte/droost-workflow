@@ -8,6 +8,7 @@ use Droost\Workflow\Evidence\CheckRecord;
 use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\Evidence\EvaluationReport;
 use Droost\Workflow\Evidence\EvidenceStore;
+use Droost\Workflow\Evidence\SubjectHasher;
 use Droost\Workflow\Evidence\Fault;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -438,9 +439,9 @@ final class EvaluationReportTest extends TestCase {
     }
     $this->assertNotSame('', $row, 'the gate row is in the report at all');
     $this->assertSame(
-      8,
+      9,
       substr_count(str_replace('\\|', '', $row), '|') - 1,
-      'the gate row still has its eight columns: ' . $row,
+      'the gate row still has its nine columns: ' . $row,
     );
     $this->assertStringContainsString("phpcs | tee out.txt", $report, 'the invocation is printed raw, outside the table, so it can be run');
   }
@@ -646,11 +647,11 @@ final class EvaluationReportTest extends TestCase {
   private function verdicts(string $report): array {
     $verdicts = [];
     foreach (explode("\n", $report) as $line) {
-      // Ten parts is the §4 table's eight columns plus the empty ends. §3's
+      // Eleven parts is the §4 table's nine columns plus the empty ends. §3's
       // gate table opens with the same two cells and has four columns, so the
       // count is what tells them apart.
       $cells = array_map(trim(...), explode('|', $line));
-      if (count($cells) === 10 && str_starts_with($cells[1], '`')) {
+      if (count($cells) === 11 && str_starts_with($cells[1], '`')) {
         $verdicts[trim($cells[1], '`')] = $cells[8];
       }
     }
@@ -699,6 +700,76 @@ final class EvaluationReportTest extends TestCase {
     $this->assertInstanceOf(\PDOStatement::class, $statement);
 
     return $statement->fetchAll() ?: [];
+  }
+
+  /**
+   * A green expires in the report when the code it was green about moves.
+   *
+   * This is the claim the whole evidence design rests on, and until now it was
+   * only a claim. `SubjectHasher` and `EvidenceStore::stillGreen()` were built,
+   * unit-tested and called by NOTHING — infrastructure for a consumer that was
+   * never written. So a verdict recorded at 03:00 still read as current at
+   * 03:05 after three files changed, and the only thing that would have caught
+   * it was a human re-running the tool, which is the out-of-band measurement
+   * this whole record exists to replace.
+   *
+   * Three states, and the third is the one that keeps it honest: `unknown` is
+   * not `yes`. A gate with no resolvable subject cannot be shown to have
+   * expired, and saying so beats a tick nobody earned.
+   */
+  public function testGreenExpiresWhenItsSubjectMoves(): void {
+    mkdir($this->root . '/src', 0775, TRUE);
+    file_put_contents($this->root . '/src/A.php', "<?php\n// one\n");
+
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
+    $store->record('r1', 'code', new CheckRecord(
+      'gate', 'phpcs', CheckState::Satisfied, Fault::None, 'clean',
+      NULL, SubjectHasher::hash($this->root, ['src']), 0, 'phpcs src', NULL, 880,
+    ));
+
+    $fresh = SubjectHasher::hash($this->root, ['src']);
+    $this->assertIsString($fresh);
+    $this->assertSame(
+      'yes',
+      $this->stillTrue((new EvaluationReport($store))->render('r1', ['phpcs' => $fresh])),
+      'unchanged code leaves the verdict standing',
+    );
+
+    file_put_contents($this->root . '/src/A.php', "<?php\n// two\n");
+    $moved = SubjectHasher::hash($this->root, ['src']);
+    $this->assertIsString($moved);
+    $this->assertSame(
+      '**EXPIRED**',
+      $this->stillTrue((new EvaluationReport($store))->render('r1', ['phpcs' => $moved])),
+      'a green about code that has since changed is not a green now',
+    );
+
+    $this->assertSame(
+      'unknown',
+      $this->stillTrue((new EvaluationReport($store))->render('r1', [])),
+      'a gate whose subject could not be fingerprinted is unknown, never unchanged',
+    );
+  }
+
+  /**
+   * The `Still true?` cell of the phpcs row.
+   *
+   * @param string $report
+   *   The rendered evaluation.
+   *
+   * @return string
+   *   The cell.
+   */
+  private function stillTrue(string $report): string {
+    foreach (explode("\n", $report) as $line) {
+      $cells = array_map(trim(...), explode('|', $line));
+      if (count($cells) === 11 && $cells[1] === '`phpcs`') {
+        return $cells[9];
+      }
+    }
+
+    return '(no phpcs row)';
   }
 
 }

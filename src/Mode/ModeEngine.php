@@ -42,6 +42,9 @@ final class ModeEngine {
    *   Executes a phase's gates.
    * @param \Droost\Workflow\Mode\QuestionSinkInterface $sink
    *   Delivers a pending question. A notification, not the record.
+   * @param \Droost\Workflow\Evidence\CheckAdjudicatorInterface|null $checks
+   *   The questions a shell command cannot ask, from the modules that can
+   *   answer them. NULL when the site contributes none, which is most.
    */
   public function __construct(
     private readonly GateRunner $runner,
@@ -433,7 +436,6 @@ final class ModeEngine {
       $options,
     );
   }
-
 
   /**
    * Runs the contributed checks for a phase, and says whether it may advance.

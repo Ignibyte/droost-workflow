@@ -130,10 +130,55 @@ final class EvaluationReport {
   public function __construct(private readonly EvidenceStore $store) {}
 
   /**
+   * Fingerprints of what each gate would examine now, from the last render().
+   *
+   * @var array<string, string>
+   */
+  private array $currentSubjects = [];
+
+  /**
+   * Whether a satisfied gate's verdict still describes the code.
+   *
+   * Three answers, and the third is the one that matters most: "unknown" is
+   * not "unchanged". A gate with no resolvable subject — one that talks to a
+   * site, or runs a whole suite by configuration — has no fingerprint and can
+   * never be shown to have expired, and saying so is more honest than a tick.
+   *
+   * @param string $runId
+   *   The run.
+   * @param array<array-key, mixed> $row
+   *   The latest check row for the gate.
+   *
+   * @return string
+   *   A cell: `yes`, `EXPIRED`, or `unknown`.
+   */
+  private function stillDescribesTheCode(string $runId, array $row): string {
+    $name = self::text($row, 'name') ?? '';
+    $state = self::text($row, 'state') ?? '';
+    if ($state !== 'satisfied' && $state !== 'recorded') {
+      return self::NOT_RECORDED;
+    }
+    $current = $this->currentSubjects[$name] ?? NULL;
+    if ($current === NULL || self::text($row, 'subject_hash') === NULL) {
+      return 'unknown';
+    }
+
+    return $this->store->stillGreen($runId, self::text($row, 'phase') ?? '', $name, $current)
+      ? 'yes'
+      : '**EXPIRED**';
+  }
+
+  /**
    * The evaluation for one run, as markdown.
    *
    * @param string $runId
    *   The run.
+   * @param array<string, string> $currentSubjects
+   *   Gate name to a fingerprint of what that gate WOULD examine as the tree
+   *   stands now. Supplying it is what makes a stored green expire: a verdict
+   *   alone is a sticker, and only the comparison says whether it still
+   *   describes the code. Empty means the caller could not compute them, which
+   *   is reported as unknown and never as unchanged.
    *
    * @return string
    *   The document, following the structure of pack/templates/evaluation.md.
@@ -142,7 +187,8 @@ final class EvaluationReport {
    *   When the store cannot be opened. Deliberately not caught: see the class
    *   docblock.
    */
-  public function render(string $runId): string {
+  public function render(string $runId, array $currentSubjects = []): string {
+    $this->currentSubjects = $currentSubjects;
     $run = $this->rows('SELECT * FROM run WHERE run_id = ?', [$runId])[0] ?? [];
     $checks = $this->rows(
       'SELECT * FROM check_result WHERE run_id = ? ORDER BY phase, kind, name, attempt',
@@ -456,6 +502,7 @@ final class EvaluationReport {
         $duration === NULL ? self::NOT_RECORDED : (string) $duration,
         self::text($latest, 'invocation') === NULL ? 'no' : 'yes',
         $verdict,
+        $this->stillDescribesTheCode($runId, $latest),
       ];
       if (count($attempts) > 1) {
         $earlier[] = $this->earlierAttempts($attempts);
@@ -467,11 +514,15 @@ final class EvaluationReport {
       . "`satisfied` and `recorded` rest on something droost collected;\n"
       . "`not applicable` and `unblocked by the operator` are honest and are\n"
       . "NOT measurements; and a measured state with `duration_ms: 0` means the\n"
-      . "tool never spawned.\n\n"
+      . "tool never spawned. The last column re-measures the FINGERPRINT of\n"
+      . "what each gate examined: `EXPIRED` means the verdict was green about\n"
+      . "code that has since moved, and `unknown` means the gate had no\n"
+      . "resolvable subject to fingerprint — which is NOT the same as\n"
+      . "unchanged.\n\n"
       . self::table(
         [
           'Gate', 'Phase', 'State', 'Fault', 'Exit', '`duration_ms`',
-          'Invocation recorded', 'Measured anything?',
+          'Invocation recorded', 'Measured anything?', 'Still true?',
         ],
         $rows,
       )
@@ -483,7 +534,8 @@ final class EvaluationReport {
         count($rows),
         count($rows) === 1 ? '' : 's',
         $measured,
-      );
+      )
+      . $this->expiryNote($rows);
 
     if ($earlier !== []) {
       $out .= "\n### Earlier attempts\n\n"
@@ -499,6 +551,55 @@ final class EvaluationReport {
       . $this->remedies($checks)
       . $this->declarations($runId, $checks)
       . $this->otherChecks($checks);
+  }
+
+  /**
+   * How many verdicts could be re-measured for expiry, and how many had moved.
+   *
+   * Said out loud because the quiet failure is a column of `unknown` that reads
+   * like a column of ticks. A gate's fingerprint comes from its `paths` lever,
+   * and the DEFAULT levers for phpcs and phpstan carry no `paths` at all —
+   * those tools are pointed by phpcs.xml.dist and phpstan.neon, which the run
+   * record never sees. So for a stock project this mechanism currently judges
+   * almost nothing, and a reader is entitled to know that rather than infer it.
+   *
+   * @param list<list<string>> $rows
+   *   The rendered gate rows; the expiry cell is the last of each.
+   *
+   * @return string
+   *   The note.
+   */
+  private function expiryNote(array $rows): string {
+    $checkable = 0;
+    $expired = 0;
+    foreach ($rows as $row) {
+      $cell = $row[array_key_last($row)] ?? '';
+      if ($cell === 'yes' || $cell === '**EXPIRED**') {
+        $checkable++;
+      }
+      if ($cell === '**EXPIRED**') {
+        $expired++;
+      }
+    }
+
+    if ($checkable === 0) {
+      return "\n**No verdict here could be checked for expiry.** A gate's\n"
+        . "fingerprint comes from its `paths` lever, and the default levers for\n"
+        . "the mandatory trio carry none — phpcs and phpstan are pointed by\n"
+        . "their own config files, which this record never sees. Treat every\n"
+        . "green above as unverified against the tree as it now stands.\n";
+    }
+
+    return sprintf(
+      "\n**%d of %d verdict%s could be re-measured against the tree as it now\n"
+      . "stands; %d had expired.** An expired verdict was green about code that\n"
+      . "has since moved, which is not a green now. The rest had no resolvable\n"
+      . "subject to fingerprint, which is not the same as unchanged.\n",
+      $checkable,
+      count($rows),
+      count($rows) === 1 ? '' : 's',
+      $expired,
+    );
   }
 
   /**
