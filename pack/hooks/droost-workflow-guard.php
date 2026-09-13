@@ -77,7 +77,7 @@ if ($mode === 'operator-commands') {
   // `sqlite3 evidence.sqlite "UPDATE check_result SET state='satisfied'"` was
   // not. Every claim resting on "droost wrote these rows and the agent could
   // not" was false for as long as an agent had a shell.
-  protected_path_shell_guard($stdin);
+  protected_path_shell_guard($stdin, $root, $stateDir);
   // Run state is irrelevant here: bypass is granted precisely when there is
   // no run, and a waiver during one. The rule is about WHO, not WHEN.
   operator_commands_guard($stdin);
@@ -86,7 +86,7 @@ if ($mode === 'operator-commands') {
 
 if ($mode === 'pre-tool-use') {
   // Run or no run, the adoption baseline is never the agent's to edit.
-  baseline_dir_guard($stdin);
+  baseline_dir_guard($stdin, $root, $stateDir);
 }
 
 $stateFile = $root . '/' . $stateDir . '/run.json';
@@ -381,13 +381,34 @@ function operator_commands_guard(string $stdin): void {
  * @param string $stdin
  *   The hook payload.
  */
-function protected_path_shell_guard(string $stdin): void {
+function protected_path_shell_guard(string $stdin, string $root, string $stateDir): void {
   $payload = json_decode($stdin, TRUE);
   $payload = is_array($payload) ? $payload : [];
   $input = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
   $command = $input['command'] ?? '';
   if (!is_string($command) || $command === '') {
     return;
+  }
+
+  // The enforcement paths, reachable through a shell exactly as through Write.
+  foreach ([
+    '.claude/hooks/droost-workflow-guard.php',
+    '.claude/settings.json',
+    'droost.workflow.yml',
+    '.claude/skills/',
+    '.claude/agents/',
+  ] as $guarded) {
+    if (!str_contains($command, $guarded)) {
+      continue;
+    }
+    // A directory prefix needs a filename to test as a path; an exact file
+    // must be passed exactly, or it stops matching its own rule.
+    $probe = str_ends_with($guarded, '/') ? $guarded . 'x' : $guarded;
+    $refusal = enforcement_refusal($probe, $root, $stateDir);
+    if ($refusal !== '') {
+      fwrite(STDERR, sprintf('%s (Refused: %s)', $refusal, trim($command)));
+      exit(2);
+    }
   }
 
   if (preg_match('#evidence\.sqlite#', $command) === 1) {
@@ -420,6 +441,79 @@ function protected_path_shell_guard(string $stdin): void {
 }
 
 /**
+ * Refuses edits to the enforcement itself, and to the rules during a run.
+ *
+ * Two tiers, because they answer different questions.
+ *
+ * ALWAYS: the guard script and `.claude/settings.json`. An agent that can
+ * overwrite its own wall with `<?php exit(0);`, or blank the file that wires
+ * the wall in, has no wall — and it does not need a run to be active to do it,
+ * because disarming first and running second is one extra step. Every claim
+ * this pipeline makes about what an agent cannot do rests on these two files
+ * being out of reach.
+ *
+ * DURING AN ACTIVE RUN: the lever file and the skill briefs. Setting a project
+ * up is legitimate work and an agent may be asked to do it — but changing the
+ * rules you are currently being judged by is not the same act. `droost.workflow.yml`
+ * is where the effort dial lives, and moving the dial is documented throughout
+ * as the operator's decision; the briefs are the instructions the run is being
+ * held to. Before a run, both are ordinary files.
+ *
+ * @param string $file
+ *   The project-relative path being written.
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The resolved state directory.
+ *
+ * @return string
+ *   A refusal message, or '' when the path is not protected.
+ */
+function enforcement_refusal(string $file, string $root, string $stateDir): string {
+  $path = str_replace('\\', '/', trim($file));
+  $path = preg_replace('#^\./+#', '', $path) ?? $path;
+  $path = ltrim((string) $path, '/');
+  // Compare against the project-relative tail, so an absolute path lands too.
+  $relative = str_starts_with($path, ltrim(str_replace('\\', '/', $root), '/'))
+    ? ltrim(substr($path, strlen(ltrim(str_replace('\\', '/', $root), '/'))), '/')
+    : $path;
+
+  if (preg_match('#(^|/)\.claude/hooks/droost-workflow-guard\.php$#', $relative) === 1) {
+    return 'That file IS the enforcement. It is the hook that refuses ungoverned '
+      . 'edits, holds a phase until its checks resolve, and keeps the evidence '
+      . 'store out of reach — and an agent that can rewrite it has none of those '
+      . 'things. If the guard is wrong, the OPERATOR reinstalls it with '
+      . '`droost-workflow init`, which takes the shipped version.';
+  }
+  if (preg_match('#(^|/)\.claude/settings\.json$#', $relative) === 1) {
+    return 'That file wires the enforcement in. Removing an entry from it '
+      . 'disarms the wall exactly as surely as deleting the guard, and quietly. '
+      . 'The OPERATOR rewires it with `droost-workflow init`, which merges '
+      . 'rather than overwrites and leaves everything else in the file alone.';
+  }
+
+  // The second tier applies only while a run is under way.
+  if (!is_file($root . '/' . $stateDir . '/run.json')) {
+    return '';
+  }
+  if (preg_match('#(^|/)droost\.workflow\.yml$#', $relative) === 1) {
+    return 'The lever file sets what this run is held to, and a run is under '
+      . 'way. Its levers were frozen when the run began, so editing it now '
+      . 'cannot change THIS run — but it changes the next one, and moving the '
+      . 'effort dial is the operator\'s decision rather than the agent\'s. '
+      . 'Before a run, it is an ordinary file.';
+  }
+  if (preg_match('#(^|/)\.claude/(skills|agents)/#', $relative) === 1) {
+    return 'That is one of the briefs this run is being held to, and a run is '
+      . 'under way. Rewriting your own instructions mid-run is not the same act '
+      . 'as improving them: do it before a run, or ask the operator. '
+      . '`droost-workflow init` takes the shipped versions.';
+  }
+
+  return '';
+}
+
+/**
  * Refuses any agent edit under droost/baseline/, run or no run.
  *
  * The adoption baseline says which findings are inherited and which are new
@@ -432,7 +526,7 @@ function protected_path_shell_guard(string $stdin): void {
  * @param string $stdin
  *   The hook payload, read once by the caller.
  */
-function baseline_dir_guard(string $stdin): void {
+function baseline_dir_guard(string $stdin, string $root, string $stateDir): void {
   $payload = json_decode($stdin, TRUE);
   $payload = is_array($payload) ? $payload : [];
   $input = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
@@ -440,6 +534,13 @@ function baseline_dir_guard(string $stdin): void {
   $file = is_string($file) ? $file : '';
   if ($file === '') {
     return;
+  }
+  // The enforcement itself comes first: a guard an agent can rewrite is not a
+  // guard, and neither is a settings file it can blank.
+  $refusal = enforcement_refusal($file, $root, $stateDir);
+  if ($refusal !== '') {
+    fwrite(STDERR, sprintf('%s (Refused: %s)', $refusal, $file));
+    exit(2);
   }
   // The evidence store belongs here for the same reason the baseline does: it
   // is the run's own record, and a record the subject can edit is not evidence.

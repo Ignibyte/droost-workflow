@@ -568,6 +568,102 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * An agent cannot disarm its own wall, or rewrite the rules mid-run.
+   *
+   * Found by asking the obvious next question after the store hole: if a shell
+   * could reach the evidence store, what else could it reach? Everything. The
+   * guard script, the settings file that wires it in, the lever file and the
+   * briefs were all writable, through both doors. Overwriting
+   * `droost-workflow-guard.php` with `<?php exit(0);` removes every rule this
+   * pipeline has, and needs no run to be active — disarm first, run second is
+   * one extra step.
+   *
+   * Two tiers, because they answer different questions. The guard and its
+   * wiring are ALWAYS out of reach: every claim the pipeline makes rests on
+   * those two files. The lever file and the briefs are out of reach only while
+   * a run is under way — setting a project up is legitimate work an agent may
+   * be asked to do, but changing the rules you are currently being judged by is
+   * a different act.
+   */
+  public function testAgentCannotDisarmTheWallOrRewriteTheRulesMidRun(): void {
+    $root = $this->makeRoot();
+
+    $wall = [
+      'the guard script' => '.claude/hooks/droost-workflow-guard.php',
+      'the file that wires it in' => '.claude/settings.json',
+    ];
+    $duringRun = [
+      'the lever file' => 'droost.workflow.yml',
+      'a skill brief' => '.claude/skills/workflow-code/SKILL.md',
+      'an agent brief' => '.claude/agents/workflow-seeker.md',
+    ];
+
+    // With no run: the wall is shut, project setup is open.
+    foreach ($wall as $label => $path) {
+      $this->assertSame(2, $this->writeAttempt($root, $path), $label . ' is refused with no run');
+      $this->assertSame(2, $this->shellAttempt($root, $path), $label . ' is refused through a shell too');
+    }
+    foreach ($duringRun as $label => $path) {
+      $this->assertSame(0, $this->writeAttempt($root, $path), $label . ' is ordinary before a run');
+    }
+
+    // With a run under way, the second tier closes.
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    file_put_contents($root . '/droost/droost-workflow/run.json', '{"run_id":"r1","current_phase":"code"}');
+    foreach ($duringRun as $label => $path) {
+      $this->assertSame(2, $this->writeAttempt($root, $path), $label . ' is refused during a run');
+      $this->assertSame(2, $this->shellAttempt($root, $path), $label . ' is refused through a shell during a run');
+    }
+    foreach ($wall as $label => $path) {
+      $this->assertSame(2, $this->writeAttempt($root, $path), $label . ' is still refused');
+    }
+
+    // And the work an agent is here to do is untouched.
+    $this->assertSame(0, $this->shellAttempt($root, 'vendor/bin/phpunit --no-coverage'));
+    $this->assertSame(0, $this->writeAttempt($root, 'web/modules/custom/x/x.module'));
+  }
+
+  /**
+   * The exit code of writing to a path through the editing tools.
+   *
+   * @param string $root
+   *   The project.
+   * @param string $path
+   *   The file.
+   *
+   * @return int
+   *   The guard's exit code.
+   */
+  private function writeAttempt(string $root, string $path): int {
+    [$code] = $this->guard($root, 'pre-tool-use', [
+      'tool_name' => 'Write',
+      'tool_input' => ['file_path' => $path, 'content' => 'x'],
+    ]);
+
+    return $code;
+  }
+
+  /**
+   * The exit code of touching a path through a shell.
+   *
+   * @param string $root
+   *   The project.
+   * @param string $command
+   *   The command, or a bare path to be redirected into.
+   *
+   * @return int
+   *   The guard's exit code.
+   */
+  private function shellAttempt(string $root, string $command): int {
+    [$code] = $this->guard($root, 'operator-commands', [
+      'tool_name' => 'Bash',
+      'tool_input' => ['command' => str_contains($command, ' ') ? $command : 'echo x > ' . $command],
+    ]);
+
+    return $code;
+  }
+
+  /**
    * Executes the packed guard exactly as Claude Code would.
    *
    * @param string $root
