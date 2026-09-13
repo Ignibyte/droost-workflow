@@ -165,7 +165,18 @@ final class ModeEngine {
         'evidence store',
       ));
 
-      return new RunOutcome(Outcome::Failed, $state, $report);
+      // Through recordFailure, not around it — and the augmented report back
+      // into state on the way. Returning Failed directly left the run with two
+      // holes: the `evidence_record` result existed only in the envelope, so
+      // `run.json` and every surface reading it showed a phase that failed for
+      // no stated reason; and no retry budget was spent, so the same unwritable
+      // file produced the same failure on every continue, for ever. A blocker
+      // nobody can clear and nobody is told about is the worst of both — the
+      // run has to end SOMEWHERE, and after `max_gate_retries` this one ends as
+      // a failed phase an operator can see and fix.
+      $state = $state->withGateReport($phase->value, $report->toArray());
+
+      return $this->recordFailure($state, $phase, $report);
     }
 
     if (!$report->advance()) {

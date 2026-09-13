@@ -69,6 +69,18 @@ $stateDir = (is_dir($root . '/.droost-workflow')
 // read twice is empty the second time.
 $stdin = (string) stream_get_contents(STDIN);
 
+// Decoded HERE and not at the stop branch below, because one refusal that must
+// honour `stop_hook_active` fires a hundred lines earlier: an unparseable
+// run.json. It did not honour it, and that made the refusal terminal — Claude
+// was made to continue once, tried to stop again, and got the same exit 2, for
+// ever. A hook that can never be satisfied is not enforcement, it is a hang,
+// and the remedy it prints (`reset --force`) is an OPERATOR command the stuck
+// agent is not allowed to run. One enforced continuation per stop attempt is
+// the contract, and it is the contract for every branch.
+$payload = json_decode($stdin, TRUE);
+$payload = is_array($payload) ? $payload : [];
+$stopHookActive = ($payload['stop_hook_active'] ?? FALSE) === TRUE;
+
 if ($mode === 'operator-commands') {
   // A shell is a file editor. `baseline_dir_guard()` refuses the store and the
   // baseline for Edit|Write|MultiEdit|NotebookEdit, and Bash is wired to THIS
@@ -108,7 +120,7 @@ if (!is_array($document)) {
   //
   // A file that EXISTS and cannot be parsed is not "no run". It is a run whose
   // record is damaged, and a turn does not end on one.
-  if ($mode === 'stop') {
+  if ($mode === 'stop' && !$stopHookActive) {
     fwrite(STDERR, sprintf(
       'The run record at %s/run.json cannot be read. That is not the same as '
       . 'having no run: something wrote junk into it, or it was truncated '
@@ -178,9 +190,6 @@ $warnOnce = static function (string $message) use ($root, $stateDir, $mode, $pha
   echo $json;
 };
 
-$payload = json_decode($stdin, TRUE);
-$payload = is_array($payload) ? $payload : [];
-
 if ($mode === 'pre-tool-use') {
   if ($phase !== 'plan') {
     exit(0);
@@ -206,7 +215,7 @@ if ($mode === 'pre-tool-use') {
 }
 
 if ($mode === 'stop') {
-  if (($payload['stop_hook_active'] ?? FALSE) === TRUE) {
+  if ($stopHookActive) {
     // The guard already spoke this turn and Claude continued once because
     // of it. Blocking again would deadlock a run the agent cannot advance;
     // one enforced continuation per stop attempt is the contract.

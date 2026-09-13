@@ -882,4 +882,60 @@ class ModeEngineTest extends WorkflowTestCase {
     );
   }
 
+  /**
+   * That failure is also visible, and it ends.
+   *
+   * The first cut returned `Outcome::Failed` directly, around `recordFailure()`
+   * rather than through it, which cost two things that only show up on the
+   * second attempt. The `evidence_record` result lived in the returned envelope
+   * and never reached the state, so `run.json` — which five surfaces read —
+   * showed a phase that failed with nothing named. And no retry budget was
+   * spent, so the identical unwritable file produced the identical failure on
+   * every continue, without limit: a blocker nobody can clear and nobody is
+   * told about.
+   *
+   * A run has to end somewhere. After `max_gate_retries` this one ends as a
+   * failed phase, which an operator can see and fix.
+   */
+  public function testUnwritableEvidenceIsRecordedAndEventuallyTerminal(): void {
+    $dir = $this->root . '/droost/droost-workflow';
+    mkdir($dir, 0775, TRUE);
+    file_put_contents($dir . '/evidence.sqlite', 'not a database');
+    chmod($dir . '/evidence.sqlite', 0444);
+
+    $engine = $this->engine($this->recordingSink());
+    $state = $this->begin(['mode' => 'agentic', 'max_gate_retries' => 2]);
+
+    $first = $engine->runPhase($state, Phase::Code, $this->root, self::NOW);
+    $this->assertSame(Outcome::Failed, $first->outcome);
+    $this->assertSame(
+      1,
+      $first->state->feedbackAttempts['evidence_record'] ?? 0,
+      'the attempt is spent, so a retry loop is finite',
+    );
+    $phaseRecord = $first->state->gateResults['code'] ?? NULL;
+    $this->assertIsArray($phaseRecord);
+    $recorded = $phaseRecord['gates'] ?? NULL;
+    $this->assertIsArray($recorded);
+    $this->assertNotSame(
+      [],
+      array_filter(
+        $recorded,
+        static fn (mixed $r): bool => is_array($r) && ($r['gate'] ?? '') === 'evidence_record',
+      ),
+      'and the state itself names what failed, not only the envelope',
+    );
+
+    // Second attempt spends the last of the budget; the third has none left.
+    $second = $engine->runPhase($first->state, Phase::Code, $this->root, self::NOW);
+    $third = $engine->runPhase($second->state, Phase::Code, $this->root, self::NOW);
+
+    $this->assertSame(Outcome::Failed, $third->outcome);
+    $this->assertSame(
+      PhaseStatus::Failed,
+      $third->state->phases['code'] ?? NULL,
+      'the budget runs out and the phase is terminally failed, rather than failing for ever',
+    );
+  }
+
 }

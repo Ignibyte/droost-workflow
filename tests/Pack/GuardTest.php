@@ -757,6 +757,32 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * But it does not hold the turn open for ever.
+   *
+   * The refusal above fires a hundred lines before the stop branch that honours
+   * `stop_hook_active`, so it did not honour it: Claude was made to continue
+   * once, tried to stop again, and got the identical exit 2 — with no way out,
+   * because the remedy the message names is an OPERATOR command the guarded
+   * agent may not run. One enforced continuation per stop attempt is the
+   * contract everywhere else in this file, and a refusal that can never be
+   * satisfied is a hang wearing enforcement's clothes.
+   */
+  public function testDamagedRunRecordStillYieldsOnTheSecondStop(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    file_put_contents($root . '/droost/droost-workflow/run.json', 'not json at all');
+
+    [$code, , $stderr] = $this->guard($root, 'stop', [
+      'tool_name' => 'Stop',
+      'tool_input' => [],
+      'stop_hook_active' => TRUE,
+    ]);
+
+    $this->assertSame(0, $code, 'the second stop attempt is allowed');
+    $this->assertSame('', $stderr);
+  }
+
+  /**
    * Executes the packed guard exactly as Claude Code would.
    *
    * @param string $root
