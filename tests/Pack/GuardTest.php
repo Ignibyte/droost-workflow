@@ -1122,6 +1122,140 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * A quote does not manufacture the word boundary a flag needs.
+   *
+   * The comment-and-quote stripper emitted a SPACE for each quote, and a quote
+   * JOINS adjacent words in the shell. `bypass "urgent"--off` is one argument —
+   * the reason `urgent--off` — with no `--off` flag anywhere, and the space
+   * split it into two so the exemption test saw one and allowed the grant. The
+   * fix for a bypass hole opened the same hole through its own door.
+   */
+  public function testQuotesManufactureNoFlag(): void {
+    $root = $this->makeRoot();
+    foreach ([
+      'double quotes' => 'drush droost:workflow:bypass "urgent"--off',
+      'single quotes' => "drush droost:workflow:bypass 'urgent'--off",
+      'an escaped space' => 'drush droost:workflow:bypass urgent\ --off',
+      'a baseline refresh' => 'drush droost:workflow:baseline --refresh "x"--status',
+      'the effort dial' => 'drush droost:workflow:effort low "x"--preview',
+    ] as $label => $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(2, $code, $label . ' is one argument, not a flag');
+    }
+  }
+
+  /**
+   * A containerised or remote drush is judged as the command line it is.
+   *
+   * `ddev exec "drush droost:workflow:bypass --off"` is how this project runs
+   * drush. The verb was found in the raw command while the exemption test
+   * dropped quoted spans — so the `--off` that makes it the SAFE form vanished,
+   * and the operator standing the wall back down was refused. So were the
+   * agent's sanctioned grounding commands in every container form. A guard that
+   * refuses the documented way out is worse than a hole: it is why somebody
+   * switches the guard off.
+   */
+  public function testNestedCommandLineIsUnwrapped(): void {
+    $root = $this->makeRoot();
+    $allowed = [
+      'ddev exec "drush droost:workflow:bypass --off"',
+      'ddev exec "drush droost:workflow:baseline --status"',
+      "bash -c 'drush droost:workflow:bypass --off'",
+      'ssh web "drush droost:workflow:baseline --measure"',
+      'ddev exec "drush droost:workflow:effort low --preview"',
+    ];
+    foreach ($allowed as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(0, $code, $command . ' reads or tightens');
+    }
+
+    // And unwrapping must not become a way THROUGH: the grant forms stay
+    // refused inside the container exactly as outside it.
+    foreach ([
+      'ddev exec "drush droost:workflow:bypass hotfix"',
+      "bash -c 'drush droost:workflow:gate-waive phpcs'",
+      'ddev exec "drush droost:gate allow_entity_write on"',
+      'ddev exec "drush droost:workflow:baseline --refresh"',
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(2, $code, $command . ' is still the operator\'s');
+    }
+  }
+
+  /**
+   * A trailing slash is not a way to act on something inside a directory.
+   *
+   * The scan matched the directory name with a regex whose character classes
+   * did not list `/`, so `rm -rf droost/` — the exact command it was written to
+   * stop — went straight through, and so did `./droost`, `droost//` and
+   * `droost/.`. Matching a path by regex is the mistake; a token goes through
+   * `normalised_path()`, which collapses every one of those and has been
+   * attacked for it.
+   */
+  public function testPathSpellingsDoNotEvadeTheDirectoryScan(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    mkdir($root . '/droost/baseline', 0775, TRUE);
+    mkdir($root . '/.claude/hooks', 0775, TRUE);
+    foreach ([
+      'rm -rf droost/',
+      'rm -rf droost/droost-workflow/',
+      'rm -rf ./droost',
+      'rm -rf droost//',
+      'rm -rf droost/.',
+      'mv ./droost/droost-workflow /tmp/dw',
+      'rm -rf .claude/',
+      'rm -rf droost/baseline/',
+      // An alias bypass and an absolute binary are the same command.
+      '\\rm -rf droost',
+      '/bin/mv droost /tmp',
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(2, $code, $command . ' takes the enforcement with it');
+    }
+  }
+
+  /**
+   * A destructive verb only governs its OWN command.
+   *
+   * Scanning the whole string for a verb and a name refused `rm -rf
+   * node_modules && ls droost`, where the two belong to different commands —
+   * and refused reading a file out of the state directory in the same breath as
+   * an unrelated cleanup. False positives are the more dangerous half here: a
+   * guard that blocks ordinary work is a guard somebody turns off.
+   */
+  public function testDestructiveVerbReachesNoOtherCommand(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    foreach ([
+      'rm -rf node_modules && ls droost',
+      'rm -rf build; cat droost/droost-workflow/spec-x.md',
+      'cp droost/droost-workflow/spec-x.md /tmp/backup.md',
+      'git commit -m "droost work"',
+      'rm -rf vendor',
+      'npm ci',
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(0, $code, $command . ' is ordinary work');
+    }
+  }
+
+  /**
    * Executes the packed guard exactly as Claude Code would.
    *
    * @param string $root
@@ -1159,7 +1293,30 @@ final class GuardTest extends WorkflowTestCase {
     $stderr = (string) stream_get_contents($pipes[2]);
     fclose($pipes[1]);
     fclose($pipes[2]);
-    return [proc_close($process), $stdout, $stderr];
+    $code = proc_close($process);
+
+    // A CRASH IS NOT AN ANSWER. The guard speaks in two exit codes — 0 allows,
+    // 2 blocks — and anything else is a PHP error, which a host reads as "not a
+    // block". A top-level `const` added to this file was not hoisted the way a
+    // function declaration is, so every operator-command check died with an
+    // uncaught Error and exited 255; the shell probe used to find it asked "is
+    // the code 2?" and reported that as ALLOWED. Enforcement was off for an
+    // hour and the probe said it was working.
+    //
+    // Asserted here rather than in each test, so a test cannot pass by reading
+    // a crash as permission.
+    $this->assertContains(
+      $code,
+      [0, 2],
+      sprintf(
+        "The guard exited %d, which is neither allow (0) nor block (2) — it "
+        . "crashed. stderr:\n%s",
+        $code,
+        $stderr,
+      ),
+    );
+
+    return [$code, $stdout, $stderr];
   }
 
 }

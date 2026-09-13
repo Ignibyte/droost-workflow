@@ -317,6 +317,66 @@ exit(0);
  *   The command with data-only heredoc bodies removed.
  */
 /**
+ * A nested command line, unwrapped from the quotes that carry it.
+ *
+ * `ddev exec "drush droost:workflow:bypass --off"` is a real invocation and
+ * this project runs drush through ddev. The verb is found in the raw command,
+ * but the exemption test drops quoted spans — so the `--off` that makes it the
+ * SAFE form vanished with them, and the operator standing the wall back down
+ * was refused. So were the agent's sanctioned grounding commands, `--status`,
+ * `--measure` and `--preview`, in every containerised or remote form. A guard
+ * that refuses the documented way out is worse than one hole: it is the reason
+ * somebody turns the guard off.
+ *
+ * Only a span that CARRIES a verb is unwrapped, so an ordinary quoted argument
+ * is still dropped by the flag test — which is what closes the hole above it.
+ *
+ * @param string $command
+ *   The command, heredoc bodies already dropped.
+ *
+ * @return string
+ *   The innermost command line carrying an operator verb, else the input.
+ */
+function operator_commands_unwrap(string $command): string {
+  // Local, not a top-level `const`. A function declaration is hoisted and a
+  // constant is NOT, and this file does its work near the top and exits long
+  // before a `const` further down would run — so the constant did not exist
+  // when this was called, every operator-command check died with an uncaught
+  // Error, and the hook exited 255. A host reads that as "not a block".
+  //
+  // The lesson is in the test helper as much as here: a probe that asks "is the
+  // exit code 2?" reads a CRASH as permission. Exit 255 is now a failure in
+  // GuardTest, not a pass.
+  $verbs = '/droost:workflow:(gate-waive|baseline|bypass|effort)\b'
+    . '|(?<![\w-])(dwfgw|dwfbl|dwfby|dwfe)\b|droost-workflow\s+baseline\b'
+    . '|(?:droost:gate|(?<![\w-])dgate)\b/';
+  // Bounded: three levels covers `ddev exec "bash -c '…'"` and stops a
+  // pathological string from looping.
+  for ($depth = 0; $depth < 3; $depth++) {
+    if (preg_match_all('/"([^"]*)"|\'([^\']*)\'/', $command, $spans, PREG_SET_ORDER) === 0) {
+      return $command;
+    }
+    $next = NULL;
+    foreach ($spans as $span) {
+      $inner = $span[2] ?? '';
+      if ($inner === '') {
+        $inner = $span[1] ?? '';
+      }
+      if ($inner !== '' && preg_match($verbs, $inner) === 1) {
+        $next = $inner;
+        break;
+      }
+    }
+    if ($next === NULL) {
+      return $command;
+    }
+    $command = $next;
+  }
+
+  return $command;
+}
+
+/**
  * The part of a command in which a bare `--flag` is really a flag.
  *
  * The read-only exemptions below — `--status`, `--measure`, `--preview`,
@@ -364,14 +424,20 @@ function operator_commands_flag_text(string $command): string {
     }
     if ($char === '\'' || $char === '"') {
       $quote = $char;
-      // A space, so the quoted argument does not fuse with its neighbours.
-      $out .= ' ';
+      // A PLACEHOLDER, not a space, and the difference granted a bypass. A
+      // quote JOINS adjacent words in the shell — `bypass "urgent"--off` is one
+      // argument, the reason `urgent--off`, with no `--off` flag anywhere. A
+      // space here split it into two, so the exemption test saw a bare `--off`
+      // and allowed the grant. The byte only has to be non-whitespace: the
+      // tests below ask for a word boundary, and a quoted span is not one.
+      $out .= "\x00";
       continue;
     }
     if ($char === '\\' && $i + 1 < $length) {
-      // An escaped byte outside quotes is a literal, never a flag's dash.
+      // Same reasoning: `urgent\ --off` is ONE argument in the shell, because
+      // the backslash escapes the space.
       $i++;
-      $out .= ' ';
+      $out .= "\x00";
       continue;
     }
     if ($char === '#' && ($out === '' || preg_match('/\s$/', $out) === 1)) {
@@ -464,6 +530,10 @@ function operator_commands_guard(string $stdin): void {
     return;
   }
   $command = operator_commands_scan_text($command);
+  // `ddev exec "drush …"`, `bash -c '…'`, `ssh host "…"`: the command line that
+  // matters is the one inside the quotes, and it must be judged as a command
+  // line rather than as an argument.
+  $command = operator_commands_unwrap($command);
   if (preg_match('/droost:workflow:gate-waive\b|(?<![\w-])dwfgw\b/', $command) === 1) {
     $which = 'gate-waive';
   }
@@ -520,6 +590,81 @@ function operator_commands_guard(string $stdin): void {
     str_starts_with($which, 'gate (') ? ' (Disarming a gate — `off` — needs no operator; only arming does.)' : '',
   ));
   exit(2);
+}
+
+/**
+ * A command split into its separate commands.
+ *
+ * `rm -rf node_modules && ls droost` is two commands, and scanning the whole
+ * string for "a destructive verb" and "a protected name" found one of each and
+ * refused — although the `rm` was nowhere near the `droost`. A verb governs its
+ * OWN operands.
+ *
+ * @param string $command
+ *   The command.
+ *
+ * @return list<string>
+ *   The segments.
+ */
+function operator_commands_segments(string $command): array {
+  $parts = preg_split('/(?:\|\||&&|[;|&\n])/', $command) ?: [];
+
+  return array_values(array_filter(array_map('trim', $parts), static fn (string $p): bool => $p !== ''));
+}
+
+/**
+ * The operands of a command, quotes removed.
+ *
+ * Splitting on unquoted whitespace, which is what the shell does and what a
+ * regex over the raw string kept failing to do: `rm -rf droost/` slipped
+ * through a character class that did not list `/`, and so did `./droost`,
+ * `droost//` and `droost/.`. Every one of those is the same token once it is a
+ * token — and `normalised_path()` already collapses all of them, having been
+ * attacked for exactly that.
+ *
+ * @param string $segment
+ *   One command.
+ *
+ * @return list<string>
+ *   Its words.
+ */
+function operator_commands_operands(string $segment): array {
+  $tokens = [];
+  $current = '';
+  $quote = '';
+  $length = strlen($segment);
+  for ($i = 0; $i < $length; $i++) {
+    $char = $segment[$i];
+    if ($quote !== '') {
+      if ($char === $quote) {
+        $quote = '';
+        continue;
+      }
+      $current .= $char;
+      continue;
+    }
+    if ($char === '\'' || $char === '"') {
+      $quote = $char;
+      continue;
+    }
+    if ($char === '\\' && $i + 1 < $length) {
+      $current .= $segment[++$i];
+      continue;
+    }
+    if (preg_match('/\s/', $char) === 1) {
+      if ($current !== '') {
+        $tokens[] = $current;
+        $current = '';
+      }
+      continue;
+    }
+    $current .= $char;
+  }
+  if ($current !== '') {
+    $tokens[] = $current;
+  }
+
+  return $tokens;
 }
 
 /**
@@ -605,22 +750,50 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
   // the name alone refused `git commit -m "droost work"` — and a guard that
   // blocks ordinary work is a guard somebody turns off. Quoting is not the
   // filter (an attacker would simply quote the path); the verb is.
-  $destructive = '/(?:^|[|;&(`]|\$\()\s*(?:sudo\s+)?(?:rm|unlink|rmdir|mv|cp|ln|install'
-    . '|rsync|shred|truncate|dd|mktemp)\b/';
-  foreach (preg_match($destructive, $command) === 1 ? [
+  // `\\\\?` — an OPTIONAL BACKSLASH, for `\rm`, which is how a shell bypasses an
+  // alias. Written `\\?` first, which in a single-quoted PHP string is `\?`:
+  // a REQUIRED literal question mark. The pattern then matched nothing at all
+  // and the whole scan was dead, which is why the tests below run the real hook
+  // rather than the regex.
+  $destructive = '/^(?:sudo\s+)?(?:command\s+)?\\\\?(?:\/\S+\/)?'
+    . '(?:rm|unlink|rmdir|mv|cp|ln|install|rsync|shred|truncate|dd|mktemp)\b/';
+  $protected = [
     'droost/droost-workflow',
     '.droost-workflow',
     'droost/baseline',
     '.claude/hooks',
     '.claude',
     'droost',
-  ] : [] as $directory) {
-    // As a whole path segment, so `droostier/` and `my-droost` do not match,
-    // and only when the command does something to the directory ITSELF rather
-    // than to something inside it — a trailing separator means the latter.
-    if (preg_match('#(^|[\s\'"=])' . preg_quote($directory, '#') . '([\s\'"]|$)#', $command) !== 1) {
+  ];
+  // Per COMMAND, and per OPERAND. Scanning the whole string for a verb and a
+  // name refused `rm -rf node_modules && ls droost`, where the two belong to
+  // different commands; and matching the name with a regex missed `rm -rf
+  // droost/`, `./droost` and `droost//`, because the character classes did not
+  // list `/`. Both are the same mistake — reading a command line as a string.
+  // A token goes through `normalised_path()`, which already collapses every one
+  // of those spellings and has been attacked for it.
+  //
+  // What still escapes is a shell VARIABLE: `rm -rf "$PWD/droost"` is a path
+  // this cannot resolve without running the shell, which is not something a
+  // pre-tool hook may do. An absolute path is caught; an unexpanded one is not,
+  // and that is stated rather than left to be discovered.
+  $directory = NULL;
+  foreach (operator_commands_segments($command) as $segment) {
+    if (preg_match($destructive, $segment) !== 1) {
       continue;
     }
+    foreach (operator_commands_operands($segment) as $operand) {
+      $landing = resolved_relative($operand, $root);
+      if ($landing === '') {
+        $landing = rtrim(normalised_path($operand), '/');
+      }
+      if (in_array($landing, $protected, TRUE)) {
+        $directory = $landing;
+        break 2;
+      }
+    }
+  }
+  if ($directory !== NULL) {
     fwrite(STDERR, sprintf(
       'A shell command in this run acts on `%s` itself — the directory, not '
       . 'something in it. That directory holds the run\'s record, the evidence '
