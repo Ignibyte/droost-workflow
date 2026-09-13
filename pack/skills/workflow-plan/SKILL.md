@@ -34,12 +34,29 @@ This is a **contract, not advice**. The plan phase cannot end without a
 ```markdown
 ## Grounding
 
-| Phase | Tier | Asked | Found |
-|---|---|---|---|
-| plan | custom  | is there already a rink bundle? | nothing matched — no rink type on this site |
-| plan | contrib | what does views give me for a filtered listing? | a page display with an exposed taxonomy filter |
-| plan | core    | how is a node bundle created? | NodeType config entity |
+| Phase | Tier | Asked | Found | Evidence |
+|---|---|---|---|---|
+| plan | custom  | is there already a rink bundle? | nothing matched — no rink type on this site | `none: rink` |
+| plan | contrib | what does views give me for a filtered listing? | a page display with an exposed taxonomy filter | `Drupal\views\Plugin\views\filter\TaxonomyIndexTid` |
+| plan | core    | how is a node bundle created? | NodeType config entity | `Drupal\node\Entity\NodeType` |
 ```
+
+**The `Evidence` column is checked, and it is the point of the table.** The
+`grounding_check` gate resolves every cell against this site's own stores —
+the symbol graph for custom and contrib, the brain for core — and a `none:`
+claim is **re-run**, so it fails if the thing you said was absent is in fact
+there. Three forms resolve:
+
+| Form | Example | Resolves when |
+|---|---|---|
+| a class, interface or trait | `Drupal\node\Entity\NodeType` | the FQCN is in the symbol graph or the brain |
+| an indexed file | `web/modules/contrib/views/views.module` | the file is in the search index |
+| a negative claim | `none: rink` | re-running the search still returns nothing |
+
+**Every tier you claim needs at least one citation that resolves.** Prose in
+`Found` is what you say about yourself; the citation is what the site can
+confirm. A table with no `Evidence` column is refused — it used to pass, which
+is exactly the hole this column closes.
 
 **All three tiers, every phase that decides.** They answer different questions
 and are not interchangeable:

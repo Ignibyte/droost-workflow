@@ -20,6 +20,11 @@ actually accepts, what core's constructor signature really is.
 Add rows tagged `code`. `Found` must carry what came back — "nothing matched"
 included. An empty cell is refused.
 
+Carry the `Evidence` column too, and keep it resolvable: a class the symbol
+graph or the brain holds, a file the index carries, or `none: <query>` for a
+search that really did come back empty. `grounding_check` re-runs each one,
+including the negative claims, and fails any tier that cites nothing.
+
 
 ## Entry gate
 
