@@ -577,7 +577,14 @@ final class EvaluationReport {
         . "spawned other than its own duration.\n";
     }
 
-    return "\n### Invocations, as recorded\n\n```\n" . implode("\n", $lines) . "```\n";
+    // fence(), not a fixed ``` — an invocation is built from the `command`,
+    // `args` and `paths` a gate's lever file names, and droost.workflow.yml is
+    // a file the guard deliberately exempts from the plan-phase block. A
+    // crafted path could close this fence and write a "## Verdict — PASS"
+    // heading into a report whose every gate was blocked.
+    $body = implode("\n", $lines);
+
+    return "\n### Invocations, as recorded\n\n" . self::fence($body) . "\n";
   }
 
   /**
@@ -1473,7 +1480,20 @@ final class EvaluationReport {
    *   The flattened text.
    */
   private static function escape(string $value): string {
-    $flat = preg_replace('/\s+/u', ' ', $value) ?? $value;
+    // `/u` makes preg_replace return NULL on malformed UTF-8, and the old
+    // `?? $value` fallback then handed back the RAW value — newlines intact.
+    // This is the single defence for every free-text cell in the document, and
+    // it failed open on exactly the input most likely to be hostile or corrupt:
+    // raw bytes out of a tool. A gate summary carrying one stray 0xC3 could
+    // therefore close its table and open a heading of its own.
+    //
+    // So: collapse without /u when the unicode pass fails, which cannot fail,
+    // and strip control characters either way. A cell is one line, always.
+    $flat = preg_replace('/\s+/u', ' ', $value);
+    if (!is_string($flat)) {
+      $flat = (string) preg_replace('/[\x00-\x1F\x7F]+|\s+/', ' ', $value);
+    }
+    $flat = (string) preg_replace('/[\x00-\x1F\x7F]/', '', $flat);
 
     return str_replace('|', '\\|', trim($flat));
   }

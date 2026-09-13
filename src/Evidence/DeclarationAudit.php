@@ -129,13 +129,25 @@ final class DeclarationAudit {
   /**
    * The audit as checks, ready for the store.
    *
-   * Two items rather than one, because they fail for different reasons and a
-   * reader needs to know which: scope and coverage are different promises.
+   * Separate items because they fail for different reasons and a reader needs
+   * to know which — and separate PHASES for the same reason, which is a lesson
+   * this method learned the hard way.
+   *
+   * Scope is a code-phase question: did you build what you said you would.
+   * Coverage is a test-phase question: did you run what you said you would.
+   * Asking the second one at code makes it unanswerable — no test-shaped gate
+   * runs at code, so `ranTests()` is empty BY CONSTRUCTION, every promised test
+   * reads as never run, and the phase can never pass. The plan brief instructs
+   * the declaration that then makes the run impossible, which is exactly the
+   * shape of the SpecFreeze deadlock this project already shipped once.
+   *
+   * @param string|null $phase
+   *   The phase being audited, or NULL for every check at once (tests).
    *
    * @return list<\Droost\Workflow\Evidence\CheckRecord>
-   *   The adjudicated items.
+   *   The adjudicated items due at this phase.
    */
-  public function checks(): array {
+  public function checks(?string $phase = NULL): array {
     $undeclared = $this->undeclared();
     $untouched = $this->untouched();
     $missing = $this->missingTests();
@@ -151,16 +163,19 @@ final class DeclarationAudit {
         implode(', ', $undeclared),
       );
 
-    $checks = [
-      new CheckRecord(
+    $scopeIsDue = $phase === NULL || $phase === 'code';
+    $coverageIsDue = $phase === NULL || $phase === 'test' || $phase === 'complete';
+    $checks = [];
+    if ($scopeIsDue) {
+      $checks[] = new CheckRecord(
         'declaration',
         'declared_files',
         $undeclared === [] ? CheckState::Satisfied : CheckState::Blocked,
         $undeclared === [] ? Fault::None : Fault::Agent,
         $scopeSummary,
-      ),
-    ];
-    if ($this->workType !== NULL) {
+      );
+    }
+    if ($this->workType !== NULL && $scopeIsDue) {
       $unexpected = $this->workType->unexpected($this->changedFiles);
       // A proportion, not a count. One stray file is not a false declaration —
       // a content-model ticket that also touches a .theme to register its
@@ -189,6 +204,8 @@ final class DeclarationAudit {
           : sprintf('declared "%s" (%s); the diff matches', $this->workType->value, $this->workType->label()),
       );
 
+    }
+    if ($this->workType !== NULL && $coverageIsDue) {
       $missed = array_values(array_diff($this->workType->mustMeasure(), $this->measuredGates));
       if ($this->workType->mustMeasure() !== []) {
         $checks[] = new CheckRecord(
@@ -208,7 +225,7 @@ final class DeclarationAudit {
         );
       }
     }
-    if ($this->declaredTests !== []) {
+    if ($this->declaredTests !== [] && $coverageIsDue) {
       $checks[] = new CheckRecord(
         'declaration',
         'declared_tests',

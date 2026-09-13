@@ -181,26 +181,48 @@ final class SpecFreeze {
     if ($body === '') {
       return [];
     }
-    $lines = preg_split('/\R/', $body) ?: [];
+    $lines = array_values(array_filter(
+      array_map('trim', preg_split('/\R/', $body) ?: []),
+      static fn (string $line): bool => $line !== '' && $line[0] === '|',
+    ));
+    // The header is the row BEFORE the separator, whatever cells it holds.
+    //
+    // It used to be recognised by containing a `verified by` cell, which made
+    // the whole comparison depend on a column that may not exist yet. A plan
+    // whose criteria table had no `Verified By` was refused at complete for
+    // lacking it — and adding it, which the engine demands, was then refused as
+    // tampering, because the header stopped being read as a data row and the
+    // "row" it had been counted as vanished. Two mutually exclusive refusals,
+    // and no legal move between them.
+    $separator = NULL;
+    foreach ($lines as $index => $line) {
+      if (preg_match('/^[\s\-:|]+$/', $line) === 1) {
+        $separator = $index;
+        break;
+      }
+    }
     $verified = NULL;
+    if ($separator !== NULL && $separator > 0 && $heading === self::CRITERIA) {
+      $header = array_map(
+        static fn (string $cell): string => strtolower(trim($cell)),
+        self::cells($lines[$separator - 1]),
+      );
+      $found = array_search(self::VERIFIED_COLUMN, $header, TRUE);
+      $verified = $found === FALSE ? NULL : (int) $found;
+    }
     $rows = [];
-    foreach ($lines as $line) {
-      $line = trim($line);
-      if ($line === '' || $line[0] !== '|') {
+    foreach ($lines as $index => $line) {
+      // Skip the separator and the header that precedes it: neither is a
+      // promise, and which columns a table names is not part of the contract.
+      if ($index === $separator || ($separator !== NULL && $index === $separator - 1)) {
+        continue;
+      }
+      if (preg_match('/^[\s\-:|]+$/', $line) === 1) {
         continue;
       }
       $cells = self::cells($line);
-      if ($cells === [] || preg_match('/^[\s\-:|]+$/', $line) === 1) {
+      if ($cells === []) {
         continue;
-      }
-      if ($verified === NULL && $heading === self::CRITERIA) {
-        $header = array_map(static fn (string $c): string => strtolower(trim($c)), $cells);
-        $found = array_search(self::VERIFIED_COLUMN, $header, TRUE);
-        if ($found !== FALSE) {
-          // The header row itself is not a promise; it names the columns.
-          $verified = (int) $found;
-          continue;
-        }
       }
       if ($verified !== NULL) {
         unset($cells[$verified]);

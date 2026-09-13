@@ -36,9 +36,21 @@ use Droost\Workflow\State\RunStateStore;
 final class EvidenceStore {
 
   /**
-   * The database, project-relative.
+   * The database's file name, inside whichever state directory a project uses.
+   *
+   * A NAME rather than a path, and the distinction is not cosmetic. This was a
+   * compile-time constant pinned to `droost/droost-workflow`, and on a project
+   * still using the legacy `.droost-workflow` the first evidence write CREATED
+   * the new directory — which is the exact condition `resolveStateDir()` uses
+   * to decide which one is live. The guard hook then flipped to the new dir,
+   * found no run.json there, concluded there was no active run, and stood down.
+   *
+   * One `upsertRun()` silently disarmed the wall. Not by an attacker: on the
+   * first gate of any legacy project. It is precisely the "silent, permanent
+   * self-disarm" the hook's own comments were written to prevent, arriving
+   * through a door nobody was watching.
    */
-  public const string FILE = RunStateStore::STATE_DIR . '/evidence.sqlite';
+  public const string FILENAME = 'evidence.sqlite';
 
   /**
    * The schema this build writes.
@@ -75,7 +87,8 @@ final class EvidenceStore {
    *   The absolute path.
    */
   public static function pathFor(string $projectRoot): string {
-    return rtrim($projectRoot, '/') . '/' . self::FILE;
+    return rtrim($projectRoot, '/') . '/'
+      . RunStateStore::resolveStateDir($projectRoot) . '/' . self::FILENAME;
   }
 
   /**
@@ -547,6 +560,26 @@ final class EvidenceStore {
     $this->connection()
       ->prepare('INSERT INTO declaration (run_id, phase, kind, value, declared_at) VALUES (?, ?, ?, ?, ?)')
       ->execute([$runId, $phase, $kind, $value, $at ?? date('c')]);
+  }
+
+  /**
+   * Clears a run's declarations of one kind, so a re-declaration replaces.
+   *
+   * Insert-only was a trap. `declared()` reads across the whole run, so an
+   * agent correcting a bad declaration ADDED a second one and inherited both —
+   * and with no `undeclare` verb, a declaration that could not be satisfied had
+   * no legal move except abandoning the run. Re-declaring is now the escape it
+   * always looked like.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $kind
+   *   Either 'file' or 'test'.
+   */
+  public function clearDeclarations(string $runId, string $kind): void {
+    $this->connection()
+      ->prepare('DELETE FROM declaration WHERE run_id = ? AND kind = ?')
+      ->execute([$runId, $kind]);
   }
 
   /**

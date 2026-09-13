@@ -1046,7 +1046,16 @@ final class WorkflowFacade {
         'work_type_declared_at' => $now,
       ]);
     }
+    // A re-declaration REPLACES. Appending meant an agent correcting a mistake
+    // inherited both the old promise and the new one, and with no `undeclare`
+    // verb a declaration it could not satisfy left no move but abandoning the
+    // run. Only the kinds actually passed are touched, so `--tests=` alone does
+    // not silently wipe the file declaration.
     foreach (['file' => $files, 'test' => $tests] as $kind => $values) {
+      if ($values === []) {
+        continue;
+      }
+      $store->clearDeclarations($state->runId, $kind);
       foreach ($values as $value) {
         $store->declare($state->runId, $phase, $kind, $value, $now);
       }
@@ -1228,7 +1237,12 @@ final class WorkflowFacade {
    *   The outcome, downgraded to Failed when the audit blocks.
    */
   private function auditDeclarations(RunOutcome $outcome, Phase $phase, string $projectRoot): RunOutcome {
-    if ($phase !== Phase::Code || $outcome->outcome !== Outcome::Advanced) {
+    // Code AND test, because scope and coverage are different promises asked at
+    // different moments. Auditing coverage at code made it unanswerable: no
+    // test-shaped gate runs there, so every promised test read as never run and
+    // the phase could never pass — while the plan brief instructed the very
+    // declaration that caused it.
+    if (!in_array($phase, [Phase::Code, Phase::Test], TRUE) || $outcome->outcome !== Outcome::Advanced) {
       return $outcome;
     }
     $state = $outcome->state;
@@ -1248,7 +1262,7 @@ final class WorkflowFacade {
         $store->measuredGates($state->runId),
       );
       $blocked = FALSE;
-      foreach ($audit->checks() as $check) {
+      foreach ($audit->checks($phase->value) as $check) {
         $store->record($state->runId, $phase->value, $check, $this->now());
         $blocked = $blocked || $check->state->blocksAdvance();
       }

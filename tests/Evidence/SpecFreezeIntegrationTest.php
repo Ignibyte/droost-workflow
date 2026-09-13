@@ -8,6 +8,8 @@ use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
+use Droost\Workflow\State\RunStateStore;
+use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
@@ -173,6 +175,70 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     $text = (string) file_get_contents($path);
     $this->assertStringContainsString($from, $text, 'the fixture really contains what the edit targets');
     file_put_contents($path, str_replace($from, $to, $text));
+  }
+
+  /**
+   * A run that declares its tests, as the plan brief instructs, can finish.
+   *
+   * The deadlock this pins. `declare-changes --tests=` is step 5 of the plan
+   * brief, and the coverage audit was asked at the CODE phase — where no
+   * test-shaped gate runs, so `ranTests()` was empty by construction, every
+   * promised test read as never run, and the phase could never pass. Obeying
+   * the brief made the run impossible.
+   *
+   * Worse than the SpecFreeze precedent in one way worth remembering: the
+   * block was applied by downgrading the outcome after the retry machinery had
+   * been bypassed, so no budget was spent, the phase stayed active, and the
+   * run looped instead of failing.
+   */
+  public function testDeclaringTestsDoesNotStrandTheCodePhase(): void {
+    $root = $this->makeRootWithConfig("mode: agentic\npreset: low\nenforcement: soft\n");
+    $spec = 'droost/droost-workflow/spec-integration.md';
+    @mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    file_put_contents($root . '/' . $spec, $this->planExitSpec());
+
+    $facade = $this->facade();
+    $facade->run($root, $spec);
+    // Exactly what the plan brief tells the agent to do.
+    $facade->declareChanges($root, ['src'], ['ThingTest'], 'code');
+
+    $this->appendRows($root, $spec, [
+      '| code | custom | named already? | nothing | `none: thing` |',
+      '| code | contrib | the API? | ViewsData | `Drupal\views\ViewsData` |',
+      '| code | core | the constructor? | NodeType | `Drupal\node\Entity\NodeType` |',
+    ]);
+
+    $code = $facade->run($root, $spec);
+
+    $this->assertSame(
+      Outcome::Advanced,
+      $code->outcome,
+      'declaring tests at plan must not make the code phase unpassable',
+    );
+  }
+
+  /**
+   * Re-declaring replaces, so a bad declaration has a legal move.
+   *
+   * Insert-only meant an agent correcting a mistake inherited both promises,
+   * and with no `undeclare` verb the only exit from an unsatisfiable
+   * declaration was abandoning the run.
+   */
+  public function testRedeclaringReplacesRatherThanAccumulating(): void {
+    $root = $this->makeRootWithConfig("mode: agentic\npreset: low\nenforcement: soft\n");
+    $spec = 'droost/droost-workflow/spec-integration.md';
+    @mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    file_put_contents($root . '/' . $spec, $this->planExitSpec());
+
+    $facade = $this->facade();
+    $facade->run($root, $spec);
+    $facade->declareChanges($root, ['src/wrong'], [], NULL);
+    $facade->declareChanges($root, ['src/right'], [], NULL);
+
+    $store = new EvidenceStore($root);
+    $runId = (new RunStateStore($root))->load()->runId;
+
+    $this->assertSame(['src/right'], $store->declared($runId, 'file'));
   }
 
   /**
