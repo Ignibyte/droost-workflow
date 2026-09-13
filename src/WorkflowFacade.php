@@ -1639,11 +1639,12 @@ final class WorkflowFacade {
         $this->vcs->changedFiles($projectRoot, $state->baseCommit),
         $store->workType($state->runId),
         $store->measuredGates($state->runId),
-        // Off by level, or unreachable on this surface: both are gates the
-        // agent cannot make measure, and neither is its fault.
+        // Off by level, unreachable on this surface, or waived by the
+        // operator: three ways a gate cannot show a measurement, none of
+        // them anything the agent chose.
         array_values(array_unique(array_merge(
           self::gatesOff($state),
-          $store->skippedGates($state->runId),
+          $store->unmeasurableGates($state->runId),
         ))),
       );
       $blocked = FALSE;

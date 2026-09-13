@@ -222,4 +222,44 @@ final class WorkTypeTest extends TestCase {
     return FALSE;
   }
 
+  /**
+   * A waived gate does not then block on having measured nothing.
+   *
+   * The operator's waiver is the documented way out of a stuck run: a gate
+   * blocks, the operator lifts it, the run continues. But a waived gate is
+   * `Unblocked` — not measured, not off by level, not skipped by surface — and
+   * it sat in `mustMeasure()` and in none of the exemptions. So lifting the
+   * gate to free a run immediately blocked it again on `type_coverage`, and the
+   * only rescue mechanism the system has created the next wall.
+   *
+   * Three ways a gate can fail to show a measurement, all of them found one at
+   * a time, none of them anything the agent chose: the level turned it off, the
+   * surface could not run it, or the operator lifted it.
+   */
+  public function testWaivedGateDoesNotBlockCoverage(): void {
+    $audit = new DeclarationAudit(
+      ['src'],
+      [],
+      ['src/a.php'],
+      WorkType::Code,
+      ['phpcs', 'phpstan'],
+      // phpunit: waived by the operator, so unmeasurable through no choice of
+      // the agent's.
+      ['phpunit'],
+    );
+
+    $states = [];
+    foreach ($audit->checks('test') as $check) {
+      if ($check->name === 'type_coverage') {
+        $states[] = $check->state->value;
+      }
+    }
+
+    $this->assertSame(
+      ['satisfied'],
+      $states,
+      'the rescue rescues, rather than producing the next block',
+    );
+  }
+
 }

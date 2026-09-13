@@ -867,15 +867,22 @@ final class EvidenceStore {
   }
 
   /**
-   * The gates that could not run here, whatever the levers asked for.
+   * The gates that cannot show a measurement, through nothing the agent did.
    *
-   * A site gate on the standalone binary is ON and unreachable: no booted site,
-   * so `rendered_check` and its kin record `skipped` and measure nothing. For
-   * anything asking "did this gate measure?", that is indistinguishable from a
-   * gate the level turned off — and holding an agent to a gate its SURFACE
-   * cannot run is the same unclearable block as holding it to one the operator
-   * removed. Declaring `--type=theme` from the CLI wedged the test phase
-   * forever on exactly this.
+   * Two ways in, and they were found one at a time. A site gate on the
+   * standalone binary is ON and unreachable — no booted site, so
+   * `rendered_check` and its kin record `skipped` — which wedged the test phase
+   * forever for anyone following the plan skill's own `--type=theme` example.
+   *
+   * And a WAIVED gate, which is worse, because the waiver is the operator's
+   * rescue: a run blocks, the operator lifts the gate to free it, the gate then
+   * measures nothing, and `type_coverage` blocks on that — so the one
+   * documented way out of a stuck run creates the next wall. A waived gate is
+   * `Unblocked`: not measured, not off by level, not skipped by surface, and in
+   * none of the exemptions.
+   *
+   * All of these are the same fact for anything asking "did this gate measure?"
+   * — it could not, and not because of anything the agent chose.
    *
    * @param string $runId
    *   The run.
@@ -883,12 +890,12 @@ final class EvidenceStore {
    * @return list<string>
    *   Gate names recorded as skipped.
    */
-  public function skippedGates(string $runId): array {
+  public function unmeasurableGates(string $runId): array {
     $statement = $this->connection()->prepare(
       'SELECT DISTINCT name FROM check_result
-        WHERE run_id = ? AND kind = \'gate\' AND state = ?'
+        WHERE run_id = ? AND kind = \'gate\' AND state IN (?, ?)'
     );
-    $statement->execute([$runId, CheckState::Skipped->value]);
+    $statement->execute([$runId, CheckState::Skipped->value, CheckState::Unblocked->value]);
 
     return array_map(static fn (array $row): string => self::text($row, 'name'), self::rows($statement));
   }
