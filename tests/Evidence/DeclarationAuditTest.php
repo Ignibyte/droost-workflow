@@ -172,6 +172,56 @@ final class DeclarationAuditTest extends TestCase {
   }
 
   /**
+   * Installing the product is not undeclared work.
+   *
+   * The lock files were exempt and their MANIFESTS were not, which made the
+   * product's own documented first step — `composer require --dev
+   * droost/workflow` — a scope-creep block carrying an AGENT fault, on a file
+   * the agent did not choose to write. A walk hit it during ordinary setup.
+   *
+   * The declaration is the requirement; the manifest is how a package manager
+   * records it. And the trees the manifests fill are here too: most
+   * repositories gitignore them, and the ones that do not saw every transitive
+   * dependency of a single `require` reported as creep.
+   */
+  public function testDependencyBookkeepingIsNotScopeCreep(): void {
+    $audit = new DeclarationAudit(
+      ['src/A.php'],
+      [],
+      [
+        'src/A.php',
+        'composer.json',
+        'composer.lock',
+        'package.json',
+        'package-lock.json',
+        'vendor/droost/workflow/src/WorkflowFacade.php',
+        'node_modules/left-pad/index.js',
+      ],
+    );
+
+    $this->assertSame([], $audit->undeclared());
+  }
+
+  /**
+   * But a source file under a custom module is still creep.
+   *
+   * The exemption must stay a list of bookkeeping, not a hole wide enough to
+   * park real work in.
+   */
+  public function testRealWorkIsStillCaught(): void {
+    $audit = new DeclarationAudit(
+      ['src/A.php'],
+      [],
+      ['src/A.php', 'composer.json', 'web/modules/custom/acme/src/Sneaky.php'],
+    );
+
+    $this->assertSame(
+      ['web/modules/custom/acme/src/Sneaky.php'],
+      $audit->undeclared(),
+    );
+  }
+
+  /**
    * Two spellings of the same path compare equal.
    */
   public function testPathSpellingsAreNormalised(): void {

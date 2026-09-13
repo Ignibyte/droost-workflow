@@ -74,9 +74,23 @@ final class DeclarationAudit {
     '.gitignore',
     'droost/baseline/',
     'droost/evidence/',
+    // Dependency bookkeeping. The lock files were here and their MANIFESTS
+    // were not, which made the product's own documented install step —
+    // `composer require --dev droost/workflow` — a scope-creep block carrying
+    // an agent fault, on a file the agent did not choose to write. Installing a
+    // dependency the plan asked for is not undeclared work; the declaration is
+    // the requirement, and the manifest is how a package manager records it.
+    'composer.json',
     'composer.lock',
+    'package.json',
     'package-lock.json',
     'yarn.lock',
+    // And the trees those manifests fill. `vendor/` and `node_modules/` are
+    // routinely gitignored, so most repositories never see them here — the
+    // ones that commit them saw every transitive dependency of a single
+    // `require` reported as undeclared creep.
+    'vendor/',
+    'node_modules/',
   ];
 
   /**
