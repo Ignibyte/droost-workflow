@@ -39,6 +39,8 @@ use Droost\Workflow\WorkflowFacade;
  */
 final class SpecFreezeIntegrationTest extends WorkflowTestCase {
 
+  use ReadsTheStore;
+
   /**
    * A spec as a plan phase leaves it: criteria unverified, no code grounding.
    *
@@ -236,7 +238,9 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     $facade->declareChanges($root, ['src/right'], [], NULL);
 
     $store = new EvidenceStore($root);
-    $runId = (new RunStateStore($root))->load()->runId;
+    $state = (new RunStateStore($root))->load();
+    $this->assertNotNull($state, 'the run is still open');
+    $runId = $state->runId;
 
     $this->assertSame(['src/right'], $store->declared($runId, 'file'));
   }
@@ -263,7 +267,8 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     $facade->answer($root, 'yes');
 
     $store = new EvidenceStore($root);
-    $row = $store->connection()->query('SELECT spec_hash FROM run')->fetch();
+    $row = $this->storeRow($store->connection(), 'SELECT spec_hash FROM run');
+    $this->assertNotNull($row, 'the run row exists');
     $this->assertIsString($row['spec_hash'] ?? NULL, 'the spec is frozen on the interactive path');
 
     $facade->declareChanges($root, ['src'], [], 'code');
@@ -277,7 +282,7 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
 
     $this->assertGreaterThan(
       0,
-      (int) $store->connection()->query("SELECT COUNT(*) FROM check_result WHERE kind='declaration'")->fetchColumn(),
+      $this->storeCount($store->connection(), "SELECT COUNT(*) FROM check_result WHERE kind='declaration'"),
       'declarations are audited on the interactive path',
     );
   }

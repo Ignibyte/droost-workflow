@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Evidence;
 
+use Droost\Workflow\Evidence\CheckRecord;
 use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\Evidence\DeclarationAudit;
 use Droost\Workflow\Evidence\Fault;
@@ -28,17 +29,19 @@ final class DeclarationAuditTest extends TestCase {
    * @param string $name
    *   The item.
    *
-   * @return \Droost\Workflow\Evidence\CheckRecord|null
-   *   The check.
+   * @return \Droost\Workflow\Evidence\CheckRecord
+   *   The check. Absent is a failed test, not a NULL — see hasCheck().
    */
-  private function check(DeclarationAudit $audit, string $name) {
+  private function check(DeclarationAudit $audit, string $name): CheckRecord {
     foreach ($audit->checks() as $check) {
       if ($check->name === $name) {
         return $check;
       }
     }
-
-    return NULL;
+    // Not `return NULL` behind a `?->`: a missing check then reads as an
+    // assertion about a state that is NULL, which is the wrong sentence for
+    // "the audit never produced this check at all".
+    $this->fail(sprintf('the audit produced no "%s" check', $name));
   }
 
   /**
@@ -53,9 +56,9 @@ final class DeclarationAuditTest extends TestCase {
 
     $this->assertSame(['web/modules/custom/sneaky/sneaky.module'], $audit->undeclared());
     $check = $this->check($audit, 'declared_files');
-    $this->assertSame(CheckState::Blocked, $check?->state);
-    $this->assertSame(Fault::Agent, $check?->fault);
-    $this->assertStringContainsString('sneaky.module', (string) $check?->summary);
+    $this->assertSame(CheckState::Blocked, $check->state);
+    $this->assertSame(Fault::Agent, $check->fault);
+    $this->assertStringContainsString('sneaky.module', (string) $check->summary);
   }
 
   /**
@@ -75,7 +78,7 @@ final class DeclarationAuditTest extends TestCase {
     );
 
     $this->assertSame([], $audit->undeclared());
-    $this->assertSame(CheckState::Satisfied, $this->check($audit, 'declared_files')?->state);
+    $this->assertSame(CheckState::Satisfied, $this->check($audit, 'declared_files')->state);
   }
 
   /**
@@ -86,8 +89,8 @@ final class DeclarationAuditTest extends TestCase {
 
     $this->assertSame(['src/B.php'], $audit->untouched());
     $check = $this->check($audit, 'declared_files');
-    $this->assertSame(CheckState::Satisfied, $check?->state);
-    $this->assertStringContainsString('src/B.php', (string) $check?->summary, 'recorded, so a reader can see the plan moved');
+    $this->assertSame(CheckState::Satisfied, $check->state);
+    $this->assertStringContainsString('src/B.php', (string) $check->summary, 'recorded, so a reader can see the plan moved');
   }
 
   /**
@@ -101,8 +104,8 @@ final class DeclarationAuditTest extends TestCase {
 
     $this->assertSame(['RinkTest'], $audit->missingTests());
     $check = $this->check($audit, 'declared_tests');
-    $this->assertSame(CheckState::Blocked, $check?->state);
-    $this->assertSame(Fault::Agent, $check?->fault);
+    $this->assertSame(CheckState::Blocked, $check->state);
+    $this->assertSame(Fault::Agent, $check->fault);
   }
 
   /**
@@ -117,7 +120,7 @@ final class DeclarationAuditTest extends TestCase {
     );
 
     $this->assertSame([], $audit->missingTests());
-    $this->assertSame(CheckState::Satisfied, $this->check($audit, 'declared_tests')?->state);
+    $this->assertSame(CheckState::Satisfied, $this->check($audit, 'declared_tests')->state);
   }
 
   /**
@@ -161,7 +164,7 @@ final class DeclarationAuditTest extends TestCase {
   public function testNoDeclaredTestsMeansNoCoverageCheck(): void {
     $audit = new DeclarationAudit(['src/A.php'], [], ['src/A.php']);
 
-    $this->assertNull($this->check($audit, 'declared_tests'));
+    $this->assertFalse($this->hasCheck($audit, 'declared_tests'));
     $this->assertCount(1, $audit->checks());
   }
 
@@ -188,6 +191,30 @@ final class DeclarationAuditTest extends TestCase {
     );
 
     $this->assertSame([], $audit->undeclared());
+  }
+
+  /**
+   * Whether the audit produced a check by that name at all.
+   *
+   * Absence is a real verdict and a different one from a NULL state: an item
+   * that cannot fail should not be on the list pretending it passed.
+   *
+   * @param \Droost\Workflow\Evidence\DeclarationAudit $audit
+   *   The audit.
+   * @param string $name
+   *   The check name.
+   *
+   * @return bool
+   *   TRUE when the audit produced it.
+   */
+  private function hasCheck(DeclarationAudit $audit, string $name): bool {
+    foreach ($audit->checks() as $check) {
+      if ($check->name === $name) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
 }

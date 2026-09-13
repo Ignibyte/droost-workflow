@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Evidence;
 
+use Droost\Workflow\Evidence\CheckRecord;
 use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\Evidence\DeclarationAudit;
 use Droost\Workflow\Evidence\Fault;
@@ -33,17 +34,19 @@ final class WorkTypeTest extends TestCase {
    * @param string $name
    *   The item.
    *
-   * @return \Droost\Workflow\Evidence\CheckRecord|null
-   *   The check, or NULL when the audit produced none by that name.
+   * @return \Droost\Workflow\Evidence\CheckRecord
+   *   The check. Absent is a failed test, not a NULL — see hasCheck().
    */
-  private function check(DeclarationAudit $audit, string $name) {
+  private function check(DeclarationAudit $audit, string $name): CheckRecord {
     foreach ($audit->checks() as $check) {
       if ($check->name === $name) {
         return $check;
       }
     }
-
-    return NULL;
+    // Not `return NULL` behind a `?->`: a missing check then reads as an
+    // assertion about a state that is NULL, which is the wrong sentence for
+    // "the audit never produced this check at all".
+    $this->fail(sprintf('the audit produced no "%s" check', $name));
   }
 
   /**
@@ -59,8 +62,8 @@ final class WorkTypeTest extends TestCase {
       ['config_clean', 'rendered_check'],
     );
 
-    $this->assertSame(CheckState::Satisfied, $this->check($audit, 'work_type')?->state);
-    $this->assertSame(CheckState::Satisfied, $this->check($audit, 'type_coverage')?->state);
+    $this->assertSame(CheckState::Satisfied, $this->check($audit, 'work_type')->state);
+    $this->assertSame(CheckState::Satisfied, $this->check($audit, 'type_coverage')->state);
   }
 
   /**
@@ -81,9 +84,9 @@ final class WorkTypeTest extends TestCase {
     );
 
     $check = $this->check($audit, 'work_type');
-    $this->assertSame(CheckState::Blocked, $check?->state);
-    $this->assertSame(Fault::Agent, $check?->fault);
-    $this->assertStringContainsString('contradict it', (string) $check?->summary);
+    $this->assertSame(CheckState::Blocked, $check->state);
+    $this->assertSame(Fault::Agent, $check->fault);
+    $this->assertStringContainsString('contradict it', (string) $check->summary);
   }
 
   /**
@@ -107,7 +110,7 @@ final class WorkTypeTest extends TestCase {
       ['config_clean', 'rendered_check'],
     );
 
-    $this->assertSame(CheckState::Satisfied, $this->check($audit, 'work_type')?->state);
+    $this->assertSame(CheckState::Satisfied, $this->check($audit, 'work_type')->state);
   }
 
   /**
@@ -128,9 +131,9 @@ final class WorkTypeTest extends TestCase {
     );
 
     $check = $this->check($audit, 'type_coverage');
-    $this->assertSame(CheckState::Blocked, $check?->state);
-    $this->assertStringContainsString('config_clean', (string) $check?->summary);
-    $this->assertStringContainsString('measured nothing', (string) $check?->summary);
+    $this->assertSame(CheckState::Blocked, $check->state);
+    $this->assertStringContainsString('config_clean', (string) $check->summary);
+    $this->assertStringContainsString('measured nothing', (string) $check->summary);
   }
 
   /**
@@ -142,8 +145,8 @@ final class WorkTypeTest extends TestCase {
   public function testNoTypeMeansNoTypeChecks(): void {
     $audit = new DeclarationAudit(['src'], [], ['src/a.php']);
 
-    $this->assertNull($this->check($audit, 'work_type'));
-    $this->assertNull($this->check($audit, 'type_coverage'));
+    $this->assertFalse($this->hasCheck($audit, 'work_type'));
+    $this->assertFalse($this->hasCheck($audit, 'type_coverage'));
   }
 
   /**
@@ -158,8 +161,11 @@ final class WorkTypeTest extends TestCase {
 
     $audit = new DeclarationAudit(['docs'], [], ['docs/a.md'], [], WorkType::Docs, []);
 
-    $this->assertNull($this->check($audit, 'type_coverage'), 'nothing to cover means no check, not a free pass');
-    $this->assertSame(CheckState::Satisfied, $this->check($audit, 'work_type')?->state);
+    $this->assertFalse(
+      $this->hasCheck($audit, 'type_coverage'),
+      'nothing to cover means no check, not a free pass',
+    );
+    $this->assertSame(CheckState::Satisfied, $this->check($audit, 'work_type')->state);
   }
 
   /**
@@ -177,7 +183,7 @@ final class WorkTypeTest extends TestCase {
       [],
     );
 
-    $this->assertSame(CheckState::Blocked, $this->check($audit, 'work_type')?->state);
+    $this->assertSame(CheckState::Blocked, $this->check($audit, 'work_type')->state);
   }
 
   /**
@@ -194,6 +200,31 @@ final class WorkTypeTest extends TestCase {
       ['code', 'content_model', 'theme', 'content', 'docs', 'mixed'],
       WorkType::names(),
     );
+  }
+
+  /**
+   * Whether the audit produced a check by that name at all.
+   *
+   * Absence is a real verdict here and a different one from a NULL state: a
+   * run that declared no type must acquire no type checks, rather than two
+   * green ones nobody earned.
+   *
+   * @param \Droost\Workflow\Evidence\DeclarationAudit $audit
+   *   The audit.
+   * @param string $name
+   *   The check name.
+   *
+   * @return bool
+   *   TRUE when the audit produced it.
+   */
+  private function hasCheck(DeclarationAudit $audit, string $name): bool {
+    foreach ($audit->checks() as $check) {
+      if ($check->name === $name) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
 }

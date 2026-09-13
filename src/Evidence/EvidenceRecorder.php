@@ -119,7 +119,17 @@ final class EvidenceRecorder {
       return $parsed;
     }
 
-    return is_array($faults) ? $faults : [];
+    if (!is_array($faults)) {
+      return [];
+    }
+    $map = [];
+    foreach ($faults as $exit => $fault) {
+      if (is_scalar($fault)) {
+        $map[(int) $exit] = (string) $fault;
+      }
+    }
+
+    return $map;
   }
 
   /**

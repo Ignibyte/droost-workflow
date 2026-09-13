@@ -633,8 +633,10 @@ final class RunState {
    * without limit; the oldest attempts drop first, and the count in
    * `feedback_attempts` still says how many there really were.
    *
-   * @param array<string, mixed>|null $previous
-   *   The report this one replaces, if any.
+   * @param array<array-key, mixed>|null $previous
+   *   The report this one replaces, if any. Keyed as loosely as `gateResults`
+   *   itself is: that field round-trips unvalidated, so claiming string keys
+   *   here was a claim about data nobody checks. Only `gates` is ever read.
    * @param array<string, mixed> $report
    *   The incoming serialized PhaseReport.
    *
@@ -667,9 +669,13 @@ final class RunState {
       return $report;
     }
     foreach ($report['gates'] as $i => $gate) {
-      $name = is_array($gate) ? ($gate['gate'] ?? NULL) : NULL;
+      if (!is_array($gate)) {
+        continue;
+      }
+      $name = $gate['gate'] ?? NULL;
       if (is_string($name) && isset($history[$name])) {
-        $report['gates'][$i]['previous_attempts'] = $history[$name];
+        $gate['previous_attempts'] = $history[$name];
+        $report['gates'][$i] = $gate;
       }
     }
 
@@ -697,7 +703,8 @@ final class RunState {
    */
   public function withGateReport(string $phase, array $report): self {
     $results = $this->gateResults;
-    $results[$phase] = self::carryFailedAttempts($results[$phase] ?? NULL, $report);
+    $previous = $results[$phase] ?? NULL;
+    $results[$phase] = self::carryFailedAttempts(is_array($previous) ? $previous : NULL, $report);
     return new self(
       $this->runId,
       $this->startedAt,

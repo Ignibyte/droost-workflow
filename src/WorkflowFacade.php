@@ -1049,7 +1049,8 @@ final class WorkflowFacade {
       );
     }
     $state = $this->requireRun(new RunStateStore($projectRoot));
-    $phase = $state->currentPhase?->value ?? 'plan';
+    $currentPhase = $state->currentPhase;
+    $phase = $currentPhase === NULL ? 'plan' : $currentPhase->value;
     $store = new EvidenceStore($projectRoot);
     $now = $this->now();
     if ($workType !== NULL) {

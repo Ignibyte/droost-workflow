@@ -117,7 +117,12 @@ final class SubjectHasher {
    */
   public static function fromLever(mixed $paths): array {
     if (is_array($paths)) {
-      return array_values(array_filter(array_map('strval', $paths), static fn (string $p): bool => trim($p) !== ''));
+      $strings = array_map(
+        static fn (mixed $path): string => is_scalar($path) ? (string) $path : '',
+        $paths,
+      );
+
+      return array_values(array_filter($strings, static fn (string $p): bool => trim($p) !== ''));
     }
     if (!is_string($paths) || trim($paths) === '') {
       return [];

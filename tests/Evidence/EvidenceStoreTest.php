@@ -22,6 +22,8 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(SubjectHasher::class)]
 final class EvidenceStoreTest extends TestCase {
 
+  use ReadsTheStore;
+
   /**
    * A scratch project root, removed after each test.
    */
@@ -59,9 +61,10 @@ final class EvidenceStoreTest extends TestCase {
       'gate', 'phpstan', CheckState::Satisfied, Fault::None, 'phpstan passed',
     ));
 
-    $attempts = $store->connection()
-      ->query('SELECT attempt, state, summary FROM check_result WHERE name = "phpstan" ORDER BY attempt')
-      ->fetchAll();
+    $attempts = $this->storeRows(
+      $store->connection(),
+      'SELECT attempt, state, summary FROM check_result WHERE name = "phpstan" ORDER BY attempt',
+    );
 
     $this->assertCount(2, $attempts);
     $this->assertSame('blocked', $attempts[0]['state']);
@@ -91,6 +94,7 @@ final class EvidenceStoreTest extends TestCase {
     $after = SubjectHasher::hash($this->root, ['src']);
 
     $this->assertNotSame($before, $after, 'the fingerprint follows content');
+    $this->assertNotNull($after, 'src hashes to something');
     $this->assertFalse(
       $store->stillGreen('r1', 'code', 'phpstan', $after),
       'a green recorded against different code is not a green now',
@@ -152,11 +156,11 @@ final class EvidenceStoreTest extends TestCase {
       ],
     ));
 
-    $rows = $store->connection()->query('SELECT file, line, rule, detail FROM finding ORDER BY seq')->fetchAll();
+    $rows = $this->storeRows($store->connection(), 'SELECT file, line, rule, detail FROM finding ORDER BY seq');
 
     $this->assertCount(3, $rows);
     $this->assertSame('src/a.php', $rows[0]['file']);
-    $this->assertSame(3, (int) $rows[0]['line']);
+    $this->assertEquals(3, $rows[0]['line']);
     $this->assertNull($rows[0]['detail'], 'a fully-mapped finding needs no overflow');
     $this->assertNotNull($rows[2]['detail'], 'a shape with no columns keeps its content as JSON rather than losing it');
   }
@@ -191,7 +195,8 @@ final class EvidenceStoreTest extends TestCase {
     $store->upsertRun('r1', ['preset' => 'medium', 'base_commit' => 'abc123']);
     $store->upsertRun('r1', ['preset' => NULL, 'spec_hash' => 'deadbeef']);
 
-    $row = $store->connection()->query('SELECT preset, base_commit, spec_hash FROM run')->fetch();
+    $row = $this->storeRow($store->connection(), 'SELECT preset, base_commit, spec_hash FROM run');
+    $this->assertNotNull($row, 'the run row exists');
 
     $this->assertSame('medium', $row['preset']);
     $this->assertSame('abc123', $row['base_commit']);
@@ -252,7 +257,7 @@ final class EvidenceStoreTest extends TestCase {
 
     $this->assertSame(
       EvidenceStore::SCHEMA_VERSION,
-      (int) $reopened->connection()->query('PRAGMA user_version')->fetchColumn(),
+      $this->storeCount($reopened->connection(), 'PRAGMA user_version'),
     );
     $this->assertCount(2, $reopened->checklist('r1', 'code'));
   }

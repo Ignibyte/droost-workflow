@@ -136,141 +136,189 @@ final class EvidenceStore {
    * @param \PDO $pdo
    *   The connection.
    */
+
+  /**
+   * Brings the schema up to SCHEMA_VERSION, one version at a time.
+   *
+   * A step ladder rather than a chain of `if ($at < N)`: the last rung of a
+   * chain is always true by construction, which is both a lie the analyser can
+   * prove and a rung somebody forgets to add when the version moves.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   */
   private function migrate(\PDO $pdo): void {
-    $at = (int) ($pdo->query('PRAGMA user_version')->fetchColumn() ?: 0);
-    if ($at >= self::SCHEMA_VERSION) {
+    $statement = $pdo->query('PRAGMA user_version');
+    $at = $statement === FALSE ? 0 : (int) ($statement->fetchColumn() ?: 0);
+    if ($at === self::SCHEMA_VERSION) {
       return;
     }
-    if ($at < 1) {
-      $pdo->exec(<<<'SQL'
-        CREATE TABLE IF NOT EXISTS run (
-          run_id          TEXT PRIMARY KEY,
-          started_at      TEXT NOT NULL,
-          preset          TEXT NOT NULL DEFAULT '',
-          mode            TEXT NOT NULL DEFAULT '',
-          enforcement     TEXT NOT NULL DEFAULT '',
-          base_commit     TEXT,
-          spec_path       TEXT,
-          spec_hash       TEXT,
-          spec_frozen_at  TEXT,
-          spec_text       TEXT,
-          work_type       TEXT,
-          work_type_declared_at TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS check_result (
-          id              INTEGER PRIMARY KEY AUTOINCREMENT,
-          run_id          TEXT NOT NULL,
-          phase           TEXT NOT NULL,
-          attempt         INTEGER NOT NULL,
-          kind            TEXT NOT NULL,
-          name            TEXT NOT NULL,
-          state           TEXT NOT NULL,
-          fault           TEXT NOT NULL DEFAULT 'none',
-          summary         TEXT NOT NULL DEFAULT '',
-          remedy          TEXT,
-          subject_hash    TEXT,
-          exit_code       INTEGER,
-          invocation      TEXT,
-          started_at      TEXT,
-          duration_ms     INTEGER,
-          adjudicated_at  TEXT NOT NULL,
-          provider        TEXT
-        );
-        CREATE INDEX IF NOT EXISTS check_by_run   ON check_result (run_id, phase, name);
-        CREATE INDEX IF NOT EXISTS check_by_state ON check_result (run_id, state);
-
-        CREATE TABLE IF NOT EXISTS finding (
-          check_id  INTEGER NOT NULL REFERENCES check_result (id) ON DELETE CASCADE,
-          seq       INTEGER NOT NULL,
-          file      TEXT,
-          line      INTEGER,
-          rule      TEXT,
-          message   TEXT,
-          detail    TEXT
-        );
-        CREATE INDEX IF NOT EXISTS finding_by_check ON finding (check_id);
-
-        CREATE TABLE IF NOT EXISTS transcript (
-          check_id  INTEGER NOT NULL REFERENCES check_result (id) ON DELETE CASCADE,
-          stream    TEXT NOT NULL,
-          content   TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS transcript_by_check ON transcript (check_id);
-
-        CREATE TABLE IF NOT EXISTS tool_call (
-          run_id   TEXT NOT NULL,
-          phase    TEXT,
-          tool     TEXT NOT NULL,
-          outcome  TEXT NOT NULL,
-          at       TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS tool_call_by_run ON tool_call (run_id, phase, tool);
-
-        CREATE TABLE IF NOT EXISTS grounding_row (
-          run_id    TEXT NOT NULL,
-          phase     TEXT NOT NULL,
-          tier      TEXT NOT NULL,
-          asked     TEXT NOT NULL DEFAULT '',
-          found     TEXT NOT NULL DEFAULT '',
-          citation  TEXT NOT NULL DEFAULT '',
-          resolved  INTEGER NOT NULL DEFAULT 0,
-          store     TEXT NOT NULL DEFAULT ''
-        );
-        CREATE INDEX IF NOT EXISTS grounding_by_run ON grounding_row (run_id, phase, tier);
-
-        CREATE TABLE IF NOT EXISTS declaration (
-          run_id       TEXT NOT NULL,
-          phase        TEXT NOT NULL,
-          kind         TEXT NOT NULL,
-          value        TEXT NOT NULL,
-          declared_at  TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS declaration_by_run ON declaration (run_id, phase, kind);
-
-        CREATE TABLE IF NOT EXISTS seeker_finding (
-          run_id    TEXT NOT NULL,
-          phase     TEXT NOT NULL,
-          round     INTEGER NOT NULL,
-          ref       TEXT NOT NULL,
-          severity  TEXT NOT NULL,
-          location  TEXT NOT NULL DEFAULT '',
-          finding   TEXT NOT NULL DEFAULT '',
-          status    TEXT NOT NULL DEFAULT ''
-        );
-        CREATE INDEX IF NOT EXISTS seeker_by_run ON seeker_finding (run_id, round);
-        SQL);
+    // A store written by a NEWER build. Returning quietly here — which is what
+    // `$at >= SCHEMA_VERSION` used to do — left every later query running
+    // against a schema this build does not know, so the run died on "no such
+    // column: work_type" with nothing pointing at the cause. Say the actual
+    // sentence instead. Never downgrade: the newer build's rows are not this
+    // build's to reinterpret.
+    if ($at > self::SCHEMA_VERSION) {
+      throw new \RuntimeException(sprintf(
+        'The evidence store at %s was written at schema v%d and this build of droost/workflow understands v%d. Upgrade droost/workflow, or move that file aside to start a fresh store.',
+        self::pathFor($this->projectRoot),
+        $at,
+        self::SCHEMA_VERSION,
+      ));
     }
-    if ($at < 2) {
-      // v2 adds two joining dimensions the first cut lacked.
-      //
-      // `provider` because a contributed check needs to be attributable: with
-      // droost_jira contributing its own checks, "show me everything that
-      // module asserted" and "this provider's checks all failed — is the
-      // provider broken or is the work bad?" are the first two questions
-      // anybody asks, and neither is answerable from kind+name alone.
-      //
-      // `work_type` because the effort dial answers "how hard do you try" and
-      // says nothing about WHAT is being built. A content-model ticket runs
-      // phpcs over zero PHP files and reports "nothing to analyse" three times
-      // — honest, and noise that teaches people to skim.
-      foreach ([
-        'ALTER TABLE check_result ADD COLUMN provider TEXT',
-        'ALTER TABLE run ADD COLUMN work_type TEXT',
-        'ALTER TABLE run ADD COLUMN work_type_declared_at TEXT',
-      ] as $statement) {
-        try {
-          $pdo->exec($statement);
-        }
-        catch (\PDOException $e) {
-          // A column this build added to a store some other build already
-          // migrated. Additive migrations are idempotent by intent, and
-          // SQLite has no ADD COLUMN IF NOT EXISTS.
-        }
+    for ($version = $at + 1; $version <= self::SCHEMA_VERSION; $version++) {
+      match ($version) {
+        1 => $this->migrateToV1($pdo),
+        2 => $this->migrateToV2($pdo),
+        default => NULL,
+      };
+      // Stamped per rung, so an interrupted upgrade resumes where it stopped
+      // rather than replaying a rung that already ran.
+      $pdo->exec('PRAGMA user_version = ' . $version);
+    }
+  }
+
+  /**
+   * V1 — the original schema.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   */
+  private function migrateToV1(\PDO $pdo): void {
+    $pdo->exec(<<<'SQL'
+      CREATE TABLE IF NOT EXISTS run (
+        run_id          TEXT PRIMARY KEY,
+        started_at      TEXT NOT NULL,
+        preset          TEXT NOT NULL DEFAULT '',
+        mode            TEXT NOT NULL DEFAULT '',
+        enforcement     TEXT NOT NULL DEFAULT '',
+        base_commit     TEXT,
+        spec_path       TEXT,
+        spec_hash       TEXT,
+        spec_frozen_at  TEXT,
+        spec_text       TEXT,
+        work_type       TEXT,
+        work_type_declared_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS check_result (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id          TEXT NOT NULL,
+        phase           TEXT NOT NULL,
+        attempt         INTEGER NOT NULL,
+        kind            TEXT NOT NULL,
+        name            TEXT NOT NULL,
+        state           TEXT NOT NULL,
+        fault           TEXT NOT NULL DEFAULT 'none',
+        summary         TEXT NOT NULL DEFAULT '',
+        remedy          TEXT,
+        subject_hash    TEXT,
+        exit_code       INTEGER,
+        invocation      TEXT,
+        started_at      TEXT,
+        duration_ms     INTEGER,
+        adjudicated_at  TEXT NOT NULL,
+        provider        TEXT
+      );
+      CREATE INDEX IF NOT EXISTS check_by_run   ON check_result (run_id, phase, name);
+      CREATE INDEX IF NOT EXISTS check_by_state ON check_result (run_id, state);
+
+      CREATE TABLE IF NOT EXISTS finding (
+        check_id  INTEGER NOT NULL REFERENCES check_result (id) ON DELETE CASCADE,
+        seq       INTEGER NOT NULL,
+        file      TEXT,
+        line      INTEGER,
+        rule      TEXT,
+        message   TEXT,
+        detail    TEXT
+      );
+      CREATE INDEX IF NOT EXISTS finding_by_check ON finding (check_id);
+
+      CREATE TABLE IF NOT EXISTS transcript (
+        check_id  INTEGER NOT NULL REFERENCES check_result (id) ON DELETE CASCADE,
+        stream    TEXT NOT NULL,
+        content   TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS transcript_by_check ON transcript (check_id);
+
+      CREATE TABLE IF NOT EXISTS tool_call (
+        run_id   TEXT NOT NULL,
+        phase    TEXT,
+        tool     TEXT NOT NULL,
+        outcome  TEXT NOT NULL,
+        at       TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS tool_call_by_run ON tool_call (run_id, phase, tool);
+
+      CREATE TABLE IF NOT EXISTS grounding_row (
+        run_id    TEXT NOT NULL,
+        phase     TEXT NOT NULL,
+        tier      TEXT NOT NULL,
+        asked     TEXT NOT NULL DEFAULT '',
+        found     TEXT NOT NULL DEFAULT '',
+        citation  TEXT NOT NULL DEFAULT '',
+        resolved  INTEGER NOT NULL DEFAULT 0,
+        store     TEXT NOT NULL DEFAULT ''
+      );
+      CREATE INDEX IF NOT EXISTS grounding_by_run ON grounding_row (run_id, phase, tier);
+
+      CREATE TABLE IF NOT EXISTS declaration (
+        run_id       TEXT NOT NULL,
+        phase        TEXT NOT NULL,
+        kind         TEXT NOT NULL,
+        value        TEXT NOT NULL,
+        declared_at  TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS declaration_by_run ON declaration (run_id, phase, kind);
+
+      CREATE TABLE IF NOT EXISTS seeker_finding (
+        run_id    TEXT NOT NULL,
+        phase     TEXT NOT NULL,
+        round     INTEGER NOT NULL,
+        ref       TEXT NOT NULL,
+        severity  TEXT NOT NULL,
+        location  TEXT NOT NULL DEFAULT '',
+        finding   TEXT NOT NULL DEFAULT '',
+        status    TEXT NOT NULL DEFAULT ''
+      );
+      CREATE INDEX IF NOT EXISTS seeker_by_run ON seeker_finding (run_id, round);
+      SQL);
+  }
+
+  /**
+   * V2 — the two joining dimensions the first cut lacked.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   */
+  private function migrateToV2(\PDO $pdo): void {
+    //
+    // `provider` because a contributed check needs to be attributable: with
+    // droost_jira contributing its own checks, "show me everything that
+    // module asserted" and "this provider's checks all failed — is the
+    // provider broken or is the work bad?" are the first two questions
+    // anybody asks, and neither is answerable from kind+name alone.
+    //
+    // `work_type` because the effort dial answers "how hard do you try" and
+    // says nothing about WHAT is being built. A content-model ticket runs
+    // phpcs over zero PHP files and reports "nothing to analyse" three times
+    // — honest, and noise that teaches people to skim.
+    foreach ([
+      'ALTER TABLE check_result ADD COLUMN provider TEXT',
+      'ALTER TABLE run ADD COLUMN work_type TEXT',
+      'ALTER TABLE run ADD COLUMN work_type_declared_at TEXT',
+    ] as $statement) {
+      try {
+        $pdo->exec($statement);
       }
-      $pdo->exec('CREATE INDEX IF NOT EXISTS check_by_provider ON check_result (run_id, provider)');
+      catch (\PDOException $e) {
+        // A column this build added to a store some other build already
+        // migrated. Additive migrations are idempotent by intent, and
+        // SQLite has no ADD COLUMN IF NOT EXISTS.
+      }
     }
-    $pdo->exec('PRAGMA user_version = ' . self::SCHEMA_VERSION);
+    $pdo->exec('CREATE INDEX IF NOT EXISTS check_by_provider ON check_result (run_id, provider)');
   }
 
   /**
@@ -457,7 +505,7 @@ final class EvidenceStore {
     );
     $statement->execute([$runId, $phase]);
 
-    return $statement->fetchAll() ?: [];
+    return self::rows($statement);
   }
 
   /**
@@ -483,7 +531,7 @@ final class EvidenceStore {
     );
     $statement->execute([$runId, $phase, $runId, $phase]);
 
-    return $statement->fetchAll() ?: [];
+    return self::rows($statement);
   }
 
   /**
@@ -502,7 +550,7 @@ final class EvidenceStore {
   public function unresolved(string $runId, string $phase): array {
     return array_values(array_filter(
       $this->checklist($runId, $phase),
-      static fn (array $row): bool => (CheckState::tryFrom((string) $row['state']) ?? CheckState::Pending)->blocksAdvance(),
+      static fn (array $row): bool => (CheckState::tryFrom(self::text($row, 'state')) ?? CheckState::Pending)->blocksAdvance(),
     ));
   }
 
@@ -532,14 +580,14 @@ final class EvidenceStore {
         ORDER BY attempt DESC LIMIT 1'
     );
     $statement->execute([$runId, $phase, $name]);
-    $row = $statement->fetch();
-    if (!is_array($row)) {
+    $row = self::rows($statement)[0] ?? NULL;
+    if ($row === NULL) {
       return FALSE;
     }
 
-    return (string) $row['state'] === CheckState::Satisfied->value
-      && is_string($row['subject_hash'])
-      && hash_equals($row['subject_hash'], $subjectHash);
+    return self::text($row, 'state') === CheckState::Satisfied->value
+      && is_string($row['subject_hash'] ?? NULL)
+      && hash_equals((string) $row['subject_hash'], $subjectHash);
   }
 
   /**
@@ -602,7 +650,7 @@ final class EvidenceStore {
       ->prepare('SELECT DISTINCT value FROM declaration WHERE run_id = ? AND kind = ? ORDER BY value');
     $statement->execute([$runId, $kind]);
 
-    return array_map(static fn (array $row): string => (string) $row['value'], $statement->fetchAll() ?: []);
+    return array_map(static fn (array $row): string => self::text($row, 'value'), self::rows($statement));
   }
 
   /**
@@ -626,10 +674,11 @@ final class EvidenceStore {
     );
     $statement->execute([$runId]);
     $seen = [];
-    foreach ($statement->fetchAll() ?: [] as $row) {
+    foreach (self::rows($statement) as $row) {
       foreach (['summary', 'invocation'] as $column) {
-        if (is_string($row[$column] ?? NULL) && $row[$column] !== '') {
-          $seen[] = $row[$column];
+        $value = self::text($row, $column);
+        if ($value !== '') {
+          $seen[] = $value;
         }
       }
     }
@@ -746,7 +795,7 @@ final class EvidenceStore {
       array_map(static fn (CheckState $state): string => $state->value, $measured),
     ));
 
-    return array_map(static fn (array $row): string => (string) $row['name'], $statement->fetchAll() ?: []);
+    return array_map(static fn (array $row): string => self::text($row, 'name'), self::rows($statement));
   }
 
   /**
@@ -795,11 +844,80 @@ final class EvidenceStore {
     $statement = $this->connection()->prepare($sql . ' GROUP BY tool ORDER BY n DESC, tool');
     $statement->execute($args);
     $tally = [];
-    foreach ($statement->fetchAll() ?: [] as $row) {
-      $tally[(string) $row['tool']] = (int) $row['n'];
+    foreach (self::rows($statement) as $row) {
+      $tally[self::text($row, 'tool')] = self::number($row, 'n');
     }
 
     return $tally;
+  }
+
+  /**
+   * The rows of an executed statement, in the shape the callers claim.
+   *
+   * PDO hands back `mixed`, so every caller that reached into a row was
+   * reaching into `mixed` and every `(string) $row['name']` was a cast the
+   * analyser could not check. One narrowing point instead of thirty casts: a
+   * row that is not an array is dropped rather than indexed, which is the
+   * behaviour every caller already assumed and none of them stated.
+   *
+   * @param \PDOStatement $statement
+   *   An executed statement.
+   *
+   * @return list<array<string, mixed>>
+   *   The rows.
+   */
+  private static function rows(\PDOStatement $statement): array {
+    $rows = [];
+    foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $typed = [];
+      foreach ($row as $column => $value) {
+        $typed[(string) $column] = $value;
+      }
+      $rows[] = $typed;
+    }
+
+    return $rows;
+  }
+
+  /**
+   * One column of a row as a string.
+   *
+   * A column holding something unstringable is a column the schema does not
+   * have, so the empty string is the honest reading — never a fatal from a
+   * cast, and never a silent `Array` either.
+   *
+   * @param array<string, mixed> $row
+   *   The row.
+   * @param string $column
+   *   The column.
+   *
+   * @return string
+   *   The value.
+   */
+  private static function text(array $row, string $column): string {
+    $value = $row[$column] ?? NULL;
+
+    return is_scalar($value) ? (string) $value : '';
+  }
+
+  /**
+   * One column of a row as an integer.
+   *
+   * @param array<string, mixed> $row
+   *   The row.
+   * @param string $column
+   *   The column.
+   *
+   * @return int
+   *   The value, or zero when the column holds nothing countable.
+   */
+  private static function number(array $row, string $column): int {
+    $value = $row[$column] ?? NULL;
+
+    return is_numeric($value) ? (int) $value : 0;
   }
 
 }

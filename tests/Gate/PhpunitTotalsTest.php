@@ -66,6 +66,11 @@ final class PhpunitTotalsTest extends TestCase {
 
   /**
    * The tail is parsed into counts, and an unreadable tail stays NULL.
+   *
+   * @param string $stdout
+   *   The tool's output.
+   * @param array<string, int>|null $expected
+   *   The counts, or NULL when the tail says nothing countable.
    */
   #[DataProvider('tails')]
   public function testTotalsAreReadFromTheTail(string $stdout, ?array $expected): void {

@@ -88,13 +88,16 @@ final class GateAttemptHistoryTest extends TestCase {
         ],
       ]);
 
-    $gate = $state->gateResults['code']['gates'][0];
+    $gate = $this->recordedGate($state, 'code', 0);
+    $attempts = $this->priorAttempts($gate);
     $this->assertSame('passed', $gate['status']);
-    $this->assertCount(1, $gate['previous_attempts']);
-    $this->assertSame('failed', $gate['previous_attempts'][0]['status']);
+    $this->assertCount(1, $attempts);
+    $this->assertIsArray($attempts[0]);
+    $this->assertSame('failed', $attempts[0]['status']);
+    $this->assertIsString($attempts[0]['summary']);
     $this->assertStringContainsString(
       'no knowledge-tool call',
-      $gate['previous_attempts'][0]['summary'],
+      $attempts[0]['summary'],
       'the sentence that caused the work is the one worth keeping',
     );
   }
@@ -119,7 +122,12 @@ final class GateAttemptHistoryTest extends TestCase {
         ],
       ]);
 
-    foreach ($state->gateResults['code']['gates'] as $gate) {
+    $report = $state->gateResults['code'] ?? NULL;
+    $this->assertIsArray($report);
+    $this->assertIsArray($report['gates'] ?? NULL);
+    foreach ($report['gates'] as $gate) {
+      $this->assertIsArray($gate);
+      $this->assertIsString($gate['gate'] ?? NULL);
       $this->assertArrayNotHasKey('previous_attempts', $gate, $gate['gate'] . ' never blocked');
     }
   }
@@ -144,8 +152,10 @@ final class GateAttemptHistoryTest extends TestCase {
       ],
     ]);
 
-    $history = $state->gateResults['test']['gates'][0]['previous_attempts'];
+    $history = $this->priorAttempts($this->recordedGate($state, 'test', 0));
     $this->assertCount(5, $history, 'bounded at five');
+    $this->assertIsArray($history[0]);
+    $this->assertIsArray($history[4]);
     $this->assertSame('attempt 3', $history[0]['summary'], 'the oldest drop first');
     $this->assertSame('attempt 7', $history[4]['summary']);
   }
@@ -164,6 +174,52 @@ final class GateAttemptHistoryTest extends TestCase {
       ->withGateReport('code', ['phase' => 'code']);
 
     $this->assertSame(['phase' => 'code'], $state->gateResults['code']);
+  }
+
+  /**
+   * A recorded gate entry, narrowed out of the opaque blob it lives in.
+   *
+   * `gateResults` is `array<array-key, mixed>` on purpose — it is the one field
+   * round-tripped unvalidated — so walking into it from a test is walking into
+   * `mixed`, and an assertion against `mixed` is an assertion that would still
+   * pass if the shape collapsed. Narrow once, and fail with a sentence naming
+   * which level was not there.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param string $phase
+   *   The phase whose report to read.
+   * @param int $index
+   *   Which gate in that report.
+   *
+   * @return array<array-key, mixed>
+   *   The gate entry.
+   */
+  private function recordedGate(RunState $state, string $phase, int $index): array {
+    $report = $state->gateResults[$phase] ?? NULL;
+    $this->assertIsArray($report, sprintf('a %s report is recorded', $phase));
+    $gates = $report['gates'] ?? NULL;
+    $this->assertIsArray($gates, sprintf('the %s report carries gates', $phase));
+    $gate = $gates[$index] ?? NULL;
+    $this->assertIsArray($gate, sprintf('gate #%d of %s is recorded', $index, $phase));
+
+    return $gate;
+  }
+
+  /**
+   * The carried attempts of a recorded gate.
+   *
+   * @param array<array-key, mixed> $gate
+   *   A gate entry from recordedGate().
+   *
+   * @return array<array-key, mixed>
+   *   The previous attempts.
+   */
+  private function priorAttempts(array $gate): array {
+    $attempts = $gate['previous_attempts'] ?? NULL;
+    $this->assertIsArray($attempts, 'the gate carries its previous attempts');
+
+    return $attempts;
   }
 
 }

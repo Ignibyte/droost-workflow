@@ -146,7 +146,8 @@ final class ReportIntegrityTest extends TestCase {
       'a control character' => ["x\x00\x07y", "\x00"],
     ];
     foreach ($cases as $label => [$input, $forbidden]) {
-      $out = (string) $escape->invoke(NULL, $input);
+      $out = $escape->invoke(NULL, $input);
+      $this->assertIsString($out, $label . ' escapes to a string');
       $this->assertStringNotContainsString($forbidden, str_replace('\\|', '', $out), $label . ' survives escaping');
       $this->assertNotSame('', $out, $label . ' does not vanish entirely');
     }
