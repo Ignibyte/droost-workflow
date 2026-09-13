@@ -61,6 +61,11 @@ final class CheckRecord {
    *   asserted", and "this provider's checks all failed — is the provider
    *   broken or is the work bad?" are the first two questions anybody asks, and
    *   kind+name answers neither.
+   * @param bool|null $measured
+   *   Whether the check examined anything. FALSE for a pass that looked at
+   *   nothing — an empty path set, phpcs exit 16, phpunit finding no tests —
+   *   each of which labelled itself in prose and was then read as an ordinary
+   *   green. NULL when nothing said either way.
    */
   public function __construct(
     public readonly string $kind,
@@ -78,6 +83,7 @@ final class CheckRecord {
     public readonly string $stdout = '',
     public readonly string $stderr = '',
     public readonly string $provider = '',
+    public readonly ?bool $measured = NULL,
   ) {
     if ($this->kind === '' || $this->name === '') {
       throw new \InvalidArgumentException('A check record needs both a kind and a name.');
@@ -144,6 +150,10 @@ final class CheckRecord {
       $result->findings,
       $result->stdout,
       $result->stderr,
+      '',
+      // What the executor knows and prose could not carry: a pass that examined
+      // nothing. Everything else that passed did look at something.
+      !$result->labelledPass,
     );
   }
 

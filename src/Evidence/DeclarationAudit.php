@@ -35,14 +35,45 @@ final class DeclarationAudit {
   /**
    * Paths never counted as scope creep, whoever touched them.
    *
-   * The run's own record and the lock files a legitimate build rewrites. An
-   * agent cannot plan around composer deciding to reformat a lock file, and a
-   * blocked phase over one would be noise that teaches people to declare
-   * everything.
+   * The run's own record, the pack droost itself installs, and the lock files a
+   * legitimate build rewrites. An agent cannot plan around composer
+   * reformatting
+   * a lock file, and a blocked phase over one is noise that teaches people to
+   * declare everything.
+   *
+   * `.claude/` and the lever file are here because leaving them out made this
+   * audit punish the one thing it exists to reward. A reviewer declared its
+   * files honestly and was blocked at code over THIRTY-ONE undeclared paths,
+   * every one of them written by `droost-workflow init` itself: the five agent
+   * briefs, four commands, the guard hook, settings.json, six skills and their
+   * pack markers, the evaluation template, .gitignore and droost.workflow.yml.
+   * Declaring nothing skipped the audit entirely and completed in half the
+   * commands. So the measured shortest path through a run was to declare
+   * nothing, and the cause was droost blaming the agent for droost's own
+   * install.
+   *
+   * This is the third time that exact inversion has shipped, which is why it is
+   * spelled out rather than left to a reader to infer from a prefix list.
    */
+  /**
+   * The gates a test can be observed running through.
+   *
+   * `EvidenceStore::ranTests()` reads these four and nothing else, so a level
+   * that turns all four off leaves "which tests ran" with no possible answer.
+   */
+  private const array TEST_GATES = ['phpunit', 'playwright', 'coverage', 'mutation'];
+
   private const array NEVER_CREEP = [
     'droost/droost-workflow/',
     '.droost-workflow/',
+    // Everything `droost-workflow init` writes, plus the lever file the briefs
+    // tell the agent to edit.
+    '.claude/',
+    'droost.workflow.yml',
+    // Init appends its ignore rule here.
+    '.gitignore',
+    'droost/baseline/',
+    'droost/evidence/',
     'composer.lock',
     'package-lock.json',
     'yarn.lock',
@@ -65,6 +96,13 @@ final class DeclarationAudit {
    *   Gates that actually measured something this run — `satisfied` or
    *   `recorded`, never `off` or `skipped`. A type names the gates its kind of
    *   work rests on, and "passed" is not the same claim as "looked".
+   * @param list<string> $gatesOff
+   *   Gates this run's LEVEL turned off. Nothing here may be held against the
+   *   agent: an operator moving the dial to `low` is deciding that phpunit does
+   *   not run, and blocking the agent for the absence of a result the operator
+   *   removed blames somebody for somebody else's decision — and cannot be
+   *   cleared, because no phase can turn a gate back on. That is a deadlock,
+   *   and this project has shipped that shape twice already.
    */
   public function __construct(
     private readonly array $declaredFiles,
@@ -73,6 +111,7 @@ final class DeclarationAudit {
     private readonly array $ranTests = [],
     private readonly ?WorkType $workType = NULL,
     private readonly array $measuredGates = [],
+    private readonly array $gatesOff = [],
   ) {}
 
   /**
@@ -211,33 +250,70 @@ final class DeclarationAudit {
     }
     if ($this->workType !== NULL && $coverageIsDue) {
       $missed = array_values(array_diff($this->workType->mustMeasure(), $this->measuredGates));
-      if ($this->workType->mustMeasure() !== []) {
+      // A gate the LEVEL turned off is not a gate the agent failed to satisfy.
+      $missed = array_values(array_diff($missed, $this->gatesOff));
+      $rests = array_values(array_diff($this->workType->mustMeasure(), $this->gatesOff));
+      if ($rests === [] && $this->workType->mustMeasure() !== []) {
+        // Every gate this type rests on is off at this level. Green would be a
+        // verification nobody performed; blocked would be unclearable, since no
+        // phase can turn a gate back on.
+        $checks[] = new CheckRecord(
+          'declaration',
+          'type_coverage',
+          CheckState::NotApplicable,
+          Fault::None,
+          sprintf(
+            '%s work rests on %s, and this level runs none of them. Nothing here is verified by a '
+            . 'gate — that is the trade the level makes, and it is not a pass.',
+            $this->workType->value,
+            implode(', ', $this->workType->mustMeasure()),
+          ),
+        );
+      }
+      elseif ($rests !== []) {
         $checks[] = new CheckRecord(
           'declaration',
           'type_coverage',
           $missed === [] ? CheckState::Satisfied : CheckState::Blocked,
           $missed === [] ? Fault::None : Fault::Agent,
           $missed === []
-            ? sprintf('%s work: %s all measured something', $this->workType->value, implode(', ', $this->workType->mustMeasure()))
+            ? sprintf('%s work: %s all measured something', $this->workType->value, implode(', ', $rests))
             : sprintf(
               '%s work rests on %s, and %s measured nothing this run. A gate that passes over an '
               . 'empty path set has not checked the thing this ticket is about.',
               $this->workType->value,
-              implode(', ', $this->workType->mustMeasure()),
+              implode(', ', $rests),
               implode(', ', $missed),
             ),
         );
       }
     }
     if ($this->declaredTests !== [] && $coverageIsDue) {
+      // `ranTests()` reads phpunit, playwright, coverage and mutation and
+      // nothing else. Turn all four off — which `low` does — and that list is
+      // empty BY CONSTRUCTION, so every declared test reads as "never run" and
+      // the phase can never advance. An agent that named its tests honestly was
+      // wedged forever while one that named none walked through: the same
+      // inversion this audit exists to prevent, arriving one phase later.
+      $noRunner = array_diff(self::TEST_GATES, $this->gatesOff) === [];
       $checks[] = new CheckRecord(
         'declaration',
         'declared_tests',
-        $missing === [] ? CheckState::Satisfied : CheckState::Blocked,
-        $missing === [] ? Fault::None : Fault::Agent,
-        $missing === []
-          ? sprintf('%d planned test(s), all run', count($this->declaredTests))
-          : sprintf('planned and never run: %s', implode(', ', $missing)),
+        match (TRUE) {
+          $noRunner => CheckState::NotApplicable,
+          $missing === [] => CheckState::Satisfied,
+          default => CheckState::Blocked,
+        },
+        $missing === [] || $noRunner ? Fault::None : Fault::Agent,
+        match (TRUE) {
+          $noRunner => sprintf(
+            '%d planned test(s), and this level runs no test gate, so nothing can say whether they '
+            . 'ran. Recorded, not verified.',
+            count($this->declaredTests),
+          ),
+          $missing === [] => sprintf('%d planned test(s), all run', count($this->declaredTests)),
+          default => sprintf('planned and never run: %s', implode(', ', $missing)),
+        },
       );
     }
 

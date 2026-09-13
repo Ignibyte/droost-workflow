@@ -60,7 +60,7 @@ final class EvidenceStore {
    * build does not know about costs it nothing. A store written by an older one
    * is migrated up in place.
    */
-  public const int SCHEMA_VERSION = 2;
+  public const int SCHEMA_VERSION = 3;
 
   /**
    * The open connection, or NULL until first use.
@@ -171,6 +171,7 @@ final class EvidenceStore {
       match ($version) {
         1 => $this->migrateToV1($pdo),
         2 => $this->migrateToV2($pdo),
+        3 => $this->migrateToV3($pdo),
         default => NULL,
       };
       // Stamped per rung, so an interrupted upgrade resumes where it stopped
@@ -322,6 +323,36 @@ final class EvidenceStore {
   }
 
   /**
+   * V3 — whether a gate actually examined anything.
+   *
+   * `GateStatus::Passed` is overloaded. Three code paths return it over a run
+   * that examined nothing: a path set resolving to nothing, phpcs exit 16
+   * ("No files were checked"), and phpunit discovering no tests. Each labelled
+   * itself in prose — one literally says "a labeled pass, not a measurement" —
+   * and prose is not a field, so all three landed as ordinary `satisfied` rows.
+   *
+   * `type_coverage`, the one blocking check derived from "measured", then
+   * reported that phpcs, phpstan and phpunit had all measured something on a
+   * run
+   * where two analysed zero files and the third ran zero tests. The check
+   * written to catch that exact case passed in that exact case, while the same
+   * store's own report said "1 measured something" — two implementations of one
+   * question, and the blocking one was the looser.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   */
+  private function migrateToV3(\PDO $pdo): void {
+    try {
+      $pdo->exec('ALTER TABLE check_result ADD COLUMN measured INTEGER');
+    }
+    catch (\PDOException $e) {
+      // A column another build already added. Additive migrations are
+      // idempotent by intent and SQLite has no ADD COLUMN IF NOT EXISTS.
+    }
+  }
+
+  /**
    * Records the run itself, or updates what is already known about it.
    *
    * @param string $runId
@@ -392,8 +423,8 @@ final class EvidenceStore {
       'INSERT INTO check_result
         (run_id, phase, attempt, kind, name, state, fault, summary, remedy,
          subject_hash, exit_code, invocation, started_at, duration_ms, adjudicated_at,
-         provider)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+         provider, measured)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     $statement->execute([
       $runId,
@@ -412,6 +443,7 @@ final class EvidenceStore {
       $check->durationMs,
       $now ?? date('c'),
       $check->provider,
+      $check->measured === NULL ? NULL : (int) $check->measured,
     ]);
     $id = (int) $pdo->lastInsertId();
     $this->recordFindings($pdo, $id, $check->findings);
@@ -787,8 +819,17 @@ final class EvidenceStore {
     ));
     $placeholders = implode(', ', array_fill(0, count($measured), '?'));
     $statement = $this->connection()->prepare(
+      // `measured = 0` is the executor saying it examined nothing: a path
+      // set that resolved to nothing, phpcs exit 16, phpunit finding no
+      // tests. All three are `Passed`, so filtering on the state word alone
+      // reported "phpcs, phpstan and phpunit all measured something" about a
+      // run that analysed zero files and ran zero tests — the check written
+      // to catch that case, passing in that case. NULL is a v2 row, written
+      // before the executor could say; it keeps its old reading rather than
+      // being called a lie retroactively.
       'SELECT DISTINCT name FROM check_result
-        WHERE run_id = ? AND kind = \'gate\' AND state IN (' . $placeholders . ')'
+        WHERE run_id = ? AND kind = \'gate\' AND state IN (' . $placeholders . ')
+          AND (measured IS NULL OR measured = 1)'
     );
     $statement->execute(array_merge(
       [$runId],

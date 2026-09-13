@@ -489,7 +489,8 @@ final class EvaluationReport {
       $latest = $attempts[count($attempts) - 1];
       $state = CheckState::tryFrom((string) (self::text($latest, 'state') ?? ''));
       $duration = self::number($latest, 'duration_ms');
-      $verdict = self::measurement($state, $duration);
+      $recorded = $latest['measured'] ?? NULL;
+      $verdict = self::measurement($state, $duration, is_numeric($recorded) ? (int) $recorded : NULL);
       if ($verdict === 'yes') {
         $measured++;
       }
@@ -1433,16 +1434,27 @@ final class EvaluationReport {
    *   The state, or NULL when the stored value is not one droost knows.
    * @param int|null $durationMs
    *   How long the check took, when that was recorded.
+   * @param int|null $measured
+   *   What the executor recorded: 0 when the tool ran and examined nothing,
+   *   1 when it did, NULL for a row written before it could say.
    *
    * @return string
    *   The cell.
    */
-  private static function measurement(?CheckState $state, ?int $durationMs): string {
+  private static function measurement(?CheckState $state, ?int $durationMs, ?int $measured = NULL): string {
     if ($state === NULL) {
       return 'no — the stored state is not one this build knows';
     }
     if (!$state->measured()) {
       return 'no — ' . $state->label();
+    }
+    // The executor's own answer, when the row carries one. This column and
+    // `EvidenceStore::measuredGates()` are two implementations of one question
+    // and they disagreed: over a labelled pass — phpcs exit 16, phpunit finding
+    // no tests — this said no and the blocking one said yes. Both read the same
+    // recorded fact now, so they cannot drift again.
+    if ($measured === 0) {
+      return 'no — the tool ran and examined nothing (a labeled pass)';
     }
     if ($durationMs === NULL) {
       return 'unproven — no duration recorded, so nothing says the tool spawned';

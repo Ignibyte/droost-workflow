@@ -315,4 +315,67 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     );
   }
 
+  /**
+   * The low-preset run that declared its tests honestly reaches complete.
+   *
+   * A reviewer took this class's own
+   * `testDeclaringTestsDoesNotStrandTheCodePhase`
+   * fixture and drove it ONE PHASE FURTHER than the assertion went. It wedged:
+   *
+   *   plan -> advanced
+   *   code -> advanced        <- where the pinning test stopped looking
+   * test -> failed declared_tests = blocked (planned and never run:
+   * ThingTest)
+   *   test -> failed   type_coverage  = blocked (phpunit measured nothing)
+   *   test -> failed   ... forever, and no budget spent
+   *
+   * With no legal exit. `EvidenceStore::ranTests()` reads phpunit, playwright,
+   * coverage and mutation, and `low` turns all four off — so the list is empty
+   * BY CONSTRUCTION and no test name can ever satisfy it. `declareChanges()`
+   * refuses an empty declaration, so a declared test can be replaced but never
+   * withdrawn.
+   *
+   * The agent that named its tests honestly was wedged forever; the one that
+   * named none walked through in half the commands. That is the third airing of
+   * the same inversion, and the reason a test now drives the whole run rather
+   * than stopping at the phase the bug was last seen in.
+   */
+  public function testDeclaringTestsAtLowDoesNotWedgeTheTestPhase(): void {
+    $root = $this->makeRootWithConfig("preset: low\nmode: agentic\n");
+    $spec = $this->writeSpec($root);
+    $facade = $this->facade();
+
+    $this->assertSame(Outcome::Advanced, $facade->run($root, $spec)->outcome, 'plan');
+    $facade->declareChanges($root, ['src'], ['ThingTest'], 'code');
+    $this->assertSame(Outcome::Advanced, $facade->run($root, $spec)->outcome, 'code');
+
+    // The phase the reviewer had to go one step past to find the wall.
+    $this->assertSame(
+      Outcome::Advanced,
+      $facade->run($root, $spec)->outcome,
+      'test advances: at low there is no test gate, so nothing can say whether a declared test ran',
+    );
+
+    $outcome = $facade->run($root, $spec);
+    $this->assertContains(
+      $outcome->outcome,
+      [Outcome::Advanced, Outcome::Completed],
+      'and the run can actually finish',
+    );
+
+    // Recorded, never green: the level ran no test gate, so nothing verified
+    // it.
+    $states = [];
+    foreach ((new EvidenceStore($root))->checklist($outcome->state->runId, 'test') as $row) {
+      if ($row['name'] === 'declared_tests') {
+        $states[] = $row['state'];
+      }
+    }
+    $this->assertSame(
+      ['not_applicable'],
+      $states,
+      'an unverifiable declaration is recorded as unverified, not as a pass and not as a block',
+    );
+  }
+
 }

@@ -1370,6 +1370,31 @@ final class WorkflowFacade {
   }
 
   /**
+   * The gates this run's level turned off, from the levers frozen at begin.
+   *
+   * Read from the run's own frozen levers rather than re-resolving, for the
+   * reason the levers are frozen at all: a run is held to the configuration it
+   * started under, and an operator editing the dial mid-run must not change
+   * what a half-finished run is being judged against.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   *
+   * @return list<string>
+   *   Gate names that are off.
+   */
+  private static function gatesOff(RunState $state): array {
+    $off = [];
+    foreach ($state->resolvedGates as $gate => $levers) {
+      if (is_string($gate) && is_array($levers) && ($levers['on'] ?? TRUE) === FALSE) {
+        $off[] = $gate;
+      }
+    }
+
+    return $off;
+  }
+
+  /**
    * Adjudicates and records this phase's declaration checks.
    *
    * Split out so the INTERACTIVE path can call it. Interactive runs advance
@@ -1404,6 +1429,7 @@ final class WorkflowFacade {
         $store->ranTests($state->runId),
         $store->workType($state->runId),
         $store->measuredGates($state->runId),
+        self::gatesOff($state),
       );
       $blocked = FALSE;
       foreach ($audit->checks($phase->value) as $check) {

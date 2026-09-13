@@ -64,6 +64,10 @@ final class GateResult {
    * @param int|null $new
    *   How many findings the baseline does NOT record — the ones the verdict
    *   turns on — or NULL when no baseline was consulted.
+   * @param bool $labelledPass
+   *   TRUE when the tool ran and examined nothing. Three paths return a
+   *   pass over an empty scan; each said so only in prose, which the
+   *   evidence boundary discarded.
    */
   public function __construct(
     public readonly string $gate,
@@ -77,6 +81,7 @@ final class GateResult {
     public readonly ?string $invocation = NULL,
     public readonly ?int $inherited = NULL,
     public readonly ?int $new = NULL,
+    public readonly bool $labelledPass = FALSE,
   ) {}
 
   /**
@@ -215,6 +220,61 @@ final class GateResult {
         $hint,
       ),
       invocation: $invocation,
+    );
+  }
+
+  /**
+   * A pass that measured nothing, and says so.
+   *
+   * Three places return `Passed` over a run that examined no code: a path set
+   * that resolves to nothing, phpcs exit 16 ("No files were checked"), and
+   * phpunit discovering no tests. Each already labels itself in prose — one
+   * literally says "a labeled pass, not a measurement" — and each was then
+   * recorded as an ordinary `satisfied` gate, because prose is not a field.
+   *
+   * The cost was exact: `type_coverage`, whose whole job is to catch a gate
+   * that passed over an empty path set, reported "phpcs, phpstan, phpunit all
+   * measured something" for a run where phpcs and phpstan analysed zero files
+   * and phpunit ran zero tests. The check written to catch this case passed in
+   * this case. Meanwhile the report's own column, deriving the same thing a
+   * different way, said "1 measured something" about the same store.
+   *
+   * So the executor states it as a fact instead of implying it in a sentence.
+   *
+   * @param string $gate
+   *   The gate name.
+   * @param int $exitCode
+   *   The tool's exit code.
+   * @param int $durationMs
+   *   How long it took — non-zero here, because the tool really did run.
+   * @param string $summary
+   *   The sentence saying what was NOT measured, and why.
+   * @param string $invocation
+   *   The command, as run.
+   *
+   * @return self
+   *   The result, flagged as having measured nothing.
+   */
+  public static function labelledPass(
+    string $gate,
+    int $exitCode,
+    int $durationMs,
+    string $summary,
+    string $invocation,
+  ): self {
+    return new self(
+      $gate,
+      GateStatus::Passed,
+      $exitCode,
+      $durationMs,
+      $summary,
+      [],
+      FALSE,
+      NULL,
+      $invocation,
+      NULL,
+      NULL,
+      TRUE,
     );
   }
 

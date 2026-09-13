@@ -349,9 +349,8 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       // failing gate on a repo whose custom-code directories are still
       // empty. A pass that SAYS it analysed nothing is the honest verdict —
       // and it is labeled, so it can never be mistaken for a clean scan.
-      return GateResult::ran(
+      return GateResult::labelledPass(
         $gate->name,
-        GateStatus::Passed,
         0,
         0,
         sprintf(
@@ -359,7 +358,6 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
           $gate->name,
           (string) $gate->option('paths'),
         ),
-        [],
         $invocation,
       );
     }
@@ -422,13 +420,11 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     // verdict over a run that checked no files at all, which is the exact
     // failure this branch exists to prevent.
     if ($gate->name === 'phpcs' && $exit === 16) {
-      return GateResult::ran(
+      return GateResult::labelledPass(
         $gate->name,
-        GateStatus::Passed,
         $exit,
         $elapsed,
         'phpcs found nothing to check under the configured paths — a labeled pass, not a measurement.',
-        [],
         $invocation,
       );
     }
@@ -461,13 +457,11 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       // run yet. A labeled pass, so it can never be mistaken for a clean
       // suite — and the first test the test phase writes hardens this gate
       // with no lever touched.
-      return GateResult::ran(
+      return GateResult::labelledPass(
         $gate->name,
-        GateStatus::Passed,
         0,
         $elapsed,
         'phpunit passed — NO TESTS RAN. Either this project has no tests yet, or its suite stopped being discovered; the gate cannot tell those apart, so read this as unverified rather than as a pass.',
-        [],
         $invocation,
       );
     }
