@@ -88,6 +88,7 @@ preset frozen into **this** run — a lever's meaning changes with it.
 | `rendered_check` | | | ″ | | | ″ | |
 | `config_clean` | | | ″ | | | ″ | |
 | `wiki_fresh` | | | ″ | | | ″ | |
+| `grounding_check` | | | ″ | | | ″ + §4b | |
 | `custom:*` | | | `.levers.gates.custom` | | | ″ | |
 | `module:*` | | | `.levers.contributed` | | | ″ | |
 
@@ -105,7 +106,7 @@ A green is not a measurement. Classify every one.
 | Gate | Status | Exit | `duration_ms` | Invocation recorded | Measured anything? |
 |---|---|---|---|---|---|
 
-**Discrimination — 13 of 14 gates can report green having measured nothing:**
+**Discrimination — 14 of 15 gates can report green having measured nothing:**
 
 | Reading | Verified? |
 |---|---|
@@ -121,6 +122,7 @@ A green is not a measurement. Classify every one.
 | `error-tool-failed` | no — crashed |
 | `reported` | a finding that did not block |
 | `waived` | no — an operator overrode it |
+| grounding_check `no spec` / `no grounding table` | no — **labeled** passes, and they say so |
 
 **Asymmetries to encode in any scorer:**
 - Crash-vs-finding is mapped for **four** tools only (eslint, prettier,
@@ -171,6 +173,44 @@ the ledger:
 `web/themes/custom`, how many came from a droost blueprint or a
 `drush generate`, and how many were typed? A run whose Tooling plan is all
 droost tools and whose diff is all hand-written prose has followed neither.
+
+## 4b. Grounding — the three tiers, and whether each was actually reached
+
+`grounding_check` is the only gate that measures the agent's own research, so
+it is the one most worth taking apart. Two halves fail independently, and a
+pass on one tells you nothing about the other.
+
+```bash
+# what the spec claimed
+sed -n '/^## Grounding/,/^## /p' droost/droost-workflow/*spec-*.md
+
+# what the gate said about it
+drush droost:workflow:report | grep -A3 grounding_check
+```
+
+| Tier | Rows | Cited | Citations that resolved | Store that answered | Verdict |
+|---|---|---|---|---|---|
+| custom | | | | symbol graph | |
+| contrib | | | | symbol graph | |
+| core | | | | **brain** — core is not an indexed scope | |
+
+- **A tier with rows but no resolvable citation is not grounded.** Prose in
+  `Found` is the agent's account of itself; the citation is what the site
+  confirms. The gate refuses a claimed tier that cites nothing — before that
+  rule a table with no `Evidence` column passed with "0 citation(s) resolved".
+- **`none:` rows are re-run, not read.** The most valuable row in the table is
+  the one proving a duplicate was not about to be built, and it is also the
+  easiest to type without looking. Check the gate re-ran it: a `none:` claim
+  about something the site has must fail.
+- **Half two is the ledger, not the table.** A citation proves the symbol
+  exists; it can be copied out of a file. `grounding_check` also fails when the
+  ledger records no knowledge-tool call at all — see §4a. Record both verdicts
+  separately, or a run that cited well and looked up nothing scores as grounded.
+- **Core resolves against the brain, and only the brain.** `droost:search:index`
+  runs custom|contrib|themes|wiki; core is a scope nothing indexes by default,
+  so `droost_search_symbol` holds no `node`, `views` or `field` symbols at all.
+  If a round reports core citations resolving against the symbol graph, the
+  probe is wrong, not the finding.
 
 ## 5. Build verdict
 
