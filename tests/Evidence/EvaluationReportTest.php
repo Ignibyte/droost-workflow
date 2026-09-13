@@ -973,4 +973,66 @@ final class EvaluationReportTest extends TestCase {
     );
   }
 
+  /**
+   * A seeker's findings reach the document, not just the table.
+   *
+   * `recordSeekerFindings()` was wired this morning and `seekerFindings()` was
+   * read by nothing — a writer without a reader, which is the same dead-seam
+   * shape as every serious defect found this week, committed hours after
+   * writing a commit message about that shape. Meanwhile §3 asserted in a table
+   * cell that "seeker rows land in `seeker_finding`" while the document never
+   * printed one.
+   *
+   * The cost is already on the record: across four rounds, 6, 25, 12 and 20
+   * findings were caught and recorded as 0, 0, 6 and 2.
+   */
+  public function testSeekerFindingsReachTheDocument(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'high']);
+    $store->recordSeekerFindings('r1', 'code', 1, [
+      [
+        'id' => 'F1',
+        'severity' => 'CRITICAL',
+        'location' => 'src/Rink.php:20',
+        'finding' => 'the cache is never invalidated',
+        'status' => 'open',
+      ],
+      [
+        'id' => 'F2',
+        'severity' => 'MEDIUM',
+        'location' => 'src/Rink.php:44',
+        'finding' => 'the new branch has no test',
+        'status' => 'resolved',
+      ],
+    ]);
+
+    $report = (new EvaluationReport($store))->render('r1');
+
+    $this->assertStringContainsString('the cache is never invalidated', $report);
+    $this->assertStringContainsString('src/Rink.php:44', $report);
+    $this->assertStringContainsString('CRITICAL', $report);
+    $this->assertStringContainsString(
+      '2 findings recorded, 1 still open',
+      $report,
+      'and the count comes from the same rows the table does, so they cannot disagree',
+    );
+  }
+
+  /**
+   * With no findings, the document says which of three things that means.
+   *
+   * "No rows" is ambiguous in a way that matters: no inspection was due, one
+   * ran and found nothing, or one ran and its ledger was never recorded. A
+   * blank section reads as the second, which is the flattering one.
+   */
+  public function testNoSeekerFindingsSaysWhatThatCouldMean(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'low']);
+
+    $report = (new EvaluationReport($store))->render('r1');
+
+    $this->assertStringContainsString('No seeker findings are recorded', $report);
+    $this->assertStringContainsString('they are not equivalent', $report);
+  }
+
 }

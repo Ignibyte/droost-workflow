@@ -232,6 +232,7 @@ final class EvaluationReport {
       $this->gateVerdicts($runId, $checks),
       $this->toolLedger($runId),
       $this->grounding($runId),
+      $this->seekerFindings($runId),
       $this->transcripts($runId, $checks),
       $this->buildVerdictStub(),
       $this->scoreStub(),
@@ -454,7 +455,7 @@ final class EvaluationReport {
       [
         self::code('seekers'),
         self::NOT_RECORDED,
-        'seeker rows land in `seeker_finding`; the lever itself does not',
+        'seeker rows land in `seeker_finding` and render in §4d; the lever does not',
       ],
       [
         self::code('baseline'),
@@ -959,6 +960,70 @@ final class EvaluationReport {
     }
 
     return $out;
+  }
+
+  /**
+   * Section 4d — what the adversarial reviewer actually found.
+   *
+   * These rows were written by `recordSeeker()` and read by nothing, which is
+   * the same dead-seam shape as everything else found this week: a writer
+   * without a reader is a table nobody can query, and §3 asserted in a cell
+   * that "seeker rows land in `seeker_finding`" while the document never
+   * printed one.
+   *
+   * The cost of that gap is already on the record. `RunState`'s docblock keeps
+   * it: across four rounds, 6, 25, 12 and 20 findings were caught and recorded
+   * as 0, 0, 6 and 2. An adversarial review whose findings cannot be read back
+   * is ceremony.
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return string
+   *   The section.
+   */
+  private function seekerFindings(string $runId): string {
+    $rows = $this->store->seekerFindings($runId);
+    $heading = "## 4d. The seeker's findings — what an adversarial read caught\n\n";
+
+    if ($rows === []) {
+      return $heading
+        . "No seeker findings are recorded for this run. That means one of three\n"
+        . "things, and they are not equivalent: no inspection was due at this\n"
+        . "level, an inspection ran and found nothing, or an inspection ran and\n"
+        . "its ledger was never recorded. The seeker rows in §4 say which.\n";
+    }
+
+    $table = [];
+    $open = 0;
+    foreach ($rows as $row) {
+      $status = self::text($row, 'status') ?? '';
+      if (stripos($status, 'open') !== FALSE) {
+        $open++;
+      }
+      $table[] = [
+        self::code(self::text($row, 'ref')),
+        self::cell(self::number($row, 'round')),
+        self::escape(strtoupper(self::text($row, 'severity') ?? '')),
+        self::code(self::text($row, 'location')),
+        self::escape(self::text($row, 'finding') ?? ''),
+        self::escape($status),
+      ];
+    }
+
+    return $heading
+      . "Written from the ledger droost PARSED, never from the agent's summary\n"
+      . "of it — the counts and the rows come from the same place, so they\n"
+      . "cannot disagree.\n\n"
+      . self::table(['Ref', 'Round', 'Severity', 'Location', 'Finding', 'Status'], $table)
+      . sprintf(
+        "\n**%d finding%s recorded, %d still open.** An open finding at the end\n"
+        . "of a run is not a failure of the run — it is the part a reader has to\n"
+        . "judge, which is why it is here rather than summarised away.\n",
+        count($table),
+        count($table) === 1 ? '' : 's',
+        $open,
+      );
   }
 
   /**
