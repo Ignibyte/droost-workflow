@@ -294,6 +294,103 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
    * @return \Droost\Workflow\WorkflowFacade
    *   The facade, with every gate passing.
    */
+
+  /**
+   * An unmeasured mandatory gate is recorded for a run that declared NOTHING.
+   *
+   * That is the case the check was written for, and the case it could not
+   * reach. It lived in `DeclarationAudit::checks()`, and the facade returns
+   * early when a run declared no files, no tests and no work type — rightly,
+   * because with nothing declared every changed file reads as undeclared and
+   * the scope check would block the lot. So the check meant for an agent that
+   * declares nothing was the one thing that agent never got: a reviewer drove
+   * such a run and found zero declaration rows in the store.
+   *
+   * Driven through the facade rather than asserted about, because the defect
+   * was entirely in the WIRING — the logic was right and unreachable.
+   */
+  public function testMandatoryMeasuredReachesRunsThatDeclaredNothing(): void {
+    // `low`, because it disarms the seeker checkpoint — this test is about the
+    // wiring of one check, not about driving an inspection. phpunit is off at
+    // that level and so is correctly absent from the complaint; phpcs and
+    // phpstan are mandatory at every level and are what it names.
+    $root = $this->makeRootWithConfig("mode: agentic\npreset: low\nenforcement: soft\n");
+    $spec = 'droost/droost-workflow/spec-hollow.md';
+    @mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    file_put_contents($root . '/' . $spec, $this->planExitSpec());
+
+    // Gates that PASS while measuring nothing — phpcs over an empty path set,
+    // phpstan with no path. The shape the whole labelled-pass machinery exists
+    // to make visible.
+    $executor = new class() implements GateExecutorInterface {
+
+      /**
+       * {@inheritdoc}
+       */
+      public function execute(GateSettings $gate, string $projectRoot): GateResult {
+        return GateResult::labelledPass($gate->name, 0, 1, 'nothing to analyse', $gate->name);
+      }
+
+    };
+    $facade = new WorkflowFacade(
+      $executor,
+      new NullSiteDriver(),
+      new RunStateOnlySink(),
+      static fn (): string => '2026-09-13T00:00:00+00:00',
+      static fn (): string => 'run-hollow',
+    );
+
+    $facade->run($root, $spec);
+    $this->appendRows($root, $spec, [
+      '| code | custom | named already? | nothing | `none: thing` |',
+      '| code | contrib | the API? | ViewsData | `Drupal\views\ViewsData` |',
+      '| code | core | the constructor? | NodeType | `Drupal\node\Entity\NodeType` |',
+    ]);
+    $facade->run($root, $spec);
+    $this->replace(
+      $root,
+      $spec,
+      '| AC1 | the page renders | curl / | |',
+      '| AC1 | the page renders | curl / | ThingTest::testIt |',
+    );
+    // The test phase, where the trio has run and the question is due.
+    $facade->run($root, $spec);
+
+    $store = new EvidenceStore($root);
+    $rows = array_values(array_filter(
+      $store->unresolved('run-hollow', 'test'),
+      static fn (array $row): bool => $row['name'] === 'mandatory_measured',
+    ));
+    // `unresolved()` lists what BLOCKS, and this deliberately does not — so it
+    // is read straight from the store instead.
+    $pdo = new \PDO('sqlite:' . EvidenceStore::pathFor($root));
+    $query = $pdo->query("SELECT summary FROM check_result WHERE name = 'mandatory_measured'");
+    $this->assertNotFalse($query);
+    $found = $query->fetchAll(\PDO::FETCH_COLUMN);
+
+    $this->assertNotSame(
+      [],
+      $found,
+      'a run that declared nothing still gets told its gates measured nothing',
+    );
+    $summary = $found[0] ?? '';
+    $this->assertIsString($summary);
+    $this->assertStringContainsString('measured nothing this run', $summary);
+    $this->assertStringContainsString(
+      'phpcs, phpstan',
+      $summary,
+      'naming the gates that looked at nothing — phpunit is off at this level '
+      . 'and is correctly not held against anybody',
+    );
+    $this->assertSame([], $rows, 'and it does not block the phase');
+  }
+
+  /**
+   * A facade whose every gate passes.
+   *
+   * @return \Droost\Workflow\WorkflowFacade
+   *   The facade.
+   */
   private function facade(): WorkflowFacade {
     // Every gate passes: this test is about the spec contract, not the tools.
     $executor = new class() implements GateExecutorInterface {

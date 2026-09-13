@@ -1698,7 +1698,28 @@ final class WorkflowFacade {
       $store = new EvidenceStore($projectRoot);
       $files = $store->declared($state->runId, 'file');
       $tests = $store->declared($state->runId, 'test');
+      $gatesOff = array_values(array_unique(array_merge(
+        self::gatesOff($state),
+        $store->unmeasurableGates($state->runId),
+      )));
+      // BEFORE the early return, because this is not a declaration check. "Did
+      // phpcs actually look at anything" is a question about the gates, and the
+      // answer does not depend on what anybody promised — while the return
+      // below fires for a run that declared nothing, which is precisely the
+      // agent this check was written for. It was unreachable in its own stated
+      // case until a reviewer drove a run that declared nothing and found no
+      // declaration rows at all.
+      $hollow = DeclarationAudit::mandatoryMeasured(
+        $store->measuredGates($state->runId),
+        $gatesOff,
+        $phase->value,
+      );
+      if ($hollow !== NULL) {
+        $store->record($state->runId, $phase->value, $hollow, $this->now());
+      }
       if ($files === [] && $tests === [] && $store->workType($state->runId) === NULL) {
+        // Nothing was declared, so there is nothing to hold the diff to — and
+        // holding it to nothing would block every changed file as undeclared.
         return FALSE;
       }
       $audit = new DeclarationAudit(
@@ -1710,10 +1731,7 @@ final class WorkflowFacade {
         // Off by level, unreachable on this surface, or waived by the
         // operator: three ways a gate cannot show a measurement, none of
         // them anything the agent chose.
-        array_values(array_unique(array_merge(
-          self::gatesOff($state),
-          $store->unmeasurableGates($state->runId),
-        ))),
+        $gatesOff,
       );
       $blocked = FALSE;
       foreach ($audit->checks($phase->value) as $check) {

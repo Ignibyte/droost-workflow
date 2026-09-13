@@ -240,13 +240,12 @@ final class DeclarationAuditTest extends TestCase {
     $audit = new DeclarationAudit(['src/A.php'], [], ['src/A.php']);
 
     $this->assertFalse($this->hasCheck($audit, 'declared_tests'));
-    // Two now, not one: this fixture passes no measured gates, so the mandatory
-    // trio measured nothing and `mandatory_measured` records that. It is the
-    // check that used to be absent whenever no work TYPE was declared — a run
-    // could finish with phpcs "passed" over an empty path set and no row
-    // anywhere saying so.
-    $this->assertCount(2, $audit->checks());
-    $this->assertTrue($this->hasCheck($audit, 'mandatory_measured'));
+    // One again: `mandatory_measured` is no longer one of these. It is not a
+    // declaration check — it asks whether the GATES looked at anything — and
+    // living here put it behind the facade's early return for a run that
+    // declared nothing, which is exactly the run it was written for.
+    $this->assertCount(1, $audit->checks());
+    $this->assertFalse($this->hasCheck($audit, 'mandatory_measured'));
   }
 
   /**
@@ -337,53 +336,41 @@ final class DeclarationAuditTest extends TestCase {
   }
 
   /**
-   * The unmeasured mandatory gate is recorded even when nothing was declared.
+   * The unmeasured mandatory gate is recorded, whatever was declared.
    *
-   * `type_coverage` covers this, and only when the agent declared a work TYPE.
-   * An agent that declares nothing got no check at all — and a live walk
-   * watched a phase complete with phpstan having measured nothing, `blocked:
-   * []`, and no row anywhere naming it. I had written that `type_coverage`
-   * would hold such a run; it cannot hold what it never hears about.
+   * `type_coverage` covers this and only when a work TYPE was declared, so an
+   * agent that declares nothing got no check — and a live walk watched a phase
+   * complete with phpstan having measured nothing, `blocked: []`, and no row
+   * anywhere naming it.
+   *
+   * My first fix put it in `checks()`, which made it unreachable in that very
+   * case: the facade returns early when a run declared no files, no tests and
+   * no type, so the check written for an agent that declares nothing was the
+   * one thing that agent never got. A reviewer drove such a run and found zero
+   * declaration rows in the store. It is its own method now, called
+   * unconditionally.
    *
    * RECORDED rather than blocked, deliberately: the remedy is a lever, levers
-   * freeze at begin, and a block here could not be cleared from inside the run
-   * it stopped. This project has shipped that deadlock twice.
+   * freeze at begin, and a block could not be cleared from inside the run it
+   * stopped. This project has shipped that deadlock twice.
    */
   public function testUnmeasuredMandatoryGateIsRecordedWithoutWorkType(): void {
-    $audit = new DeclarationAudit(
-      ['src/A.php'],
-      [],
-      ['src/A.php'],
-      // No work type.
-      NULL,
-      // Phpcs measured; phpstan and phpunit did not.
-      ['phpcs'],
-    );
+    $record = DeclarationAudit::mandatoryMeasured(['phpcs'], [], 'test');
 
-    $checks = array_values(array_filter(
-      $audit->checks('test'),
-      static fn ($check): bool => $check->name === 'mandatory_measured',
-    ));
-
-    $this->assertCount(1, $checks, 'the check exists with no work type declared');
-    $this->assertSame(CheckState::Recorded, $checks[0]->state, 'and does not wedge the run');
-    $this->assertStringContainsString('phpstan, phpunit', $checks[0]->summary);
-    $this->assertStringContainsString('gates.phpstan.paths', $checks[0]->summary, 'naming the lever');
+    $this->assertNotNull($record, 'no declaration of any kind is needed');
+    $this->assertSame('mandatory_measured', $record->name);
+    $this->assertSame(CheckState::Recorded, $record->state, 'and it does not wedge the run');
+    $this->assertStringContainsString('phpstan, phpunit', $record->summary);
+    $this->assertStringContainsString('gates.phpstan.paths', $record->summary, 'naming the lever');
   }
 
   /**
    * And it stays quiet when the trio really did measure something.
    */
   public function testNothingIsRecordedWhenTheTrioMeasured(): void {
-    $audit = new DeclarationAudit(
-      ['src/A.php'],
-      [],
-      ['src/A.php'],
-      NULL,
-      ['phpcs', 'phpstan', 'phpunit'],
+    $this->assertNull(
+      DeclarationAudit::mandatoryMeasured(['phpcs', 'phpstan', 'phpunit'], [], 'test'),
     );
-
-    $this->assertFalse($this->hasCheck($audit, 'mandatory_measured'));
   }
 
   /**
@@ -394,27 +381,19 @@ final class DeclarationAuditTest extends TestCase {
    * this file's own docblock warns about.
    */
   public function testGateTurnedOffByTheLevelIsNotRecorded(): void {
-    $audit = new DeclarationAudit(
-      ['src/A.php'],
-      [],
-      ['src/A.php'],
-      NULL,
-      ['phpcs', 'phpstan'],
-      ['phpunit'],
+    $this->assertNull(
+      DeclarationAudit::mandatoryMeasured(['phpcs', 'phpstan'], ['phpunit'], 'test'),
     );
-
-    $this->assertFalse($this->hasCheck($audit, 'mandatory_measured'));
   }
 
   /**
    * It is not asked at the code phase, where phpunit has not run yet.
    */
   public function testItIsNotAskedBeforeTheTestPhase(): void {
-    $audit = new DeclarationAudit(['src/A.php'], [], ['src/A.php'], NULL, ['phpcs']);
-
-    $names = array_map(static fn ($check): string => $check->name, $audit->checks('code'));
-
-    $this->assertNotContains('mandatory_measured', $names);
+    $this->assertNull(
+      DeclarationAudit::mandatoryMeasured(['phpcs'], [], 'code'),
+      'at code, phpunit has not run — saying so would be a false alarm every run',
+    );
   }
 
   /**

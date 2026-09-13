@@ -307,43 +307,6 @@ final class DeclarationAudit {
       );
 
     }
-    // THE MANDATORY TRIO, whatever the agent declared. `type_coverage` below
-    // exists only when a work TYPE was declared — so an agent that declares
-    // nothing got no check at all, and a run finished with phpcs "passed" over
-    // an empty path set and `blocked: []`. A live walk found exactly that: the
-    // phase completed, phpstan had measured nothing, and no row anywhere said
-    // so. I had claimed in writing that `type_coverage` would hold it; it
-    // cannot hold what it never hears about.
-    //
-    // RECORDED, not blocked, and the distinction is deliberate. The remedy is
-    // a lever — `gates.phpstan.paths` — and levers FREEZE at begin, so a block
-    // here could not be cleared from inside the run it stopped. This project
-    // has shipped that deadlock twice. A recorded check appears in the
-    // evaluation, in the stop hook's checklist and in the report, which is what
-    // a reader needs; holding the run on it would only make the next person
-    // reach for `reset --force`.
-    if ($coverageIsDue) {
-      $hollow = array_values(array_diff(
-        array_values(array_diff(['phpcs', 'phpstan', 'phpunit'], $this->gatesOff)),
-        $this->measuredGates,
-      ));
-      if ($hollow !== []) {
-        $checks[] = new CheckRecord(
-          'declaration',
-          'mandatory_measured',
-          CheckState::Recorded,
-          Fault::None,
-          sprintf(
-            '%s ran and measured nothing this run. A gate that analysed an empty path set has '
-            . 'not checked anything, whatever colour it reported — point it with gates.%s.paths '
-            . 'in droost.workflow.yml, or give the tool its own config. The levers for THIS run '
-            . 'were frozen when it began, so this is the next run\'s to fix.',
-            implode(', ', $hollow),
-            $hollow[0],
-          ),
-        );
-      }
-    }
     if ($this->workType !== NULL && $coverageIsDue) {
       $missed = array_values(array_diff($this->workType->mustMeasure(), $this->measuredGates));
       // A gate the LEVEL turned off is not a gate the agent failed to satisfy.
@@ -418,6 +381,71 @@ final class DeclarationAudit {
     }
 
     return $checks;
+  }
+
+  /**
+   * The mandatory trio, and whether each of them measured anything.
+   *
+   * NOT a declaration check, and writing it as one made it unreachable in the
+   * case its own docblock named. The facade returns early when a run declared
+   * no files, no tests and no work type — rightly, because with nothing
+   * declared every changed file reads as undeclared and the scope check would
+   * block the lot. So the check written for "an agent that declares nothing"
+   * was the one thing that agent never got.
+   *
+   * It stands alone now and the facade calls it unconditionally, because "did
+   * phpcs actually look at anything" is a question about the GATES, and the
+   * answer does not depend on what anybody promised.
+   *
+   * RECORDED, not blocked. The remedy is a lever — `gates.phpstan.paths` — and
+   * levers freeze at `begin`, so a block here could not be cleared from inside
+   * the run it stopped; this project has shipped that deadlock twice. A
+   * recorded check reaches the evaluation and the report. The cost is real and
+   * stated rather than hidden: the phase advances over a mandatory gate that
+   * measured nothing.
+   *
+   * @param list<string> $measuredGates
+   *   Gates that measured something this run.
+   * @param list<string> $gatesOff
+   *   Gates this run's level turned off, which are nobody's failure.
+   * @param string|null $phase
+   *   The phase, or NULL to ask regardless.
+   *
+   * @return \Droost\Workflow\Evidence\CheckRecord|null
+   *   The record, or NULL when the trio measured or the phase is too early.
+   */
+  public static function mandatoryMeasured(
+    array $measuredGates,
+    array $gatesOff,
+    ?string $phase = NULL,
+  ): ?CheckRecord {
+    // Test and complete only: at code, phpunit has not run, and saying so would
+    // be a false alarm on every run.
+    if ($phase !== NULL && $phase !== 'test' && $phase !== 'complete') {
+      return NULL;
+    }
+    $hollow = array_values(array_diff(
+      array_values(array_diff(['phpcs', 'phpstan', 'phpunit'], $gatesOff)),
+      $measuredGates,
+    ));
+    if ($hollow === []) {
+      return NULL;
+    }
+
+    return new CheckRecord(
+      'declaration',
+      'mandatory_measured',
+      CheckState::Recorded,
+      Fault::None,
+      sprintf(
+        '%s ran and measured nothing this run. A gate that analysed an empty path set has '
+        . 'not checked anything, whatever colour it reported — point it with gates.%s.paths '
+        . 'in droost.workflow.yml, or give the tool its own config. The levers for THIS run '
+        . 'were frozen when it began, so this is the next run\'s to fix.',
+        implode(', ', $hollow),
+        $hollow[0],
+      ),
+    );
   }
 
   /**
