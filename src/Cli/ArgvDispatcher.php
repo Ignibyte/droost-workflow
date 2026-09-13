@@ -103,10 +103,34 @@ final class ArgvDispatcher {
     // state directory it reads is not necessarily the one the guard is
     // enforcing — two components disagreeing about which repository this is.
     // Naming the root ends the argument.
+    $named = FALSE;
     foreach ($argv as $argument) {
       if (is_string($argument) && str_starts_with($argument, '--project=')) {
         $projectRoot = substr($argument, strlen('--project='));
+        $named = TRUE;
       }
+    }
+    // WITHOUT `--project`, walk up to the project that is already here.
+    //
+    // The working directory was taken as the repository, full stop. Run from a
+    // subdirectory, the binary reported built-in defaults as though the project
+    // had no levers — and `run` went further: it CREATED a second state root at
+    // `lib/sub/droost/droost-workflow/`, whose run.json then blocked the real
+    // run as undeclared scope, with no waiver. A second ticket in that repo was
+    // stopped by a directory the product itself had made in the wrong place.
+    //
+    // Only when nothing was named and here is not a project: an explicit
+    // `--project` always wins, and a cwd that HAS a lever file or a state
+    // directory is the project, which keeps `init` in an empty directory
+    // working exactly as before.
+    //
+    // NOT for `init`, which is how a project comes into existence: climbing
+    // there would make `init` in an empty subdirectory silently adopt the
+    // parent, and the operator would be told "kept your existing
+    // droost.workflow.yml" about a file they have never seen. Caught by running
+    // it — the walk is for finding a project, not for creating one.
+    if (!$named && $verb !== 'init' && is_dir($projectRoot)) {
+      $projectRoot = self::projectAbove($projectRoot);
     }
     if (!is_dir($projectRoot)) {
       // The same refusal the MCP tools give, in the same words, so an agent
@@ -159,6 +183,64 @@ final class ArgvDispatcher {
       $this->fail($e->getMessage());
       return self::EXIT_USAGE;
     }
+  }
+
+  /**
+   * The nearest ancestor that is already a droost project, else the input.
+   *
+   * A repository is where its lever file is, the way git's is where `.git` is
+   * and composer's is where `composer.json` is. Taking the working directory
+   * literally meant a subdirectory was a different project with no levers —
+   * and, on `run`, a NEW one, complete with its own state directory in the
+   * wrong place.
+   *
+   * Stops at the first match, so a nested project stays its own. Bounded, and
+   * never climbs past a `.git`: crossing a repository boundary would silently
+   * attach a run to somebody else's repo.
+   *
+   * @param string $from
+   *   The working directory.
+   *
+   * @return string
+   *   The project root.
+   */
+  private static function projectAbove(string $from): string {
+    $here = rtrim($from, '/');
+    if (self::looksLikeProject($here)) {
+      return $here;
+    }
+    for ($depth = 0; $depth < 32; $depth++) {
+      // A repository boundary is a hard stop, checked AFTER the directory
+      // itself so a project root that is also a repo root still matches.
+      if (is_dir($here . '/.git')) {
+        return $from;
+      }
+      $parent = dirname($here);
+      if ($parent === $here) {
+        return $from;
+      }
+      $here = $parent;
+      if (self::looksLikeProject($here)) {
+        return $here;
+      }
+    }
+
+    return $from;
+  }
+
+  /**
+   * Whether a directory is already a droost project.
+   *
+   * @param string $directory
+   *   The candidate.
+   *
+   * @return bool
+   *   TRUE when it carries a lever file or a run-state directory.
+   */
+  private static function looksLikeProject(string $directory): bool {
+    return is_file($directory . '/droost.workflow.yml')
+      || is_dir($directory . '/droost/droost-workflow')
+      || is_dir($directory . '/.droost-workflow');
   }
 
   /**

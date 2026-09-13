@@ -331,8 +331,20 @@ final class PackMaterializer {
       }
     }
 
+    // The gates' own caches too. phpunit writes `.phpunit.result.cache` on
+    // every run, and without a line here it lands in the diff — where the
+    // declaration audit charged it to the agent as undeclared scope, with no
+    // waiver, on the SECOND ticket in a repo. The product wrote the file; the
+    // agent paid for it. `NEVER_CREEP` stops it blocking a run; this stops it
+    // reaching a review at all.
     $addition = "# Droost workflow run state and specs (droost/workflow init).\n"
-      . $stateDir . "/\n";
+      . $stateDir . "/\n"
+      . ".phpunit.result.cache\n"
+      . ".phpunit.cache/\n"
+      . ".phpcs-cache\n"
+      . ".php-cs-fixer.cache\n"
+      . ".eslintcache\n"
+      . ".stylelintcache\n";
     $contents = $existing === ''
       ? $addition
       : rtrim($existing, "\n") . "\n\n" . $addition;

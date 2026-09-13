@@ -77,20 +77,27 @@ final class ProjectRootOptionTest extends TestCase {
   }
 
   /**
-   * From a subdirectory, `--project` reaches the real lever file.
+   * From a subdirectory, both forms reach the real lever file.
    *
-   * The contrast is the test: the same command from the same directory reads
-   * built-in defaults without the flag, because the subdirectory genuinely has
-   * no lever file — and nothing said so.
+   * This test used to assert the OPPOSITE for the bare form — that running
+   * from a subdirectory reads built-in defaults — and used that as the contrast
+   * proving `--project` did something. It was documenting a bug as a baseline:
+   * the silence it described is what let `run` create a second state root under
+   * the subdirectory, whose run.json then blocked the real run as undeclared
+   * scope with no waiver. The walk up to the project fixed the bare form, and
+   * the contrast went with it.
+   *
+   * `--project` still matters — it names a root that is NOT an ancestor — and
+   * `testNamingTheProjectBeatsTheWalk` is where that is held now.
    */
   public function testProjectReachesTheRealRootFromSubdirectories(): void {
     $deep = $this->root . '/sub/deeper';
 
     [, $without] = $this->dispatch(['status'], $deep);
     $this->assertStringContainsString(
-      '"provenance": "built-in"',
+      '"provenance": "file"',
       $without,
-      'the working directory has no levers, and this is the old behaviour',
+      'the project above is found without being named',
     );
 
     [, $with] = $this->dispatch(['status', '--project=' . $this->root], $deep);
@@ -212,6 +219,68 @@ final class ProjectRootOptionTest extends TestCase {
 
     $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code);
     $this->assertStringContainsString('--spec needs a path', $printed);
+  }
+
+  /**
+   * From a subdirectory, the project above is found.
+   *
+   * The working directory was taken as the repository, full stop, so running
+   * from `lib/sub` reported built-in defaults as though the project had no
+   * levers. `run` went further: it CREATED a second state root at
+   * `lib/sub/droost/droost-workflow/`, and that nested run.json then blocked
+   * the real run as undeclared scope, with no waiver. A second ticket stopped
+   * by a directory the product had made in the wrong place.
+   *
+   * A repository is where its lever file is, the way git's is where `.git` is.
+   */
+  public function testTheProjectAboveIsFoundFromSubdirectories(): void {
+    mkdir($this->root . '/lib/sub', 0775, TRUE);
+
+    [, $printed] = $this->dispatch(['status'], $this->root . '/lib/sub');
+
+    $this->assertStringContainsString(
+      '"provenance": "file"',
+      $printed,
+      'the levers the run would actually be held to',
+    );
+    $this->assertDirectoryDoesNotExist(
+      $this->root . '/lib/sub/droost',
+      'and no second state root is created under the subdirectory',
+    );
+  }
+
+  /**
+   * But `init` never climbs: it is how a project comes into existence.
+   *
+   * Climbing there made `init` in an empty subdirectory adopt the parent and
+   * report "kept your existing droost.workflow.yml" about a file the operator
+   * had never seen. Found by running it.
+   */
+  public function testInitNeverClimbsToTheProjectAbove(): void {
+    mkdir($this->root . '/lib/sub', 0775, TRUE);
+
+    [$code] = $this->dispatch(['init'], $this->root . '/lib/sub');
+
+    $this->assertSame(0, $code);
+    $this->assertFileExists(
+      $this->root . '/lib/sub/droost.workflow.yml',
+      'init initialises where it was run',
+    );
+  }
+
+  /**
+   * And an explicit --project still wins over the walk.
+   */
+  public function testNamingTheProjectBeatsTheWalk(): void {
+    mkdir($this->root . '/lib/sub', 0775, TRUE);
+
+    [$code, $printed] = $this->dispatch(
+      ['status', '--project=' . $this->root . '/nope'],
+      $this->root . '/lib/sub',
+    );
+
+    $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code, 'the named path is judged, not a found one');
+    $this->assertStringContainsString('Not a directory', $printed);
   }
 
 }

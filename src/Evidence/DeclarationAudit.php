@@ -91,6 +91,23 @@ final class DeclarationAudit {
     // `require` reported as undeclared creep.
     'vendor/',
     'node_modules/',
+    // Caches the GATES THEMSELVES write. phpunit drops
+    // `.phpunit.result.cache` on every run, and a second ticket in the same
+    // repo was then blocked — `declared_files / agent`, "There is no waiver for
+    // it" — for a file the product had written and the agent had never
+    // touched. A walk found it as the first wall between a completed run and
+    // the next one. The others here are the same shape from the same toolchain,
+    // added now rather than discovered one wall at a time.
+    '.phpunit.result.cache',
+    '.phpunit.cache/',
+    '.phpcs-cache',
+    '.phpcs.cache',
+    '.php-cs-fixer.cache',
+    '.phpstan.cache/',
+    '.eslintcache',
+    '.stylelintcache',
+    'infection.log',
+    '.infection/',
   ];
 
   /**
