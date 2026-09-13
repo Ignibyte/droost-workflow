@@ -92,6 +92,34 @@ final class ArgvDispatcher {
       return $verb === '' ? self::EXIT_USAGE : self::EXIT_OK;
     }
 
+    // `--project` on EVERY verb, because the other two surfaces have it and
+    // this one did not. The MCP tools take a `project` argument and the drush
+    // commands a `--project` option; `bin/droost-workflow` took the working
+    // directory and nothing else, so the same instruction written once for an
+    // agent worked on two surfaces and was an unknown flag on the third.
+    //
+    // It also answers the moved-cwd case. An agent's shell can `cd`, and the
+    // binary resolving its root from wherever the shell happens to be means the
+    // state directory it reads is not necessarily the one the guard is
+    // enforcing — two components disagreeing about which repository this is.
+    // Naming the root ends the argument.
+    foreach ($argv as $argument) {
+      if (is_string($argument) && str_starts_with($argument, '--project=')) {
+        $projectRoot = substr($argument, strlen('--project='));
+      }
+    }
+    if (!is_dir($projectRoot)) {
+      // The same refusal the MCP tools give, in the same words, so an agent
+      // that learns the phrasing on one surface reads the other correctly.
+      $this->fail(sprintf(
+        'Not a directory: "%s". Pass --project as an absolute path to the '
+        . 'repository, or omit it to use the working directory.',
+        $projectRoot,
+      ));
+
+      return self::EXIT_USAGE;
+    }
+
     try {
       return match ($verb) {
         'init' => $this->init($projectRoot, $argv),
@@ -550,6 +578,13 @@ final class ArgvDispatcher {
                        shows the recorded baseline; --refresh re-measures
                        (paid-off debt drops, growth is refused unless
                        --grow --reason="…"). Writing is the operator's act.
+
+    --project=<path> works on every verb and names the repository to act on,
+    the way the drush commands' --project and the MCP tools' `project`
+    argument do. Without it the working directory is the repository — which
+    is wrong the moment a shell has moved, and wrong quietly: a subdirectory
+    has no lever file, so the run reports built-in defaults as though the
+    project had none.
 
     Every site-dependent gate reports "skipped, no site" here, with its
     reason. That is deliberate: this surface tells you what it could not
