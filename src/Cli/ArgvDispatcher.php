@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Cli;
 
+use Droost\Workflow\Evidence\UnreachableChecks;
 use Droost\Workflow\Baseline\BaselineError;
 use Droost\Workflow\Config\ConfigError;
 use Droost\Workflow\Config\DrushCatalogResolver;
@@ -562,6 +563,11 @@ final class ArgvDispatcher {
         return CliProcess::run($argv, $cwd, $timeout);
       },
     ))->resolve($projectRoot);
+    // A site here means contributed checks may exist that this surface cannot
+    // ask — the binary boots no Drupal. Saying so beats recording nothing,
+    // which read downstream exactly like a run that had been asked.
+    $hasSite = is_file($projectRoot . '/vendor/bin/drush');
+
     return new WorkflowFacade(
       new ShellGateExecutor(
         static function (array $argv, string $cwd, int $timeout): array {
@@ -577,6 +583,7 @@ final class ArgvDispatcher {
       NULL,
       $catalog['gates'],
       $catalog['source'],
+      new UnreachableChecks($hasSite),
     );
   }
 

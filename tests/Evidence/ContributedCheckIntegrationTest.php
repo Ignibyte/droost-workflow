@@ -10,6 +10,8 @@ use Droost\Workflow\Evidence\CheckRecord;
 use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Evidence\Fault;
+use Droost\Workflow\State\RunStateStore;
+use Droost\Workflow\Evidence\UnreachableChecks;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
@@ -245,6 +247,70 @@ final class ContributedCheckIntegrationTest extends WorkflowTestCase {
       ),
       'and contributes no rows nobody earned',
     );
+  }
+
+  /**
+   * A siteless surface says it could not ask, instead of saying nothing.
+   *
+   * The standalone binary boots no Drupal, so it cannot instantiate a
+   * `#[DroostCheck]` plugin. That is a real limitation, not a defect — but it
+   * recorded NOTHING, and a run with no check rows reads downstream exactly
+   * like a run that was asked and had nothing to answer.
+   *
+   * A reviewer drove two byte-identical projects, one through each door: drush
+   * blocked at plan on a missing work item, and the binary advanced through
+   * plan, code and test with zero check rows. The hole closed only if some
+   * later phase happened to use a different door. `WorkflowFacadeTrait` states
+   * the rule this broke — a rule enforced through one surface is a rule an
+   * agent evades through another — for the surface that had already been fixed.
+   *
+   * `Skipped` is the state for "asked for, could not run here", which is
+   * exactly this: non-blocking, not a measurement, and visible.
+   */
+  public function testSitelessSurfaceRecordsThatItCouldNotAsk(): void {
+    $root = $this->makeRoot();
+    $spec = $this->writeSpec($root);
+    mkdir($root . '/vendor/bin', 0775, TRUE);
+    // A site: the same probe that resolves the contributed GATE catalog, so
+    // the two answers cannot disagree about whether one exists.
+    file_put_contents($root . '/vendor/bin/drush', "#!/bin/sh\nexit 1\n");
+
+    $facade = $this->facade(new UnreachableChecks(TRUE));
+    $this->assertSame(Outcome::Advanced, $facade->run($root, $spec)->outcome, 'it does not block');
+
+    $state = (new RunStateStore($root))->load();
+    $this->assertNotNull($state);
+    $rows = (new EvidenceStore($root))->checklist($state->runId, 'plan');
+
+    $found = NULL;
+    foreach ($rows as $row) {
+      if (($row['name'] ?? '') === 'contributed_checks') {
+        $found = $row;
+      }
+    }
+    $this->assertIsArray($found, 'the gap is on the record');
+    $this->assertSame('skipped', $found['state']);
+    $this->assertStringContainsString('cannot ask', (string) $found['summary']);
+  }
+
+  /**
+   * A project with no site records nothing, because there is nothing to miss.
+   *
+   * A row on every run of every plain PHP repository would be the noise that
+   * teaches people to skim the one line that mattered.
+   */
+  public function testPlainRepositoryRecordsNoSuchGap(): void {
+    $root = $this->makeRoot();
+    $spec = $this->writeSpec($root);
+
+    $facade = $this->facade(new UnreachableChecks(FALSE));
+    $facade->run($root, $spec);
+
+    $state = (new RunStateStore($root))->load();
+    $this->assertNotNull($state);
+    foreach ((new EvidenceStore($root))->checklist($state->runId, 'plan') as $row) {
+      $this->assertNotSame('contributed_checks', $row['name'] ?? '');
+    }
   }
 
 }
