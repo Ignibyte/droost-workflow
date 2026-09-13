@@ -462,9 +462,15 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     // Swapping one wrong verdict for a louder one.
     //
     // So it is neither: a gate pointed at nothing has not measured, and says so
-    // and names the lever that points it. `type_coverage` then holds the run on
-    // an unmeasured mandatory gate, which is the honest outcome — somebody has
-    // to say what phpstan should analyse, and only they know.
+    // and names the lever that points it, and the declaration audit records a
+    // `mandatory_measured` row so the evaluation and the stop hook's checklist
+    // both carry it.
+    //
+    // RECORDED, not blocked — and I wrote "type_coverage then holds the run"
+    // here, which was wrong twice over: that check only exists when a work TYPE
+    // was declared, so an agent declaring nothing got no check at all; and the
+    // remedy is a lever, which freezes at begin, so a block could not be
+    // cleared from inside the run it stopped.
     if ($gate->name === 'phpstan'
       && $exit !== 0
       && preg_match('/At least one path must be specified/i', $stdout . $stderr) === 1) {
@@ -477,6 +483,28 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         . 'droost.workflow.yml, or add a phpstan.neon naming its own paths.',
         $invocation,
       );
+    }
+
+    // A site gate whose tool is PRESENT but has no site to ask. `wiki_fresh`
+    // runs `drush droost:wiki:status`, and a checkout with drush in vendor/ and
+    // no bootable Drupal gives:
+    //
+    //     PHP Fatal error: Uncaught AssertionError:
+    //     assert($this->bootstrap instanceof DrupalBoot8)
+    //
+    // which the gate recorded as `failed` — the last phase, blocking, on a
+    // surface that has no site to give it. The missing-binary branch above only
+    // answers the case where drush is absent entirely, and vendor/bin/drush is
+    // present in most Drupal checkouts whether or not a site is bootable. Same
+    // absence, two spellings, and only one was answered.
+    if (in_array($gate->name, self::SITE_SHELL_GATES, TRUE)
+      && $exit !== 0
+      && preg_match(
+        '/DrupalBoot|bootstrap|Could not find a Drupal settings\.php|'
+        . 'Unable to .{0,20}bootstrap|no Drupal (site|root)|DRUSH_BOOTSTRAP/i',
+        $stdout . $stderr,
+      ) === 1) {
+      return GateResult::skippedNoSite($gate->name);
     }
 
     if ($gate->name === 'phpcs' && $exit === 16) {

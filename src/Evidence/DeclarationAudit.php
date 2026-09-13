@@ -275,6 +275,43 @@ final class DeclarationAudit {
       );
 
     }
+    // THE MANDATORY TRIO, whatever the agent declared. `type_coverage` below
+    // exists only when a work TYPE was declared — so an agent that declares
+    // nothing got no check at all, and a run finished with phpcs "passed" over
+    // an empty path set and `blocked: []`. A live walk found exactly that: the
+    // phase completed, phpstan had measured nothing, and no row anywhere said
+    // so. I had claimed in writing that `type_coverage` would hold it; it
+    // cannot hold what it never hears about.
+    //
+    // RECORDED, not blocked, and the distinction is deliberate. The remedy is
+    // a lever — `gates.phpstan.paths` — and levers FREEZE at begin, so a block
+    // here could not be cleared from inside the run it stopped. This project
+    // has shipped that deadlock twice. A recorded check appears in the
+    // evaluation, in the stop hook's checklist and in the report, which is what
+    // a reader needs; holding the run on it would only make the next person
+    // reach for `reset --force`.
+    if ($coverageIsDue) {
+      $hollow = array_values(array_diff(
+        array_values(array_diff(['phpcs', 'phpstan', 'phpunit'], $this->gatesOff)),
+        $this->measuredGates,
+      ));
+      if ($hollow !== []) {
+        $checks[] = new CheckRecord(
+          'declaration',
+          'mandatory_measured',
+          CheckState::Recorded,
+          Fault::None,
+          sprintf(
+            '%s ran and measured nothing this run. A gate that analysed an empty path set has '
+            . 'not checked anything, whatever colour it reported — point it with gates.%s.paths '
+            . 'in droost.workflow.yml, or give the tool its own config. The levers for THIS run '
+            . 'were frozen when it began, so this is the next run\'s to fix.',
+            implode(', ', $hollow),
+            $hollow[0],
+          ),
+        );
+      }
+    }
     if ($this->workType !== NULL && $coverageIsDue) {
       $missed = array_values(array_diff($this->workType->mustMeasure(), $this->measuredGates));
       // A gate the LEVEL turned off is not a gate the agent failed to satisfy.

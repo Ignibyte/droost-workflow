@@ -1099,6 +1099,57 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * A drush that cannot bootstrap is no site either.
+   *
+   * The missing-binary branch answered only "drush is absent". Most Drupal
+   * checkouts have `vendor/bin/drush` whether or not a site is bootable, and
+   * there it exits 1 with:
+   *
+   *     PHP Fatal error: Uncaught AssertionError:
+   *     assert($this->bootstrap instanceof DrupalBoot8)
+   *
+   * recorded as `failed` — blocking, at the last phase, on a surface that has
+   * no site to give it. Same absence, two spellings, and only one was answered;
+   * a walk found the second one the day the first was fixed.
+   */
+  public function testWikiFreshSkipsWhenDrushCannotBootstrap(): void {
+    $root = $this->rootWithBinaries(['drush']);
+    $executor = new ShellGateExecutor(
+      static fn (array $argv): array => [
+        1,
+        '',
+        'PHP Fatal error:  Uncaught AssertionError: assert($this->bootstrap '
+        . 'instanceof DrupalBoot8) in .../drush/src/Boot/BootstrapManager.php:119',
+      ],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('wiki_fresh', TRUE), $root);
+
+    $this->assertSame(GateStatus::SkippedNoSite, $result->status);
+    $this->assertFalse($result->status->blocksAdvance());
+  }
+
+  /**
+   * But a working drush reporting a stale wiki still fails the gate.
+   *
+   * The half that keeps the gate a gate: "no site" must not become a way for
+   * every wiki_fresh failure to disappear.
+   */
+  public function testWikiFreshStillFailsOnStaleDocumentation(): void {
+    $root = $this->rootWithBinaries(['drush']);
+    $executor = new ShellGateExecutor(
+      static fn (array $argv): array => [1, '{"stale":3}', ''],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('wiki_fresh', TRUE), $root);
+
+    $this->assertSame(GateStatus::Failed, $result->status);
+    $this->assertTrue($result->status->blocksAdvance());
+  }
+
+  /**
    * And the site driver is not asked for it, because it cannot answer.
    *
    * `GateRunner::SITE_GATES` is dispatched to the driver, and a site gate the
