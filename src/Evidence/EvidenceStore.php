@@ -60,7 +60,7 @@ final class EvidenceStore {
    * build does not know about costs it nothing. A store written by an older one
    * is migrated up in place.
    */
-  public const int SCHEMA_VERSION = 3;
+  public const int SCHEMA_VERSION = 4;
 
   /**
    * The open connection, or NULL until first use.
@@ -179,6 +179,7 @@ final class EvidenceStore {
         1 => $this->migrateToV1($pdo),
         2 => $this->migrateToV2($pdo),
         3 => $this->migrateToV3($pdo),
+        4 => $this->migrateToV4($pdo),
         default => NULL,
       };
       // Stamped per rung, so an interrupted upgrade resumes where it stopped
@@ -472,12 +473,17 @@ final class EvidenceStore {
     $next->execute([$runId, $phase, $check->kind, $check->name]);
     $attempt = (int) $next->fetchColumn();
 
+    // The tail of the chain, read inside the same transaction the insert runs
+    // in, so two concurrent writers cannot both extend from the same link.
+    $tail = $pdo->query('SELECT row_digest FROM check_result ORDER BY id DESC LIMIT 1');
+    $previous = $tail === FALSE ? '' : (string) ($tail->fetchColumn() ?: '');
+
     $statement = $pdo->prepare(
       'INSERT INTO check_result
         (run_id, phase, attempt, kind, name, state, fault, summary, remedy,
          subject_hash, exit_code, invocation, started_at, duration_ms, adjudicated_at,
-         provider, measured)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+         provider, measured, row_digest)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     $statement->execute([
       $runId,
@@ -497,7 +503,9 @@ final class EvidenceStore {
       $now ?? date('c'),
       $check->provider,
       $check->measured === NULL ? NULL : (int) $check->measured,
+      $digest = self::chain($previous, $runId, $phase, $attempt, $check),
     ]);
+    $pdo->prepare('UPDATE run SET chain_head = ?')->execute([$digest]);
     $id = (int) $pdo->lastInsertId();
     $this->recordFindings($pdo, $id, $check->findings);
     $this->recordTranscript($pdo, $id, $check->stdout, $check->stderr);
@@ -1060,6 +1068,156 @@ final class EvidenceStore {
     }
 
     return $tally;
+  }
+
+  /**
+   * This row's link in the chain, from the previous row's.
+   *
+   * TAMPER-EVIDENCE, NOT TAMPER-PROOFING, and the difference is worth being
+   * exact about, because overclaiming is how the last three defences here got
+   * believed past their limits.
+   *
+   * A shell can reach this file. The guard refuses the obvious routes, and a
+   * reviewer defeated it in four more within minutes — a glob, a variable,
+   * `find -exec`, and `php -r` assembling the path from two halves. No parse of
+   * a shell string can decide which file a command will open, so prevention was
+   * never going to hold, and claiming it had was the mistake.
+   *
+   * So instead: every row's digest covers the previous row's digest and its own
+   * contents. Change a verdict, insert a gate that never ran, delete an
+   * inconvenient block — every link after it stops matching. The forgery is
+   * still possible; it is no longer invisible, and `integrity()` names the
+   * first row where the record stops being self-consistent.
+   *
+   * What this does NOT do is stop somebody who reads this method and recomputes
+   * the chain after editing. That is a real limit, written down rather than
+   * implied away, because a defence whose limits are unstated gets trusted past
+   * them — which is the whole story of today.
+   *
+   * @param string $previous
+   *   The previous row's digest, or '' for the first row.
+   * @param string $runId
+   *   The run.
+   * @param string $phase
+   *   The phase.
+   * @param int $attempt
+   *   The attempt number.
+   * @param \Droost\Workflow\Evidence\CheckRecord $check
+   *   The verdict.
+   *
+   * @return string
+   *   The digest.
+   */
+  private static function chain(string $previous, string $runId, string $phase, int $attempt, CheckRecord $check): string {
+    return hash('xxh128', implode("\0", [
+      $previous,
+      $runId,
+      $phase,
+      (string) $attempt,
+      $check->kind,
+      $check->name,
+      $check->state->value,
+      $check->fault->value,
+      $check->summary,
+      $check->exitCode === NULL ? '' : (string) $check->exitCode,
+      $check->durationMs === NULL ? '' : (string) $check->durationMs,
+      $check->subjectHash ?? '',
+      $check->measured === NULL ? '' : ($check->measured ? '1' : '0'),
+    ]));
+  }
+
+  /**
+   * The first row at which the record stops being self-consistent.
+   *
+   * Walks the chain and recomputes each link. A row whose digest does not
+   * follow from its predecessor and its own contents was written, altered or
+   * removed by something that is not droost.
+   *
+   * @return array{row: int, name: string, phase: string}|null
+   *   The first break, or NULL when the chain holds end to end.
+   */
+  public function integrity(): ?array {
+    $statement = $this->connection()->query(
+      'SELECT id, run_id, phase, attempt, kind, name, state, fault, summary,
+              exit_code, duration_ms, subject_hash, measured, row_digest
+         FROM check_result ORDER BY id'
+    );
+    if ($statement === FALSE) {
+      return NULL;
+    }
+    $previous = '';
+    $seen = FALSE;
+    foreach (self::rows($statement) as $row) {
+      $seen = TRUE;
+      $stored = self::text($row, 'row_digest');
+      if ($stored === '') {
+        if ($previous !== '') {
+          // A row with no digest AFTER rows that have one. Pre-v4 rows are all
+          // at the start, by definition — this one was appended by something
+          // that did not know to chain it. Skipping it was how an invented gate
+          // stayed invisible.
+          return [
+            'row' => self::number($row, 'id'),
+            'name' => self::text($row, 'name'),
+            'phase' => self::text($row, 'phase'),
+          ];
+        }
+        // Genuinely pre-v4: nothing to verify, and nobody to accuse.
+        continue;
+      }
+      $expected = hash('xxh128', implode("\0", [
+        $previous,
+        self::text($row, 'run_id'),
+        self::text($row, 'phase'),
+        (string) self::number($row, 'attempt'),
+        self::text($row, 'kind'),
+        self::text($row, 'name'),
+        self::text($row, 'state'),
+        self::text($row, 'fault'),
+        self::text($row, 'summary'),
+        ($row['exit_code'] ?? NULL) === NULL ? '' : (string) self::number($row, 'exit_code'),
+        ($row['duration_ms'] ?? NULL) === NULL ? '' : (string) self::number($row, 'duration_ms'),
+        ($row['subject_hash'] ?? NULL) === NULL ? '' : self::text($row, 'subject_hash'),
+        ($row['measured'] ?? NULL) === NULL ? '' : (self::number($row, 'measured') === 1 ? '1' : '0'),
+      ]));
+      if (!hash_equals($expected, $stored)) {
+        return [
+          'row' => self::number($row, 'id'),
+          'name' => self::text($row, 'name'),
+          'phase' => self::text($row, 'phase'),
+        ];
+      }
+      $previous = $stored;
+    }
+
+    // And the tail. A forward chain cannot see its own truncation: delete the
+    // last verdict and every remaining link still follows from the one before
+    // it. The run row carries the head, written in the same transaction as each
+    // insert, so a missing tail is a mismatch here.
+    $head = $this->connection()->prepare('SELECT chain_head FROM run WHERE run_id IS NOT NULL LIMIT 1');
+    $head->execute();
+    $recorded = $head->fetchColumn();
+    if ($seen && is_string($recorded) && $recorded !== '' && !hash_equals($recorded, $previous)) {
+      return ['row' => 0, 'name' => 'the last verdict', 'phase' => 'the end of the record'];
+    }
+
+    return NULL;
+  }
+
+  /**
+   * V4 — a hash chain over the verdicts, so a forged row is a visible one.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   */
+  private function migrateToV4(\PDO $pdo): void {
+    try {
+      $pdo->exec('ALTER TABLE check_result ADD COLUMN row_digest TEXT');
+      $pdo->exec('ALTER TABLE run ADD COLUMN chain_head TEXT');
+    }
+    catch (\PDOException $e) {
+      // A column another build already added.
+    }
   }
 
   /**

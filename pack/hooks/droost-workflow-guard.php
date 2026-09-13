@@ -378,6 +378,19 @@ function operator_commands_guard(string $stdin): void {
  * store has one — `droost-workflow evidence` — and reading the baseline has
  * another — `baseline --status`. Neither needs to touch the file.
  *
+ * THIS IS A SPEED BUMP, NOT A WALL, and saying so is the point. A reviewer
+ * defeated the first cut in four ways within minutes: a glob, a shell variable,
+ * `find -exec`, and `php -r` assembling the path from two halves. No parse of a
+ * shell string can decide which file a command will open — that is undecidable,
+ * not merely hard — so anything here stops the casual route and nothing more.
+ *
+ * The real defence is downstream and does not depend on prediction:
+ * `EvidenceStore` chains every verdict's digest into the next, so a row altered
+ * outside droost breaks the chain and the evaluation leads with a banner naming
+ * the first broken row. Forging the record is still possible. It is no longer
+ * quiet, which is the property that actually matters for an artefact whose
+ * whole job is being read later.
+ *
  * @param string $stdin
  *   The hook payload.
  */

@@ -279,6 +279,27 @@ final class EvaluationReport {
       . "> and only across the `## Tooling plan` section. The gate set in §3 and\n"
       . "> §4 is the check on all of it.\n";
 
+    // Before anything else a reader might act on: does the record still follow
+    // from itself? A shell can reach this file — the guard refuses the obvious
+    // routes and a reviewer defeated it in four more within minutes — so the
+    // question is not whether forging is possible but whether it is visible.
+    $break = $this->store->integrity();
+    if ($break !== NULL) {
+      $out .= sprintf(
+        "\n> ## ⚠ THIS RECORD HAS BEEN ALTERED\n"
+        . "> \n"
+        . "> Every verdict carries a digest over the previous verdict's digest\n"
+        . "> and its own contents, so a row that was changed, inserted or removed\n"
+        . "> by anything other than droost breaks the chain from that point on.\n"
+        . "> The chain first fails at row %d — `%s` at `%s`.\n"
+        . "> \n"
+        . "> Read NOTHING below as evidence. Re-run the round.\n",
+        $break['row'],
+        self::escape($break['name']),
+        self::escape($break['phase']),
+      );
+    }
+
     if ($run === [] && $checks === []) {
       $out .= "\n> **This run has no rows.** The store holds neither a `run`\n"
         . "> record nor a single adjudicated check for `" . self::escape($runId) . "`.\n"
