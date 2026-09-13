@@ -488,4 +488,77 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     return $outcome->state;
   }
 
+  /**
+   * A phase blocked past the ceiling stops and asks, and the answer is heard.
+   *
+   * A failing gate spends a retry and the phase ends when the budget does.
+   * Nothing else did — a declaration block, a contributed check, a spec
+   * condition — each cost nothing, so a phase could be re-entered forever at
+   * zero price. The blocks come from the AGENT, which means they keep coming:
+   * an agent that has misread a condition will retry it until something stops
+   * it, and nothing did.
+   *
+   * The ceiling is far above a retry budget on purpose. A gate retry is 2 or 3
+   * because a tool saying the same thing about the same code a third time
+   * teaches nobody anything; a declaration block is the agent being asked to go
+   * away and change something real, and an honest correction cycle can be long.
+   * Sixty is "this is not progressing", not "try harder".
+   *
+   * And it ASKS rather than failing, because the engine knows the count and
+   * nothing else. It cannot tell a slow honest run from one wedged on a block
+   * it cannot clear; the person watching can tell instantly. Ending the run
+   * here would throw away a plan and a code phase over a judgement the engine
+   * is not equipped to make.
+   */
+  public function testPhaseBlockedPastTheCeilingAsks(): void {
+    $root = $this->makeRootWithConfig("preset: low\nmode: agentic\n");
+    // A real repository, because the audit compares declarations against the
+    // DIFF: with no git there is no diff, nothing is ever undeclared, and the
+    // test would pass by never reaching the condition it exists to drive.
+    exec(sprintf('cd %s && git init -q . && git add -A && git commit -q -m base', escapeshellarg($root)));
+    $spec = $this->writeSpec($root);
+    $facade = $this->facade();
+
+    $facade->run($root, $spec);
+    $facade->declareChanges($root, ['src'], [], 'code');
+    file_put_contents($root . '/undeclared.php', "<?php // never declared\n");
+
+    $outcomes = [];
+    $paused = NULL;
+    for ($i = 0; $i < 70; $i++) {
+      $outcome = $facade->run($root, $spec);
+      $outcomes[] = $outcome->outcome;
+      if ($outcome->outcome === Outcome::Paused) {
+        $paused = $outcome;
+        break;
+      }
+    }
+
+    $this->assertNotNull($paused, 'the run stops asking rather than looping forever');
+    $this->assertGreaterThan(
+      10,
+      count($outcomes),
+      'and it does not interrupt an honest correction cycle: the ceiling is well above a retry budget',
+    );
+    $this->assertNotNull($paused->question);
+    $this->assertStringContainsString('stuck', $paused->question->question);
+    $this->assertNotSame([], $paused->question->options, 'it offers answers rather than only a verdict');
+
+    // The answer has to buy another budget. Counting from the start of the
+    // phase made "keep going" pause again on the very next invocation, and then
+    // forever — an unbounded PAUSE loop, which is worse than the unbounded
+    // failure loop it replaced, because that one at least kept working.
+    $facade->answer($root, 'keep going');
+    $this->assertSame(
+      Outcome::Failed,
+      $facade->run($root, $spec)->outcome,
+      'answering resumes ordinary blocking rather than re-asking immediately',
+    );
+    $this->assertSame(
+      Outcome::Failed,
+      $facade->run($root, $spec)->outcome,
+      'and keeps resuming it',
+    );
+  }
+
 }

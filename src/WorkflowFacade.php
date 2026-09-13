@@ -1455,9 +1455,26 @@ final class WorkflowFacade {
       return $outcome;
     }
 
-    return $this->auditDeclarationsFor($outcome->state, $phase, $projectRoot)
-      ? new RunOutcome(Outcome::Failed, $outcome->state, $outcome->report)
-      : $outcome;
+    if (!$this->auditDeclarationsFor($outcome->state, $phase, $projectRoot)) {
+      return $outcome;
+    }
+
+    // A declaration block costs nothing to retry, which is right — the agent is
+    // meant to go away, change something real and come back, and a legitimate
+    // correction cycle can be long. But nothing was counting, so a phase could
+    // be re-entered forever at zero price, and the blocks come from the agent
+    // itself: it will keep trying. Past the ceiling the engine stops and ASKS,
+    // because it can see the count and nothing else, while the person watching
+    // can tell a slow run from a stuck one at a glance.
+    $stuck = $this->engine()->stuckOutcome(
+      $outcome->state,
+      $phase,
+      $projectRoot,
+      $outcome->report,
+      $this->now(),
+    );
+
+    return $stuck ?? new RunOutcome(Outcome::Failed, $outcome->state, $outcome->report);
   }
 
   /**

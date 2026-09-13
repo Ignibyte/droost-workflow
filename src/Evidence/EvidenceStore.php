@@ -982,6 +982,56 @@ final class EvidenceStore {
   }
 
   /**
+   * How many times a non-gate block has been recorded for a phase.
+   *
+   * A gate failure spends a retry from `max_gate_retries` and the phase ends
+   * when the budget does. Nothing else did: a declaration block, a contributed
+   * check, a blocked spec condition — each returned a Failed outcome that cost
+   * nothing, so a phase could be re-entered forever at zero price.
+   *
+   * That was survivable only as long as every block is clearable, which is a
+   * property nobody can promise about the NEXT one. Four unclearable blocks
+   * shipped in a single day, and every one of them would have looped rather
+   * than ending; the run would have gone on being retried until a human noticed
+   * the transcript rather than the record.
+   *
+   * The store is the counter because the rows already exist: every re-entry
+   * appends a new attempt, so the count IS the number of times this phase was
+   * blocked without clearing.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $phase
+   *   The phase.
+   *
+   * @return int
+   *   The number of blocked non-gate rows recorded for it.
+   */
+  public function blockedAttempts(string $runId, string $phase): int {
+    $pdo = $this->connection();
+    // SINCE THE LAST TIME SOMEBODY WAS ASKED. Counting from the start of the
+    // phase made answering "keep going" pause again on the very next
+    // invocation, and then forever — which turns an unbounded failure loop into
+    // an unbounded PAUSE loop, and that is worse: the first at least kept
+    // working. An answer has to buy another budget or it is not an answer.
+    $since = $pdo->prepare(
+      'SELECT COALESCE(MAX(id), 0) FROM check_result
+        WHERE run_id = ? AND phase = ? AND name = \'block_ceiling\''
+    );
+    $since->execute([$runId, $phase]);
+    $mark = (int) ($since->fetchColumn() ?: 0);
+
+    $statement = $pdo->prepare(
+      'SELECT COUNT(*) FROM check_result
+        WHERE run_id = ? AND phase = ? AND kind != \'gate\' AND state = ? AND id > ?'
+    );
+    $statement->execute([$runId, $phase, CheckState::Blocked->value, $mark]);
+    $count = $statement->fetchColumn();
+
+    return is_numeric($count) ? (int) $count : 0;
+  }
+
+  /**
    * The gates that actually measured something in this run.
    *
    * "Measured" is a stricter claim than "passed": a gate that was off by

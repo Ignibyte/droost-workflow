@@ -37,6 +37,28 @@ use Droost\Workflow\State\RunState;
 final class ModeEngine {
 
   /**
+   * How many times a phase may be blocked by a non-gate check before asking.
+   *
+   * Deliberately far above a retry budget. `max_gate_retries` is 2 or 3 because
+   * a failing gate is a tool saying the same thing about the same code, and a
+   * third identical answer teaches nobody anything. A declaration or check
+   * block is different in kind: the agent is meant to go away, change something
+   * real, and come back, and a legitimate correction cycle can be long. A
+   * ceiling that bites at ten would interrupt honest work.
+   *
+   * What it exists for is the case where the work is NOT progressing — an
+   * unclearable block, or an agent looping on a condition it has misread. Four
+   * unclearable blocks shipped in a single day; every one of them would have
+   * been retried forever rather than ending.
+   *
+   * And it ASKS rather than failing. The engine cannot tell a stuck run from a
+   * slow one, and the person watching can. Ending the run here would throw away
+   * a plan and a code phase over a judgement the engine is not equipped to
+   * make.
+   */
+  private const int BLOCK_CEILING = 60;
+
+  /**
    * Constructs a ModeEngine.
    *
    * @param \Droost\Workflow\Gate\GateRunner $runner
@@ -156,7 +178,9 @@ final class ModeEngine {
     // stop a phase exactly as a failed gate does — otherwise contributing one
     // is contributing a comment.
     if (!$this->adjudicateChecks($state, $phase, $projectRoot)) {
-      return new RunOutcome(Outcome::Failed, $state, $report);
+      $stuck = $this->stuckOutcome($state, $phase, $projectRoot, $report, $now);
+
+      return $stuck ?? new RunOutcome(Outcome::Failed, $state, $report);
     }
 
     // The seeker checkpoint. Gates verify rules; the seeker verifies
@@ -183,6 +207,53 @@ final class ModeEngine {
       $phase === Phase::Complete ? Outcome::Completed : Outcome::Advanced,
       $state,
       $report,
+    );
+  }
+
+  /**
+   * The question a phase asks when it has been blocked too many times.
+   *
+   * Not a failure. The engine knows the count and nothing else: it cannot tell
+   * a run making slow honest progress from one wedged against a block it cannot
+   * clear, and the person watching can tell instantly. So it stops, says what
+   * it has seen, and asks.
+   *
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase.
+   * @param int $blocks
+   *   How many non-gate blocks have been recorded for it.
+   * @param string $now
+   *   The current time.
+   *
+   * @return \Droost\Workflow\Mode\PendingQuestion
+   *   The question.
+   */
+  private function stuckQuestion(Phase $phase, int $blocks, string $now): PendingQuestion {
+    return new PendingQuestion(
+      $phase,
+      sprintf(
+        'This phase has been blocked %d times by checks that are not gates, and none of them '
+        . 'has cleared. Is the work progressing, or is it stuck on something it cannot fix?',
+        $blocks,
+      ),
+      sprintf('%s: %d unresolved non-gate blocks', $phase->value, $blocks),
+      $now,
+      sprintf('%s has not cleared a block in %d attempts', $phase->value, $blocks),
+      [
+        'The gates are not the problem: a failing gate spends a retry and ends '
+        . 'the phase by itself. These are declarations, contributed checks or '
+        . 'spec conditions, and they cost nothing to retry — so a run can sit '
+        . 'here indefinitely without anything saying so.',
+        'Read §4 of `droost-workflow evidence` for what is blocked and why.',
+        'A block with an ENVIRONMENT fault names a remedy an operator can run.',
+        'A block with an AGENT fault has no waiver: the work itself has to change.',
+        'If a block cannot be cleared by any action, that is a defect in droost '
+        . 'rather than in the work, and the run should be abandoned and reported.',
+      ],
+      [
+        'keep going — the work is progressing and I expect it to clear',
+        'stop here — this is stuck and I will look at it',
+      ],
     );
   }
 
@@ -530,6 +601,70 @@ final class ModeEngine {
     }
 
     return $advance;
+  }
+
+  /**
+   * A pause when a phase has been blocked past the ceiling, or NULL.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase.
+   * @param string $projectRoot
+   *   The repository.
+   * @param \Droost\Workflow\Gate\PhaseReport|null $report
+   *   The phase report, when there is one.
+   * @param string $now
+   *   The current time.
+   *
+   * @return \Droost\Workflow\Mode\RunOutcome|null
+   *   The paused outcome, or NULL to let the caller block as usual.
+   */
+  public function stuckOutcome(
+    RunState $state,
+    Phase $phase,
+    string $projectRoot,
+    ?PhaseReport $report,
+    string $now,
+  ): ?RunOutcome {
+    try {
+      $blocks = (new EvidenceStore($projectRoot))->blockedAttempts($state->runId, $phase->value);
+    }
+    catch (\Throwable) {
+      // No store, no count, no ceiling. A missing record is already reported
+      // by the phase that could not write it.
+      return NULL;
+    }
+    if ($blocks < self::BLOCK_CEILING) {
+      return NULL;
+    }
+    $question = $this->stuckQuestion($phase, $blocks, $now);
+    // The mark the next count starts from, so answering buys another budget
+    // rather than another pause. Recorded BEFORE the pause is announced: a
+    // question asked and not marked would re-ask on the next invocation.
+    try {
+      (new EvidenceStore($projectRoot))->record(
+        $state->runId,
+        $phase->value,
+        new CheckRecord(
+          'check',
+          'block_ceiling',
+          CheckState::Recorded,
+          Fault::None,
+          sprintf('%d unresolved non-gate blocks; asked whether the run is stuck', $blocks),
+        ),
+        $now,
+      );
+    }
+    catch (\Throwable) {
+      // Unwritable store. The phase that could not write its evidence already
+      // says so, and asking twice is better than not asking.
+    }
+    // State first, sink second. Always.
+    $state = $state->awaiting($question->toArray());
+    $this->sink->emit($question);
+
+    return new RunOutcome(Outcome::Paused, $state, $report, $question);
   }
 
 }
