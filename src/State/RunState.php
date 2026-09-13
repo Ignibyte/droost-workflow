@@ -614,6 +614,69 @@ final class RunState {
   }
 
   /**
+   * The incoming report, carrying what each gate said on its failed attempts.
+   *
+   * A phase that fails a gate, gets fixed, and passes used to leave a record
+   * showing only the pass. `feedback_attempts` counted that a retry happened;
+   * nothing anywhere said what the gate had objected to. So the run record
+   * could prove the feedback loop fired and not what it corrected — and every
+   * account of WHY a gate failed had to come from the agent's own narration,
+   * which is the class of evidence this package exists to stop trusting.
+   *
+   * Only blocking attempts are carried: a gate that was `off` or `reported`
+   * and then ran has no correction to explain. The kept shape is deliberately
+   * small — status, exit code, duration and the summary line — because the
+   * findings of a superseded attempt describe code that no longer exists,
+   * while its summary is the sentence that caused the work.
+   *
+   * Bounded at five so a gate stuck in a long loop cannot grow the record
+   * without limit; the oldest attempts drop first, and the count in
+   * `feedback_attempts` still says how many there really were.
+   *
+   * @param array<string, mixed>|null $previous
+   *   The report this one replaces, if any.
+   * @param array<string, mixed> $report
+   *   The incoming serialized PhaseReport.
+   *
+   * @return array<string, mixed>
+   *   The incoming report, with prior failures attached per gate.
+   */
+  private static function carryFailedAttempts(?array $previous, array $report): array {
+    $blocking = ['failed', 'error-tool-missing', 'error-tool-failed'];
+    $priorGates = is_array($previous['gates'] ?? NULL) ? $previous['gates'] : [];
+    $history = [];
+    foreach ($priorGates as $gate) {
+      if (!is_array($gate) || !is_string($gate['gate'] ?? NULL)) {
+        continue;
+      }
+      $name = $gate['gate'];
+      $carried = is_array($gate['previous_attempts'] ?? NULL) ? $gate['previous_attempts'] : [];
+      if (in_array($gate['status'] ?? NULL, $blocking, TRUE)) {
+        $carried[] = [
+          'status' => $gate['status'],
+          'exit_code' => $gate['exit_code'] ?? NULL,
+          'duration_ms' => $gate['duration_ms'] ?? NULL,
+          'summary' => $gate['summary'] ?? NULL,
+        ];
+      }
+      if ($carried !== []) {
+        $history[$name] = array_slice($carried, -5);
+      }
+    }
+    if ($history === [] || !is_array($report['gates'] ?? NULL)) {
+      return $report;
+    }
+    foreach ($report['gates'] as $i => $gate) {
+      $name = is_array($gate) ? ($gate['gate'] ?? NULL) : NULL;
+      if (is_string($name) && isset($history[$name])) {
+        $report['gates'][$i]['previous_attempts'] = $history[$name];
+      }
+    }
+
+    return $report;
+  }
+
+  /**
    * This run with a phase's gate report recorded.
    *
    * Until this existed, `gate_results` was a field the writer emitted, the
@@ -634,7 +697,7 @@ final class RunState {
    */
   public function withGateReport(string $phase, array $report): self {
     $results = $this->gateResults;
-    $results[$phase] = $report;
+    $results[$phase] = self::carryFailedAttempts($results[$phase] ?? NULL, $report);
     return new self(
       $this->runId,
       $this->startedAt,
