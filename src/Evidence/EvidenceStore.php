@@ -124,6 +124,13 @@ final class EvidenceStore {
     $pdo->exec('PRAGMA journal_mode = WAL');
     $pdo->exec('PRAGMA synchronous = NORMAL');
     $pdo->exec('PRAGMA foreign_keys = ON');
+    // SQLite allows one writer, and droost has several: the gate pipeline, the
+    // grounding resolver, the declaration audit, and the Stop hook's own
+    // connection. Without a timeout a contending write throws "database is
+    // locked" immediately — and every call site swallows it, which made a
+    // locked database a silent PASS for the declaration audit. Five seconds is
+    // far longer than any write here takes and far shorter than a person waits.
+    $pdo->exec('PRAGMA busy_timeout = 5000');
     $this->pdo = $pdo;
     $this->migrate($pdo);
 
@@ -415,6 +422,52 @@ final class EvidenceStore {
    */
   public function record(string $runId, string $phase, CheckRecord $check, ?string $now = NULL): int {
     $pdo = $this->connection();
+    // BEGIN IMMEDIATE, because the attempt number is READ and then written,
+    // and that is the one shape `busy_timeout` cannot rescue: a connection
+    // upgrading a shared lock to a write lock gets SQLITE_BUSY at once,
+    // whatever the timeout says, because SQLite will not wait on a deadlock it
+    // cannot resolve. With six concurrent writers that killed a third of them
+    // outright — and every caller swallows the exception, so the rows simply
+    // went missing. Taking the write lock up front turns the same contention
+    // into a wait.
+    $owns = !$pdo->inTransaction();
+    if ($owns) {
+      $pdo->exec('BEGIN IMMEDIATE');
+    }
+    try {
+      $id = $this->insertCheck($pdo, $runId, $phase, $check, $now);
+    }
+    catch (\Throwable $e) {
+      if ($owns && $pdo->inTransaction()) {
+        $pdo->exec('ROLLBACK');
+      }
+      throw $e;
+    }
+    if ($owns) {
+      $pdo->exec('COMMIT');
+    }
+
+    return $id;
+  }
+
+  /**
+   * The insert itself, inside whatever transaction the caller holds.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   * @param string $runId
+   *   The run.
+   * @param string $phase
+   *   The phase.
+   * @param \Droost\Workflow\Evidence\CheckRecord $check
+   *   The verdict.
+   * @param string|null $now
+   *   The adjudication time.
+   *
+   * @return int
+   *   The new row's id.
+   */
+  private function insertCheck(\PDO $pdo, string $runId, string $phase, CheckRecord $check, ?string $now): int {
     $next = $pdo->prepare('SELECT COALESCE(MAX(attempt), 0) + 1 FROM check_result WHERE run_id = ? AND phase = ? AND kind = ? AND name = ?');
     $next->execute([$runId, $phase, $check->kind, $check->name]);
     $attempt = (int) $next->fetchColumn();

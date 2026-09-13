@@ -21,9 +21,12 @@ use Droost\Workflow\Event\NullWorkflowListener;
 use Droost\Workflow\Event\WorkflowListenerInterface;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Evidence\CheckAdjudicatorInterface;
-use Droost\Workflow\Evidence\EvaluationReport;
+use Droost\Workflow\Evidence\CheckRecord;
+use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\Evidence\DeclarationAudit;
+use Droost\Workflow\Evidence\EvaluationReport;
 use Droost\Workflow\Evidence\EvidenceStore;
+use Droost\Workflow\Evidence\Fault;
 use Droost\Workflow\Evidence\SpecFreeze;
 use Droost\Workflow\Evidence\SubjectHasher;
 use Droost\Workflow\Evidence\WorkType;
@@ -1424,6 +1427,50 @@ final class WorkflowFacade {
   }
 
   /**
+   * Records that the declaration audit could not run, and why.
+   *
+   * Best-effort by necessity: the usual reason the audit failed is that the
+   * store is unreachable, so writing this row may fail for the same reason. A
+   * row that cannot be written still leaves the phase stopped, which is the
+   * part that matters.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase.
+   * @param string $projectRoot
+   *   The repository.
+   * @param \Throwable $error
+   *   What stopped the audit.
+   */
+  private function recordAuditFailure(
+    RunState $state,
+    Phase $phase,
+    string $projectRoot,
+    \Throwable $error,
+  ): void {
+    try {
+      (new EvidenceStore($projectRoot))->record(
+        $state->runId,
+        $phase->value,
+        new CheckRecord(
+          'declaration',
+          'declaration_audit',
+          CheckState::Blocked,
+          Fault::Environment,
+          'The declaration audit could not read the run\'s own record: ' . $error::class,
+          'Re-run the phase. If it persists, check that nothing else is holding '
+          . 'the evidence store open, then inspect it with `droost-workflow evidence`.',
+        ),
+        $this->now(),
+      );
+    }
+    catch (\Throwable) {
+      // The store is what failed. Nothing to record it with.
+    }
+  }
+
+  /**
    * Adjudicates and records this phase's declaration checks.
    *
    * Split out so the INTERACTIVE path can call it. Interactive runs advance
@@ -1467,8 +1514,18 @@ final class WorkflowFacade {
       }
     }
     catch (\Throwable $e) {
-      // An audit that cannot read its own record must not fail a green phase.
-      return FALSE;
+      // An audit that cannot read its own record must not fail a green phase —
+      // but it must not pass one in silence either. A locked database made the
+      // scope audit, the work-type check and type_coverage all quietly succeed,
+      // which is a free pass handed out by a transient error nobody sees.
+      //
+      // So the failure becomes a row: blocked, environment fault, with a
+      // remedy. The phase stops, because an audit that did not run has not
+      // passed; the fault is environment because a contended database is not
+      // the agent's doing and there is nothing for it to fix.
+      $this->recordAuditFailure($state, $phase, $projectRoot, $e);
+
+      return TRUE;
     }
 
     return $blocked;

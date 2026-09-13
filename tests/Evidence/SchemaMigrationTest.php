@@ -174,4 +174,64 @@ final class SchemaMigrationTest extends TestCase {
     );
   }
 
+  /**
+   * Concurrent writers all land, rather than a third of them vanishing.
+   *
+   * Droost has several writers — the gate pipeline, the grounding resolver,
+   * the declaration audit, and the Stop hook's own connection — and SQLite
+   * allows one. A reviewer ran four at once and half the processes died with
+   * "database is locked". Every call site swallows that, so the rows simply
+   * went missing and nothing said so. Worse, the declaration audit caught it
+   * and returned "nothing blocks", which made a contended database a silent
+   * free pass through the checks.
+   *
+   * `busy_timeout` alone does not fix it, and that is the subtle part.
+   * `record()` reads the attempt number and then writes, and a connection
+   * upgrading a shared lock to a write lock gets SQLITE_BUSY immediately
+   * whatever the timeout says — SQLite will not wait on a deadlock it cannot
+   * resolve. The write lock has to be taken up front.
+   */
+  public function testConcurrentWritersAllLand(): void {
+    (new EvidenceStore($this->root))->upsertRun('r1', ['preset' => 'medium']);
+
+    $script = $this->root . '/writer.php';
+    file_put_contents($script, <<<'PHP'
+    <?php
+    require $argv[1];
+    $store = new \Droost\Workflow\Evidence\EvidenceStore($argv[2]);
+    for ($i = 0; $i < 20; $i++) {
+      $store->record('r1', 'code', new \Droost\Workflow\Evidence\CheckRecord(
+        'gate', 'g' . $argv[3], \Droost\Workflow\Evidence\CheckState::Satisfied,
+        \Droost\Workflow\Evidence\Fault::None, 'x',
+      ));
+    }
+    PHP);
+
+    $autoload = dirname(__DIR__, 2) . '/vendor/autoload.php';
+    $handles = [];
+    for ($w = 1; $w <= 4; $w++) {
+      $handles[] = proc_open(
+        [PHP_BINARY, $script, $autoload, $this->root, (string) $w],
+        [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+      );
+    }
+    foreach ($handles as $handle) {
+      if (is_resource($handle)) {
+        proc_close($handle);
+      }
+    }
+
+    $this->assertSame(
+      80,
+      $this->storeCount($this->raw(), "SELECT COUNT(*) FROM check_result WHERE kind = 'gate'"),
+      'every write from every writer landed',
+    );
+    $this->assertSame(
+      4,
+      $this->storeCount($this->raw(), "SELECT COUNT(DISTINCT name) FROM check_result WHERE kind = 'gate'"),
+      'and no writer was lost entirely',
+    );
+  }
+
 }
