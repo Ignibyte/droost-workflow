@@ -103,6 +103,17 @@ final class EvaluationReport {
   private const int MAX_CELL = 200;
 
   /**
+   * How much of one transcript stream is printed, in characters.
+   *
+   * The store caps a stream at 16KB; a round with fifteen gates and two
+   * streams each would still be a quarter of a megabyte of markdown, which is
+   * not a document anyone reads. The middle is what gets dropped — the head
+   * carries the command and the first failure, the tail carries the summary
+   * and the exit — and the cut says exactly how many characters went with it.
+   */
+  private const int MAX_TRANSCRIPT = 2000;
+
+  /**
    * How many findings one check prints before the rest are counted instead.
    *
    * A phpcs run can produce hundreds. The overflow is stated with its count
@@ -145,9 +156,10 @@ final class EvaluationReport {
       "---\n",
       $this->levers($run, $checks),
       "---\n",
-      $this->gateVerdicts($checks),
+      $this->gateVerdicts($runId, $checks),
       $this->toolLedger($runId),
       $this->grounding($runId),
+      $this->transcripts($runId, $checks),
       $this->buildVerdictStub(),
       $this->scoreStub(),
       "---\n",
@@ -391,13 +403,15 @@ final class EvaluationReport {
   /**
    * Section 4 — what each gate concluded, and whether it measured anything.
    *
+   * @param string $runId
+   *   The run.
    * @param list<array<array-key, mixed>> $checks
    *   Every adjudicated check of the run.
    *
    * @return string
    *   The section.
    */
-  private function gateVerdicts(array $checks): string {
+  private function gateVerdicts(string $runId, array $checks): string {
     $gates = array_values(array_filter(
       $checks,
       static fn (array $check): bool => self::text($check, 'kind') === 'gate',
@@ -407,6 +421,8 @@ final class EvaluationReport {
         . "No gate was adjudicated in this run. A phase whose configured gate\n"
         . "set is non-empty and whose evidence is empty has not run its gates,\n"
         . "whatever `phases` says about it.\n"
+        . $this->remedies($checks)
+        . $this->declarations($runId, $checks)
         . $this->otherChecks($checks);
     }
 
@@ -422,7 +438,6 @@ final class EvaluationReport {
 
     $rows = [];
     $earlier = [];
-    $remedies = [];
     $measured = 0;
     foreach ($byItem as $attempts) {
       $latest = $attempts[count($attempts) - 1];
@@ -444,15 +459,6 @@ final class EvaluationReport {
       ];
       if (count($attempts) > 1) {
         $earlier[] = $this->earlierAttempts($attempts);
-      }
-      if ($state === CheckState::Blocked && self::text($latest, 'remedy') !== NULL) {
-        $remedies[] = sprintf(
-          "- %s in %s — %s\n  - remedy: `%s`\n",
-          self::code(self::text($latest, 'name')),
-          self::code(self::text($latest, 'phase')),
-          self::cell(self::text($latest, 'summary')),
-          self::escape((string) self::text($latest, 'remedy')),
-        );
       }
     }
 
@@ -487,19 +493,12 @@ final class EvaluationReport {
         . implode('', $earlier);
     }
 
-    if ($remedies !== []) {
-      $out .= "\n### Environment blocks, and who may lift them\n\n"
-        . "A block carrying `environment` cannot be satisfied from where the\n"
-        . "agent stands. The phase still does not advance — an OPERATOR lifts\n"
-        . "it, recorded as `unblocked by the operator`, and every other fault\n"
-        . "has no such door. A remedy printed beside work the agent must simply\n"
-        . "do reads as a way out of doing it, so only these rows carry one.\n\n"
-        . implode('', $remedies);
-    }
-
     $out .= $this->invocations($byItem);
 
-    return $out . $this->otherChecks($checks);
+    return $out
+      . $this->remedies($checks)
+      . $this->declarations($runId, $checks)
+      . $this->otherChecks($checks);
   }
 
   /**
@@ -542,6 +541,11 @@ final class EvaluationReport {
    * copy and run, and a table cell mangles it — the pipes get escaped and long
    * argv wraps into noise.
    *
+   * Every DISTINCT command, not just the latest attempt's. A retry that
+   * narrowed its paths ran a different tool over a different subject, and a
+   * report showing only the command that finally passed would hide the one
+   * question worth asking about it.
+   *
    * @param array<string, list<array<array-key, mixed>>> $byItem
    *   The gates, keyed by phase and name, oldest attempt first.
    *
@@ -551,13 +555,18 @@ final class EvaluationReport {
   private function invocations(array $byItem): string {
     $lines = [];
     foreach ($byItem as $attempts) {
-      $latest = $attempts[count($attempts) - 1];
-      $invocation = self::text($latest, 'invocation');
-      if ($invocation !== NULL) {
+      $seen = [];
+      foreach ($attempts as $attempt) {
+        $invocation = self::text($attempt, 'invocation');
+        if ($invocation === NULL || isset($seen[$invocation])) {
+          continue;
+        }
+        $seen[$invocation] = TRUE;
         $lines[] = sprintf(
-          "# %s (%s)\n%s\n",
-          self::text($latest, 'name') ?? '',
-          self::text($latest, 'phase') ?? '',
+          "# %s (%s), attempt %s\n%s\n",
+          self::text($attempt, 'name') ?? '',
+          self::text($attempt, 'phase') ?? '',
+          self::number($attempt, 'attempt') ?? 0,
           $invocation,
         );
       }
@@ -572,11 +581,289 @@ final class EvaluationReport {
   }
 
   /**
+   * The newest attempt of every item, gates and everything else alike.
+   *
+   * @param list<array<array-key, mixed>> $checks
+   *   Every adjudicated check of the run, oldest attempt first.
+   *
+   * @return list<array<array-key, mixed>>
+   *   One row per phase, kind and name.
+   */
+  private static function latest(array $checks): array {
+    $byItem = [];
+    foreach ($checks as $check) {
+      $key = (self::text($check, 'phase') ?? '')
+        . "\0" . (self::text($check, 'kind') ?? '')
+        . "\0" . (self::text($check, 'name') ?? '');
+      $byItem[$key] = $check;
+    }
+
+    return array_values($byItem);
+  }
+
+  /**
+   * Every blocked check that names a command, and who is allowed to run it.
+   *
+   * Over every kind, not just the gates. A blocked environment fault whose
+   * remedy the report withheld is what wedged a live run for an hour: the
+   * agent could do nothing right, the operator was never shown the one command
+   * that would have cleared it, and nothing in the record said so.
+   *
+   * The converse is the harder rule and the store already enforces it — a
+   * remedy may ride only on an environment fault. A command printed beside
+   * work the agent must simply do reads as a way out of doing it, and in a
+   * live round an agent asked to waive the gate that was holding back an
+   * HTML-entity-encoded `javascript:` URL. This section is one more surface
+   * that must not offer that door.
+   *
+   * @param list<array<array-key, mixed>> $checks
+   *   Every adjudicated check of the run.
+   *
+   * @return string
+   *   The section, or an empty string when nothing blocked on the environment.
+   */
+  private function remedies(array $checks): string {
+    $lines = [];
+    foreach (self::latest($checks) as $check) {
+      $remedy = self::text($check, 'remedy');
+      $state = CheckState::tryFrom((string) (self::text($check, 'state') ?? ''));
+      if ($remedy === NULL || $state !== CheckState::Blocked) {
+        continue;
+      }
+      $lines[] = sprintf(
+        "- %s (%s) in %s — %s\n  - remedy: `%s`\n",
+        self::code(self::text($check, 'name')),
+        self::cell(self::text($check, 'kind')),
+        self::code(self::text($check, 'phase')),
+        self::cell(self::text($check, 'summary')),
+        self::escape($remedy),
+      );
+    }
+    if ($lines === []) {
+      return '';
+    }
+
+    return "\n### Environment blocks, and who may lift them\n\n"
+      . "A block carrying `environment` cannot be satisfied from where the\n"
+      . "agent stands. The phase still does not advance — an OPERATOR lifts\n"
+      . "it, recorded as `unblocked by the operator`, and the agent may propose\n"
+      . "that and never perform it. Every other fault has no such door, and\n"
+      . "carries no remedy for the record to print.\n\n"
+      . implode('', $lines);
+  }
+
+  /**
+   * What the plan promised, and what the diff was held to.
+   *
+   * A declaration is the one contract in the run that the agent writes and is
+   * then measured against: the plan names the files it will change and the
+   * tests it will add, and the code phase adjudicates the diff against that
+   * promise. It is not a gate — nothing spawns, so the §4 table's spawn test
+   * would mark every one of them unproven — and it is not a footnote either,
+   * because a run that quietly dropped the tests it promised is exactly what
+   * it exists to catch.
+   *
+   * @param string $runId
+   *   The run.
+   * @param list<array<array-key, mixed>> $checks
+   *   Every adjudicated check of the run.
+   *
+   * @return string
+   *   The section.
+   */
+  private function declarations(string $runId, array $checks): string {
+    $audits = [];
+    foreach (self::latest($checks) as $check) {
+      if (self::text($check, 'kind') === 'declaration') {
+        $audits[(string) (self::text($check, 'name') ?? '')] = $check;
+      }
+    }
+    $promised = [
+      'file' => $this->store->declared($runId, 'file'),
+      'test' => $this->store->declared($runId, 'test'),
+    ];
+    if ($audits === [] && $promised['file'] === [] && $promised['test'] === []) {
+      return "\n### Declarations\n\n"
+        . "The plan declared no files and no tests, and nothing adjudicated a\n"
+        . "declaration. On a run whose plan phase produced a spec this is a\n"
+        . "finding, not an absence: the diff was held to nothing.\n";
+    }
+
+    $rows = [];
+    foreach (['file' => 'declared_files', 'test' => 'declared_tests'] as $kind => $name) {
+      $audit = $audits[$name] ?? NULL;
+      $rows[] = [
+        self::code($kind),
+        (string) count($promised[$kind]),
+        $audit === NULL ? self::NOT_RECORDED : self::code(self::text($audit, 'phase')),
+        $audit === NULL ? self::NOT_RECORDED : self::stateLabel(self::text($audit, 'state')),
+        $audit === NULL ? self::NOT_RECORDED : self::faultLabel(self::text($audit, 'fault')),
+        $audit === NULL
+          ? 'nothing audited this promise'
+          : self::cell(self::text($audit, 'summary')),
+      ];
+    }
+    // Any other declaration check, so a kind added later is never swallowed.
+    foreach ($audits as $name => $audit) {
+      if (in_array($name, ['declared_files', 'declared_tests'], TRUE)) {
+        continue;
+      }
+      $rows[] = [
+        self::code($name),
+        self::NOT_RECORDED,
+        self::code(self::text($audit, 'phase')),
+        self::stateLabel(self::text($audit, 'state')),
+        self::faultLabel(self::text($audit, 'fault')),
+        self::cell(self::text($audit, 'summary')),
+      ];
+    }
+
+    $out = "\n### Declarations — what the plan promised\n\n"
+      . self::table(
+        ['Kind', 'Declared', 'Audited in', 'State', 'Fault', 'Summary'],
+        $rows,
+      )
+      . "\nA declared count with no audit is a promise nobody checked. An audit\n"
+      . "with nothing declared is a check with nothing to hold the diff to —\n"
+      . "both read as green from a distance, and neither is.\n";
+
+    foreach ($promised as $kind => $values) {
+      if ($values === []) {
+        continue;
+      }
+      $out .= "\n" . ucfirst($kind) . "s declared:\n\n";
+      foreach (array_slice($values, 0, self::MAX_FINDING_ROWS) as $value) {
+        $out .= '- `' . self::escape($value) . "`\n";
+      }
+      if (count($values) > self::MAX_FINDING_ROWS) {
+        $out .= sprintf(
+          "- … and %d more, not printed.\n",
+          count($values) - self::MAX_FINDING_ROWS,
+        );
+      }
+    }
+
+    return $out;
+  }
+
+  /**
+   * Section 4c — what the tools said, beside what droost made of them.
+   *
+   * The findings are what droost PARSED and this is what the tool said, and
+   * the difference is the whole point of keeping both. It is the only thing
+   * that helps when the parse was wrong, when the tool died before producing
+   * anything structured, or when a reader simply does not believe the summary
+   * — which, in a document whose subject is whether a green measured anything,
+   * is a reader doing their job.
+   *
+   * @param string $runId
+   *   The run.
+   * @param list<array<array-key, mixed>> $checks
+   *   Every adjudicated check of the run, for the phases it names.
+   *
+   * @return string
+   *   The section.
+   */
+  private function transcripts(string $runId, array $checks): string {
+    $heading = "## 4c. Transcripts — what the tool actually said\n\n";
+    $rows = [];
+    foreach (self::phases($checks) as $phase) {
+      foreach ($this->store->transcripts($runId, $phase) as $row) {
+        $rows[] = [$phase, $row];
+      }
+    }
+    if ($rows === []) {
+      return $heading
+        . "**No transcript was recorded for this run.** Every verdict above\n"
+        . "rests on what droost parsed, with nothing to check the parse\n"
+        . "against. That is not a finding about the code — it is a limit on\n"
+        . "how far this document can be audited, and it belongs in §7.3.\n";
+    }
+
+    $out = $heading
+      . "What droost parsed is in §4 and §8a. This is what the tool wrote,\n"
+      . "which is the only thing that helps when the parse was wrong or the\n"
+      . "tool died before producing anything structured.\n";
+    foreach ($rows as [$phase, $row]) {
+      $content = self::text($row, 'content') ?? '';
+      $out .= sprintf(
+        "\n#### %s — %s, attempt %s, `%s` — %s\n\n%s\n",
+        self::code(self::text($row, 'name')),
+        self::code($phase),
+        self::cell(self::number($row, 'attempt')),
+        self::escape((string) (self::text($row, 'stream') ?? '')),
+        self::stateLabel(self::text($row, 'state')),
+        self::fence($content),
+      );
+    }
+
+    return $out;
+  }
+
+  /**
+   * The phases a run recorded anything in, in the order it recorded them.
+   *
+   * Insertion order rather than a canonical phase list: the record's own
+   * sequence is a fact, and a hard-coded order would quietly reorder a run
+   * that did something unexpected.
+   *
+   * @param list<array<array-key, mixed>> $checks
+   *   Every adjudicated check of the run.
+   *
+   * @return list<string>
+   *   The phase names.
+   */
+  private static function phases(array $checks): array {
+    $phases = [];
+    foreach ($checks as $check) {
+      $phase = self::text($check, 'phase');
+      if ($phase !== NULL) {
+        $phases[$phase] = $phase;
+      }
+    }
+
+    return array_values($phases);
+  }
+
+  /**
+   * One fenced block, cut in the middle and honest about the cut.
+   *
+   * The fence is grown past the longest run of backticks the content holds, so
+   * a transcript that itself contains a code fence cannot end the block early
+   * and spill the rest of the round's output into the prose.
+   *
+   * @param string $content
+   *   The raw stream.
+   *
+   * @return string
+   *   The block.
+   */
+  private static function fence(string $content): string {
+    $length = mb_strlen($content);
+    if ($length > self::MAX_TRANSCRIPT) {
+      $half = intdiv(self::MAX_TRANSCRIPT, 2);
+      $content = mb_substr($content, 0, $half)
+        . sprintf("\n\n… %d of %d characters cut from the middle …\n\n", $length - self::MAX_TRANSCRIPT, $length)
+        . mb_substr($content, -$half);
+    }
+    $ticks = 3;
+    if (preg_match_all('/`+/', $content, $runs) > 0) {
+      foreach ($runs[0] as $run) {
+        $ticks = max($ticks, strlen($run) + 1);
+      }
+    }
+    $fence = str_repeat('`', $ticks);
+
+    return $fence . "\n" . $content . "\n" . $fence;
+  }
+
+  /**
    * The checks of a run that are not gates.
    *
-   * Listed rather than filtered away: a declaration or a spec check that
-   * blocked a phase is part of the round's verdict, and a §4 that silently
-   * dropped it would read as a phase with nothing left to satisfy.
+   * Listed rather than filtered away: a spec or seeker check that blocked a
+   * phase is part of the round's verdict, and a §4 that silently dropped it
+   * would read as a phase with nothing left to satisfy. Declarations are the
+   * one kind missing here, because they have a richer section of their own.
    *
    * @param list<array<array-key, mixed>> $checks
    *   Every adjudicated check of the run.
@@ -587,7 +874,7 @@ final class EvaluationReport {
   private function otherChecks(array $checks): string {
     $rows = [];
     foreach ($checks as $check) {
-      if (self::text($check, 'kind') === 'gate') {
+      if (in_array(self::text($check, 'kind'), ['gate', 'declaration'], TRUE)) {
         continue;
       }
       $rows[] = [
@@ -601,10 +888,10 @@ final class EvaluationReport {
       ];
     }
     if ($rows === []) {
-      return "\n### Checks that are not gates\n\nNone recorded.\n";
+      return "\n### Checks that are neither gates nor declarations\n\nNone recorded.\n";
     }
 
-    return "\n### Checks that are not gates\n\n"
+    return "\n### Checks that are neither gates nor declarations\n\n"
       . "Every attempt, not just the latest — there are few of them and each\n"
       . "one is a thing a phase could not end without.\n\n"
       . self::table(
@@ -831,14 +1118,18 @@ final class EvaluationReport {
    *   The stub.
    */
   private function buildVerdictStub(): string {
+    // The two load-bearing phrases sit unbroken on their own lines. A reader
+    // — or a grep — looking for the refusal must find it whole, and hard
+    // wrapping has already split one of them once.
     return "## 5. Build verdict\n\n"
-      . "**Not generated, and it must not be.** This section checks the spec's\n"
-      . "own EARS acceptance criteria **verified live, not from the run\n"
-      . "record** — and generating it from the run record would be exactly the\n"
-      . "circularity the template exists to prevent. The run record is the\n"
-      . "subject's account of itself; a verdict derived from it would agree\n"
-      . "with the subject by construction, every time, including the times the\n"
-      . "subject was wrong.\n\n"
+      . "**Not generated, and it must not be.** This section checks the\n"
+      . "spec's own EARS acceptance criteria as they behave on a running\n"
+      . "site — **verified live, not from the run record**. Generating it\n"
+      . "from the run record instead would be exactly the\n"
+      . "circularity the template exists to prevent: the run record is the\n"
+      . "subject's account of itself, and a verdict derived from it would\n"
+      . "agree with the subject by construction, every time, including the\n"
+      . "times the subject was wrong.\n\n"
       . "Fill one row per criterion, against a running site:\n\n"
       . self::table(['#', 'Criterion (EARS)', 'How verified', 'Result'], [])
       . "\nEverything droost knows that bears on this is already above: §4 says\n"
@@ -930,10 +1221,10 @@ final class EvaluationReport {
       . "Two different things share this heading in the template, and only one\n"
       . "of them is a row. They are split here so the more valuable one is not\n"
       . "quietly retired by the one that generates itself.\n\n"
-      . "### 8a. Gate findings — what the gates found in the code under test\n\n";
+      . "### 8a. Check findings — what the run's checks found in the code\n\n";
 
     if ($rows === []) {
-      $out .= "No gate recorded a structured finding in this run. Read that\n"
+      $out .= "No check recorded a structured finding in this run. Read that\n"
         . "against §4: a gate that measured nothing also finds nothing, and the\n"
         . "two look identical from here.\n";
     }
