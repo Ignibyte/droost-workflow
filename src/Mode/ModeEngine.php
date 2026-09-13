@@ -6,6 +6,7 @@ namespace Droost\Workflow\Mode;
 
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Evidence\EvidenceRecorder;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\PhaseReport;
@@ -93,6 +94,14 @@ final class ModeEngine {
 
     $report = $this->runner->run($state, $phase, $projectRoot);
     $state = $state->withGateReport($phase->value, $report->toArray());
+    // The same verdicts, as rows droost can query rather than a blob it can
+    // only round-trip. run.json keeps the phase's summary because five
+    // surfaces read it; the evidence store keeps every attempt, every finding
+    // as its own row, and a fingerprint of what each gate examined — which is
+    // what lets a green expire when the code under it moves.
+    //
+    // Never allowed to fail the phase: the gates have already run by here.
+    (new EvidenceRecorder($projectRoot))->recordPhase($state, $phase->value, $report, $now);
 
     if (!$report->advance()) {
       return $this->recordFailure($state, $phase, $report);

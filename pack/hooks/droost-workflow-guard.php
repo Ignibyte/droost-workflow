@@ -172,11 +172,43 @@ if ($mode === 'stop') {
     // one enforced continuation per stop attempt is the contract.
     exit(0);
   }
+  // Until the evidence store existed this could say only that a phase was open
+  // — it read the phase name, its status and the enforcement level, and nothing
+  // else. "A run is active" is equally true of a phase whose work is finished
+  // and one that has not started, so the agent got the same sentence either way
+  // and had to work out which it was in.
+  //
+  // Now it asks what is actually unresolved, and says so: the items, the fault
+  // each carries, and for an environment fault the remedy. "phpunit is blocked"
+  // and "phpunit is blocked because this root has no phpunit.xml, which your
+  // operator writes with this command" are different messages, and a live round
+  // wedged for an hour on the difference.
+  $blocking = unresolved_checks($root, $stateDir, $document['run_id'] ?? NULL, $phase);
   $message = sprintf(
     'droost-work: a run is active in phase "%s" — advance it or abandon it '
     . '(/droost:workflow:continue) rather than ending the turn mid-phase.',
     $phase,
   );
+  if ($blocking !== []) {
+    $message .= sprintf(
+      ' %d check(s) are unresolved, and the phase cannot end until they are: %s',
+      count($blocking),
+      implode('; ', array_map(static function (array $row): string {
+        $line = $row['name'];
+        if ($row['fault'] !== 'none' && $row['fault'] !== '') {
+          $line .= ' [' . $row['fault'] . ']';
+        }
+        if ($row['summary'] !== '') {
+          $line .= ' — ' . $row['summary'];
+        }
+        if ($row['fault'] === 'environment' && $row['remedy'] !== '') {
+          $line .= ' — the OPERATOR clears this with: ' . $row['remedy'];
+        }
+
+        return $line;
+      }, $blocking)),
+    );
+  }
   if ($enforcement === 'hard') {
     fwrite(STDERR, $message);
     exit(2);
@@ -445,4 +477,71 @@ function require_run_guard(string $root, string $mode, string $stdin): void {
     @touch($marker);
     echo json_encode(['systemMessage' => $message . ' (require_run is soft: allowing this edit.)']);
   }
+}
+
+/**
+ * The checks that stop this phase ending, read from the evidence store.
+ *
+ * Bare PDO, no autoloader — this file has none and must never acquire one. It
+ * is copied into a project's .claude/hooks and runs as a standalone script on
+ * whatever PHP the editor invokes.
+ *
+ * Fails OPEN in every direction: no extension, no database, an older schema, a
+ * locked file, a query that throws. A hook that hardened because its record was
+ * missing would turn a storage problem into an agent that cannot end a turn,
+ * and what it falls back to is the message this has always printed.
+ *
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The resolved run-state directory, project-relative.
+ * @param mixed $runId
+ *   The run id, as run.json carries it.
+ * @param string $phase
+ *   The phase now open.
+ *
+ * @return array<int, array<string, string>>
+ *   One row per unresolved check: name, fault, summary, remedy.
+ */
+function unresolved_checks(string $root, string $stateDir, mixed $runId, string $phase): array {
+  if (!is_string($runId) || $runId === '' || !extension_loaded('pdo_sqlite')) {
+    return [];
+  }
+  $path = $root . '/' . $stateDir . '/evidence.sqlite';
+  if (!is_file($path)) {
+    return [];
+  }
+  try {
+    // Read-only by DSN, so a hook can never be the thing that brings a store
+    // into existence or writes a row into one.
+    $pdo = new PDO('sqlite:file:' . rawurlencode($path) . '?mode=ro', NULL, NULL, [
+      PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+      PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ]);
+    $statement = $pdo->prepare(
+      'SELECT c.name, c.fault, c.summary, c.remedy
+         FROM check_result c
+         JOIN (SELECT kind, name, MAX(attempt) AS attempt
+                 FROM check_result WHERE run_id = ? AND phase = ?
+                GROUP BY kind, name) latest
+           ON c.kind = latest.kind AND c.name = latest.name AND c.attempt = latest.attempt
+        WHERE c.run_id = ? AND c.phase = ? AND c.state IN (\'blocked\', \'pending\')
+        ORDER BY c.name'
+    );
+    $statement->execute([$runId, $phase, $runId, $phase]);
+    $rows = $statement->fetchAll();
+  }
+  catch (Throwable $e) {
+    return [];
+  }
+  if (!is_array($rows)) {
+    return [];
+  }
+
+  return array_map(static fn (array $row): array => [
+    'name' => (string) ($row['name'] ?? ''),
+    'fault' => (string) ($row['fault'] ?? 'none'),
+    'summary' => (string) ($row['summary'] ?? ''),
+    'remedy' => (string) ($row['remedy'] ?? ''),
+  ], $rows);
 }
