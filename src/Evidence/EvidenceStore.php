@@ -569,6 +569,68 @@ final class EvidenceStore {
   }
 
   /**
+   * Records one adjudicated grounding row.
+   *
+   * `store` is the column worth having: it says WHICH store answered, and the
+   * asymmetry it exposes is one nothing else in the record can. Core resolves
+   * against the brain and never the symbol graph, because `droost:search:index`
+   * runs custom|contrib|themes|wiki and leaves core out — so a round claiming a
+   * core citation resolved against the symbol graph has a broken probe rather
+   * than a finding.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $phase
+   *   The phase that adjudicated it.
+   * @param string $tier
+   *   Either custom, contrib or core.
+   * @param string $asked
+   *   The question the row recorded, when the caller has it.
+   * @param string $found
+   *   What the row said came back.
+   * @param string $citation
+   *   The Evidence cell.
+   * @param bool $resolved
+   *   Whether it resolved against this site.
+   * @param string $store
+   *   Which store answered.
+   */
+  public function recordGroundingRow(
+    string $runId,
+    string $phase,
+    string $tier,
+    string $asked,
+    string $found,
+    string $citation,
+    bool $resolved,
+    string $store,
+  ): void {
+    $this->connection()
+      ->prepare('INSERT INTO grounding_row (run_id, phase, tier, asked, found, citation, resolved, store) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      ->execute([$runId, $phase, $tier, $asked, $found, $citation, $resolved ? 1 : 0, $store]);
+  }
+
+  /**
+   * Clears a phase's grounding rows before they are written again.
+   *
+   * The gate runs more than once per phase — a failed attempt, a retry — and
+   * each run re-adjudicates the whole table. Appending would leave a reader
+   * counting the same citation twice and unable to tell which verdict was the
+   * last one. This is the one table where the latest reading replaces the
+   * previous, because unlike a check it is not an attempt, it is a reading.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $phase
+   *   The phase.
+   */
+  public function clearGrounding(string $runId, string $phase): void {
+    $this->connection()
+      ->prepare('DELETE FROM grounding_row WHERE run_id = ? AND phase = ?')
+      ->execute([$runId, $phase]);
+  }
+
+  /**
    * Records one droost tool call, with the phase it happened in.
    *
    * The JSONL ledger records the tool and the outcome and no phase, so its
