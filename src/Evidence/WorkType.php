@@ -26,7 +26,8 @@ namespace Droost\Workflow\Evidence;
  *
  * That last one is what stops it becoming the escape hatch we removed. An agent
  * that declares `content_model` and then writes four hundred lines of PHP has
- * made a false declaration, and that is a blocked check — not a gate it skipped.
+ * made a false declaration, and that is a blocked check — not a gate it
+ * skipped.
  * The mandatory trio remains mandatory at every type; turning a gate off stays
  * the operator's deliberate act through the dial.
  */
