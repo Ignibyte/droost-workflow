@@ -55,6 +55,12 @@ final class CheckRecord {
    *   parsed, this is what the tool said.
    * @param string $stderr
    *   Companion to $stdout.
+   * @param string $provider
+   *   The module that contributed this check, or '' for droost's own. Without
+   *   it a contributed check is unattributable: "show me everything droost_jira
+   *   asserted", and "this provider's checks all failed — is the provider
+   *   broken or is the work bad?" are the first two questions anybody asks, and
+   *   kind+name answers neither.
    */
   public function __construct(
     public readonly string $kind,
@@ -71,6 +77,7 @@ final class CheckRecord {
     public readonly array $findings = [],
     public readonly string $stdout = '',
     public readonly string $stderr = '',
+    public readonly string $provider = '',
   ) {
     if ($this->kind === '' || $this->name === '') {
       throw new \InvalidArgumentException('A check record needs both a kind and a name.');

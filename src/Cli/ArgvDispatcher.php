@@ -304,7 +304,8 @@ final class ArgvDispatcher {
    * @param string $projectRoot
    *   The repository.
    * @param list<string> $argv
-   *   The arguments: --files=a,b --tests=c,d, either repeatable.
+   *   The arguments: --files=a,b --tests=c,d --type=<work type>; the first
+   *   two are repeatable.
    *
    * @return int
    *   The exit code.
@@ -312,6 +313,7 @@ final class ArgvDispatcher {
   private function declareChanges(string $projectRoot, array $argv): int {
     $files = [];
     $tests = [];
+    $type = NULL;
     foreach (array_slice($argv, 1) as $argument) {
       if (str_starts_with($argument, '--files=')) {
         $files[] = substr($argument, 8);
@@ -319,18 +321,22 @@ final class ArgvDispatcher {
       elseif (str_starts_with($argument, '--tests=')) {
         $tests[] = substr($argument, 8);
       }
+      elseif (str_starts_with($argument, '--type=')) {
+        $type = substr($argument, 7);
+      }
     }
     try {
-      $declared = $this->facade($projectRoot)->declareChanges($projectRoot, $files, $tests);
+      $declared = $this->facade($projectRoot)->declareChanges($projectRoot, $files, $tests, $type);
     }
     catch (\InvalidArgumentException $e) {
       $this->fail($e->getMessage());
       return self::EXIT_USAGE;
     }
     $this->say(sprintf(
-      'declared: %d file(s), %d test(s)',
+      'declared: %d file(s), %d test(s)%s',
       count($declared['files']),
       count($declared['tests']),
+      $declared['type'] === NULL ? '' : ', type ' . $declared['type'],
     ));
 
     return self::EXIT_OK;

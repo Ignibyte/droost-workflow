@@ -23,6 +23,7 @@ use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Evidence\DeclarationAudit;
 use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Evidence\SpecFreeze;
+use Droost\Workflow\Evidence\WorkType;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\ShellGateExecutor;
@@ -1003,17 +1004,32 @@ final class WorkflowFacade {
    *   Paths this phase will change. A directory covers what is under it.
    * @param list<string> $tests
    *   Tests that will cover the work — classes, methods or paths.
+   * @param string|null $type
+   *   What KIND of work this is — see WorkType. Distinct from the effort dial:
+   *   preset says how hard to try, this says what is being built, and the two
+   *   are orthogonal. Never a waiver; it is audited against the diff.
    *
-   * @return array{files: list<string>, tests: list<string>}
+   * @return array{files: list<string>, tests: list<string>, type: string|null}
    *   What was recorded.
    *
    * @throws \InvalidArgumentException
    *   When nothing was declared, or there is no run to declare against.
    */
-  public function declareChanges(string $projectRoot, array $files, array $tests): array {
+  public function declareChanges(string $projectRoot, array $files, array $tests, ?string $type = NULL): array {
     $files = self::cleanList($files);
     $tests = self::cleanList($tests);
-    if ($files === [] && $tests === []) {
+    $workType = NULL;
+    if ($type !== NULL && $type !== '') {
+      $workType = WorkType::tryFrom($type);
+      if ($workType === NULL) {
+        throw new \InvalidArgumentException(sprintf(
+          'Unknown work type "%s". Use one of: %s.',
+          $type,
+          implode(', ', WorkType::names()),
+        ));
+      }
+    }
+    if ($files === [] && $tests === [] && $workType === NULL) {
       throw new \InvalidArgumentException(
         'declare-changes needs at least one file or test. An empty declaration '
         . 'is not a small scope, it is no scope — and the code phase audits '
@@ -1024,13 +1040,19 @@ final class WorkflowFacade {
     $phase = $state->currentPhase?->value ?? 'plan';
     $store = new EvidenceStore($projectRoot);
     $now = $this->now();
+    if ($workType !== NULL) {
+      $store->upsertRun($state->runId, [
+        'work_type' => $workType->value,
+        'work_type_declared_at' => $now,
+      ]);
+    }
     foreach (['file' => $files, 'test' => $tests] as $kind => $values) {
       foreach ($values as $value) {
         $store->declare($state->runId, $phase, $kind, $value, $now);
       }
     }
 
-    return ['files' => $files, 'tests' => $tests];
+    return ['files' => $files, 'tests' => $tests, 'type' => $workType?->value];
   }
 
   /**
@@ -1214,7 +1236,7 @@ final class WorkflowFacade {
       $store = new EvidenceStore($projectRoot);
       $files = $store->declared($state->runId, 'file');
       $tests = $store->declared($state->runId, 'test');
-      if ($files === [] && $tests === []) {
+      if ($files === [] && $tests === [] && $store->workType($state->runId) === NULL) {
         return $outcome;
       }
       $audit = new DeclarationAudit(
@@ -1222,6 +1244,8 @@ final class WorkflowFacade {
         $tests,
         $this->vcs->changedFiles($projectRoot, $state->baseCommit),
         $store->ranTests($state->runId),
+        $store->workType($state->runId),
+        $store->measuredGates($state->runId),
       );
       $blocked = FALSE;
       foreach ($audit->checks() as $check) {

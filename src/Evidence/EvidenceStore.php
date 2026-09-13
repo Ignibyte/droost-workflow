@@ -48,7 +48,7 @@ final class EvidenceStore {
    * build does not know about costs it nothing. A store written by an older one
    * is migrated up in place.
    */
-  public const int SCHEMA_VERSION = 1;
+  public const int SCHEMA_VERSION = 2;
 
   /**
    * The open connection, or NULL until first use.
@@ -140,7 +140,9 @@ final class EvidenceStore {
           spec_path       TEXT,
           spec_hash       TEXT,
           spec_frozen_at  TEXT,
-          spec_text       TEXT
+          spec_text       TEXT,
+          work_type       TEXT,
+          work_type_declared_at TEXT
         );
 
         CREATE TABLE IF NOT EXISTS check_result (
@@ -159,7 +161,8 @@ final class EvidenceStore {
           invocation      TEXT,
           started_at      TEXT,
           duration_ms     INTEGER,
-          adjudicated_at  TEXT NOT NULL
+          adjudicated_at  TEXT NOT NULL,
+          provider        TEXT
         );
         CREATE INDEX IF NOT EXISTS check_by_run   ON check_result (run_id, phase, name);
         CREATE INDEX IF NOT EXISTS check_by_state ON check_result (run_id, state);
@@ -225,6 +228,35 @@ final class EvidenceStore {
         CREATE INDEX IF NOT EXISTS seeker_by_run ON seeker_finding (run_id, round);
         SQL);
     }
+    if ($at < 2) {
+      // v2 adds two joining dimensions the first cut lacked.
+      //
+      // `provider` because a contributed check needs to be attributable: with
+      // droost_jira contributing its own checks, "show me everything that
+      // module asserted" and "this provider's checks all failed — is the
+      // provider broken or is the work bad?" are the first two questions
+      // anybody asks, and neither is answerable from kind+name alone.
+      //
+      // `work_type` because the effort dial answers "how hard do you try" and
+      // says nothing about WHAT is being built. A content-model ticket runs
+      // phpcs over zero PHP files and reports "nothing to analyse" three times
+      // — honest, and noise that teaches people to skim.
+      foreach ([
+        'ALTER TABLE check_result ADD COLUMN provider TEXT',
+        'ALTER TABLE run ADD COLUMN work_type TEXT',
+        'ALTER TABLE run ADD COLUMN work_type_declared_at TEXT',
+      ] as $statement) {
+        try {
+          $pdo->exec($statement);
+        }
+        catch (\PDOException $e) {
+          // A column this build added to a store some other build already
+          // migrated. Additive migrations are idempotent by intent, and
+          // SQLite has no ADD COLUMN IF NOT EXISTS.
+        }
+      }
+      $pdo->exec('CREATE INDEX IF NOT EXISTS check_by_provider ON check_result (run_id, provider)');
+    }
     $pdo->exec('PRAGMA user_version = ' . self::SCHEMA_VERSION);
   }
 
@@ -241,6 +273,7 @@ final class EvidenceStore {
     $allowed = [
       'started_at', 'preset', 'mode', 'enforcement', 'base_commit',
       'spec_path', 'spec_hash', 'spec_frozen_at', 'spec_text',
+      'work_type', 'work_type_declared_at',
     ];
     $facts = array_intersect_key($facts, array_flip($allowed));
     $pdo = $this->connection();
@@ -297,8 +330,9 @@ final class EvidenceStore {
     $statement = $pdo->prepare(
       'INSERT INTO check_result
         (run_id, phase, attempt, kind, name, state, fault, summary, remedy,
-         subject_hash, exit_code, invocation, started_at, duration_ms, adjudicated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+         subject_hash, exit_code, invocation, started_at, duration_ms, adjudicated_at,
+         provider)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     $statement->execute([
       $runId,
@@ -316,6 +350,7 @@ final class EvidenceStore {
       $check->startedAt,
       $check->durationMs,
       $now ?? date('c'),
+      $check->provider,
     ]);
     $id = (int) $pdo->lastInsertId();
     $this->recordFindings($pdo, $id, $check->findings);
@@ -628,6 +663,57 @@ final class EvidenceStore {
     $this->connection()
       ->prepare('DELETE FROM grounding_row WHERE run_id = ? AND phase = ?')
       ->execute([$runId, $phase]);
+  }
+
+  /**
+   * What kind of work this run declared itself to be.
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return \Droost\Workflow\Evidence\WorkType|null
+   *   The type, or NULL when none was declared.
+   */
+  public function workType(string $runId): ?WorkType {
+    $statement = $this->connection()->prepare('SELECT work_type FROM run WHERE run_id = ?');
+    $statement->execute([$runId]);
+    $value = $statement->fetchColumn();
+
+    return is_string($value) && $value !== '' ? WorkType::tryFrom($value) : NULL;
+  }
+
+  /**
+   * The gates that actually measured something in this run.
+   *
+   * "Measured" is a stricter claim than "passed": a gate that was off by
+   * preset, skipped for want of a site, or passed over an empty path set has
+   * not looked at anything. Only `satisfied` and `recorded` rest on a
+   * measurement — which is exactly the distinction a work type needs, because
+   * a content-model run whose config_clean passed over an empty export has not
+   * been checked, whatever colour the report is.
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return list<string>
+   *   Gate names, deduplicated.
+   */
+  public function measuredGates(string $runId): array {
+    $measured = array_values(array_filter(
+      CheckState::cases(),
+      static fn (CheckState $state): bool => $state->measured(),
+    ));
+    $placeholders = implode(', ', array_fill(0, count($measured), '?'));
+    $statement = $this->connection()->prepare(
+      'SELECT DISTINCT name FROM check_result
+        WHERE run_id = ? AND kind = \'gate\' AND state IN (' . $placeholders . ')'
+    );
+    $statement->execute(array_merge(
+      [$runId],
+      array_map(static fn (CheckState $state): string => $state->value, $measured),
+    ));
+
+    return array_map(static fn (array $row): string => (string) $row['name'], $statement->fetchAll() ?: []);
   }
 
   /**

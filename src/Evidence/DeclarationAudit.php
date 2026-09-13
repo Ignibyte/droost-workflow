@@ -59,12 +59,20 @@ final class DeclarationAudit {
    *   What the diff actually shows, project-relative.
    * @param list<string> $ranTests
    *   The tests that actually ran, when the caller can tell.
+   * @param \Droost\Workflow\Evidence\WorkType|null $workType
+   *   What the plan said this run is, or NULL when nothing was declared.
+   * @param list<string> $measuredGates
+   *   Gates that actually measured something this run — `satisfied` or
+   *   `recorded`, never `off` or `skipped`. A type names the gates its kind of
+   *   work rests on, and "passed" is not the same claim as "looked".
    */
   public function __construct(
     private readonly array $declaredFiles,
     private readonly array $declaredTests,
     private readonly array $changedFiles,
     private readonly array $ranTests = [],
+    private readonly ?WorkType $workType = NULL,
+    private readonly array $measuredGates = [],
   ) {}
 
   /**
@@ -152,6 +160,54 @@ final class DeclarationAudit {
         $scopeSummary,
       ),
     ];
+    if ($this->workType !== NULL) {
+      $unexpected = $this->workType->unexpected($this->changedFiles);
+      // A proportion, not a count. One stray file is not a false declaration —
+      // a content-model ticket that also touches a .theme to register its
+      // display is doing the obvious thing. A run where MOST of the diff is
+      // not the kind of work declared is a different statement.
+      $total = max(count($this->changedFiles), 1);
+      $adrift = count($unexpected) / $total > 0.5 && count($unexpected) > 1;
+      $checks[] = new CheckRecord(
+        'declaration',
+        'work_type',
+        $adrift ? CheckState::Blocked : CheckState::Satisfied,
+        $adrift ? Fault::Agent : Fault::None,
+        $adrift
+          ? sprintf(
+            'declared "%s" (%s), but %d of %d changed file(s) are not that kind of work: %s. '
+            . 'The type decides which gates must have measured, so declaring one and building '
+            . 'another means the wrong things were checked. Re-declare, or say in the spec why '
+            . 'this really is %s work.',
+            $this->workType->value,
+            $this->workType->label(),
+            count($unexpected),
+            count($this->changedFiles),
+            implode(', ', array_slice($unexpected, 0, 5)),
+            $this->workType->value,
+          )
+          : sprintf('declared "%s" (%s); the diff matches', $this->workType->value, $this->workType->label()),
+      );
+
+      $missed = array_values(array_diff($this->workType->mustMeasure(), $this->measuredGates));
+      if ($this->workType->mustMeasure() !== []) {
+        $checks[] = new CheckRecord(
+          'declaration',
+          'type_coverage',
+          $missed === [] ? CheckState::Satisfied : CheckState::Blocked,
+          $missed === [] ? Fault::None : Fault::Agent,
+          $missed === []
+            ? sprintf('%s work: %s all measured something', $this->workType->value, implode(', ', $this->workType->mustMeasure()))
+            : sprintf(
+              '%s work rests on %s, and %s measured nothing this run. A gate that passes over an '
+              . 'empty path set has not checked the thing this ticket is about.',
+              $this->workType->value,
+              implode(', ', $this->workType->mustMeasure()),
+              implode(', ', $missed),
+            ),
+        );
+      }
+    }
     if ($this->declaredTests !== []) {
       $checks[] = new CheckRecord(
         'declaration',
