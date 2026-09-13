@@ -60,10 +60,21 @@ if ($root === FALSE) {
 // does (RunStateStore::resolveStateDir) so the wall reads run state from where
 // it actually lives; a mismatch would over- or under-block. Standalone hook, so
 // the rule is inlined rather than imported.
-$stateDir = (is_dir($root . '/.droost-workflow')
-  && !is_dir($root . '/droost/droost-workflow'))
-  ? '.droost-workflow'
-  : 'droost/droost-workflow';
+// Mirrors RunStateStore::resolveStateDir() exactly, and must keep doing so: a
+// mismatch would over- or under-block. Standalone hook, so the rule is inlined
+// rather than imported, and `PackGuardParityTest` compares the two.
+//
+// Where the RECORD is, before which directory exists. Existence alone made
+// `mkdir -p droost/droost-workflow` a disarm on a legacy project — the new
+// directory wins, holds no run.json, and this guard reads that as "no active
+// run" while the real record sits untouched in `.droost-workflow/`.
+$stateDir = 'droost/droost-workflow';
+if (!is_file($root . '/droost/droost-workflow/run.json')) {
+  if (is_file($root . '/.droost-workflow/run.json')
+    || (is_dir($root . '/.droost-workflow') && !is_dir($root . '/droost/droost-workflow'))) {
+    $stateDir = '.droost-workflow';
+  }
+}
 
 // The payload is read ONCE: several branches below consult it, and a stream
 // read twice is empty the second time.
@@ -287,6 +298,100 @@ exit(0);
  * @return string
  *   The command with data-only heredoc bodies removed.
  */
+/**
+ * The part of a command in which a bare `--flag` is really a flag.
+ *
+ * The read-only exemptions below — `--status`, `--measure`, `--preview`,
+ * `--off` — were matched with lookaheads over the whole command string, which
+ * asks "does this word appear anywhere on the line". The shell asks a narrower
+ * question, and the gap between the two was four characters:
+ *
+ *     drush droost:workflow:bypass "hotfix" # --off
+ *
+ * The shell discards everything after the `#`; the lookahead did not, read the
+ * exemption, and permitted the one command that stands `require_run` down
+ * permanently. The same trick worked on `baseline --refresh # --status` and
+ * `effort low # --preview`. No obfuscation, nothing in the record.
+ *
+ * Quoted text is dropped for the same reason and it is not hypothetical: a
+ * bypass takes a REASON, and `bypass "needed --off for the hotfix"` is an
+ * ordinary sentence that contained its own exemption.
+ *
+ * Verb detection keeps the quotes — `drush "droost:workflow:bypass"` is a real
+ * invocation — so only the flag question uses this narrower text.
+ *
+ * @param string $command
+ *   The command, heredoc bodies already dropped.
+ *
+ * @return string
+ *   The command with comments and quoted spans removed.
+ */
+function operator_commands_flag_text(string $command): string {
+  $out = '';
+  $length = strlen($command);
+  $quote = '';
+  for ($i = 0; $i < $length; $i++) {
+    $char = $command[$i];
+    if ($quote !== '') {
+      // A backslash escapes the next byte inside double quotes only, which is
+      // the shell's rule; inside single quotes nothing escapes.
+      if ($quote === '"' && $char === '\\' && $i + 1 < $length) {
+        $i++;
+        continue;
+      }
+      if ($char === $quote) {
+        $quote = '';
+      }
+      continue;
+    }
+    if ($char === '\'' || $char === '"') {
+      $quote = $char;
+      // A space, so the quoted argument does not fuse with its neighbours.
+      $out .= ' ';
+      continue;
+    }
+    if ($char === '\\' && $i + 1 < $length) {
+      // An escaped byte outside quotes is a literal, never a flag's dash.
+      $i++;
+      $out .= ' ';
+      continue;
+    }
+    if ($char === '#' && ($out === '' || preg_match('/\s$/', $out) === 1)) {
+      // A comment runs to the end of its LINE, not of the command: a second
+      // line after it is code again.
+      $newline = strcspn($command, "\r\n", $i);
+      $i += $newline - 1;
+      $out .= ' ';
+      continue;
+    }
+    $out .= $char;
+  }
+
+  return $out;
+}
+
+/**
+ * Whether a flag is really present as an argument.
+ *
+ * @param string $command
+ *   The command, heredoc bodies already dropped.
+ * @param list<string> $flags
+ *   The flags to look for, with their leading dashes.
+ *
+ * @return bool
+ *   TRUE when any of them appears outside quotes and outside a comment.
+ */
+function operator_commands_has_flag(string $command, array $flags): bool {
+  $text = operator_commands_flag_text($command);
+  foreach ($flags as $flag) {
+    if (preg_match('/(?:^|\s)' . preg_quote($flag, '/') . '(?:=|\s|$)/', $text) === 1) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
 function operator_commands_scan_text(string $command): string {
   $interpreter = '/(?:^|[|;&(`]|\$\()\s*(?:sudo\s+(?:-\S+\s+)*)?(?:env\s+(?:\S+=\S*\s+)*)?'
     . '(?:sh|bash|zsh|dash|ksh|fish|eval|source|\.|php|python3?|perl|node|ruby|expect|tmux|ssh|docker'
@@ -344,20 +449,26 @@ function operator_commands_guard(string $stdin): void {
   if (preg_match('/droost:workflow:gate-waive\b|(?<![\w-])dwfgw\b/', $command) === 1) {
     $which = 'gate-waive';
   }
-  elseif (preg_match('/(?:droost:workflow:baseline|(?<![\w-])dwfbl|droost-workflow\s+baseline)\b(?!.*--(?:status|measure)\b)/', $command) === 1) {
+  elseif (preg_match('/(?:droost:workflow:baseline|(?<![\w-])dwfbl|droost-workflow\s+baseline)\b/', $command) === 1
+    && !operator_commands_has_flag($command, ['--status', '--measure'])) {
     // Writing or refreshing the baseline decides what counts as inherited
     // debt for every later run. The bill (--measure) and the record
     // (--status) are read-only and exactly how an agent grounds a proposal
     // to baseline; the write is the operator's.
+    //
+    // The exemption is asked of the ARGUMENTS now, not of the line. As a
+    // lookahead it also read `# --status` and `"… --status …"`, either of
+    // which the shell discards or passes as text.
     $which = 'baseline';
   }
   elseif (preg_match('/droost:workflow:bypass\b|(?<![\w-])dwfby\b/', $command) === 1) {
-    if (preg_match('/\s--off\b/', $command) === 1) {
+    if (operator_commands_has_flag($command, ['--off'])) {
       return;
     }
     $which = 'bypass';
   }
-  elseif (preg_match('/(?:droost:workflow:effort|(?<![\w-])dwfe)\b(?!.*--preview\b)(?=.*\s(?:custom|low|medium|high|xhigh|max|factory|light)\b)/', $command) === 1) {
+  elseif (preg_match('/(?:droost:workflow:effort|(?<![\w-])dwfe)\b(?=.*\s(?:custom|low|medium|high|xhigh|max|factory|light)\b)/', $command) === 1
+    && !operator_commands_has_flag($command, ['--preview'])) {
     // Moving the dial is the operator's act whichever way it goes — down is
     // a loosening, and either way it is a lever change the file records.
     // Only a command that NAMES a level and would WRITE is refused: a bare
@@ -366,8 +477,12 @@ function operator_commands_guard(string $stdin): void {
     // preview is exactly how an agent should ground a level it proposes.
     $which = 'effort';
   }
-  elseif (preg_match('/(?:droost:gate|(?<![\w-])dgate)\s+allow_\w+\s+(?:on|true|1|yes|arm|armed)\b/i', $command) === 1
+  elseif (preg_match('/(?:droost:gate|(?<![\w-])dgate)\s+(?:-\S+\s+)*allow_\w+\s+(?:-\S+\s+)*(?:on|true|1|yes|arm|armed)\b/i', $command) === 1
     || preg_match('/(?:config:set|config-set|cset)\b[^\n;&|]*\bdroost\.settings\s+allow_\w+\s+(?:on|true|1|yes)\b/i', $command) === 1) {
+    // `(?:-\S+\s+)*` because the flag does not have to be the next word:
+    // `drush droost:gate --yes allow_entity_write on` armed a write gate, and
+    // `--yes` is the first thing anyone adds to a drush command they expect to
+    // prompt.
     // ARMING a write gate is the operator's act too (round 25, R25-F2: the
     // subject asked for allow_entity_write rather than arming it — this makes
     // asking the only path). Disarming is a tightening and is not matched.
@@ -433,8 +548,11 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
   foreach ([
     '.claude/hooks/droost-workflow-guard.php',
     '.claude/settings.json',
+    '.claude/settings.local.json',
     'droost/droost-workflow/run.json',
     '.droost-workflow/run.json',
+    'droost/droost-workflow/bypass.json',
+    '.droost-workflow/bypass.json',
     'droost.workflow.yml',
     '.claude/skills/',
     '.claude/agents/',
@@ -450,6 +568,54 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       fwrite(STDERR, sprintf('%s (Refused: %s)', $refusal, trim($command)));
       exit(2);
     }
+  }
+
+  // The CONTAINING directories, not only the files in them. Every entry above
+  // names a file, so the cheapest way past all of them was to take away what
+  // holds them:
+  //
+  //     mv droost/droost-workflow /tmp/dw      # the record, the store, the spec
+  //     rm -rf droost                          # and the baseline with it
+  //
+  // `rm droost/droost-workflow/run.json` was refused; moving the directory it
+  // sits in was not. The `mv` form is the worse one, because it is REVERSIBLE:
+  // stash the directory, work ungoverned, put it back, and nothing in the
+  // record has a gap to notice.
+  //
+  // Scoped to commands that MOVE OR REMOVE something. `droost` on its own is a
+  // directory name and also a word this project says constantly, so matching
+  // the name alone refused `git commit -m "droost work"` — and a guard that
+  // blocks ordinary work is a guard somebody turns off. Quoting is not the
+  // filter (an attacker would simply quote the path); the verb is.
+  $destructive = '/(?:^|[|;&(`]|\$\()\s*(?:sudo\s+)?(?:rm|unlink|rmdir|mv|cp|ln|install'
+    . '|rsync|shred|truncate|dd|mktemp)\b/';
+  foreach (preg_match($destructive, $command) === 1 ? [
+    'droost/droost-workflow',
+    '.droost-workflow',
+    'droost/baseline',
+    '.claude/hooks',
+    '.claude',
+    'droost',
+  ] : [] as $directory) {
+    // As a whole path segment, so `droostier/` and `my-droost` do not match,
+    // and only when the command does something to the directory ITSELF rather
+    // than to something inside it — a trailing separator means the latter.
+    if (preg_match('#(^|[\s\'"=])' . preg_quote($directory, '#') . '([\s\'"]|$)#', $command) !== 1) {
+      continue;
+    }
+    fwrite(STDERR, sprintf(
+      'A shell command in this run acts on `%s` itself — the directory, not '
+      . 'something in it. That directory holds the run\'s record, the evidence '
+      . 'store, the adoption baseline or the guard, depending on which one this '
+      . 'is, and moving or removing it disarms every one of them at once while '
+      . 'leaving the files intact somewhere else. Act on a named file inside it '
+      . 'instead. If the state itself has to go, that is the OPERATOR\'s '
+      . '`droost-workflow reset --force`, which archives rather than discards. '
+      . '(Refused: %s)',
+      $directory,
+      trim($command),
+    ));
+    exit(2);
   }
 
   if (preg_match('#evidence\.sqlite#', $command) === 1) {
@@ -514,6 +680,70 @@ function normalised_path(string $file): string {
 }
 
 /**
+ * The project-relative path a write would REALLY land on.
+ *
+ * `normalised_path()` canonicalises spelling — case, `//`, `/./`, `..`, a
+ * leading `./`, an absolute form — and it holds against every one of those. It
+ * never resolves the inode, and that is a different question:
+ *
+ *     ln -s .claude/hooks tools
+ *     Write  tools/droost-workflow-guard.php
+ *
+ * Neither call names a protected path, the second one overwrites the guard, and
+ * the turn then ends cleanly with a run open. The editing-tool tier is the one
+ * whose docblock says every claim this pipeline makes rests on these files
+ * being out of reach, so a spelling check alone was not the wall it described.
+ *
+ * The parent is resolved, not the file: the wall exists for files about to be
+ * created, and `realpath()` is FALSE for those. Walking up to the nearest
+ * ancestor that exists and re-attaching the rest resolves any symlinked
+ * DIRECTORY on the way — which is the whole attack, since a link whose target
+ * is absent is followed by nothing either.
+ *
+ * @param string $file
+ *   The path being written, absolute or project-relative.
+ * @param string $root
+ *   The project root.
+ *
+ * @return string
+ *   The normalised project-relative path after resolution, or '' when it lands
+ *   outside the project (which the caller treats as unprotected: the wall is
+ *   about this repository's own enforcement files).
+ */
+function resolved_relative(string $file, string $root): string {
+  $file = trim($file);
+  if ($file === '') {
+    return '';
+  }
+  $absolute = str_starts_with($file, '/') ? $file : rtrim($root, '/') . '/' . ltrim($file, '/');
+  $tail = [];
+  $head = $absolute;
+  // At most a few dozen levels; the bound is a guard against a pathological
+  // path rather than an expected case.
+  for ($depth = 0; $depth < 64; $depth++) {
+    $real = realpath($head);
+    if ($real !== FALSE) {
+      $resolved = $real . ($tail === [] ? '' : '/' . implode('/', array_reverse($tail)));
+      $rootReal = realpath($root);
+      $rootReal = $rootReal === FALSE ? rtrim($root, '/') : $rootReal;
+      if ($resolved !== $rootReal && !str_starts_with($resolved, $rootReal . '/')) {
+        return '';
+      }
+
+      return normalised_path(ltrim(substr($resolved, strlen($rootReal)), '/'));
+    }
+    $parent = dirname($head);
+    if ($parent === $head) {
+      return '';
+    }
+    $tail[] = basename($head);
+    $head = $parent;
+  }
+
+  return '';
+}
+
+/**
  * Refuses edits to the enforcement itself, and to the rules during a run.
  *
  * Two tiers, because they answer different questions.
@@ -551,6 +781,41 @@ function enforcement_refusal(string $file, string $root, string $stateDir): stri
     ? ltrim(substr($path, strlen($rootPath)), '/')
     : $path;
 
+  // BOTH the spelling and the destination. A path can dodge this wall two
+  // ways — by being written differently, which `normalised_path()` answers,
+  // and by going somewhere else, which only resolving it answers. Checking the
+  // literal form as well means a symlink that resolves OUT of the project (so
+  // `resolved_relative()` returns '') still gets the spelling check.
+  $landing = resolved_relative($file, $root);
+  if ($landing !== '' && $landing !== $relative) {
+    $viaLink = enforcement_refusal_for($landing, $root, $stateDir);
+    if ($viaLink !== '') {
+      return $viaLink . ' (That path reaches it through a link or a renamed '
+        . 'directory; what the write lands on is what matters here.)';
+    }
+  }
+
+  return enforcement_refusal_for($relative, $root, $stateDir);
+}
+
+/**
+ * The refusal for one already-resolved project-relative path.
+ *
+ * Split out so `enforcement_refusal()` can ask it twice — once about the path
+ * as written and once about where that path really lands.
+ *
+ * @param string $relative
+ *   The normalised project-relative path.
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The resolved state directory.
+ *
+ * @return string
+ *   A refusal message, or '' when the path is not protected.
+ */
+function enforcement_refusal_for(string $relative, string $root, string $stateDir): string {
+
   // The run's own record. `baseline_dir_guard()` protected the evidence store
   // beside it and not this, and a single ordinary Write to it takes the whole
   // wall down: set `enforcement: off`, or mark the phase passed, or mark it
@@ -573,11 +838,35 @@ function enforcement_refusal(string $file, string $root, string $stateDir): stri
       . 'things. If the guard is wrong, the OPERATOR reinstalls it with '
       . '`droost-workflow init`, which takes the shipped version.';
   }
-  if (preg_match('#(^|/)\.claude/settings\.json$#', $relative) === 1) {
+  // `settings.local.json` too. It was unprotected while `settings.json` was, and
+  // Claude Code reads both — so the wall's own wiring could be overridden from
+  // a file beside the one the wall defends, which is the same disarm with an
+  // extra dot in the name.
+  if (preg_match('#(^|/)\.claude/settings(\.local)?\.json$#', $relative) === 1) {
     return 'That file wires the enforcement in. Removing an entry from it '
       . 'disarms the wall exactly as surely as deleting the guard, and quietly. '
       . 'The OPERATOR rewires it with `droost-workflow init`, which merges '
       . 'rather than overwrites and leaves everything else in the file alone.';
+  }
+
+  // The bypass grant. It is two strings in a JSON file and it stands the
+  // `require_run` wall down completely — and until now it was in NEITHER
+  // protected list, so an agent could write its own and the guard would read it
+  // as the operator's decision. The same file also clears droost's destructive
+  // tool base, so one forged grant reaches further than this hook.
+  //
+  // Protecting the path is not authentication: an agent with a shell that
+  // reaches the filesystem another way still wins, and the honest claim is that
+  // this is a wall against the obvious route, not a signature. Making it a
+  // signature needs a secret that does not live in the repository, which is the
+  // same open problem the evidence chain has.
+  if (preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/bypass\.json$#', $relative) === 1) {
+    return 'That file IS the bypass grant — the operator\'s recorded decision '
+      . 'to let this session build with no run at all. Writing your own is not '
+      . 'obtaining permission, it is forging the signature on it. If work '
+      . 'genuinely has to happen outside the pipeline, show the operator '
+      . '`drush droost:workflow:bypass "<reason>"` and let them run it; they '
+      . 'close it again with `bypass --off`.';
   }
 
   // The second tier applies only while a run is under way.
@@ -638,7 +927,7 @@ function baseline_dir_guard(string $stdin, string $root, string $stateDir): void
   // in plan the store was allowed by the state-dir exemption, and in every
   // other phase pre-tool-use returned before any file check ran.
   $normalised = normalised_path($file);
-  $isStore = preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/evidence\.sqlite(-wal|-shm)?$#', $normalised) === 1;
+  $isStore = preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/evidence\.sqlite(-wal|-shm|-journal)?$#', $normalised) === 1;
   if (preg_match('#(^|/)droost/baseline(/|$)#', $normalised) !== 1 && !$isStore) {
     return;
   }

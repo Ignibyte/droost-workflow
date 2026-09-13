@@ -73,6 +73,24 @@ final class RunStateStore {
    */
   public static function resolveStateDir(string $projectRoot): string {
     $root = rtrim($projectRoot, '/');
+    // WHERE THE RECORD IS, before which directory exists.
+    //
+    // Existence alone was the whole rule, and on a legacy project that made
+    // `mkdir -p droost/droost-workflow` a disarm: the new directory wins, it
+    // holds no run.json, and every reader — the guard included — concludes
+    // there is no active run. The real record sits untouched in
+    // `.droost-workflow/`, and `status` agrees with the guard, so nothing looks
+    // wrong. One empty directory, no file altered.
+    //
+    // A run record is unambiguous where a directory is not, so it is asked
+    // first. Existence still decides for a project that has no run at all,
+    // which is the case the legacy fallback was written for.
+    if (is_file($root . '/' . self::STATE_DIR . '/run.json')) {
+      return self::STATE_DIR;
+    }
+    if (is_file($root . '/' . self::LEGACY_STATE_DIR . '/run.json')) {
+      return self::LEGACY_STATE_DIR;
+    }
     if (is_dir($root . '/' . self::LEGACY_STATE_DIR)
       && !is_dir($root . '/' . self::STATE_DIR)) {
       return self::LEGACY_STATE_DIR;

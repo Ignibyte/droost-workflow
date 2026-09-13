@@ -851,6 +851,277 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * A trailing shell comment does not buy an operator's signature.
+   *
+   * The read-only exemptions were lookaheads over the whole command string,
+   * which asks "does this word appear on the line". The shell asks a narrower
+   * question, and the gap was four characters: `bypass "hotfix" # --off` read
+   * as the re-arming form and was permitted. That one command stands the
+   * `require_run` wall down completely, and the same trick worked on
+   * `baseline --refresh # --status` and `effort low # --preview`.
+   */
+  public function testTrailingCommentsBuyNoExemption(): void {
+    $root = $this->makeRoot();
+    $cases = [
+      'bypass' => 'drush droost:workflow:bypass "hotfix" # --off',
+      'baseline' => 'drush droost:workflow:baseline --refresh # --status',
+      'effort' => 'drush droost:workflow:effort low # --preview',
+      'bypass by alias' => 'drush dwfby "hotfix" # --off',
+    ];
+    foreach ($cases as $label => $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(2, $code, $label . ' is still the operator\'s command');
+    }
+  }
+
+  /**
+   * Nor does the exemption hiding inside a quoted argument.
+   *
+   * Not hypothetical: a bypass takes a REASON, and "needed --off for the
+   * hotfix" is an ordinary sentence carrying its own exemption.
+   */
+  public function testQuotedArgumentsBuyNoExemption(): void {
+    [$code] = $this->guard($this->makeRoot(), 'operator-commands', [
+      'tool_name' => 'Bash',
+      'tool_input' => ['command' => 'drush droost:workflow:bypass "needed --off for the hotfix"'],
+    ]);
+
+    $this->assertSame(2, $code);
+  }
+
+  /**
+   * The real read-only forms still pass, which is the point of having them.
+   *
+   * A guard that refuses `baseline --status` teaches an agent to stop grounding
+   * its proposals, and an ungrounded proposal is the thing the exemption exists
+   * to encourage.
+   */
+  public function testTheGenuineReadOnlyFormsStillPass(): void {
+    $root = $this->makeRoot();
+    foreach ([
+      'drush droost:workflow:bypass --off',
+      'drush droost:workflow:baseline --status',
+      'drush droost:workflow:baseline --measure',
+      'drush droost:workflow:effort high --preview',
+      'drush droost:workflow:effort',
+      'drush droost:gate allow_entity_write off',
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(0, $code, $command . ' reads or tightens, and is the agent\'s');
+    }
+  }
+
+  /**
+   * A flag between the verb and the gate name does not arm it unnoticed.
+   *
+   * The pattern required `allow_*` to be the word immediately after the verb,
+   * and `--yes` is the first thing anybody adds to a drush command they expect
+   * to prompt them.
+   */
+  public function testFlagBeforeTheGateNameDoesNotHelp(): void {
+    [$code] = $this->guard($this->makeRoot(), 'operator-commands', [
+      'tool_name' => 'Bash',
+      'tool_input' => ['command' => 'drush droost:gate --yes allow_entity_write on'],
+    ]);
+
+    $this->assertSame(2, $code);
+  }
+
+  /**
+   * A symlinked directory does not reach a protected file.
+   *
+   * `normalised_path()` canonicalises spelling and holds against every spelling
+   * attack tried against it. It never resolves the inode, and that is a
+   * different question: `ln -s .claude/hooks tools` and then a write to
+   * `tools/droost-workflow-guard.php` names no protected path, overwrites the
+   * guard, and leaves the turn free to end.
+   */
+  public function testSymlinkedDirectoryReachesNoProtectedFile(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/.claude/hooks', 0775, TRUE);
+    touch($root . '/.claude/hooks/droost-workflow-guard.php');
+    symlink('.claude/hooks', $root . '/tools');
+
+    foreach ([
+      'tools/droost-workflow-guard.php',
+      './tools/./droost-workflow-guard.php',
+      $root . '/tools/droost-workflow-guard.php',
+    ] as $path) {
+      [$code, , $stderr] = $this->guard($root, 'pre-tool-use', [
+        'tool_name' => 'Write',
+        'tool_input' => ['file_path' => $path],
+      ]);
+      $this->assertSame(2, $code, $path . ' lands on the guard');
+      $this->assertStringContainsString('IS the enforcement', $stderr);
+    }
+  }
+
+  /**
+   * But an ordinary file reached through the same link is still ordinary.
+   *
+   * Resolving the path must not turn the state directory into a wall: the
+   * skills tell the agent to write its spec there.
+   */
+  public function testSymlinkToUnprotectedFileStillPasses(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    symlink('droost/droost-workflow', $root . '/state');
+
+    [$code] = $this->guard($root, 'pre-tool-use', [
+      'tool_name' => 'Write',
+      'tool_input' => ['file_path' => 'state/spec-thing.md'],
+    ]);
+
+    $this->assertSame(0, $code);
+  }
+
+  /**
+   * Taking the directory away is not a way around the files inside it.
+   *
+   * Every protected entry named a file, so the cheapest route past all of them
+   * was `mv droost/droost-workflow /tmp/dw`. The move is the worse form,
+   * because it is REVERSIBLE: stash the directory, work ungoverned, put it
+   * back, and the record has no gap to notice.
+   */
+  public function testMovingOrRemovingTheStateDirectoryIsRefused(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    foreach ([
+      'mv droost/droost-workflow /tmp/dw',
+      'rm -rf droost/droost-workflow',
+      'rm -rf droost',
+      'mv droost droost.bak',
+      'rm -rf "droost"',
+      'rm -rf droost/baseline',
+      'mv .claude/hooks /tmp/h',
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(2, $code, $command . ' takes the enforcement with it');
+    }
+  }
+
+  /**
+   * And ordinary work that merely says the word is not refused.
+   *
+   * The first cut matched the directory name anywhere in the command and so
+   * refused `git commit -m "droost work"`. A guard that blocks ordinary work is
+   * a guard somebody turns off, which costs more than the hole it closed.
+   */
+  public function testOrdinaryCommandsMentioningDroostStillPass(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    foreach ([
+      'git commit -m "droost work"',
+      'ls droost/droost-workflow/',
+      'cat droost/droost-workflow/spec-x.md',
+      'grep -rn droost src/',
+      'rm -rf node_modules',
+      'mv src/Foo.php src/Bar.php',
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(0, $code, $command . ' is ordinary work');
+    }
+  }
+
+  /**
+   * An empty new state directory does not disarm a legacy project.
+   *
+   * The state directory was resolved by which one EXISTS, so on a project still
+   * using `.droost-workflow/` a single `mkdir -p droost/droost-workflow` won
+   * the resolution, held no run.json, and every reader concluded there was no
+   * active run. The real record sat untouched, and `status` agreed with the
+   * guard, so nothing looked wrong. It is reachable by accident, too: the
+   * skills name that directory when they tell the agent where to write a spec.
+   */
+  public function testEmptyNewStateDirectoryDisarmsNoLegacyRun(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/.droost-workflow', 0775, TRUE);
+    file_put_contents($root . '/.droost-workflow/run.json', (string) json_encode([
+      'run_id' => 'r1',
+      'current_phase' => 'plan',
+      'phases' => ['plan' => 'running'],
+      'enforcement' => 'hard',
+    ]));
+
+    $write = ['tool_name' => 'Write', 'tool_input' => ['file_path' => 'web/themes/mine/x.twig']];
+    [$before] = $this->guard($root, 'pre-tool-use', $write);
+    $this->assertSame(2, $before, 'the legacy run is enforced');
+
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+
+    [$after] = $this->guard($root, 'pre-tool-use', $write);
+    $this->assertSame(2, $after, 'and an empty directory beside it changes nothing');
+
+    [$stop] = $this->guard($root, 'stop', ['tool_name' => 'Stop', 'tool_input' => []]);
+    $this->assertSame(2, $stop, 'nor does it let the turn end');
+  }
+
+  /**
+   * The bypass grant is not the agent's to write.
+   *
+   * It is two strings in a JSON file and it stands the `require_run` wall down
+   * completely — and it was in NEITHER protected list, so an agent could write
+   * its own and the guard read it as the operator's decision. The same file
+   * also clears droost's destructive tool base, so one forged grant reaches
+   * past this hook.
+   */
+  public function testTheBypassGrantCannotBeForged(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+
+    [$write, , $stderr] = $this->guard($root, 'pre-tool-use', [
+      'tool_name' => 'Write',
+      'tool_input' => ['file_path' => 'droost/droost-workflow/bypass.json'],
+    ]);
+    $this->assertSame(2, $write);
+    $this->assertStringContainsString('forging the signature', $stderr);
+
+    [$shell] = $this->guard($root, 'operator-commands', [
+      'tool_name' => 'Bash',
+      'tool_input' => [
+        'command' => 'echo \'{"reason":"x","granted_at":"now"}\' > droost/droost-workflow/bypass.json',
+      ],
+    ]);
+    $this->assertSame(2, $shell, 'the shell is a file editor too');
+  }
+
+  /**
+   * The local settings file disarms the wall exactly as settings.json does.
+   */
+  public function testTheLocalSettingsFileIsProtectedToo(): void {
+    [$code] = $this->guard($this->makeRoot(), 'pre-tool-use', [
+      'tool_name' => 'Write',
+      'tool_input' => ['file_path' => '.claude/settings.local.json'],
+    ]);
+
+    $this->assertSame(2, $code);
+  }
+
+  /**
+   * The store's rollback journal is part of the store.
+   */
+  public function testTheSqliteJournalIsProtected(): void {
+    [$code] = $this->guard($this->makeRoot(), 'pre-tool-use', [
+      'tool_name' => 'Write',
+      'tool_input' => ['file_path' => 'droost/droost-workflow/evidence.sqlite-journal'],
+    ]);
+
+    $this->assertSame(2, $code);
+  }
+
+  /**
    * Executes the packed guard exactly as Claude Code would.
    *
    * @param string $root
