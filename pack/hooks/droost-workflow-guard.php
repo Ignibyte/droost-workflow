@@ -73,6 +73,48 @@ if ($root === FALSE) {
   exit(0);
 }
 
+// And when the var is unset — a plain CLI run, Codex, a hook invoked by hand —
+// walk up to the project, exactly as ArgvDispatcher does. It did not, and the
+// engine did, so the two resolved different projects: a `cd` into any
+// subdirectory left the guard seeing "no active run" and standing the stop wall
+// down, while the binary from the same directory happily advanced the real run.
+// The engine advancing a run the guard is not watching is the worst outcome
+// available here.
+//
+// An ACTIVE RUN wins outright and wins over anything nearer, because an empty
+// `lib/droost/droost-workflow/` — one mkdir, which this guard permits, since
+// creating a directory is not an edit — must not hide the run somebody is in.
+// Inlined rather than imported: this file carries no autoloader by design, and
+// `PackGuardParityTest` is what keeps the two copies honest.
+if (getenv('CLAUDE_PROJECT_DIR') === FALSE || getenv('CLAUDE_PROJECT_DIR') === '') {
+  $here = rtrim($root, '/');
+  $levers = NULL;
+  for ($depth = 0; $depth < 32; $depth++) {
+    if (is_file($here . '/droost/droost-workflow/run.json')
+      || is_file($here . '/.droost-workflow/run.json')) {
+      $root = $here;
+      $levers = NULL;
+      break;
+    }
+    if ($levers === NULL && is_file($here . '/droost.workflow.yml')) {
+      $levers = $here;
+    }
+    // `file_exists`, not `is_dir`: a worktree and a submodule carry `.git` as a
+    // FILE, and `is_dir` walked straight out of them into somebody else's repo.
+    if (file_exists($here . '/.git')) {
+      break;
+    }
+    $parent = dirname($here);
+    if ($parent === $here) {
+      break;
+    }
+    $here = $parent;
+  }
+  if ($levers !== NULL) {
+    $root = $levers;
+  }
+}
+
 // The run-state directory — the visible droost/droost-workflow, or the legacy
 // hidden .droost-workflow when only that exists. Resolved exactly as the engine
 // does (RunStateStore::resolveStateDir) so the wall reads run state from where

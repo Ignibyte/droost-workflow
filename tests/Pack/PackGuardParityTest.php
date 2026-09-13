@@ -140,6 +140,73 @@ final class PackGuardParityTest extends TestCase {
   }
 
   /**
+   * The guard and the binary resolve the same project from a subdirectory.
+   *
+   * This file set `CLAUDE_PROJECT_DIR` for every probe and never varied the
+   * working directory, so it could not see the divergence it exists to catch:
+   * the binary walked up to find the project and the guard did not, and with
+   * the variable unset — a plain CLI run, Codex, a hook invoked by hand — a
+   * `cd` into any subdirectory left the guard reporting "no active run" and
+   * standing the stop wall down while the binary advanced that very run.
+   *
+   * The engine advancing a run the guard is not watching is the worst outcome
+   * this pair can produce, and it is exactly what one resolver walking and the
+   * other not produces.
+   */
+  public function testBothResolveTheProjectFromSubdirectories(): void {
+    $this->build(['droost/droost-workflow'], 'droost/droost-workflow');
+    mkdir($this->root . '/lib/sub', 0775, TRUE);
+
+    $this->assertSame(
+      2,
+      $this->stopFrom($this->root . '/lib/sub'),
+      'the guard finds the run from a subdirectory',
+    );
+    // And an empty state directory beside it does not hide that run — one
+    // `mkdir`, which the guard permits because creating a directory is not an
+    // edit, used to make the real project vanish from the resolver.
+    mkdir($this->root . '/lib/droost/droost-workflow', 0775, TRUE);
+    $this->assertSame(
+      2,
+      $this->stopFrom($this->root . '/lib/sub'),
+      'an empty state directory is not a project',
+    );
+  }
+
+  /**
+   * Runs the guard's stop mode from a given directory, with no host variable.
+   *
+   * @param string $cwd
+   *   Where to run from.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function stopFrom(string $cwd): int {
+    $script = dirname(__DIR__, 2) . '/pack/hooks/droost-workflow-guard.php';
+    $env = getenv();
+    unset($env['CLAUDE_PROJECT_DIR']);
+    $process = proc_open(
+      [PHP_BINARY, $script, 'stop'],
+      [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+      $pipes,
+      $cwd,
+      $env,
+    );
+    $this->assertIsResource($process);
+    fwrite($pipes[0], (string) json_encode(['tool_name' => 'Stop', 'tool_input' => []]));
+    fclose($pipes[0]);
+    stream_get_contents($pipes[1]);
+    $stderr = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $code = proc_close($process);
+    $this->assertContains($code, [0, 2], sprintf("the guard crashed (%d):\n%s", $code, $stderr));
+
+    return $code;
+  }
+
+  /**
    * Creates the project shape.
    *
    * @param list<string> $directories

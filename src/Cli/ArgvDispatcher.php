@@ -130,7 +130,16 @@ final class ArgvDispatcher {
     // parent, and the operator would be told "kept your existing
     // droost.workflow.yml" about a file they have never seen. Caught by running
     // it — the walk is for finding a project, not for creating one.
-    if (!$named && $verb !== 'init' && is_dir($projectRoot)) {
+    // `CLAUDE_PROJECT_DIR` is the HOST's answer to this question, and the guard
+    // reads it. The binary ignored it entirely and walked from the working
+    // directory — so the two could resolve different projects, which is the
+    // worst outcome available here: the engine advances a run the guard is not
+    // watching.
+    $host = getenv('CLAUDE_PROJECT_DIR');
+    if (!$named && $verb !== 'init' && is_string($host) && is_dir($host)) {
+      $projectRoot = $host;
+    }
+    elseif (!$named && $verb !== 'init' && is_dir($projectRoot)) {
       $projectRoot = self::projectAbove($projectRoot);
     }
     if (!is_dir($projectRoot)) {
@@ -207,41 +216,39 @@ final class ArgvDispatcher {
    */
   private static function projectAbove(string $from): string {
     $here = rtrim($from, '/');
-    if (self::looksLikeProject($here)) {
-      return $here;
-    }
+    $levers = NULL;
     for ($depth = 0; $depth < 32; $depth++) {
+      // An ACTIVE RUN wins outright, and wins over anything nearer. An agent
+      // that creates `lib/droost/droost-workflow/` — one empty directory, no
+      // file content — made the real project's levers and its live run vanish
+      // from this resolver, and then `run` wrote a SECOND record there. The
+      // run somebody is actually in is not something a mkdir gets to hide.
+      if (is_file($here . '/droost/droost-workflow/run.json')
+        || is_file($here . '/.droost-workflow/run.json')) {
+        return $here;
+      }
+      if ($levers === NULL && is_file($here . '/droost.workflow.yml')) {
+        $levers = $here;
+      }
       // A repository boundary is a hard stop, checked AFTER the directory
       // itself so a project root that is also a repo root still matches.
-      if (is_dir($here . '/.git')) {
-        return $from;
+      //
+      // `file_exists`, not `is_dir`: a WORKTREE and a SUBMODULE carry `.git`
+      // as a FILE, so `is_dir` walked straight out of them. A run started in a
+      // worktree of repo B picked up repo A's levers and wrote its record into
+      // repo A — a command that FAILED still left a run.json in a repository it
+      // was not run in.
+      if (file_exists($here . '/.git')) {
+        break;
       }
       $parent = dirname($here);
       if ($parent === $here) {
-        return $from;
+        break;
       }
       $here = $parent;
-      if (self::looksLikeProject($here)) {
-        return $here;
-      }
     }
 
-    return $from;
-  }
-
-  /**
-   * Whether a directory is already a droost project.
-   *
-   * @param string $directory
-   *   The candidate.
-   *
-   * @return bool
-   *   TRUE when it carries a lever file or a run-state directory.
-   */
-  private static function looksLikeProject(string $directory): bool {
-    return is_file($directory . '/droost.workflow.yml')
-      || is_dir($directory . '/droost/droost-workflow')
-      || is_dir($directory . '/.droost-workflow');
+    return $levers ?? $from;
   }
 
   /**
