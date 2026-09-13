@@ -128,23 +128,56 @@ Then produce the spec:
    ```bash
    vendor/bin/droost-workflow declare-changes \
      --files=web/themes/custom/kchockey,config/sync/system.site.yml \
-     --tests=KchockeySafeUrlTest
+     --tests=KchockeySafeUrlTest \
+     --type=theme
    ```
 
    A directory covers what you create under it, so name the module or theme
-   rather than every file you expect to write. The audit is asymmetric on
-   purpose:
+   rather than every file you expect to write.
+
+   **`--type` says what KIND of work this is**, which is a different question
+   from how much effort the run is set to. One of:
+
+   | Type | For |
+   |---|---|
+   | `code` | custom PHP — modules, classes, plugins, hooks |
+   | `content_model` | content types, fields, displays, views: configuration |
+   | `theme` | themes, templates, SDCs, CSS |
+   | `content` | nodes, menus, taxonomy terms |
+   | `docs` | markdown and comments; nothing executes |
+   | `mixed` | honestly several of the above |
+
+   Hyphens are fine (`content-model` works). The type decides which gates must
+   have actually MEASURED something before the test phase ends — a
+   content-model run rests on `config_clean` and `rendered_check`, and one of
+   those passing over an empty path set has not checked what the ticket is
+   about. It never turns a gate OFF; the mandatory trio is the operator's dial,
+   not yours.
+
+   **When to run it:** at the end of planning, before you write anything.
+   Re-running it REPLACES the previous declaration for whichever lists you
+   pass, so correcting a declaration is one command and not a second promise
+   stacked on the first.
+
+   The audit is asymmetric on purpose:
 
    - **a file you touch that you never declared BLOCKS the code phase.** Scope
      found mid-build belongs in the spec first — re-declare and say why in the
      plan, rather than letting the diff grow quietly.
    - **a file you declared and did not touch is recorded, and does not block.**
      Plans shrink for good reasons.
-   - **a test you named that never ran BLOCKS.** "I will cover this" is a
-     promise about verification.
+   - **a test you named that never ran BLOCKS**, at the TEST phase where tests
+     actually run. "I will cover this" is a promise about verification.
+   - **a type contradicted by the diff BLOCKS** — `docs` over a directory of
+     PHP is not a documentation ticket. Only a narrow claim can be
+     contradicted: `code`, `theme` and `mixed` are broad and never are.
 
    The run's own record (`droost/droost-workflow/`) and lock files are never
    counted against you.
+
+   Declare honestly. A vague declaration is not the safe option — it buys
+   nothing, and the thing it costs is the only evidence that the diff matched
+   the plan.
 
 6. **Acceptance criteria in EARS form** — "When <trigger>, the <system> shall
    <observable response>", one observable behaviour per row, each with a way

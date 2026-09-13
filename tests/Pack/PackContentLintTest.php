@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Droost\Workflow\Tests\Pack;
 
 use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\Evidence\WorkType;
 use Droost\Workflow\Pack\PackManifest;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -460,6 +461,39 @@ class PackContentLintTest extends TestCase {
     $body = file_get_contents($this->packDir() . '/' . $source);
     $this->assertIsString($body, $source . ' is unreadable');
     return $body;
+  }
+
+
+  /**
+   * The plan brief names every work type, and invents none.
+   *
+   * A mechanism the briefs do not mention is a trap: `--type` blocks a phase
+   * when the gates its kind of work rests on measured nothing, and until this
+   * was checked NO brief named the flag or a single one of its values. An agent
+   * could not have passed a valid type without guessing it.
+   *
+   * Pinned in both directions, because both failures are silent. A type the
+   * brief omits is one no agent will use; a type the brief invents throws on
+   * the command line and teaches the agent to stop passing the flag at all.
+   */
+  public function testThePlanBriefNamesEveryWorkTypeAndInventsNone(): void {
+    $brief = (string) file_get_contents(dirname(__DIR__, 2) . '/pack/skills/workflow-plan/SKILL.md');
+
+    foreach (WorkType::names() as $type) {
+      $this->assertStringContainsString(
+        '`' . $type . '`',
+        $brief,
+        sprintf('the plan brief names the "%s" work type', $type),
+      );
+    }
+
+    preg_match_all('/\| `([a-z_]+)` \|/', $brief, $matches);
+    foreach (array_unique($matches[1]) as $claimed) {
+      $this->assertNotNull(
+        WorkType::tryFrom($claimed),
+        sprintf('the plan brief names "%s" as a work type and no such type exists', $claimed),
+      );
+    }
   }
 
 }
