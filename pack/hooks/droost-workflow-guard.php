@@ -100,9 +100,26 @@ if (!is_file($stateFile)) {
 }
 $document = json_decode((string) file_get_contents($stateFile), TRUE);
 if (!is_array($document)) {
-  // Unreadable is not a licence. A run that cannot be read is not an ACTIVE
-  // run, and require_run guards exactly the no-active-run case — otherwise
-  // junk written into run.json would be a silent, permanent self-disarm.
+  // Unreadable is not a licence — and until now it was, for the one mode that
+  // matters. This branch calls `require_run_guard()`, which returns immediately
+  // unless the mode is pre-tool-use, so under `stop` it was a bare permit:
+  // corrupting run.json stood the wall down silently and permanently, which is
+  // exactly what the previous version of this comment claimed to have closed.
+  //
+  // A file that EXISTS and cannot be parsed is not "no run". It is a run whose
+  // record is damaged, and a turn does not end on one.
+  if ($mode === 'stop') {
+    fwrite(STDERR, sprintf(
+      'The run record at %s/run.json cannot be read. That is not the same as '
+      . 'having no run: something wrote junk into it, or it was truncated '
+      . 'mid-write. Nothing can say which phase this run is in or what it has '
+      . 'passed, so the turn does not end here. An operator can archive it with '
+      . '`droost-workflow reset --force`, which keeps it rather than discarding '
+      . 'it.',
+      $stateDir,
+    ));
+    exit(2);
+  }
   require_run_guard($root, $mode, $stdin);
   exit(0);
 }
@@ -407,6 +424,8 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
   foreach ([
     '.claude/hooks/droost-workflow-guard.php',
     '.claude/settings.json',
+    'droost/droost-workflow/run.json',
+    '.droost-workflow/run.json',
     'droost.workflow.yml',
     '.claude/skills/',
     '.claude/agents/',
@@ -454,6 +473,38 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
 }
 
 /**
+ * A path reduced to the one spelling every guard compares against.
+ *
+ * Separators, `//`, `/./` and `../` collapsed, case folded — APFS resolves
+ * `Modules/Custom` to the same directory, so a cosmetic spelling must not be a
+ * different path to the wall.
+ *
+ * `require_run_guard()` did this and had a test pinning it. The two guards
+ * added since did not, and a reviewer walked through all three of them with
+ * `//`, `/./`, `..` and a capital letter — `.claude//hooks/…guard.php` was
+ * permitted, proven to reach the same inode. One function now, because three
+ * implementations of "is this the same path" is three chances to be wrong and
+ * two of them already were.
+ *
+ * @param string $file
+ *   The path as the tool gave it.
+ *
+ * @return string
+ *   The comparable form.
+ */
+function normalised_path(string $file): string {
+  $path = strtolower(str_replace('\\', '/', trim($file)));
+  $path = (string) preg_replace(['#/(?:\./)+#', '#//+#'], '/', $path);
+  // Collapse `a/../b` by hand; realpath is no use for a file about to be
+  // created, which is the case the wall exists for.
+  while (preg_match('#(^|/)(?!\.\./)[^/]+/\.\./#', $path) === 1) {
+    $path = (string) preg_replace('#(^|/)(?!\.\./)[^/]+/\.\./#', '$1', $path, 1);
+  }
+
+  return ltrim($path, '/');
+}
+
+/**
  * Refuses edits to the enforcement itself, and to the rules during a run.
  *
  * Two tiers, because they answer different questions.
@@ -484,13 +535,27 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
  *   A refusal message, or '' when the path is not protected.
  */
 function enforcement_refusal(string $file, string $root, string $stateDir): string {
-  $path = str_replace('\\', '/', trim($file));
-  $path = preg_replace('#^\./+#', '', $path) ?? $path;
-  $path = ltrim((string) $path, '/');
+  $path = normalised_path($file);
   // Compare against the project-relative tail, so an absolute path lands too.
-  $relative = str_starts_with($path, ltrim(str_replace('\\', '/', $root), '/'))
-    ? ltrim(substr($path, strlen(ltrim(str_replace('\\', '/', $root), '/'))), '/')
+  $rootPath = normalised_path($root);
+  $relative = str_starts_with($path, $rootPath)
+    ? ltrim(substr($path, strlen($rootPath)), '/')
     : $path;
+
+  // The run's own record. `baseline_dir_guard()` protected the evidence store
+  // beside it and not this, and a single ordinary Write to it takes the whole
+  // wall down: set `enforcement: off`, or mark the phase passed, or mark it
+  // failed, or simply corrupt the file — the stop hook permits on every one of
+  // those. The comment in this file claiming that hole was closed was about
+  // `require_run_guard()`, which acts only in pre-tool-use.
+  if (preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/run\.json$#', $relative) === 1) {
+    return 'That file is the run\'s own record — which phase it is in, what it '
+      . 'has passed, whether enforcement is on. droost writes it; an agent that '
+      . 'edits it is not advancing a run, it is rewriting the referee. If the '
+      . 'record is wrong, the OPERATOR clears it with '
+      . '`droost-workflow reset --force`, which archives it rather than '
+      . 'discarding it.';
+  }
 
   if (preg_match('#(^|/)\.claude/hooks/droost-workflow-guard\.php$#', $relative) === 1) {
     return 'That file IS the enforcement. It is the hook that refuses ungoverned '
@@ -563,8 +628,9 @@ function baseline_dir_guard(string $stdin, string $root, string $stateDir): void
   // agent can write it and the store is different. Both were false as shipped:
   // in plan the store was allowed by the state-dir exemption, and in every
   // other phase pre-tool-use returned before any file check ran.
-  $isStore = preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/evidence\.sqlite(-wal|-shm)?$#', $file) === 1;
-  if (preg_match('#(^|/)droost/baseline(/|$)#', $file) !== 1 && !$isStore) {
+  $normalised = normalised_path($file);
+  $isStore = preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/evidence\.sqlite(-wal|-shm)?$#', $normalised) === 1;
+  if (preg_match('#(^|/)droost/baseline(/|$)#', $normalised) !== 1 && !$isStore) {
     return;
   }
   if ($isStore) {

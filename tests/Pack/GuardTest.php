@@ -664,6 +664,99 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * A cosmetic spelling of a protected path is the same path to the wall.
+   *
+   * `require_run_guard()` normalised — separators, `//`, `/./`, case — and had
+   * a test pinning it. The two path guards added since did not, and a reviewer
+   * walked through all three of them with `//`, `/./`, `..` and a capital
+   * letter, proving each reached the same inode. `.claude//hooks/…guard.php`
+   * was permitted: one ordinary Write, and the wall is gone.
+   *
+   * Three implementations of "is this the same path" is three chances to be
+   * wrong, and two of them were. There is one now.
+   */
+  public function testCosmeticSpellingsOfProtectedPathsAreRefused(): void {
+    $root = $this->makeRoot();
+
+    $spellings = [
+      '.claude//hooks/droost-workflow-guard.php',
+      '.claude/./hooks/droost-workflow-guard.php',
+      '.claude/hooks/../hooks/droost-workflow-guard.php',
+      '.claude/hooks/Droost-Workflow-Guard.php',
+      '.claude//settings.json',
+      '.claude/Settings.json',
+      'droost//baseline/phpstan.json',
+      'droost/./baseline/phpstan.json',
+      'droost/Baseline/phpstan.json',
+      'droost/droost-workflow//evidence.sqlite',
+      'droost/droost-workflow/./evidence.sqlite',
+      'droost/droost-workflow/Evidence.sqlite',
+    ];
+    foreach ($spellings as $path) {
+      [$code] = $this->guard($root, 'pre-tool-use', [
+        'tool_name' => 'Write',
+        'tool_input' => ['file_path' => $path, 'content' => 'x'],
+      ]);
+      $this->assertSame(2, $code, $path . ' is the same file, however it is spelled');
+    }
+  }
+
+  /**
+   * The run's own record is not the agent's to write, through either door.
+   *
+   * `baseline_dir_guard()` protected the evidence store and not `run.json`
+   * beside it, and a single ordinary Write to that file takes the whole wall
+   * down: set `enforcement: off`, mark the phase passed, mark it failed, or
+   * simply corrupt it — the stop hook permitted on every one of those.
+   *
+   * The comment in the guard claiming that hole was closed was about
+   * `require_run_guard()`, which returns immediately unless the mode is
+   * pre-tool-use. Under `stop` — the only mode that matters for this — it was a
+   * bare permit.
+   */
+  public function testTheRunRecordIsNotTheAgentsToWrite(): void {
+    $root = $this->makeRoot();
+
+    foreach (['droost/droost-workflow/run.json', '.droost-workflow/run.json'] as $path) {
+      [$code] = $this->guard($root, 'pre-tool-use', [
+        'tool_name' => 'Write',
+        'tool_input' => ['file_path' => $path, 'content' => '{}'],
+      ]);
+      $this->assertSame(2, $code, $path . ' is refused through the editing tools');
+
+      [$shell] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => 'echo {} > ' . $path],
+      ]);
+      $this->assertSame(2, $shell, $path . ' is refused through a shell');
+    }
+  }
+
+  /**
+   * A damaged run record does not end the turn.
+   *
+   * Every branch that decides "this is not an active run" calls
+   * `require_run_guard()` and exits zero — and that function returns at once
+   * unless the mode is pre-tool-use. So under `stop`, corrupting run.json was a
+   * silent, permanent self-disarm, which is precisely what the comment above
+   * that branch claimed to prevent.
+   *
+   * A file that EXISTS and cannot be parsed is not "no run". It is a run whose
+   * record is damaged, and a turn does not end on one.
+   */
+  public function testDamagedRunRecordDoesNotEndTheTurn(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    file_put_contents($root . '/droost/droost-workflow/run.json', 'not json at all');
+
+    [$code, , $stderr] = $this->guard($root, 'stop', ['tool_name' => 'Stop', 'tool_input' => []]);
+
+    $this->assertSame(2, $code, 'the turn is held open');
+    $this->assertStringContainsString('cannot be read', $stderr);
+    $this->assertStringContainsString('reset --force', $stderr, 'and it names the way out');
+  }
+
+  /**
    * Executes the packed guard exactly as Claude Code would.
    *
    * @param string $root
