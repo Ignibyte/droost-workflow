@@ -877,6 +877,71 @@ final class EvidenceStore {
   }
 
   /**
+   * Records one seeker round's findings as rows.
+   *
+   * The reason this table exists, and the reason its emptiness mattered: the
+   * run record keeps seeker COUNTS and the finding text lives only in the spec
+   * markdown, which nothing queries. `RunState`'s own docblock keeps the bill —
+   * across four rounds, 6, 25, 12 and 20 findings were caught and recorded as
+   * 0, 0, 6 and 2. An adversarial review whose findings cannot be read back is
+   * a review nobody can check.
+   *
+   * Replaces the round rather than appending to it, so re-recording a round
+   * after a correction does not double every row.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $phase
+   *   The phase the inspection covered.
+   * @param int $round
+   *   Which inspection this is.
+   * @param list<array<string, mixed>> $findings
+   *   The parsed ledger rows.
+   */
+  public function recordSeekerFindings(string $runId, string $phase, int $round, array $findings): void {
+    $pdo = $this->connection();
+    $pdo->prepare('DELETE FROM seeker_finding WHERE run_id = ? AND phase = ? AND round = ?')
+      ->execute([$runId, $phase, $round]);
+    if ($findings === []) {
+      return;
+    }
+    $insert = $pdo->prepare(
+      'INSERT INTO seeker_finding (run_id, phase, round, ref, severity, location, finding, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    foreach ($findings as $finding) {
+      $insert->execute([
+        $runId,
+        $phase,
+        $round,
+        self::text($finding, 'id'),
+        self::text($finding, 'severity'),
+        self::text($finding, 'location'),
+        self::text($finding, 'finding'),
+        self::text($finding, 'status'),
+      ]);
+    }
+  }
+
+  /**
+   * Every seeker finding of a run, in the order it was reported.
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return list<array<string, mixed>>
+   *   The rows.
+   */
+  public function seekerFindings(string $runId): array {
+    $statement = $this->connection()->prepare(
+      'SELECT * FROM seeker_finding WHERE run_id = ? ORDER BY round, ref'
+    );
+    $statement->execute([$runId]);
+
+    return self::rows($statement);
+  }
+
+  /**
    * The gates that actually measured something in this run.
    *
    * "Measured" is a stricter claim than "passed": a gate that was off by

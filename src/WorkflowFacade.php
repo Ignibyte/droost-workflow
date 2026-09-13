@@ -985,8 +985,28 @@ final class WorkflowFacade {
   ): array {
     $store = new RunStateStore($projectRoot);
     $state = $this->requireRun($store);
-    $record = SeekerLedger::parse($ledgerText)->toRecord($this->now());
-    $store->save($state->withSeekerReport($record));
+    $ledger = SeekerLedger::parse($ledgerText);
+    $record = $ledger->toRecord($this->now());
+    $state = $state->withSeekerReport($record);
+    $store->save($state);
+
+    // The findings as ROWS, not as a count beside prose nobody queries. The
+    // table existed and nothing wrote it; `RunState`'s docblock keeps the bill
+    // — across four rounds, 6, 25, 12 and 20 findings were caught and recorded
+    // as 0, 0, 6 and 2. Never allowed to fail the recording: the inspection
+    // itself is already saved above.
+    try {
+      (new EvidenceStore($projectRoot))->recordSeekerFindings(
+        $state->runId,
+        $state->currentPhase instanceof Phase ? $state->currentPhase->value : 'code',
+        count($state->seekerHistory),
+        $ledger->findings,
+      );
+    }
+    catch (\Throwable) {
+      // The store is unreachable; the run record still carries the verdict.
+    }
+
     return $record;
   }
 

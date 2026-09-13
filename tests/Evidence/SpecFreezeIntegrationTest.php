@@ -462,4 +462,47 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     );
   }
 
+  /**
+   * A seeker's findings survive as rows, not as a count beside lost prose.
+   *
+   * `seeker_finding` was created by the v1 migration and written by nothing.
+   * The run record keeps COUNTS; the finding text lived only in the spec
+   * markdown, which nothing queries. `RunState`'s own docblock keeps the bill:
+   * across four rounds, 6, 25, 12 and 20 findings were caught and recorded as
+   * 0, 0, 6 and 2 — and the evaluation asserted, in a table cell, that "seeker
+   * rows land in `seeker_finding`" while they did not.
+   *
+   * An adversarial review whose findings cannot be read back is a review
+   * nobody can check.
+   */
+  public function testSeekerFindingsSurviveAsRows(): void {
+    $root = $this->makeRootWithConfig("preset: high\nmode: agentic\n");
+    $spec = $this->writeSpec($root);
+    $facade = $this->facade();
+    $facade->run($root, $spec);
+    $facade->run($root, $spec);
+
+    $facade->recordSeeker($root, <<<'LEDGER'
+    ## Seeker Inspection
+
+    Inspector: independent
+
+    | ID | Severity | Location | Finding | Status |
+    |---|---|---|---|---|
+    | F1 | CRITICAL | src/Rink.php:20 | the cache is never invalidated | open |
+    | F2 | MEDIUM | src/Rink.php:44 | the new branch has no test | open |
+    LEDGER);
+
+    $state = (new RunStateStore($root))->load();
+    $this->assertNotNull($state);
+    $rows = (new EvidenceStore($root))->seekerFindings($state->runId);
+
+    $this->assertCount(2, $rows, 'both findings are rows');
+    $this->assertSame('F1', $rows[0]['ref']);
+    $this->assertSame('CRITICAL', $rows[0]['severity']);
+    $this->assertIsString($rows[0]['finding']);
+    $this->assertStringContainsString('cache is never invalidated', $rows[0]['finding']);
+    $this->assertSame('src/Rink.php:44', $rows[1]['location']);
+  }
+
 }
