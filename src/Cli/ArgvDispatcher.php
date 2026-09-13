@@ -9,6 +9,7 @@ use Droost\Workflow\Baseline\BaselineError;
 use Droost\Workflow\Config\ConfigError;
 use Droost\Workflow\Config\DrushCatalogResolver;
 use Droost\Workflow\Config\Mode;
+use Droost\Workflow\Evidence\EvidenceError;
 use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Gate\ShellGateExecutor;
 use Droost\Workflow\Mode\Outcome;
@@ -16,7 +17,9 @@ use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Pack\PackError;
 use Droost\Workflow\Seeker\SeekerError;
 use Droost\Workflow\State\RunState;
+use Droost\Workflow\Spec\SpecError;
 use Droost\Workflow\State\StateError;
+use Droost\Workflow\Support\DataError;
 use Droost\Workflow\WorkflowFacade;
 
 /**
@@ -108,7 +111,19 @@ final class ArgvDispatcher {
     }
     // Every failure this package raises is typed, and each one is already
     // phrased for a human — so the handler prints rather than re-explains.
-    catch (ConfigError | StateError | PackError | SeekerError | BaselineError $e) {
+    //
+    // ALL of them, which took three goes to get right. SpecError, EvidenceError
+    // and DataError are siblings of the five that were listed, thrown from the
+    // same facade this dispatcher calls, and were missing — so the standalone
+    // binary answered a failed spec contract with an uncaught exception and a
+    // stack trace, while the drush surface printed the sentence the error was
+    // written to carry. Same failure, same library, two different products.
+    // `CliErrorCoverageTest` now enumerates them so a ninth cannot be added in
+    // silence.
+    catch (
+      ConfigError | StateError | PackError | SeekerError | BaselineError
+      | SpecError | EvidenceError | DataError $e
+    ) {
       $this->fail($e->getMessage());
       return self::EXIT_USAGE;
     }
