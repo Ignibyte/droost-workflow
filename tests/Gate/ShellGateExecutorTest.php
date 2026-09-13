@@ -128,6 +128,12 @@ class ShellGateExecutorTest extends WorkflowTestCase {
           'analyse',
           '--no-progress',
           '--error-format=json',
+          // The project root, because a repo with no phpstan config and no
+          // `paths` lever was handed nothing to analyse: phpstan exits 1 with
+          // "At least one path must be specified", which the gate recorded as
+          // `failed` — the code reading as broken in the first code phase of an
+          // ordinary project, while phpcs in the same run got `.` and passed.
+          '.',
           '--level=6',
           '--memory-limit=1G',
         ],
@@ -139,6 +145,7 @@ class ShellGateExecutorTest extends WorkflowTestCase {
           'analyse',
           '--no-progress',
           '--error-format=json',
+          '.',
           '--level=max',
           '--memory-limit=1G',
         ],

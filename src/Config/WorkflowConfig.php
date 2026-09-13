@@ -791,21 +791,42 @@ final class WorkflowConfig {
       // the base is allowed what an override is not. When the base already
       // has the gate off, `on: false` here is redundant, not an attempt, and
       // earns no notice claiming the gate "stays on".
-      if (in_array($name, GateSettings::MANDATORY, TRUE) && $gates[$name]->on) {
+      if (in_array($name, GateSettings::MANDATORY, TRUE)) {
         $raw = $entry->toArray();
         $attempted = [];
-        if (array_key_exists('on', $raw) && $raw['on'] === FALSE) {
+        // Whether this overlay leaves the gate ON, which is a different
+        // question from whether the base had it on. Gating the WHOLE block on
+        // the base's switch was a hole with a working exploit:
+        //
+        //     preset: low                        # the base turns phpunit off
+        //     gates: { phpunit: { on: true, mode: report } }
+        //
+        // The guard was skipped entirely, so both keys applied together and a
+        // mandatory gate ran in report mode with no notice recorded — it finds
+        // failures and the phase advances over them. Two docblocks and the
+        // README say that is impossible; it was one line away.
+        $willBeOn = array_key_exists('on', $raw) ? $raw['on'] === TRUE : $gates[$name]->on;
+        // `on: false` is an ATTEMPT only when the base had the gate on. The
+        // `low` preset's base turns phpunit off — the mandate exists to stop a
+        // gate being disarmed silently, and `preset: low` is one loud line, so
+        // the base is allowed what an override is not. Beside an already-off
+        // base, `on: false` is redundant rather than an attempt, and earns no
+        // notice claiming the gate "stays on".
+        if ($gates[$name]->on && array_key_exists('on', $raw) && $raw['on'] === FALSE) {
           $attempted[] = 'on: false';
           unset($raw['on']);
         }
-        if ($name === 'phpstan' && ($raw['level'] ?? NULL) === 'off') {
+        // Mode and level are judged against where the overlay LEAVES the gate,
+        // so they are caught whatever the base said — and left alone when the
+        // gate ends up off, where neither means anything.
+        if ($willBeOn && $name === 'phpstan' && ($raw['level'] ?? NULL) === 'off') {
           $attempted[] = 'level: off';
           unset($raw['level']);
         }
         // Report mode on a mandatory gate is a disarm by another name: the
         // gate would run and the phase would advance over its failure. Same
         // treatment — validated, noticed, superseded.
-        if (($raw['mode'] ?? NULL) === 'report') {
+        if ($willBeOn && ($raw['mode'] ?? NULL) === 'report') {
           $attempted[] = 'mode: report';
           unset($raw['mode']);
         }

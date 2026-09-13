@@ -1137,6 +1137,23 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         break;
       }
     }
+    // The same question for phpstan, and it had the same answer with a worse
+    // presentation. With no `paths` lever and no config of its own, phpstan was
+    // invoked with no path at all: exit 1, "At least one path must be specified
+    // to analyse", recorded as `failed` — which reads as THE CODE failing, in
+    // the first code phase of an ordinary project. phpcs in the same run got
+    // `.` appended and passed. Three gates had three answers to one condition.
+    //
+    // A phpstan config names its own paths, so a project that has one is left
+    // alone exactly as with phpcs. A project without one gets the same `.` and
+    // the same honesty.
+    $ownPhpstanConfig = NULL;
+    foreach (['phpstan.neon', 'phpstan.neon.dist', 'phpstan.dist.neon'] as $candidate) {
+      if (is_file(rtrim($root, '/') . '/' . $candidate)) {
+        $ownPhpstanConfig = $candidate;
+        break;
+      }
+    }
 
     return match ($gate->name) {
       // The repo's ruleset decides the standard, the extensions and the files.
@@ -1182,6 +1199,11 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         'analyse',
         '--no-progress',
         '--error-format=json',
+        // The project root when phpstan has no config naming its own paths. A
+        // `paths` lever replaces it in prepare(); without either, phpstan is
+        // handed nothing to analyse and says so as a FAILURE, which reads as
+        // the code being broken rather than the gate being unpointed.
+        ...($ownPhpstanConfig === NULL ? ['.'] : []),
         '--level=' . (string) ($level ?? 'max'),
         // Not a lever: phpstan inherits php.ini's memory_limit (routinely
         // 128M), and level max over a real module crashes its workers there.

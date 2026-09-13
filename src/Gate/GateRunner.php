@@ -38,16 +38,31 @@ final class GateRunner {
   /**
    * The gates that cannot run without a booted site.
    *
-   * Only rendered_check. phpunit is deliberately NOT here: unit and kernel
-   * suites run perfectly well against a checkout, and treating the whole gate
-   * as site-bound would skip checks that could have run. Functional suites do
-   * need a site, but selecting them is an argument to phpunit rather than a
-   * fact about the gate — a distinction this package cannot make yet, and
-   * recorded rather than guessed at.
+   * Note that phpunit is deliberately NOT here: unit and kernel suites run well
+   * against a checkout, and treating the whole gate as site-bound would skip
+   * checks that could have run. Functional suites do need a site, but selecting
+   * them is an argument to phpunit rather than a fact about the gate — a
+   * distinction this package cannot make yet, and recorded rather than guessed
+   * at.
+   *
+   * wiki_fresh IS here, and its absence made the standalone surface unable to
+   * finish a run at the levers `init` itself writes. It shells out to `drush
+   * droost:wiki:status`, so with no site it records `error-tool-missing` — and
+   * that BLOCKS where `skipped-no-site` does not. It runs at complete, so a
+   * walk found it at the last step with everything else green, and the levers
+   * are frozen at begin, so turning it off then does not help: the only way out
+   * was `reset --force` and redoing three phases. "The same run, the same
+   * levers, the same report on both surfaces" was false at the final phase, for
+   * every standalone run, out of the box.
    *
    * @var list<string>
    */
-  public const SITE_GATES = ['rendered_check', 'config_clean', 'grounding_check'];
+  public const SITE_GATES = [
+    'rendered_check',
+    'config_clean',
+    'grounding_check',
+    'wiki_fresh',
+  ];
 
   /**
    * Constructs a GateRunner.

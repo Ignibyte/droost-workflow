@@ -60,6 +60,70 @@ class WorkflowConfigTest extends WorkflowTestCase {
   }
 
   /**
+   * Nor from underneath, by turning one back on in report mode.
+   *
+   * The strip-and-notice block was gated on the gate ALREADY BEING ON, for a
+   * good reason: the `low` preset's base turns phpunit off, and beside an
+   * already-off base an `on: false` is redundant rather than an attempt, so it
+   * should earn no notice claiming the gate "stays on".
+   *
+   * But it gated the whole block, mode and level included, so:
+   *
+   *     preset: low
+   *     gates: { phpunit: { on: true, mode: report } }
+   *
+   * applied both keys together and produced a mandatory gate running in report
+   * mode with no notice recorded. It finds failures and the phase advances over
+   * them, which is the disarm the mandate exists to prevent — asserted
+   * impossible by two docblocks and the README, and one line away.
+   *
+   * Mode and level are now judged against where the overlay LEAVES the gate,
+   * not against where the base had it.
+   */
+  public function testMandatoryGateCannotBeTurnedOnInReportMode(): void {
+    $config = WorkflowConfig::fromArray([
+      'preset' => 'low',
+      'gates' => [
+        'phpunit' => ['on' => TRUE, 'mode' => 'report'],
+        'phpstan' => ['on' => TRUE, 'level' => 'off'],
+      ],
+    ], 'test');
+
+    $this->assertTrue($config->gate('phpunit')->on, 'turning it back on is allowed');
+    $this->assertSame(
+      'block',
+      $config->gate('phpunit')->mode(),
+      'but it runs as a gate, not as a report',
+    );
+    $this->assertNotSame(
+      'off',
+      $config->gate('phpstan')->option('level'),
+      'and level: off is refused from underneath too',
+    );
+    $this->assertCount(2, $config->deprecations, 'both attempts are recorded');
+    foreach ($config->deprecations as $notice) {
+      $this->assertStringContainsString('mandatory since 0.4.0', $notice);
+    }
+  }
+
+  /**
+   * A redundant `on: false` beside an already-off base is still not an attempt.
+   *
+   * The condition that caused the hole above exists for this case, so closing
+   * the hole must not cost it: `preset: low` turns phpunit off in one loud
+   * line, and a lever file that agrees with it has attempted nothing.
+   */
+  public function testRedundantDisarmUnderLowEarnsNoNotice(): void {
+    $config = WorkflowConfig::fromArray([
+      'preset' => 'low',
+      'gates' => ['phpunit' => ['on' => FALSE]],
+    ], 'test');
+
+    $this->assertFalse($config->gate('phpunit')->on);
+    $this->assertSame([], $config->deprecations);
+  }
+
+  /**
    * The deprecated phases key still speaks its own 0.3 vocabulary.
    *
    * "document" was a real phase when that key was last honoured, so a file

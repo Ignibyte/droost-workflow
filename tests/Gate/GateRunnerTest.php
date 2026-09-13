@@ -104,6 +104,13 @@ class GateRunnerTest extends WorkflowTestCase {
 
   /**
    * Complete re-runs the full resolved set — the terminal safety net.
+   *
+   * Note that wiki_fresh is absent from the SHELL executor's list: it is a site
+   * gate: it runs `drush droost:wiki:status`, and with no booted site that
+   * records `skipped-no-site` through the driver instead. It used not to, and
+   * the consequence was that no standalone run could reach the end of the
+   * complete phase at the levers `init` writes — `error-tool-missing` blocks
+   * where `skipped-no-site` does not.
    */
   public function testCompleteRunsTheFullResolvedSet(): void {
     $executor = $this->recordingExecutor();
@@ -115,19 +122,22 @@ class GateRunnerTest extends WorkflowTestCase {
     $this->assertSame(
       [
         'phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier',
-        'phpunit', 'mutation', 'playwright', 'coverage', 'wiki_fresh',
+        'phpunit', 'mutation', 'playwright', 'coverage',
       ],
       $executor->ran,
       'every non-site gate must execute at complete',
     );
-    // Twelve results: the ten shell gates above plus the two site gates —
-    // rendered_check and config_clean — which are the ones skipped under
-    // NullSiteDriver. wiki_fresh runs through the shell (drush asks the
-    // site), so it is not skipped here — with no drush on the path it
-    // reports tool-missing, which is a distinct outcome from both passed
-    // and skipped.
+    // Thirteen results: the nine shell gates above plus four site gates —
+    // rendered_check, config_clean, grounding_check and wiki_fresh — all
+    // skipped under NullSiteDriver.
+    //
+    // wiki_fresh used to run through the shell, on the reasoning that drush is
+    // a binary like any other. It is not: it asks the SITE, and with no site it
+    // reported `error-tool-missing`, which BLOCKS where `skipped-no-site` does
+    // not — so the complete phase of every standalone run was unpassable at the
+    // levers `init` writes.
     $this->assertCount(13, $report->results);
-    $this->assertCount(3, $report->skipped());
+    $this->assertCount(4, $report->skipped());
   }
 
   /**
