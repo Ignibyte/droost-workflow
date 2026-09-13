@@ -856,16 +856,28 @@ final class EvaluationReport {
     foreach (self::latest($checks) as $check) {
       $remedy = self::text($check, 'remedy');
       $state = CheckState::tryFrom((string) (self::text($check, 'state') ?? ''));
-      if ($remedy === NULL || $state !== CheckState::Blocked) {
+      $fault = Fault::tryFrom((string) (self::text($check, 'fault') ?? '')) ?? Fault::None;
+      // The actual rule, not a proxy for it. "Carries a remedy" was standing in
+      // for "an operator may lift this", and `Fault::operatorMayUnblock()` —
+      // which says exactly that and had no caller — is the rule itself. The
+      // two agree today because `CheckRecord` refuses a remedy on any other
+      // fault, but one of them is the definition and the other is a symptom.
+      if ($state !== CheckState::Blocked || !$fault->operatorMayUnblock()) {
         continue;
       }
       $lines[] = sprintf(
-        "- %s (%s) in %s — %s\n  - remedy: `%s`\n",
+        "- %s (%s) in %s — %s\n  - %s\n  - remedy: `%s`\n",
         self::code(self::text($check, 'name')),
         self::cell(self::text($check, 'kind')),
         self::code(self::text($check, 'phase')),
         self::cell(self::text($check, 'summary')),
-        self::escape($remedy),
+        // What to DO about this fault. `Fault::guidance()` has said it all
+        // along — "this is the work, not the setup", or "show the OPERATOR the
+        // remedy and do not run it yourself" — and nothing rendered it, so the
+        // one sentence distinguishing "fix the code" from "ask a human" reached
+        // nobody. Another writer with no reader.
+        self::escape($fault->guidance()),
+        self::escape((string) $remedy),
       );
     }
     if ($lines === []) {

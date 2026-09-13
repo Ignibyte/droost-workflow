@@ -6,6 +6,7 @@ namespace Droost\Workflow\Tests\Evidence;
 
 use Droost\Workflow\Evidence\CheckRecord;
 use Droost\Workflow\Evidence\CheckState;
+use Droost\Workflow\Evidence\EvaluationReport;
 use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Evidence\Fault;
 use Droost\Workflow\Evidence\SubjectHasher;
@@ -167,20 +168,35 @@ final class EvidenceStoreTest extends TestCase {
 
   /**
    * The ledger gains the one thing the JSONL version could never carry.
+   *
+   * Asserted through the document that reads it rather than through a method
+   * written for the purpose. `toolTally()` existed to answer exactly this and
+   * had no production caller — the report queries `tool_call` itself — so the
+   * old version of this test kept a dead method alive and proved nothing about
+   * the path anybody actually uses.
    */
   public function testToolCallsCarryTheirPhase(): void {
     $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
     $store->recordToolCall('r1', 'plan', 'droost_symbol', 'ok');
     $store->recordToolCall('r1', 'plan', 'droost_symbol', 'ok');
     $store->recordToolCall('r1', 'code', 'droost_scaffold', 'fail');
 
-    $this->assertSame(['droost_symbol' => 2], $store->toolTally('r1', 'plan'));
-    $this->assertSame(['droost_scaffold' => 1], $store->toolTally('r1', 'code'));
-    $this->assertSame(
-      ['droost_symbol' => 2, 'droost_scaffold' => 1],
-      $store->toolTally('r1'),
-      'and the whole run is still one query',
+    $rows = $this->storeRows(
+      $store->connection(),
+      'SELECT phase, tool, COUNT(*) AS n FROM tool_call
+        WHERE run_id = ? GROUP BY phase, tool ORDER BY phase, tool',
+      ['r1'],
     );
+    $this->assertCount(2, $rows, 'two phases, kept apart');
+    $this->assertSame('code', $rows[0]['phase']);
+    $this->assertSame('plan', $rows[1]['phase']);
+    $this->assertEquals(2, $rows[1]['n'], 'and the count is per phase');
+
+    // And the report, which is what reads it, renders both.
+    $report = (new EvaluationReport($store))->render('r1');
+    $this->assertStringContainsString('droost_symbol', $report);
+    $this->assertStringContainsString('droost_scaffold', $report);
   }
 
   /**

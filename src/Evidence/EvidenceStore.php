@@ -1106,34 +1106,6 @@ final class EvidenceStore {
   }
 
   /**
-   * How many times each tool was called, optionally within one phase.
-   *
-   * @param string $runId
-   *   The run.
-   * @param string|null $phase
-   *   The phase, or NULL for the whole run.
-   *
-   * @return array<string, int>
-   *   Tool id to call count, busiest first.
-   */
-  public function toolTally(string $runId, ?string $phase = NULL): array {
-    $sql = 'SELECT tool, COUNT(*) AS n FROM tool_call WHERE run_id = ?';
-    $args = [$runId];
-    if ($phase !== NULL) {
-      $sql .= ' AND phase = ?';
-      $args[] = $phase;
-    }
-    $statement = $this->connection()->prepare($sql . ' GROUP BY tool ORDER BY n DESC, tool');
-    $statement->execute($args);
-    $tally = [];
-    foreach (self::rows($statement) as $row) {
-      $tally[self::text($row, 'tool')] = self::number($row, 'n');
-    }
-
-    return $tally;
-  }
-
-  /**
    * This row's link in the chain, from the previous row's.
    *
    * TAMPER-EVIDENCE, NOT TAMPER-PROOFING, and the difference is worth being
