@@ -40,8 +40,14 @@ final class CheckStateTest extends TestCase {
       'a report-mode gate, measured but not blocking' => [
         GateStatus::Reported, CheckState::Recorded, Fault::None, FALSE, TRUE,
       ],
+      // NOT NotApplicable, and the difference is the point: "off by preset" is
+      // a decision somebody made, while "no booted site" is a gate the operator
+      // ASKED for that this surface could not perform. Both rendered
+      // byte-identically, so a reader could not tell "nobody wanted this" from
+      // "you wanted this and it did not happen" — and three site gates go this
+      // way silently on the standalone CLI while the run completes.
       'a site gate on a run with no site' => [
-        GateStatus::SkippedNoSite, CheckState::NotApplicable, Fault::None, FALSE, FALSE,
+        GateStatus::SkippedNoSite, CheckState::Skipped, Fault::None, FALSE, FALSE,
       ],
       'a tool this project does not carry' => [
         GateStatus::ErrorToolMissing, CheckState::Blocked, Fault::Environment, TRUE, FALSE,

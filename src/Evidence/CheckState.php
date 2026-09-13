@@ -48,6 +48,19 @@ enum CheckState: string {
   // the verdict is that the operator chose to be told rather than stopped.
   case Recorded = 'recorded';
 
+  // Asked for, and could not run HERE. Distinct from NotApplicable, and the
+  // distinction is the whole point: "off by preset" is a decision somebody
+  // made, while "no booted site" is a gate the operator ASKED for that this
+  // surface could not perform. Both collapsed into `not_applicable` and
+  // rendered byte-identically, so a reader could not tell "nobody wanted this"
+  // from "you wanted this and it did not happen" — and three site gates go
+  // this way silently on the standalone CLI while the run completes.
+  //
+  // Non-blocking, because blocking would make every siteless run unfinishable,
+  // and the surface is the operator's choice rather than the agent's failing.
+  // Not a measurement either: nothing was examined.
+  case Skipped = 'skipped';
+
   // An operator lifted an environment blocker, and the record says so. Never
   // reachable by the agent, and never from a Fault::Agent block.
   case Unblocked = 'unblocked';
@@ -94,7 +107,8 @@ enum CheckState: string {
       GateStatus::Passed => self::Satisfied,
       GateStatus::Failed, GateStatus::ErrorToolMissing, GateStatus::ErrorToolFailed => self::Blocked,
       GateStatus::Reported => self::Recorded,
-      GateStatus::SkippedNoSite, GateStatus::Off => self::NotApplicable,
+      GateStatus::SkippedNoSite => self::Skipped,
+      GateStatus::Off => self::NotApplicable,
       GateStatus::Waived => self::Unblocked,
     };
   }
@@ -113,6 +127,7 @@ enum CheckState: string {
       self::NotApplicable => 'not applicable',
       self::Recorded => 'recorded (not blocking)',
       self::Unblocked => 'unblocked by the operator',
+      self::Skipped => 'asked for, could not run here',
     };
   }
 

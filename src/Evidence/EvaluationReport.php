@@ -238,8 +238,16 @@ final class EvaluationReport {
       . "> **The one rule the rest hangs from.** `run.json` is writable by the\n"
       . "> agent — the wall guards only `modules/custom` and `themes/custom` —\n"
       . "> so `phases` is the subject's claim about itself. Nothing here reads\n"
-      . "> `phases`. It reads the evidence store, which droost writes from what\n"
-      . "> it collected, never from what the agent reported.\n";
+      . "> `phases`. Every VERDICT below is a row droost wrote from a process\n"
+      . "> droost started.\n"
+      . ">\n"
+      . "> **The exception, stated because it was not.** §1's preset, mode,\n"
+      . "> enforcement, base commit and spec path are copied THROUGH `run.json`\n"
+      . "> on their way into the store, so an agent editing that file before a\n"
+      . "> phase changes what §1 prints. A reviewer edited `medium`/`soft` to\n"
+      . "> `max`/`hard`, ran one phase, and §1 said `max` and `hard` while the\n"
+      . "> frozen medium gate set was what actually ran. Those rows are marked\n"
+      . "> `reported` below. Everything marked `measured` was collected.\n";
 
     if ($run === [] && $checks === []) {
       $out .= "\n> **This run has no rows.** The store holds neither a `run`\n"
@@ -269,29 +277,40 @@ final class EvaluationReport {
    *   The section.
    */
   private function identity(array $run, string $runId): string {
+    $ticket = $this->store->declared($runId, 'work_item');
     $rows = [
-      ['Round', self::code($runId)],
-      ['Started (as recorded)', self::code(self::text($run, 'started_at'))],
-      ['Preset', self::code(self::text($run, 'preset'))],
-      ['Mode', self::code(self::text($run, 'mode'))],
-      ['Enforcement (requested)', self::code(self::text($run, 'enforcement'))],
-      ['Base commit', self::code(self::text($run, 'base_commit'))],
-      ['Spec', self::code(self::text($run, 'spec_path'))],
-      ['Spec hash', self::code(self::text($run, 'spec_hash'))],
-      ['Spec frozen at', self::code(self::text($run, 'spec_frozen_at'))],
-      ['Ticket / request', self::NOT_RECORDED],
-      ['Subject (model, effort, host, version)', self::NOT_RECORDED],
-      ['Driver (tmux / interactive / CI)', self::NOT_RECORDED],
-      ['Elapsed', self::NOT_RECORDED],
-      ['Operator interventions', self::NOT_RECORDED],
+      ['Round', self::code($runId), 'measured'],
+      ['Started (as recorded)', self::code(self::text($run, 'started_at')), 'reported'],
+      ['Preset', self::code(self::text($run, 'preset')), 'reported'],
+      ['Mode', self::code(self::text($run, 'mode')), 'reported'],
+      ['Enforcement (requested)', self::code(self::text($run, 'enforcement')), 'reported'],
+      ['Base commit', self::code(self::text($run, 'base_commit')), 'reported'],
+      ['Spec', self::code(self::text($run, 'spec_path')), 'reported'],
+      // Droost read the spec and hashed it itself, so an edited run.json
+      // cannot move these two.
+      ['Spec hash', self::code(self::text($run, 'spec_hash')), 'measured'],
+      ['Spec frozen at', self::code(self::text($run, 'spec_frozen_at')), 'measured'],
+      [
+        'Ticket / request',
+        $ticket === [] ? self::NOT_RECORDED : self::code(implode(', ', $ticket)),
+        $ticket === [] ? '—' : 'declared',
+      ],
+      ['Subject (model, effort, host, version)', self::NOT_RECORDED, '—'],
+      ['Driver (tmux / interactive / CI)', self::NOT_RECORDED, '—'],
+      ['Elapsed', self::NOT_RECORDED, '—'],
+      ['Operator interventions', self::NOT_RECORDED, '—'],
     ];
 
     return "## 1. Round identity\n\n"
-      . self::table(['Field', 'Value'], $rows)
+      . self::table(['Field', 'Value', 'Source'], $rows)
       . "\nWhat §1 cannot say, and why:\n\n"
-      . "- **Ticket, subject, driver and elapsed** are facts about the harness\n"
-      . "  that ran the round, not about the run. Nothing writes them to the\n"
-      . "  store, so they are captured by hand from the template's §2.\n"
+      . "- **`reported` means the value reached the store THROUGH `run.json`.**\n"
+      . "  droost recorded it faithfully; it did not verify it. An agent that\n"
+      . "  edits that file before a phase changes these five rows, and the gate\n"
+      . "  set that actually ran — §3 and §4 — is the check on them.\n"
+      . "- **Subject, driver and elapsed** are facts about the harness that ran\n"
+      . "  the round, not about the run. Nothing writes them to the store, so\n"
+      . "  they are captured by hand from the template's §2.\n"
       . "- **Enforcement is the REQUESTED value.** `{requested, effective,\n"
       . "  reason}` is computed at read time and never persisted, so no\n"
       . "  archived round — this one included — can say whether its discipline\n"

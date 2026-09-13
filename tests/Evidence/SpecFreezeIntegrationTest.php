@@ -378,4 +378,51 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     );
   }
 
+  /**
+   * A spec with no acceptance criteria is recorded as unverified, not passed.
+   *
+   * The cheapest cheat in the system, and a reviewer ran it: sixteen lines of
+   * spec, zero code, zero tests, zero declarations, zero acceptance criteria —
+   * and `outcome: completed` with all four phases passed. The `Verified By`
+   * contract only fires when a criteria TABLE exists, so writing the criteria
+   * as prose, or omitting them, turned the whole contract off in silence.
+   *
+   * The quasi-spec exemption is deliberate and stays — a `low` run is told to
+   * write ten lines and must not be punished for obeying. What changes is that
+   * the absence is now a row somebody can read, and above `medium` it blocks,
+   * because a level that asked for verification cannot be handed none.
+   */
+  public function testSpecWithNoCriteriaTableIsRecordedRatherThanAssumed(): void {
+    foreach ([['medium', 'recorded'], ['max', 'blocked']] as [$preset, $expected]) {
+      $root = $this->makeRootWithConfig("preset: {$preset}\nmode: agentic\n");
+      $spec = $this->writeSpec($root);
+      $facade = $this->facade();
+
+      $state = NULL;
+      // Six calls, because the seeker checkpoint holds the run at code and at
+      // complete until an inspection is recorded; a clean ledger satisfies it.
+      for ($phase = 0; $phase < 6; $phase++) {
+        $outcome = $facade->run($root, $spec);
+        $state = $outcome->state;
+        if ($outcome->outcome === Outcome::InspectionDue) {
+          $facade->recordSeeker(
+            $root,
+            "## Seeker Inspection\n\nInspector: independent\n\n(no findings)\n",
+          );
+        }
+      }
+      $found = [];
+      foreach ((new EvidenceStore($root))->checklist($state->runId, 'complete') as $row) {
+        if (($row['name'] ?? '') === 'criteria_table') {
+          $found[] = $row['state'];
+        }
+      }
+      $this->assertSame(
+        [$expected],
+        $found,
+        sprintf('at %s, a spec with no criteria table is %s', $preset, $expected),
+      );
+    }
+  }
+
 }

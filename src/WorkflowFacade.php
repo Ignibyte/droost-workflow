@@ -706,6 +706,18 @@ final class WorkflowFacade {
       if ($criteria !== NULL && $criteria['unverified'] !== []) {
         throw SpecError::criteriaUnverified($specPath, $criteria['unverified'], $criteria['column_missing'], $criteria['unnamed']);
       }
+      // NO TABLE AT ALL used to be silence, and silence is the cheapest cheat
+      // in the system: write the criteria as prose and the whole `Verified By`
+      // contract never fires. A reviewer completed a run — all four phases
+      // passed — with a sixteen-line spec, zero tests, zero declarations and
+      // zero acceptance criteria, because the one section that would have held
+      // it was the one section nothing required.
+      //
+      // The quasi-spec exemption stays: a medium or low run must not be held to
+      // a table it was never told to write. But the absence is RECORDED now
+      // rather than assumed, so a reader sees "nothing here was verified
+      // against a stated criterion" instead of an unbroken column of green.
+      $this->recordCriteriaContract($state, $projectRoot, $criteria !== NULL);
     }
 
     // Every door, the same gates (R31-F3/F5): a run begun on a surface that
@@ -1467,6 +1479,54 @@ final class WorkflowFacade {
     }
     catch (\Throwable) {
       // The store is what failed. Nothing to record it with.
+    }
+  }
+
+  /**
+   * Records whether the spec carried an acceptance-criteria table at all.
+   *
+   * Blocking above `medium`, recorded at or below it, and the dial is what
+   * decides: a `high` run asked for verification and a spec with no criteria
+   * table cannot supply it, while a `low` run's ten-line quasi-spec was never
+   * told to write one and must not be punished for obeying its own brief.
+   *
+   * Either way the fact lands in the record, because what this closes was not a
+   * wrong verdict — it was no verdict at all.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param string $projectRoot
+   *   The repository.
+   * @param bool $present
+   *   Whether a criteria table was found.
+   */
+  private function recordCriteriaContract(RunState $state, string $projectRoot, bool $present): void {
+    if ($present) {
+      return;
+    }
+    $demanding = in_array($state->preset, ['high', 'xhigh', 'max', 'factory'], TRUE);
+    try {
+      (new EvidenceStore($projectRoot))->record(
+        $state->runId,
+        Phase::Complete->value,
+        new CheckRecord(
+          'spec',
+          'criteria_table',
+          $demanding ? CheckState::Blocked : CheckState::Recorded,
+          $demanding ? Fault::Agent : Fault::None,
+          $demanding
+            ? 'The spec carries no `## Acceptance criteria` table, so nothing in this run was '
+            . 'checked against a stated criterion. At this level that is the contract rather than '
+            . 'a formality: write the table, one observable behaviour per row, and fill '
+            . '`Verified By` with the test that proves it.'
+            : 'No `## Acceptance criteria` table, which this level does not require — so nothing '
+            . 'here was verified against a stated criterion. Recorded, not verified.',
+        ),
+        $this->now(),
+      );
+    }
+    catch (\Throwable) {
+      // The store is unreachable, and the phase's own audit already says so.
     }
   }
 
