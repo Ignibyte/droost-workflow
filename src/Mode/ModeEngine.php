@@ -6,7 +6,12 @@ namespace Droost\Workflow\Mode;
 
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Evidence\CheckAdjudicatorInterface;
+use Droost\Workflow\Evidence\CheckRecord;
+use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\Evidence\EvidenceRecorder;
+use Droost\Workflow\Evidence\EvidenceStore;
+use Droost\Workflow\Evidence\Fault;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\PhaseReport;
@@ -41,6 +46,7 @@ final class ModeEngine {
   public function __construct(
     private readonly GateRunner $runner,
     private readonly QuestionSinkInterface $sink,
+    private readonly ?CheckAdjudicatorInterface $checks = NULL,
   ) {}
 
   /**
@@ -105,6 +111,15 @@ final class ModeEngine {
 
     if (!$report->advance()) {
       return $this->recordFailure($state, $phase, $report);
+    }
+
+    // The questions a shell command cannot ask, from the modules that can
+    // answer them. After the gates, because a check should see the world the
+    // gates just measured; before advancing, because a blocked check has to
+    // stop a phase exactly as a failed gate does — otherwise contributing one
+    // is contributing a comment.
+    if (!$this->adjudicateChecks($state, $phase, $projectRoot)) {
+      return new RunOutcome(Outcome::Failed, $state, $report);
     }
 
     // The seeker checkpoint. Gates verify rules; the seeker verifies
@@ -417,6 +432,68 @@ final class ModeEngine {
       $detail,
       $options,
     );
+  }
+
+
+  /**
+   * Runs the contributed checks for a phase, and says whether it may advance.
+   *
+   * Every verdict is recorded whatever it says — a satisfied check is evidence
+   * too, and a report that only shows failures cannot be used to ask "did this
+   * provider ever actually run".
+   *
+   * A throwing adjudicator is recorded as blocked with an environment fault and
+   * never takes the phase down with it. The phase still stops, because a check
+   * that could not run has not passed; the fault is environment because a
+   * broken plugin is not the agent's doing, and telling an agent to try harder
+   * would wedge a run over somebody else's bug.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase that just ran its gates.
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return bool
+   *   TRUE when nothing contributed blocks the phase.
+   */
+  private function adjudicateChecks(RunState $state, Phase $phase, string $projectRoot): bool {
+    if ($this->checks === NULL) {
+      return TRUE;
+    }
+    try {
+      $records = $this->checks->adjudicate($projectRoot, $phase->value, $state->runId);
+    }
+    catch (\Throwable $e) {
+      $records = [
+        new CheckRecord(
+          'check',
+          'contributed_checks',
+          CheckState::Blocked,
+          Fault::Environment,
+          'The contributed checks could not be adjudicated: ' . $e::class,
+          'Check the log of the module contributing checks, then run the phase again.',
+        ),
+      ];
+    }
+
+    $store = new EvidenceStore($projectRoot);
+    $advance = TRUE;
+    foreach ($records as $record) {
+      try {
+        $store->record($state->runId, $phase->value, $record);
+      }
+      catch (\Throwable) {
+        // Recording is never allowed to fail a phase; the verdict below still
+        // holds, so a check that blocks still blocks even if the row is lost.
+      }
+      if ($record->state->blocksAdvance()) {
+        $advance = FALSE;
+      }
+    }
+
+    return $advance;
   }
 
 }

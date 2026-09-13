@@ -20,6 +20,7 @@ use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Event\NullWorkflowListener;
 use Droost\Workflow\Event\WorkflowListenerInterface;
 use Droost\Workflow\Gate\GateExecutorInterface;
+use Droost\Workflow\Evidence\CheckAdjudicatorInterface;
 use Droost\Workflow\Evidence\DeclarationAudit;
 use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Evidence\SpecFreeze;
@@ -114,6 +115,7 @@ final class WorkflowFacade {
     ?VcsInterface $vcs = NULL,
     private readonly ?array $contributed = NULL,
     private readonly ?string $contributedSource = NULL,
+    private readonly ?CheckAdjudicatorInterface $checks = NULL,
   ) {
     $this->listener = $listener ?? new NullWorkflowListener();
     $this->vcs = $vcs ?? new CliVcs(CliProcess::run(...));
@@ -1567,6 +1569,7 @@ final class WorkflowFacade {
     return new ModeEngine(
       new GateRunner($this->executor, $this->driver, $this->vcs, $this->contributed ?? []),
       $this->sink,
+      $this->checks,
     );
   }
 
