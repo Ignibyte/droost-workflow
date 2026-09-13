@@ -1086,12 +1086,11 @@ final class WorkflowFacade {
     // not silently wipe the file declaration.
     // `work_item` is the third kind because a check shipped that READS it and
     // nothing anywhere could write it. Any site adding the documented
-    // `work_item:` config block got a blocking check with fault `agent`, whose
-    // own guidance says "There is no waiver for it": every run failing
-    // at plan,
-    // forever, told to declare a ticket by a tool with no way to declare one.
-    // That is the SpecFreeze deadlock's exact shape, which `DeclarationAudit`
-    // names in a comment fifty lines away.
+    // `work_item:` block got a blocking check with fault `agent`, whose own
+    // guidance says "There is no waiver for it" — so every run failed at plan,
+    // permanently, told to declare a ticket by a tool with no way to declare
+    // one. That is the SpecFreeze deadlock's exact shape, which
+    // `DeclarationAudit` names in a comment fifty lines from the bug.
     $kinds = ['file' => $files, 'test' => $tests];
     if ($workItem !== NULL && trim($workItem) !== '') {
       $kinds['work_item'] = [trim($workItem)];
