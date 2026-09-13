@@ -107,6 +107,48 @@ class WorkflowConfigTest extends WorkflowTestCase {
   }
 
   /**
+   * Nor by disarming and demoting in one breath, at the DEFAULT preset.
+   *
+   * The fix above computed "where does this overlay leave the gate" BEFORE
+   * stripping an `on: false` — so with the base on and the overlay saying
+   * `{on: false, mode: report}`, the strip fired (the gate stays on) while the
+   * answer had already been taken from the `on` key that was about to be
+   * removed. The mode guard was skipped, the gate ran, and its failure was
+   * demoted to `reported`, which does not block.
+   *
+   * That worked at `max` — the default — where the hole it replaced needed
+   * `preset: low`. And a notice WAS recorded for the `on: false`, so the lever
+   * file read as handled while the disarm landed. Strictly worse than what it
+   * fixed, which is why every combination is tabled here rather than sampled.
+   */
+  public function testDisarmingAndDemotingTogetherStillCannotWork(): void {
+    foreach (['phpcs', 'phpstan', 'phpunit'] as $gate) {
+      foreach (['max', 'high', 'medium', 'low'] as $preset) {
+        $config = WorkflowConfig::fromArray([
+          'preset' => $preset,
+          'gates' => [$gate => ['on' => FALSE, 'mode' => 'report']],
+        ], 'test');
+        $resolved = $config->gate($gate);
+        $where = sprintf('%s at preset %s', $gate, $preset);
+
+        if ($preset === 'low' && !$resolved->on) {
+          // `low` turns phpunit off in its base and is allowed to: one loud
+          // line, not a silent override. A gate that is OFF has no mode.
+          continue;
+        }
+        $this->assertTrue($resolved->on, $where . ' stays on');
+        $this->assertSame(
+          'block',
+          $resolved->mode(),
+          $where . ' runs as a gate — a report-mode mandatory gate advances '
+          . 'the phase over its own failures, which is the disarm the mandate '
+          . 'exists to prevent',
+        );
+      }
+    }
+  }
+
+  /**
    * A redundant `on: false` beside an already-off base is still not an attempt.
    *
    * The condition that caused the hole above exists for this case, so closing

@@ -129,12 +129,12 @@ class ShellGateExecutorTest extends WorkflowTestCase {
           'analyse',
           '--no-progress',
           '--error-format=json',
-          // The project root, because a repo with no phpstan config and no
-          // `paths` lever was handed nothing to analyse: phpstan exits 1 with
-          // "At least one path must be specified", which the gate recorded as
-          // `failed` — the code reading as broken in the first code phase of an
-          // ordinary project, while phpcs in the same run got `.` and passed.
-          '.',
+          // No `.` here, unlike phpcs. phpcs takes `--ignore`; phpstan has no
+          // such flag, so a bare `.` walked vendor/ and node_modules/ and the
+          // gate reported hundreds of errors in third-party code. What phpstan
+          // analyses is named by its own config or by the `paths` lever, and
+          // being pointed at neither is a labelled non-measurement — see
+          // testPhpstanWithNoPathDoesNotFail.
           '--level=6',
           '--memory-limit=1G',
         ],
@@ -146,7 +146,6 @@ class ShellGateExecutorTest extends WorkflowTestCase {
           'analyse',
           '--no-progress',
           '--error-format=json',
-          '.',
           '--level=max',
           '--memory-limit=1G',
         ],
@@ -1113,6 +1112,65 @@ class ShellGateExecutorTest extends WorkflowTestCase {
       'SITE_GATES is about a booted kernel in-process, and the Drupal driver '
       . 'implements exactly the three gates named there',
     );
+  }
+
+  /**
+   * A gate pointed at nothing has not failed, and has not measured.
+   *
+   * With no phpstan config and no `paths` lever it is invoked with no path at
+   * all, exits 1, and says "At least one path must be specified to analyse" —
+   * which the gate recorded as `failed`: the CODE reading as broken, in the
+   * first code phase of an ordinary project.
+   *
+   * The first fix appended `.` as the phpcs branch does. phpcs can, because it
+   * takes `--ignore`; phpstan has no such flag, so `.` walked `vendor/` and a
+   * mandatory blocking gate reported 404 errors — 401 of them third-party — on
+   * a project whose own files were clean. One wrong verdict for a louder one.
+   *
+   * A labelled pass is the honest third answer, and it carries the lever that
+   * fixes it. `type_coverage` then holds the run on an unmeasured mandatory
+   * gate, because somebody has to say what phpstan should look at.
+   */
+  public function testPhpstanWithNoPathDoesNotFail(): void {
+    $root = $this->rootWithBinaries(['phpstan']);
+    $seen = NULL;
+    $executor = new ShellGateExecutor(
+      function (array $argv) use (&$seen): array {
+        $seen = $argv;
+        return [1, '', 'At least one path must be specified to analyse.'];
+      },
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('phpstan', TRUE), $root);
+
+    $this->assertSame(GateStatus::Passed, $result->status, 'the code did not fail');
+    $this->assertTrue($result->labelledPass, 'and nothing was measured');
+    $this->assertStringContainsString('gates.phpstan.paths', $result->summary);
+    $this->assertNotContains('.', $seen ?? [], 'it was never pointed at the whole tree');
+  }
+
+  /**
+   * A real phpstan failure is still a failure.
+   *
+   * The branch above keys on phpstan's own sentence, so it must not swallow an
+   * ordinary non-zero exit — which is the whole gate.
+   */
+  public function testPhpstanStillFailsOnRealErrors(): void {
+    $root = $this->rootWithBinaries(['phpstan']);
+    $executor = new ShellGateExecutor(
+      static fn (array $argv): array => [
+        1,
+        (string) json_encode(['totals' => ['file_errors' => 3, 'errors' => 0], 'files' => []]),
+        '',
+      ],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('phpstan', TRUE), $root);
+
+    $this->assertSame(GateStatus::Failed, $result->status);
+    $this->assertFalse($result->labelledPass);
   }
 
 }

@@ -805,7 +805,6 @@ final class WorkflowConfig {
         // mandatory gate ran in report mode with no notice recorded — it finds
         // failures and the phase advances over them. Two docblocks and the
         // README say that is impossible; it was one line away.
-        $willBeOn = array_key_exists('on', $raw) ? $raw['on'] === TRUE : $gates[$name]->on;
         // `on: false` is an ATTEMPT only when the base had the gate on. The
         // `low` preset's base turns phpunit off — the mandate exists to stop a
         // gate being disarmed silently, and `preset: low` is one loud line, so
@@ -816,6 +815,19 @@ final class WorkflowConfig {
           $attempted[] = 'on: false';
           unset($raw['on']);
         }
+        // AFTER the strip above, and the first cut of this had it before —
+        // which was a worse hole than the one it closed. With the base on and
+        // the overlay saying `on: false, mode: report`, the strip fired (the
+        // gate stays on) while $willBeOn had already been computed as FALSE
+        // from the `on` key that was about to be removed. The mode guard was
+        // then skipped, the gate ran, and its failure was demoted to
+        // `reported`, which does not block. That worked at `max`, the default
+        // preset, where the hole it replaced needed `preset: low` — and a
+        // notice WAS recorded for the `on: false`, so it read as handled.
+        //
+        // Read it from $raw as it now stands, which is what the overlay will
+        // actually apply.
+        $willBeOn = array_key_exists('on', $raw) ? $raw['on'] === TRUE : $gates[$name]->on;
         // Mode and level are judged against where the overlay LEAVES the gate,
         // so they are caught whatever the base said — and left alone when the
         // gate ends up off, where neither means anything.

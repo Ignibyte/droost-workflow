@@ -450,6 +450,35 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     // exit 16 was partitioned into "passed — 0 new, 0 inherited": a confident
     // verdict over a run that checked no files at all, which is the exact
     // failure this branch exists to prevent.
+    // phpstan, handed nothing to analyse. A repo with no phpstan config and no
+    // `paths` lever gives it no path at all, and it exits 1 with "At least one
+    // path must be specified to analyse" — recorded as `failed`, which reads as
+    // THE CODE being broken in the first code phase of an ordinary project.
+    //
+    // The first fix appended `.` as phpcs does. phpcs can do that because it
+    // takes `--ignore`; phpstan has no such flag, so `.` walked `vendor/` and
+    // `node_modules/` and a mandatory blocking gate reported 404 errors, 401 of
+    // them in third-party code, on a project whose own two files were clean.
+    // Swapping one wrong verdict for a louder one.
+    //
+    // So it is neither: a gate pointed at nothing has not measured, and says so
+    // and names the lever that points it. `type_coverage` then holds the run on
+    // an unmeasured mandatory gate, which is the honest outcome — somebody has
+    // to say what phpstan should analyse, and only they know.
+    if ($gate->name === 'phpstan'
+      && $exit !== 0
+      && preg_match('/At least one path must be specified/i', $stdout . $stderr) === 1) {
+      return GateResult::labelledPass(
+        $gate->name,
+        $exit,
+        $elapsed,
+        'phpstan was given no path to analyse — a labeled pass, not a '
+        . 'measurement. Point it with `gates.phpstan.paths` in '
+        . 'droost.workflow.yml, or add a phpstan.neon naming its own paths.',
+        $invocation,
+      );
+    }
+
     if ($gate->name === 'phpcs' && $exit === 16) {
       return GateResult::labelledPass(
         $gate->name,
@@ -1168,23 +1197,6 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         break;
       }
     }
-    // The same question for phpstan, and it had the same answer with a worse
-    // presentation. With no `paths` lever and no config of its own, phpstan was
-    // invoked with no path at all: exit 1, "At least one path must be specified
-    // to analyse", recorded as `failed` — which reads as THE CODE failing, in
-    // the first code phase of an ordinary project. phpcs in the same run got
-    // `.` appended and passed. Three gates had three answers to one condition.
-    //
-    // A phpstan config names its own paths, so a project that has one is left
-    // alone exactly as with phpcs. A project without one gets the same `.` and
-    // the same honesty.
-    $ownPhpstanConfig = NULL;
-    foreach (['phpstan.neon', 'phpstan.neon.dist', 'phpstan.dist.neon'] as $candidate) {
-      if (is_file(rtrim($root, '/') . '/' . $candidate)) {
-        $ownPhpstanConfig = $candidate;
-        break;
-      }
-    }
 
     return match ($gate->name) {
       // The repo's ruleset decides the standard, the extensions and the files.
@@ -1230,11 +1242,6 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         'analyse',
         '--no-progress',
         '--error-format=json',
-        // The project root when phpstan has no config naming its own paths. A
-        // `paths` lever replaces it in prepare(); without either, phpstan is
-        // handed nothing to analyse and says so as a FAILURE, which reads as
-        // the code being broken rather than the gate being unpointed.
-        ...($ownPhpstanConfig === NULL ? ['.'] : []),
         '--level=' . (string) ($level ?? 'max'),
         // Not a lever: phpstan inherits php.ini's memory_limit (routinely
         // 128M), and level max over a real module crashes its workers there.
