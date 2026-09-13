@@ -140,15 +140,55 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   /**
    * {@inheritdoc}
    */
+  /**
+   * What the last spawned tool wrote, for attaching to whichever result won.
+   *
+   * A property rather than a return value because `run()` has twenty-two exit
+   * points — every one a legitimate early verdict — and threading two more
+   * arguments through all of them to carry the same two strings would be a
+   * worse trade than one field written once where the process is unpacked.
+   */
+  private string $lastStdout = '';
+
+  /**
+   * Companion to $lastStdout.
+   */
+  private string $lastStderr = '';
+
+  /**
+   * A result carrying the output of the run that produced it.
+   *
+   * Cleared after attaching so a gate that never spawned anything — off,
+   * tool-missing — cannot inherit the previous gate's transcript and make a
+   * reader believe something ran.
+   *
+   * @param \Droost\Workflow\Gate\GateResult $result
+   *   The verdict.
+   *
+   * @return \Droost\Workflow\Gate\GateResult
+   *   The verdict, with its output.
+   */
+  private function withLastOutput(GateResult $result): GateResult {
+    $stdout = $this->lastStdout;
+    $stderr = $this->lastStderr;
+    $this->lastStdout = '';
+    $this->lastStderr = '';
+
+    return $stdout === '' && $stderr === '' ? $result : $result->withOutput($stdout, $stderr);
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   public function execute(GateSettings $gate, string $projectRoot): GateResult {
-    return $this->run($gate, $projectRoot, NULL);
+    return $this->withLastOutput($this->run($gate, $projectRoot, NULL));
   }
 
   /**
    * {@inheritdoc}
    */
   public function executeWithBaseline(GateSettings $gate, string $projectRoot, BaselineContext $context): GateResult {
-    return $this->run($gate, $projectRoot, $context);
+    return $this->withLastOutput($this->run($gate, $projectRoot, $context));
   }
 
   /**
@@ -328,6 +368,8 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     /** @var array{int, string, string} $outcome */
     $outcome = ($this->runner)($argv, $root, $this->timeoutFor($gate));
     [$exit, $stdout, $stderr] = $outcome;
+    $this->lastStdout = $stdout;
+    $this->lastStderr = $stderr;
     $elapsed = $this->tick() - $started;
 
     if ($exit === self::EXIT_KILLED) {
@@ -751,6 +793,8 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     /** @var array{int, string, string} $outcome */
     $outcome = ($this->runner)(['/bin/sh', '-c', $cmd], $root, $this->timeoutFor($gate));
     [$exit, $stdout, $stderr] = $outcome;
+    $this->lastStdout = $stdout;
+    $this->lastStderr = $stderr;
     $elapsed = $this->tick() - $started;
 
     if ($exit === 127) {

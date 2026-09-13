@@ -319,6 +319,7 @@ final class EvidenceStore {
     ]);
     $id = (int) $pdo->lastInsertId();
     $this->recordFindings($pdo, $id, $check->findings);
+    $this->recordTranscript($pdo, $id, $check->stdout, $check->stderr);
 
     return $id;
   }
@@ -359,6 +360,56 @@ final class EvidenceStore {
         $rest === [] ? NULL : json_encode($rest, JSON_UNESCAPED_SLASHES),
       ]);
     }
+  }
+
+  /**
+   * Stores what the tool actually said, beside the verdict.
+   *
+   * Separate rows from the findings on purpose: findings are what droost
+   * PARSED and a report can count, while this is what the tool said — the only
+   * thing that helps when the parse was wrong, when the tool died before
+   * producing anything structured, or when a reader does not believe the
+   * summary. Already capped by the time it arrives.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   * @param int $checkId
+   *   The owning check.
+   * @param string $stdout
+   *   What it wrote to stdout.
+   * @param string $stderr
+   *   What it wrote to stderr.
+   */
+  private function recordTranscript(\PDO $pdo, int $checkId, string $stdout, string $stderr): void {
+    $statement = $pdo->prepare('INSERT INTO transcript (check_id, stream, content) VALUES (?, ?, ?)');
+    foreach (['stdout' => $stdout, 'stderr' => $stderr] as $stream => $content) {
+      if ($content !== '') {
+        $statement->execute([$checkId, $stream, $content]);
+      }
+    }
+  }
+
+  /**
+   * What a phase's tools said, for reading back later.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $phase
+   *   The phase.
+   *
+   * @return list<array<string, mixed>>
+   *   One row per stream, with the check it belongs to.
+   */
+  public function transcripts(string $runId, string $phase): array {
+    $statement = $this->connection()->prepare(
+      'SELECT c.name, c.attempt, c.state, t.stream, t.content
+         FROM transcript t JOIN check_result c ON c.id = t.check_id
+        WHERE c.run_id = ? AND c.phase = ?
+        ORDER BY c.name, c.attempt, t.stream'
+    );
+    $statement->execute([$runId, $phase]);
+
+    return $statement->fetchAll() ?: [];
   }
 
   /**

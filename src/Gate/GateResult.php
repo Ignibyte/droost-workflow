@@ -20,6 +20,21 @@ final class GateResult {
   public const FINDINGS_CAP = 50;
 
   /**
+   * The most raw output one stream may contribute to the record.
+   */
+  public const OUTPUT_CAP = 16384;
+
+  /**
+   * What the tool wrote to stdout, capped, or '' when nothing was captured.
+   */
+  public string $stdout = '';
+
+  /**
+   * What the tool wrote to stderr, capped, or '' when nothing was captured.
+   */
+  public string $stderr = '';
+
+  /**
    * Constructs a GateResult.
    *
    * @param string $gate
@@ -266,6 +281,59 @@ final class GateResult {
       'inherited' => $this->inherited,
       'new' => $this->new,
     ];
+  }
+
+  /**
+   * This result, carrying the raw output the tool produced.
+   *
+   * Kept apart from `findings` because they answer different questions. The
+   * findings are what droost PARSED — sortable rows a report can count. The
+   * output is what the tool actually said, which is the only thing that helps
+   * when the parse was wrong, when the tool crashed before producing anything
+   * structured, or when a reader simply does not believe the summary.
+   *
+   * Capped hard. A phpcs run over a large tree emits hundreds of kilobytes,
+   * and an evidence store that grew without bound would recreate the problem
+   * it was built to fix: a real run.json reached 113,313 bytes of gate results
+   * because one report was stored whole, twice.
+   *
+   * @param string $stdout
+   *   What the tool wrote to stdout.
+   * @param string $stderr
+   *   What it wrote to stderr.
+   *
+   * @return self
+   *   A new instance.
+   */
+  public function withOutput(string $stdout, string $stderr): self {
+    $clone = clone $this;
+    $clone->stdout = self::cap($stdout);
+    $clone->stderr = self::cap($stderr);
+
+    return $clone;
+  }
+
+  /**
+   * One stream, trimmed to something a record can hold.
+   *
+   * The head and the tail, because a tool says what it is doing at the start
+   * and what it concluded at the end, and the middle is the repetition.
+   *
+   * @param string $text
+   *   The stream.
+   *
+   * @return string
+   *   The capped text.
+   */
+  private static function cap(string $text): string {
+    if (strlen($text) <= self::OUTPUT_CAP) {
+      return $text;
+    }
+    $half = intdiv(self::OUTPUT_CAP, 2);
+
+    return substr($text, 0, $half)
+      . sprintf("\n\n… %d bytes elided …\n\n", strlen($text) - self::OUTPUT_CAP)
+      . substr($text, -$half);
   }
 
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Droost\Workflow\Evidence;
 
 use Droost\Workflow\Config\GateSettings;
+use Droost\Workflow\Spec\SpecContract;
 
 /**
  * Renders a round's evaluation from the store, and stops where it must.
@@ -421,6 +422,7 @@ final class EvaluationReport {
 
     $rows = [];
     $earlier = [];
+    $remedies = [];
     $measured = 0;
     foreach ($byItem as $attempts) {
       $latest = $attempts[count($attempts) - 1];
@@ -442,6 +444,15 @@ final class EvaluationReport {
       ];
       if (count($attempts) > 1) {
         $earlier[] = $this->earlierAttempts($attempts);
+      }
+      if ($state === CheckState::Blocked && self::text($latest, 'remedy') !== NULL) {
+        $remedies[] = sprintf(
+          "- %s in %s — %s\n  - remedy: `%s`\n",
+          self::code(self::text($latest, 'name')),
+          self::code(self::text($latest, 'phase')),
+          self::cell(self::text($latest, 'summary')),
+          self::escape((string) self::text($latest, 'remedy')),
+        );
       }
     }
 
@@ -474,6 +485,16 @@ final class EvaluationReport {
         . "overwriting the one it failed on. This is the feedback loop, with\n"
         . "what it corrected.\n\n"
         . implode('', $earlier);
+    }
+
+    if ($remedies !== []) {
+      $out .= "\n### Environment blocks, and who may lift them\n\n"
+        . "A block carrying `environment` cannot be satisfied from where the\n"
+        . "agent stands. The phase still does not advance — an OPERATOR lifts\n"
+        . "it, recorded as `unblocked by the operator`, and every other fault\n"
+        . "has no such door. A remedy printed beside work the agent must simply\n"
+        . "do reads as a way out of doing it, so only these rows carry one.\n\n"
+        . implode('', $remedies);
     }
 
     $out .= $this->invocations($byItem);
@@ -649,8 +670,8 @@ final class EvaluationReport {
     $router = $perTool[self::ROUTER_TOOL] ?? 0;
 
     $headline = [
-      ['Total calls', (string) $total, ''],
-      ['Distinct tools', (string) count($perTool), ''],
+      ['Total calls', (string) $total, 'every tool result, successes and refusals alike'],
+      ['Distinct tools', (string) count($perTool), '—'],
       [
         '**Knowledge calls** (the ten in `KNOWLEDGE_TOOLS`)',
         (string) $knowledge,
@@ -661,7 +682,7 @@ final class EvaluationReport {
       [
         'Router calls (' . self::code(self::ROUTER_TOOL) . ')',
         (string) $router,
-        '',
+        'the decision graph, which answers about droost rather than about the code',
       ],
       [
         '**Knowledge : router ratio**',
@@ -691,7 +712,7 @@ final class EvaluationReport {
       $toolRows[] = [
         self::code($tool),
         (string) $n,
-        in_array($tool, self::KNOWLEDGE_TOOLS, TRUE) ? 'knowledge' : ($tool === self::ROUTER_TOOL ? 'router' : ''),
+        self::toolClass($tool),
       ];
     }
 
@@ -738,14 +759,20 @@ final class EvaluationReport {
         . "other.\n";
     }
 
+    // The three tiers appear whether or not the spec claimed them. A tier
+    // with no rows is a reading in itself — most often the `contrib` one,
+    // which is the tier whose absence means nobody asked whether a module
+    // already does this.
     $tiers = [];
+    foreach (SpecContract::TIERS as $tier) {
+      $tiers[$tier] = ['rows' => 0, 'cited' => 0, 'resolved' => 0, 'stores' => []];
+    }
     foreach ($rows as $row) {
       $tier = (string) (self::text($row, 'tier') ?? '');
-      $tiers[$tier]['rows'] = ($tiers[$tier]['rows'] ?? 0) + 1;
-      $tiers[$tier]['cited'] = ($tiers[$tier]['cited'] ?? 0)
-        + (self::text($row, 'citation') === NULL ? 0 : 1);
-      $tiers[$tier]['resolved'] = ($tiers[$tier]['resolved'] ?? 0)
-        + ((self::number($row, 'resolved') ?? 0) === 1 ? 1 : 0);
+      $tiers[$tier] ??= ['rows' => 0, 'cited' => 0, 'resolved' => 0, 'stores' => []];
+      $tiers[$tier]['rows']++;
+      $tiers[$tier]['cited'] += self::text($row, 'citation') === NULL ? 0 : 1;
+      $tiers[$tier]['resolved'] += (self::number($row, 'resolved') ?? 0) === 1 ? 1 : 0;
       $store = self::text($row, 'store');
       if ($store !== NULL) {
         $tiers[$tier]['stores'][$store] = $store;
@@ -754,7 +781,7 @@ final class EvaluationReport {
 
     $summary = [];
     foreach ($tiers as $tier => $facts) {
-      $stores = $facts['stores'] ?? [];
+      $stores = $facts['stores'];
       $summary[] = [
         self::code($tier),
         (string) $facts['rows'],
@@ -839,10 +866,22 @@ final class EvaluationReport {
       . "  have failed is a judgement about what it was pointed at.\n"
       . "- **B** (build) rests on §5, which is not generated for the reason\n"
       . "  given there.\n\n"
-      . self::table(['', 'Score', 'Basis'], [
-        ['**S** setup', '`/10`', ''],
-        ['**V** verification', '`/10`', ''],
-        ['**B** build', '`/10`', ''],
+      . self::table(['Axis', 'Score', 'Basis'], [
+        [
+          '**S** setup',
+          '`/10`',
+          'Could a stranger install it and build one thing with no operator rescue? **Zero if this round arranged setup in advance.**',
+        ],
+        [
+          '**V** verification',
+          '`/10`',
+          'Of the gates claiming green, how many measured something (§4)? A gate that could not have failed scores zero whatever its status.',
+        ],
+        [
+          '**B** build',
+          '`/10`',
+          'Did the requested thing get built, correctly, against §5?',
+        ],
       ])
       . "\nComparable only to a round at the same preset, install shape and §2.\n";
   }
@@ -1050,6 +1089,23 @@ final class EvaluationReport {
   }
 
   /**
+   * Which side of the ledger's one interesting division a tool sits on.
+   *
+   * @param string $tool
+   *   The tool id.
+   *
+   * @return string
+   *   The class.
+   */
+  private static function toolClass(string $tool): string {
+    if (in_array($tool, self::KNOWLEDGE_TOOLS, TRUE)) {
+      return 'knowledge';
+    }
+
+    return $tool === self::ROUTER_TOOL ? 'router' : '—';
+  }
+
+  /**
    * A markdown table, or a header and a note when there are no rows.
    *
    * @param list<string> $headers
@@ -1071,11 +1127,15 @@ final class EvaluationReport {
   }
 
   /**
-   * One cell, safe to sit between two pipes.
+   * One cell, safe to sit between two pipes, and never empty.
    *
    * Newlines and unescaped pipes both break a markdown table silently — a row
    * carrying a raw `|` renders as two short columns and a lost value, which a
    * live round found in the seeker report before it was found here.
+   *
+   * Nothing renders as a blank. Every column of every table in this document
+   * holds either a value or NOT_RECORDED, headers included, so a reader
+   * scanning for a gap finds a sentence rather than a space.
    *
    * @param mixed $value
    *   Whatever the column held.

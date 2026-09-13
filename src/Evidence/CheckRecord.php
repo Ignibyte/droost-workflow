@@ -49,6 +49,12 @@ final class CheckRecord {
    *   How long it took. Zero is a finding in itself — the tool never spawned.
    * @param list<array<string, mixed>> $findings
    *   Structured detail, stored one row each.
+   * @param string $stdout
+   *   What the tool wrote, already capped. Kept apart from the findings
+   *   because they answer different questions: the findings are what droost
+   *   parsed, this is what the tool said.
+   * @param string $stderr
+   *   Companion to $stdout.
    */
   public function __construct(
     public readonly string $kind,
@@ -63,6 +69,8 @@ final class CheckRecord {
     public readonly ?string $startedAt = NULL,
     public readonly ?int $durationMs = NULL,
     public readonly array $findings = [],
+    public readonly string $stdout = '',
+    public readonly string $stderr = '',
   ) {
     if ($this->kind === '' || $this->name === '') {
       throw new \InvalidArgumentException('A check record needs both a kind and a name.');
@@ -127,6 +135,8 @@ final class CheckRecord {
       NULL,
       $result->durationMs,
       $result->findings,
+      $result->stdout,
+      $result->stderr,
     );
   }
 
