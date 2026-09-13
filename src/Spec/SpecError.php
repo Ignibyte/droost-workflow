@@ -197,4 +197,37 @@ final class SpecError extends \RuntimeException {
     ));
   }
 
+  /**
+   * A frozen contract section changed after the plan phase passed.
+   *
+   * The spec is the contract, and the agent writes it. That is fine while the
+   * plan is open — it is what the plan phase is for. Afterwards the run is held
+   * to it, and every later phase used to re-read the file from disk, so a
+   * grounding table that satisfied the plan gate could be rewritten before the
+   * code gate looked and nothing anywhere would know.
+   *
+   * @param string $path
+   *   The spec, project-relative.
+   * @param list<string> $sections
+   *   The headings whose content moved, when they can be named.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function contractChanged(string $path, array $sections): self {
+    return new self(sprintf(
+      '%s changed after the plan phase froze it%s. The spec is the contract '
+      . 'this run is held to: the tooling plan, the grounding table and the '
+      . 'acceptance criteria are fixed when plan passes, and the phases after '
+      . 'it are graded against what was frozen, not against what the file says '
+      . 'now. Appending is fine and expected — the "## Realized" capture and '
+      . 'the seeker ledgers belong in this file — but a criterion, a citation '
+      . 'or a tooling row may not be rewritten under a gate that already read '
+      . 'it. Restore the frozen text, or reset the run and plan again with the '
+      . 'contract you actually mean.',
+      $path,
+      $sections === [] ? '' : ' — changed: ' . implode(', ', $sections),
+    ));
+  }
+
 }

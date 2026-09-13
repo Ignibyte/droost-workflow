@@ -20,6 +20,8 @@ use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Event\NullWorkflowListener;
 use Droost\Workflow\Event\WorkflowListenerInterface;
 use Droost\Workflow\Gate\GateExecutorInterface;
+use Droost\Workflow\Evidence\EvidenceStore;
+use Droost\Workflow\Evidence\SpecFreeze;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\ShellGateExecutor;
@@ -623,6 +625,18 @@ final class WorkflowFacade {
     // needs the realized capture, so a run cannot close having left its own
     // document behind.
     $specPath = $state->specPath;
+    // The spec is the contract, and until the plan ends it is still being
+    // written. Afterwards it is the thing the run is HELD to — so every phase
+    // past plan verifies that the sections the gates read are the ones the
+    // plan froze, before reading them.
+    //
+    // Sections, not the whole file: `## Realized` is appended at complete by
+    // requirement and the seeker appends its ledgers as they happen, so the
+    // document must stay writable. What may not move is the tooling plan, the
+    // grounding table and the acceptance criteria.
+    if ($specPath !== NULL && $phase !== Phase::Plan) {
+      $this->requireFrozenSpecIntact($projectRoot, $specPath, $state->runId);
+    }
     if ($specPath !== NULL && $phase === Phase::Plan) {
       SpecContract::requireSection(
         $projectRoot,
@@ -696,6 +710,15 @@ final class WorkflowFacade {
       $this->now(),
     );
     $advanced = $this->advanceIfDue($outcome, $phase);
+    // The moment the contract stops being drafted and starts being binding.
+    // Frozen on the way OUT of plan, not on the way in, because plan is where
+    // the spec is written — and only when plan actually passed, so a refused
+    // phase does not pin a contract the run never satisfied.
+    if ($phase === Phase::Plan
+      && $specPath !== NULL
+      && ($advanced->state->phases[Phase::Plan->value] ?? NULL) === PhaseStatus::Passed) {
+      $this->freezeSpec($projectRoot, $specPath, $advanced->state->runId, $this->now());
+    }
     $store->save($advanced->state);
     $this->announceAdvanceOrComplete($phase, $advanced->state);
 
@@ -1041,6 +1064,91 @@ final class WorkflowFacade {
       ->withGateWaiver($gate, trim($reason), $this->now());
     $store->save($waived);
     return $waived;
+  }
+
+  /**
+   * Freezes the spec's contract sections into the evidence store.
+   *
+   * Called when the plan phase passes, and only then. The text is kept whole
+   * beside the fingerprint so a later refusal can say WHICH section moved
+   * rather than only that the digest differs — an accusation nobody can check
+   * is not much better than no check.
+   *
+   * Never fails the run. A store that cannot be written costs the run its
+   * tamper-detection, which is worth saying out loud and is not worth throwing
+   * away a passed phase for.
+   *
+   * @param string $projectRoot
+   *   The repository root.
+   * @param string $spec
+   *   The spec, project-relative.
+   * @param string $runId
+   *   The run.
+   * @param string $now
+   *   The current time, ISO-8601.
+   */
+  private function freezeSpec(string $projectRoot, string $spec, string $runId, string $now): void {
+    $text = @file_get_contents(rtrim($projectRoot, '/') . '/' . $spec);
+    if ($text === FALSE) {
+      return;
+    }
+    try {
+      (new EvidenceStore($projectRoot))->upsertRun($runId, [
+        'spec_path' => $spec,
+        'spec_text' => $text,
+        'spec_hash' => SpecFreeze::fingerprint($text),
+        'spec_frozen_at' => $now,
+      ]);
+    }
+    catch (\Throwable $e) {
+      // Deliberately swallowed: see the docblock.
+    }
+  }
+
+  /**
+   * Refuses a phase whose spec lost the contract it was frozen with.
+   *
+   * The hole this closes: every phase re-read the spec from disk, so a
+   * grounding table that satisfied the plan gate could be rewritten before the
+   * code gate looked at it, and nothing would know. The agent both wrote the
+   * contract and was graded against it, with an edit button in between.
+   *
+   * Silent when nothing was frozen — a run begun before this existed, or one
+   * whose store could not be written — because a run cannot be retroactively
+   * in breach of a contract nobody recorded.
+   *
+   * @param string $projectRoot
+   *   The repository root.
+   * @param string $spec
+   *   The spec, project-relative.
+   * @param string $runId
+   *   The run.
+   *
+   * @throws \Droost\Workflow\Spec\SpecError
+   *   When a frozen section has changed since the plan.
+   */
+  private function requireFrozenSpecIntact(string $projectRoot, string $spec, string $runId): void {
+    try {
+      $store = new EvidenceStore($projectRoot);
+      $statement = $store->connection()->prepare('SELECT spec_hash, spec_text FROM run WHERE run_id = ?');
+      $statement->execute([$runId]);
+      $row = $statement->fetch();
+    }
+    catch (\Throwable $e) {
+      return;
+    }
+    if (!is_array($row) || !is_string($row['spec_hash'] ?? NULL) || $row['spec_hash'] === '') {
+      return;
+    }
+    $text = @file_get_contents(rtrim($projectRoot, '/') . '/' . $spec);
+    if ($text === FALSE || SpecFreeze::intact($text, $row['spec_hash'])) {
+      return;
+    }
+    $changed = is_string($row['spec_text'] ?? NULL)
+      ? SpecFreeze::changedSections($text, $row['spec_text'])
+      : [];
+
+    throw SpecError::contractChanged($spec, $changed);
   }
 
   /**
