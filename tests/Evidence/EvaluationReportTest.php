@@ -772,4 +772,41 @@ final class EvaluationReportTest extends TestCase {
     return '(no phpcs row)';
   }
 
+  /**
+   * The latest state is the run's last word, not its alphabetically-last phase.
+   *
+   * `ORDER BY phase` sorts `complete` before `test`, and §3 takes the last row
+   * it sees as the current one. So a real feedback loop — phpunit fails at
+   * test, is fixed, then fails again at complete on a regression the fix
+   * introduced — rendered as `satisfied`, with the run's ACTUAL final word
+   * discarded as though it were an earlier attempt.
+   *
+   * This is the worst shape a reporting bug can take here: not a missing row,
+   * but a green printed over a red, in the document people read instead of the
+   * run.
+   */
+  public function testLatestStateIsChronologicalNotAlphabetical(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
+    $store->record('r1', 'test', new CheckRecord(
+      'gate', 'phpunit', CheckState::Blocked, Fault::Agent, 'FAILED — 2 failing', NULL, NULL, 1, 'phpunit', NULL, 10,
+    ));
+    $store->record('r1', 'test', new CheckRecord(
+      'gate', 'phpunit', CheckState::Satisfied, Fault::None, 'passed — 14 tests', NULL, NULL, 0, 'phpunit', NULL, 10,
+    ));
+    $store->record('r1', 'complete', new CheckRecord(
+      'gate', 'phpunit', CheckState::Blocked, Fault::Agent, 'FAILED — a regression the fix introduced', NULL, NULL, 1, 'phpunit', NULL, 10,
+    ));
+
+    $row = '';
+    foreach (explode("\n", (new EvaluationReport($store))->render('r1')) as $line) {
+      if (str_starts_with($line, '| `phpunit` |') && substr_count($line, '|') <= 6) {
+        $row = $line;
+      }
+    }
+
+    $this->assertStringContainsString('BLOCKED', $row, "the run's final word is what §3 reports");
+    $this->assertStringContainsString('`test, complete`', $row, 'and the phases read in the order they happened');
+  }
+
 }

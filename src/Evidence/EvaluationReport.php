@@ -94,6 +94,17 @@ final class EvaluationReport {
   public const string NOT_RECORDED = '— not recorded —';
 
   /**
+   * A phase's place in the run, as SQL.
+   *
+   * Phases do not sort alphabetically into the order they happen — the
+   * alphabetical sequence is code, complete, plan, test, and none of that is
+   * right. Anything reading "the latest row" has to order by this.
+   */
+  private const string PHASE_RANK = "CASE phase
+    WHEN 'plan' THEN 1 WHEN 'code' THEN 2 WHEN 'test' THEN 3
+    WHEN 'complete' THEN 4 ELSE 5 END";
+
+  /**
    * Where a free-text cell is cut, in characters.
    *
    * Only the prose columns are cut, and the cut is marked. Identity columns —
@@ -191,7 +202,13 @@ final class EvaluationReport {
     $this->currentSubjects = $currentSubjects;
     $run = $this->rows('SELECT * FROM run WHERE run_id = ?', [$runId])[0] ?? [];
     $checks = $this->rows(
-      'SELECT * FROM check_result WHERE run_id = ? ORDER BY phase, kind, name, attempt',
+      // Ordered by the phase's real SEQUENCE, not its name. `ORDER BY phase`
+      // sorts `complete` before `test`, and §3 takes the last row as the latest
+      // state — so a gate that failed at complete after passing at test read
+      // `satisfied`, with the run's actual final word discarded as if it were
+      // an earlier attempt.
+      'SELECT *, ' . self::PHASE_RANK . ' AS phase_rank FROM check_result
+        WHERE run_id = ? ORDER BY phase_rank, kind, name, attempt',
       [$runId],
     );
 
@@ -389,8 +406,8 @@ final class EvaluationReport {
       ],
       [
         self::code('work_item'),
-        self::NOT_RECORDED,
-        'never enters the run record at all',
+        'see §1',
+        'declared with `--work-item`, and read by any contributed check that asks',
       ],
       [
         'write gates — the seven `allow_*`',
@@ -436,6 +453,7 @@ final class EvaluationReport {
       $name = (string) (self::text($check, 'name') ?? '');
       $phase = (string) (self::text($check, 'phase') ?? '');
       $seen[$name]['phases'][$phase] = $phase;
+      // Insertion order is the query's order, which is now run order.
       $seen[$name]['attempts'] = max(
         $seen[$name]['attempts'] ?? 0,
         self::number($check, 'attempt') ?? 0,
