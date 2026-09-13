@@ -463,7 +463,6 @@ class PackContentLintTest extends TestCase {
     return $body;
   }
 
-
   /**
    * The plan brief names every work type, and invents none.
    *
