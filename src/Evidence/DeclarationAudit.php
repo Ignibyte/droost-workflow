@@ -301,7 +301,10 @@ final class DeclarationAudit {
   private static function exempt(string $file): bool {
     $file = self::normalise($file);
     foreach (self::NEVER_CREEP as $prefix) {
-      if ($file === $prefix || str_starts_with($file, $prefix)) {
+      // Both sides normalised: comparing a normalised path against a raw
+      // prefix is how `.droost-workflow/` stopped matching itself.
+      $prefix = self::normalise($prefix);
+      if ($file === $prefix || str_starts_with($file, rtrim($prefix, '/') . '/')) {
         return TRUE;
       }
     }
@@ -321,8 +324,18 @@ final class DeclarationAudit {
   private static function normalise(string $path): string {
     $path = str_replace('\\', '/', trim($path));
     $path = preg_replace('#/+#', '/', $path) ?? $path;
+    // Leading "./" SEGMENTS, not a character set. `ltrim($path, './')` strips
+    // any run of dots and slashes, so `.droost-workflow/run.json` became
+    // `droost-workflow/run.json` — matching neither exemption prefix, which
+    // made a legacy project's own run record read as scope creep. The H1 fix
+    // put the evidence store in that directory, so this went from latent to
+    // live: the audit would have been blocked by its own database again, on
+    // exactly the projects H1 was about.
+    while (str_starts_with($path, './')) {
+      $path = substr($path, 2);
+    }
 
-    return ltrim($path, './');
+    return ltrim($path, '/');
   }
 
 }

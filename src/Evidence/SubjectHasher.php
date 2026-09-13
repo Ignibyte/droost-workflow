@@ -65,6 +65,14 @@ final class SubjectHasher {
         continue;
       }
       $absolute = $root . '/' . ltrim($path, '/');
+      // A path that climbs out of the project is refused, not hashed. `paths:
+      // ../outside` fingerprinted content nobody in this repository can change,
+      // so the hash held across every edit and `stillGreen()` reported a stale
+      // verdict as current — which defeats the one mechanism that makes a green
+      // expire. Caught before anything called it, which is the only good time.
+      if (!self::insideRoot($root, $absolute)) {
+        continue;
+      }
       if (is_file($absolute)) {
         $files[$path] = $absolute;
         continue;
@@ -116,6 +124,52 @@ final class SubjectHasher {
     }
 
     return array_values(array_filter(array_map('trim', explode(',', $paths)), static fn (string $p): bool => $p !== ''));
+  }
+
+  /**
+   * Whether a path resolves inside the project.
+   *
+   * Resolved with realpath, so `src/../../outside` and a symlink pointing out
+   * of the tree are both caught — the textual form of a path says nothing
+   * about where it lands. A path that does not exist yet is judged on its
+   * lexical form instead, because realpath returns FALSE for it and refusing
+   * every not-yet-created path would make a gate's fingerprint depend on
+   * whether its subject had been written.
+   *
+   * @param string $root
+   *   The project root.
+   * @param string $candidate
+   *   The path to test.
+   *
+   * @return bool
+   *   TRUE when it is inside the project.
+   */
+  private static function insideRoot(string $root, string $candidate): bool {
+    $realRoot = realpath($root);
+    if ($realRoot === FALSE) {
+      return FALSE;
+    }
+    $real = realpath($candidate);
+    if ($real !== FALSE) {
+      return $real === $realRoot || str_starts_with($real, $realRoot . '/');
+    }
+    // Not on disk: judge the lexical path, collapsing "." and ".." by hand.
+    $parts = [];
+    foreach (explode('/', str_replace('\\', '/', $candidate)) as $segment) {
+      if ($segment === '' || $segment === '.') {
+        continue;
+      }
+      if ($segment === '..') {
+        if (array_pop($parts) === NULL) {
+          return FALSE;
+        }
+        continue;
+      }
+      $parts[] = $segment;
+    }
+    $lexical = '/' . implode('/', $parts);
+
+    return $lexical === $realRoot || str_starts_with($lexical, $realRoot . '/');
   }
 
   /**

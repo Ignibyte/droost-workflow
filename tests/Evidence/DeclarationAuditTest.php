@@ -165,4 +165,29 @@ final class DeclarationAuditTest extends TestCase {
     $this->assertCount(1, $audit->checks());
   }
 
+  /**
+   * A legacy project's own record is never counted as scope creep.
+   *
+   * `ltrim($path, "./")` strips a character SET, so `.droost-workflow/run.json`
+   * became `droost-workflow/run.json` and matched no exemption. Latent until
+   * the state-dir fix put the evidence store in that directory — at which point
+   * a legacy project's audit would have been blocked by its own database, which
+   * is the second time that exact absurdity nearly shipped.
+   */
+  public function testLegacyStateDirIsExemptFromScopeCreep(): void {
+    $audit = new DeclarationAudit(
+      ['src'],
+      [],
+      [
+        'src/a.php',
+        '.droost-workflow/run.json',
+        '.droost-workflow/evidence.sqlite',
+        './droost/droost-workflow/run.json',
+        'composer.lock',
+      ],
+    );
+
+    $this->assertSame([], $audit->undeclared());
+  }
+
 }

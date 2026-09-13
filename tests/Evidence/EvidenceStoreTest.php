@@ -9,6 +9,8 @@ use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Evidence\Fault;
 use Droost\Workflow\Evidence\SubjectHasher;
+use Droost\Workflow\Gate\GateResult;
+use Droost\Workflow\Gate\GateStatus;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
@@ -253,6 +255,31 @@ final class EvidenceStoreTest extends TestCase {
       (int) $reopened->connection()->query('PRAGMA user_version')->fetchColumn(),
     );
     $this->assertCount(2, $reopened->checklist('r1', 'code'));
+  }
+
+  /**
+   * A capped transcript stays valid UTF-8 at every cut boundary.
+   *
+   * `substr` cuts at a byte, so a multi-byte character straddling the cap
+   * became invalid UTF-8 — which SQLite stores happily and which then breaks
+   * `json_encode` in the guard and `preg`'s `/u` in the report. Three surfaces
+   * had grown defensive code for bytes this cap was manufacturing. Four
+   * boundaries because only one of the four alignments was ever broken.
+   */
+  public function testCappedOutputIsValidAtEveryBoundary(): void {
+    $result = GateResult::ran(
+      'x', GateStatus::Passed, 0, 1, 's', [], 'i',
+    );
+    for ($pad = 0; $pad < 4; $pad++) {
+      $text = str_repeat('a', intdiv(GateResult::OUTPUT_CAP, 2) - $pad)
+        . 'é'
+        . str_repeat('b', GateResult::OUTPUT_CAP);
+
+      $this->assertTrue(
+        mb_check_encoding($result->withOutput($text, '')->stdout, 'UTF-8'),
+        sprintf('a cut at offset -%d leaves valid UTF-8', $pad),
+      );
+    }
   }
 
 }

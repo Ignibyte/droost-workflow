@@ -331,9 +331,15 @@ final class GateResult {
     }
     $half = intdiv(self::OUTPUT_CAP, 2);
 
-    return substr($text, 0, $half)
+    // mb_strcut, not substr: substr cuts at a byte and a multi-byte character
+    // straddling the boundary becomes invalid UTF-8, which SQLite stores
+    // happily and then breaks json_encode and preg's /u in whatever renders it
+    // later. Three separate surfaces had grown defensive code for malformed
+    // bytes that this line was manufacturing. mb_strcut cuts at a byte offset
+    // like substr but never mid-character, which is exactly what a cap wants.
+    return mb_strcut($text, 0, $half, 'UTF-8')
       . sprintf("\n\n… %d bytes elided …\n\n", strlen($text) - self::OUTPUT_CAP)
-      . substr($text, -$half);
+      . mb_strcut($text, max(0, strlen($text) - $half), $half, 'UTF-8');
   }
 
 }

@@ -548,8 +548,10 @@ function unresolved_checks(string $root, string $stateDir, mixed $runId, string 
     return [];
   }
   try {
-    // Read-only by DSN, so a hook can never be the thing that brings a store
-    // into existence or writes a row into one.
+    // Read-only by DSN: no row this hook touches can change. It is not quite
+    // "writes nothing" — opening a WAL store creates its -shm and -wal
+    // sidecars, which is SQLite's business and not a row — so the claim is the
+    // narrower and true one.
     $pdo = new PDO('sqlite:file:' . rawurlencode($path) . '?mode=ro', NULL, NULL, [
       PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
       PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
