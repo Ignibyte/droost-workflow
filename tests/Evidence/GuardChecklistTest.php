@@ -86,7 +86,7 @@ final class GuardChecklistTest extends TestCase {
    * The whole read fails open. A hook that hardened because its record was
    * missing would turn a storage problem into an agent that cannot end a turn.
    */
-  public function testWithoutAStoreTheMessageIsUnchanged(): void {
+  public function testTheMessageIsUnchangedWithoutAnyStore(): void {
     [$exit, $said] = $this->guard();
 
     $this->assertSame(2, $exit, 'enforcement is hard, so a mid-phase stop is still refused');
