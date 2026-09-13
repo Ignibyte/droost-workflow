@@ -436,4 +436,57 @@ final class TamperEvidenceTest extends TestCase {
     $this->assertNull($store->integrity('r1'), 'and so does the one it was recorded beside');
   }
 
+  /**
+   * The break in another run says whose row it is.
+   *
+   * The chain is one sequence across the whole store, so verifying run B walks
+   * run A's rows too and can fail at one of them. The banner then said "row 1 —
+   * `phpcs` at `code`, read NOTHING below as evidence" over a run whose own
+   * rows were untouched, with no hint that the row belonged to somebody else.
+   *
+   * The refusal is right — one break means no run in the store can be read as
+   * evidence — but a reader who checks and finds their own record intact
+   * learns to shrug at the banner, and the next real break gets the same shrug.
+   */
+  public function testBreakInAnotherRunNamesThatRun(): void {
+    $store = $this->honestRun();
+    $store->upsertRun('r2', ['preset' => 'medium']);
+    $store->record('r2', 'code', new CheckRecord(
+      'gate', 'phpstan', CheckState::Satisfied, Fault::None, 'clean', NULL, NULL, 0, 'phpstan', NULL, 20,
+    ));
+
+    // Doctor a verdict belonging to r1 only.
+    $pdo = $this->raw();
+    $pdo->exec("UPDATE check_result SET state = 'satisfied' WHERE run_id = 'r1' AND name = 'wiki_fresh'");
+    unset($pdo);
+
+    $reopened = new EvidenceStore($this->root);
+    $break = $reopened->integrity('r2');
+    $this->assertIsArray($break, 'a break anywhere is a break everywhere');
+    $this->assertSame('r1', $break['run'], 'and the row is attributed to its own run');
+
+    $report = (new EvaluationReport($reopened))->render('r2');
+    $this->assertStringContainsString('HAS BEEN ALTERED', $report);
+    $this->assertStringContainsString(
+      'belongs to run `r1`',
+      $report,
+      'the reader is told the row is not theirs, rather than left to find out',
+    );
+  }
+
+  /**
+   * But a break in the run being read says nothing about another one.
+   */
+  public function testBreakInThisRunIsNotBlamedElsewhere(): void {
+    $this->honestRun();
+    $pdo = $this->raw();
+    $pdo->exec("UPDATE check_result SET state = 'satisfied' WHERE run_id = 'r1' AND name = 'wiki_fresh'");
+    unset($pdo);
+
+    $report = (new EvaluationReport(new EvidenceStore($this->root)))->render('r1');
+
+    $this->assertStringContainsString('HAS BEEN ALTERED', $report);
+    $this->assertStringNotContainsString('belongs to run', $report);
+  }
+
 }

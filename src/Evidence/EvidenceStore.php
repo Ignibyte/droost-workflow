@@ -689,7 +689,9 @@ final class EvidenceStore {
    *   The fingerprint as it is now.
    *
    * @return bool
-   *   TRUE when the newest adjudication is satisfied AND was about this code.
+   *   TRUE when the newest adjudication MEASURED something — satisfied or
+   *   recorded, which is a wider set than "satisfied" and is the set the
+   *   inline comment below explains — AND it was about this code.
    */
   public function stillGreen(string $runId, string $phase, string $name, string $subjectHash): bool {
     $statement = $this->connection()->prepare(
@@ -913,7 +915,9 @@ final class EvidenceStore {
    *   The run.
    *
    * @return list<string>
-   *   Gate names recorded as skipped.
+   *   Gate names recorded as skipped OR unblocked — both mean the gate could
+   *   not show a measurement through nothing the agent did, which is the
+   *   question every caller is asking.
    */
   public function unmeasurableGates(string $runId): array {
     $statement = $this->connection()->prepare(
@@ -1230,7 +1234,7 @@ final class EvidenceStore {
    * follow from its predecessor and its own contents was written, altered or
    * removed by something that is not droost.
    *
-   * @return array{row: int, name: string, phase: string}|null
+   * @return array{row: int, name: string, phase: string, run: string}|null
    *   The first break, or NULL when the chain holds end to end.
    */
   public function integrity(string $runId): ?array {
@@ -1256,7 +1260,7 @@ final class EvidenceStore {
     $top = $this->connection()->query('SELECT COALESCE(MAX(id), 0) FROM check_result');
     $highest = $top === FALSE ? 0 : (int) ($top->fetchColumn() ?: 0);
     if ($watermark > $highest) {
-      return ['row' => $watermark, 'name' => 'the watermark', 'phase' => 'the start of the record'];
+      return ['row' => $watermark, 'name' => 'the watermark', 'phase' => 'the start of the record', 'run' => $runId];
     }
     // And a store that never held pre-digest rows may not claim to. The v5
     // migration marks the file when it finds any, so an unmarked store — which
@@ -1265,7 +1269,7 @@ final class EvidenceStore {
     $marked = $this->connection()->query('PRAGMA application_id');
     $isLegacy = $marked !== FALSE && (int) ($marked->fetchColumn() ?: 0) === self::LEGACY_MARK;
     if (!$isLegacy && $watermark > 0) {
-      return ['row' => $watermark, 'name' => 'the watermark', 'phase' => 'the start of the record'];
+      return ['row' => $watermark, 'name' => 'the watermark', 'phase' => 'the start of the record', 'run' => $runId];
     }
 
     // $previous walks the chain, which is global to the store — every row links
@@ -1296,6 +1300,7 @@ final class EvidenceStore {
             'row' => self::number($row, 'id'),
             'name' => self::text($row, 'name'),
             'phase' => self::text($row, 'phase'),
+            'run' => self::text($row, 'run_id'),
           ];
         }
         continue;
@@ -1325,6 +1330,7 @@ final class EvidenceStore {
           'row' => self::number($row, 'id'),
           'name' => self::text($row, 'name'),
           'phase' => self::text($row, 'phase'),
+          'run' => self::text($row, 'run_id'),
         ];
       }
       // AUTOINCREMENT ids are monotonic and never reused, and nothing in this
@@ -1342,6 +1348,9 @@ final class EvidenceStore {
           'row' => $expectedId,
           'name' => 'a deleted verdict',
           'phase' => self::text($row, 'phase'),
+          // The row AFTER the gap; the deleted one's own run is unknowable,
+          // which is the point of a deletion.
+          'run' => self::text($row, 'run_id'),
         ];
       }
       $expectedId = self::number($row, 'id') + 1;
@@ -1375,10 +1384,10 @@ final class EvidenceStore {
     $head->execute([$runId]);
     $recorded = $head->fetchColumn();
     if ($runDigested > 0 && (!is_string($recorded) || $recorded === '')) {
-      return ['row' => 0, 'name' => 'the chain head', 'phase' => 'the end of the record'];
+      return ['row' => 0, 'name' => 'the chain head', 'phase' => 'the end of the record', 'run' => $runId];
     }
     if ($runDigested > 0 && is_string($recorded) && !hash_equals($recorded, $runTail)) {
-      return ['row' => 0, 'name' => 'the last verdict', 'phase' => 'the end of the record'];
+      return ['row' => 0, 'name' => 'the last verdict', 'phase' => 'the end of the record', 'run' => $runId];
     }
     // And the converse, which is the same fact read the other way: droost
     // writes the head and the digest in one pair of statements, so a head can
@@ -1386,7 +1395,7 @@ final class EvidenceStore {
     // had its digests erased — the second statement of that attack, answered by
     // the residue the first one leaves behind.
     if ($runDigested === 0 && is_string($recorded) && $recorded !== '') {
-      return ['row' => 0, 'name' => 'the erased digests', 'phase' => 'the whole record'];
+      return ['row' => 0, 'name' => 'the erased digests', 'phase' => 'the whole record', 'run' => $runId];
     }
 
     return NULL;

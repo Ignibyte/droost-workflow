@@ -263,11 +263,20 @@ final class EvaluationReport {
       . "Rendered from the evidence store. Every value below is a row droost\n"
       . "wrote about what it measured; the sections a human must fill say so in\n"
       . "place, and say why.\n\n"
-      . "> **The one rule the rest hangs from.** `run.json` is writable by the\n"
-      . "> agent — the wall guards only `modules/custom` and `themes/custom` —\n"
-      . "> so `phases` is the subject's claim about itself. Nothing here reads\n"
-      . "> `phases`. Every VERDICT below is a row droost wrote from a process\n"
-      . "> droost started.\n"
+      . "> **The one rule the rest hangs from.** `phases` in `run.json` is the\n"
+      . "> subject's own summary of itself: droost writes that file, but what it\n"
+      . "> writes there is a rollup of the run's own account, and a reader who\n"
+      . "> wants to know whether a gate ran should not be asking a summary.\n"
+      . "> Nothing here reads `phases`. Every VERDICT below is a row droost\n"
+      . "> wrote from a process droost started.\n"
+      . "> \n"
+      . "> The stated REASON for that rule used to be that the agent could write\n"
+      . "> `run.json`. It cannot: the guard refuses it through both doors, the\n"
+      . "> editing tools and the shell, as it refuses the guard itself,\n"
+      . "> `.claude/settings.json`, the bypass grant, the baseline and this\n"
+      . "> store. The rule survives its reason — a summary is still a summary —\n"
+      . "> but an evaluation that argues from a wall which has moved is telling\n"
+      . "> its reader something false about how the wall is built.\n"
       . ">\n"
       . "> **The exception, stated because it was not.** §1's preset, mode,\n"
       . "> enforcement, base commit and spec path are copied THROUGH `run.json`\n"
@@ -329,12 +338,26 @@ final class EvaluationReport {
         . "> Every verdict carries a digest over the previous verdict's digest\n"
         . "> and its own contents, so a row that was changed, inserted or removed\n"
         . "> by anything other than droost breaks the chain from that point on.\n"
-        . "> The chain first fails at row %d — `%s` at `%s`.\n"
+        . "> The chain first fails at row %d — `%s` at `%s`%s.\n"
         . "> \n"
         . "> Read NOTHING below as evidence. Re-run the round.\n",
         $break['row'],
         self::escape($break['name']),
         self::escape($break['phase']),
+        // The chain is one sequence across the whole store, so a store holding
+        // several runs can fail at a row belonging to a DIFFERENT one. Saying
+        // "row 1, phpcs, code" over an intact run, with no hint that the row is
+        // somebody else's, teaches a reader to distrust a record that is fine —
+        // and the next real break gets the same shrug.
+        ($break['run'] ?? $runId) === $runId
+          ? ''
+          : sprintf(
+            ', which belongs to run `%s` rather than to this one. The chain is '
+            . 'one sequence across the whole store, so a break anywhere in it '
+            . 'means no run in this store can be read as evidence — including '
+            . 'this one, whose own rows may be intact',
+            self::escape((string) $break['run']),
+          ),
       );
     }
 
@@ -907,8 +930,13 @@ final class EvaluationReport {
       . "A block carrying `environment` cannot be satisfied from where the\n"
       . "agent stands. The phase still does not advance — an OPERATOR lifts\n"
       . "it, recorded as `unblocked by the operator`, and the agent may propose\n"
-      . "that and never perform it. Every other fault has no such door, and\n"
-      . "carries no remedy for the record to print.\n\n"
+      . "that and never perform it. What `environment` alone carries is a\n"
+      . "REMEDY: a command the record prints. A block with any other fault can\n"
+      . "also be lifted by the operator — `gate-waive` refuses only the\n"
+      . "mandatory trio, and does not consult the fault — but nothing tells\n"
+      . "them how, because for those the answer is to change the work. Read a\n"
+      . "waiver on an `agent` fault as exactly that: somebody decided to ship\n"
+      . "past it, with no remedy printed because there was none to print.\n\n"
       . implode('', $lines);
   }
 

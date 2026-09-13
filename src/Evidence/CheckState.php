@@ -15,7 +15,7 @@ use Droost\Workflow\Gate\GateStatus;
  * "what does this state license": a blocked item stops the phase, and every
  * other state lets it move for a reason the record can name.
  *
- * Six words rather than a boolean, for the reason GateStatus is eight rather
+ * Seven words rather than a boolean, for the reason GateStatus is eight rather
  * than two. A gate that was off by preset, a gate with nothing to analyse and a
  * gate that genuinely checked all report "not blocking", and collapsing them is
  * how a run scores green having measured nothing. Every defect found in the

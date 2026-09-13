@@ -571,7 +571,7 @@ final class ArgvDispatcher {
                        of what every green examined, so a verdict that no
                        longer describes the code reads EXPIRED.
       reset [--force]  clear a finished run (archives its record to
-                       .droost-workflow/history/); --force abandons a live one
+                       the state dir's history/); --force abandons a live one
       baseline         write the adoption baseline (droost/baseline/): the
                        debt the tree carries today, inherited from then on.
                        --measure shows the bill without writing; --status

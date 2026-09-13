@@ -7,7 +7,7 @@ namespace Droost\Workflow\Gate;
 /**
  * What happened to one gate.
  *
- * Seven words, and the ones that mean "it did not run" or "it did not block"
+ * Eight words, and the ones that mean "it did not run" or "it did not block"
  * are deliberately not one word. A gate skipped because there is no site is an
  * ordinary fact about a CLI run; a gate whose tool is not installed is a broken
  * setup; a gate that found problems in report mode is a finding nobody may
@@ -71,7 +71,7 @@ enum GateStatus: string {
    * Whether the gate actually executed and was satisfied.
    *
    * The only status that may ever be counted as success. Written as its own
-   * method so no caller has to remember which of the five are "sort of fine".
+   * method so no caller has to remember which of the seven are "sort of fine".
    *
    * @return bool
    *   TRUE only for Passed.

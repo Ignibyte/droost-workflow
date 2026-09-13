@@ -4,16 +4,31 @@
  * @file
  * The droost workflow enforcement guard, wired as a Claude Code hook.
  *
- * Two modes, one rule: NO ACTIVE RUN, NO OPINION. The first thing either
- * mode does is read .droost-workflow/run.json; when it is absent, unreadable
- * or the run has ended, the guard exits 0 without a word — regular
- * conversation is never policed. Enforcement only exists inside a run, at
- * the level the run froze at begin (hard | soft | off).
+ * PHASE enforcement exists only inside a run, at the level the run froze at
+ * begin (hard | soft | off). Ordinary conversation is never policed for a phase
+ * it is not in.
+ *
+ * That used to be stated as "no active run, no opinion — when run.json is
+ * absent, unreadable or the run has ended, the guard exits 0 without a word",
+ * and it was false on all three counts by the time anyone read it. THREE THINGS
+ * HOLD RUN OR NO RUN, because each of them is what makes a run mean anything:
+ *
+ *   * the enforcement files — this guard, `.claude/settings(.local).json`,
+ *     `run.json`, the bypass grant — and the directories holding them;
+ *   * the adoption baseline and the evidence store;
+ *   * the `require_run` wall over custom modules and themes, which is the whole
+ *     point: building with no run at all is the one way to skip governance
+ *     entirely.
+ *
+ * And under `stop`, a run.json that exists but cannot be PARSED is refused
+ * rather than permitted: a damaged record is not the same as no record.
  *
  *   php .claude/hooks/droost-workflow-guard.php pre-tool-use
  *     Blocks (hard) or warns once per phase (soft) when a file-editing tool
- *     fires while the run is still in PLAN. Writes under .droost-workflow/
- *     are always allowed — the plan phase's whole job is writing the spec.
+ *     fires while the run is still in PLAN. Writes under the state directory
+ *     are allowed — the plan phase's whole job is writing the spec — EXCEPT
+ *     the run record, the bypass grant and the evidence store, which sit there
+ *     too and are nobody's to edit.
  *
  *   php .claude/hooks/droost-workflow-guard.php stop
  *     Blocks (hard) or reminds once per phase (soft) when a turn tries to
@@ -27,15 +42,18 @@
  *     `droost:workflow:bypass` (granting; `--off` re-arms the wall and is
  *     allowed) and ARMING a droost write gate (`droost:gate <flag> on`,
  *     `config:set droost.settings allow_* true`; disarming is allowed) from
- *     the agent's own shell, run or no run. Those two commands
- *     are the operator's signature; "CLI-only" excludes the MCP transport,
- *     not an agent that has a shell — round 23 watched a subject run the
- *     waiver itself after the operator picked it in a dialog, overwriting
- *     the operator's recorded reason. The agent proposes; a human runs it.
+ *     the agent's own shell, run or no run — plus writing the baseline and
+ *     moving the effort dial, which is five commands, and the README's table
+ *     lists them with what stays the agent's. Each is the operator's
+ *     signature; "CLI-only" never excluded an agent, which has a shell — round
+ *     23 watched a subject run the waiver itself after the operator picked it
+ *     in a dialog, overwriting the operator's recorded reason. What the phrase
+ *     excludes is the MCP transport, and that is a much smaller claim than it
+ *     sounds. The agent proposes; a human runs it.
  *
  * Exit 0 allows (optionally emitting a {"systemMessage": ...} nudge);
  * exit 2 blocks, with the reason on stderr for the agent to act on.
- * Warn-once markers live inside .droost-workflow/, which is gitignored.
+ * Warn-once markers live inside the state directory, which is gitignored.
  */
 
 declare(strict_types=1);

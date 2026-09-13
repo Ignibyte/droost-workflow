@@ -881,7 +881,7 @@ final class WorkflowFacade {
    * A completed (or failed) run.json persists — deliberately, it is the
    * record — and start refuses to clobber it, so multi-ticket work needs a
    * sanctioned way to finish one run and begin the next. The record is
-   * archived to .droost-workflow/history/<run_id>.json, never discarded; a
+   * archived to <state dir>/history/<run_id>.json, never discarded; a
    * name collision gets a numeric suffix rather than overwriting an earlier
    * archive. An UNREADABLE run.json is clearable the same way (archived under
    * "run"): a file that cannot be parsed is not a live run, and clearing is
