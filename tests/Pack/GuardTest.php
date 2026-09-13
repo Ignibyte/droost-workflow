@@ -1375,7 +1375,9 @@ final class GuardTest extends WorkflowTestCase {
       'cd droost/droost-workflow && echo "{}" > run.json',
       'cd droost && echo x > droost-workflow/run.json',
       'echo "{}" > droost/droost-workflow/bypass.json',
-      'cat droost/./droost-workflow/bypass.json',
+      // A read redirected INTO a protected file is a write, whatever the verb
+      // at the front says.
+      'cat somewhere.json > droost/./droost-workflow/bypass.json',
     ] as $command) {
       [$code] = $this->guard($root, 'operator-commands', [
         'tool_name' => 'Bash',
@@ -1402,7 +1404,144 @@ final class GuardTest extends WorkflowTestCase {
       'cd droost/droost-workflow && ls',
       'cd droost/droost-workflow && cat spec-thing.md',
       'echo hi > /tmp/somewhere-else.txt',
+      // READS of a protected file are allowed, and this test used to assert the
+      // opposite. Refusing `git diff .claude/settings.local.json` means the
+      // agent cannot review or report a change to its own wiring, which buys
+      // nothing: reading the bypass grant tells it what it already may ask for.
+      'cat droost/./droost-workflow/bypass.json',
+      'git diff .claude/settings.local.json',
+      'git log --oneline .claude/hooks/droost-workflow-guard.php',
+      'ls -la .claude/settings.json',
       'npm ci',
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(0, $code, $command . ' is ordinary work');
+    }
+  }
+
+  /**
+   * Quoting an operator command to a human is not running it.
+   *
+   * The refusal this guard prints TELLS the agent to "show the operator the
+   * exact command" — and then refused it doing so. `echo "ask the operator to
+   * run drush droost:workflow:gate-waive phpcs"`, a commit message mentioning a
+   * bypass, a pull-request body naming the effort dial: all blocked.
+   *
+   * A previous round fixed exactly this for heredoc bodies (F-EMT-11, a PR body
+   * quoting a waiver) and the same mistake came back through a different door —
+   * a tokeniser that recursed into any multi-word token carrying a verb. Only
+   * something that will EXECUTE its argument makes one a command line, and only
+   * then is the thing inside an invocation rather than prose.
+   */
+  public function testQuotingCommandsForHumansIsNotRunningThem(): void {
+    $root = $this->makeRoot();
+    foreach ([
+      'git commit -m "ran drush droost:workflow:bypass for the hotfix"',
+      'echo "ask the operator to run drush droost:workflow:gate-waive phpcs"',
+      'gh pr create --body "we had to droost:workflow:effort max here"',
+      'git commit -m "arm allow_entity_write on the gate"',
+      'echo "droost:workflow:baseline --refresh is the operator\'s call"',
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(0, $code, $command . ' is text about a command');
+    }
+  }
+
+  /**
+   * The command runner handed the same string IS running it.
+   *
+   * The other half, and the reason the distinction is the runner rather than
+   * the quotes: `bash -c '…'` and `ddev exec "…"` execute what they are given.
+   */
+  public function testCommandRunnerHandedTheStringIsRunningIt(): void {
+    $root = $this->makeRoot();
+    foreach ([
+      'bash -c "drush droost:workflow:gate-waive phpcs"',
+      "sh -c 'drush droost:gate allow_eval on'",
+      'ddev exec "drush droost:workflow:bypass hotfix"',
+      'ssh web "drush droost:workflow:baseline --refresh"',
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(2, $code, $command . ' executes it');
+    }
+  }
+
+  /**
+   * Reading a protected file is allowed; redirecting into one is not.
+   *
+   * `git diff .claude/settings.local.json` was refused, so the agent could not
+   * review or report a change to its own wiring — and reading the bypass grant
+   * tells it only what it is already allowed to ask for. The tier's docblock
+   * says a shell string cannot tell a read from a write; that is true of a
+   * string, and this is an argument list with a command at the front.
+   *
+   * The `>` is what makes the difference, and it is tracked: `cat x > settings`
+   * has a read at the front and writes anyway.
+   */
+  public function testReadsArePermittedAndRedirectionsAreNot(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    foreach ([
+      'cat droost/droost-workflow/bypass.json',
+      'git diff .claude/settings.local.json',
+      'git log --oneline .claude/hooks/droost-workflow-guard.php',
+      'ls -la .claude/settings.json',
+      'grep -n reason droost/droost-workflow/bypass.json',
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(0, $code, $command . ' only reads');
+    }
+
+    foreach ([
+      'cat x > .claude/settings.json',
+      'grep foo b > .claude/settings.local.json',
+      'cat a > droost/droost-workflow/run.json',
+      // And a read beside a write is still a write.
+      'cat a.txt; echo x > .claude/settings.json',
+      // sqlite3 is never a read here: the verb that distinguishes a SELECT from
+      // an UPDATE is inside a string this cannot parse.
+      'sqlite3 droost/droost-workflow/evidence.sqlite "select 1"',
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(2, $code, $command . ' writes');
+    }
+  }
+
+  /**
+   * The comment after a command does not arm the directory scan.
+   *
+   * The scan kept its own idea of "this command's words" — one that did not
+   * strip comments — so `cp .env.example .env # set up droost` was refused. Two
+   * implementations of the same question is how they drift, and one of them had
+   * already been fixed.
+   */
+  public function testCommentsDoNotArmTheDirectoryScan(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    foreach ([
+      'cp .env.example .env # set up droost',
+      'mv x.php y.php  # renamed for droost',
+      'rm -rf vendor && composer install # droost',
+      'rm -rf build' . "\n" . 'echo droost',
+      'cd droost && rm -rf vendor',
+      'rm -f /tmp/x.log && git commit -m "droost"',
+      'rm -rf node_modules; composer require "droost"',
+      'rm -rf /tmp/out && tar -czf /tmp/out.tgz droost',
     ] as $command) {
       [$code] = $this->guard($root, 'operator-commands', [
         'tool_name' => 'Bash',

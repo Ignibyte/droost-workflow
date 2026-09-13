@@ -377,7 +377,22 @@ function operator_commands_guard(string $stdin): void {
   // to the shell, and `droost:gate allow_entity_write "on"` armed a write gate
   // because `"on"` is not `on`.
   foreach (operator_commands_invocations($command) as $tokens) {
-    $line = implode(' ', $tokens);
+    // A MULTI-WORD token is a quoted argument — a commit message, a PR body, a
+    // sentence being echoed — and a verb inside one is prose, not an
+    // invocation. `operator_commands_invocations()` has already recursed into
+    // the ones that belong to a command runner and replaced them with the
+    // command they carry, so anything multi-word still here is text.
+    //
+    // Without this, `git commit -m "ran drush droost:workflow:bypass for the
+    // hotfix"` was refused, and so was `echo "ask the operator to run drush
+    // droost:workflow:gate-waive phpcs"` — which is the guard's OWN refusal
+    // message being followed. A previous round fixed this once for heredoc
+    // bodies (F-EMT-11, a pull-request body quoting a waiver); the same mistake
+    // came back through a different door.
+    $line = implode(' ', array_filter(
+      $tokens,
+      static fn (string $token): bool => preg_match('/\s/', $token) !== 1,
+    ));
     $which = NULL;
     if (preg_match('/droost:workflow:gate-waive\b|(?<![\w-])dwfgw\b/', $line) === 1) {
       $which = 'gate-waive';
@@ -515,9 +530,14 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
   $quote = '';
   $length = strlen($command);
 
-  $endToken = static function () use (&$tokens, &$current, &$started): void {
+  $redirect = FALSE;
+  $endToken = static function () use (&$tokens, &$current, &$started, &$redirect): void {
     if ($started) {
-      $tokens[] = $current;
+      // A redirection TARGET carries a marker, so a caller can tell "this
+      // command's arguments" from "the file it is writing to". Stripped by
+      // anything that treats it as a path.
+      $tokens[] = ($redirect ? "\x01" : '') . $current;
+      $redirect = FALSE;
     }
     $current = '';
     $started = FALSE;
@@ -576,8 +596,14 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
     }
     if ($char === '>' || $char === '<') {
       // A redirection separates words, not commands: its target is an operand
-      // and has to be seen as one.
+      // and has to be seen as one. But WHICH operand matters — `cat x >
+      // .claude/settings.json` has `cat` at the front, and a read-verb check
+      // that did not know about the `>` let it write. The target is marked, so
+      // the caller can tell a command's arguments from what it is writing to.
       $endToken();
+      if ($char === '>') {
+        $redirect = TRUE;
+      }
       continue;
     }
     if (preg_match('/\s/', $char) === 1) {
@@ -594,15 +620,38 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
   }
 
   // A token carrying a whole command line is one: `ddev exec "drush …"`.
+  //
+  // Gated on the COMMAND being a runner, not on the token looking like a
+  // command. "Contains a verb" recursed into ordinary prose and refused it:
+  //
+  //     git commit -m "ran drush droost:workflow:bypass for the hotfix"
+  //     echo "ask the operator to run drush droost:workflow:gate-waive phpcs"
+  //
+  // The second is the guard's OWN refusal message being followed — it tells the
+  // agent to show the operator the exact command — and a previous round already
+  // fixed this once, for heredoc bodies (F-EMT-11, a pull-request body quoting
+  // a waiver). Quoting a command to a human is not running it, and only
+  // something that will EXECUTE its argument makes it a command line again.
+  $runner = '/^(?:sudo|command|env)?$|^(?:\/\S+\/)?(?:sh|bash|zsh|dash|ksh|fish|eval'
+    . '|php|python3?|perl|node|ruby|expect|xargs|nohup|timeout|script)$/';
   $verbs = '/droost:workflow:(gate-waive|baseline|bypass|effort)\b'
     . '|(?<![\w-])(dwfgw|dwfbl|dwfby|dwfe)\b|droost-workflow\s+baseline\b'
     . '|(?:droost:gate|(?<![\w-])dgate)\b/';
   $resolved = [];
   foreach ($invocations as $tokens) {
+    // The subcommand forms — `ddev exec …`, `lando ssh …`, `docker exec …` —
+    // plus anything that runs a string it was handed.
+    $head = strtolower($tokens[0] ?? '');
+    $second = strtolower($tokens[1] ?? '');
+    $runs = preg_match($runner, $head) === 1
+      || ($head === 'ssh')
+      || (in_array($head, ['ddev', 'lando', 'fin', 'docker', 'docker-compose', 'podman'], TRUE)
+        && in_array($second, ['exec', 'ssh', 'run'], TRUE))
+      || ($head === 'drush' && str_starts_with($second, 'php'));
     $kept = [];
     $inners = [];
     foreach ($tokens as $token) {
-      if (preg_match('/\s/', $token) === 1 && preg_match($verbs, $token) === 1) {
+      if ($runs && preg_match('/\s/', $token) === 1 && preg_match($verbs, $token) === 1) {
         // The nested line REPLACES the argument that carried it. Keeping both
         // meant the outer invocation still held the verb — as one long token,
         // where its `--off` is not an argument — so `ddev exec "drush …
@@ -647,81 +696,6 @@ function operator_commands_flagged(array $tokens, array $flags): bool {
   }
 
   return FALSE;
-}
-
-/**
- * A command split into its separate commands.
- *
- * `rm -rf node_modules && ls droost` is two commands, and scanning the whole
- * string for "a destructive verb" and "a protected name" found one of each and
- * refused — although the `rm` was nowhere near the `droost`. A verb governs its
- * OWN operands.
- *
- * @param string $command
- *   The command.
- *
- * @return list<string>
- *   The segments.
- */
-function operator_commands_segments(string $command): array {
-  $parts = preg_split('/(?:\|\||&&|[;|&\n])/', $command) ?: [];
-
-  return array_values(array_filter(array_map('trim', $parts), static fn (string $p): bool => $p !== ''));
-}
-
-/**
- * The operands of a command, quotes removed.
- *
- * Splitting on unquoted whitespace, which is what the shell does and what a
- * regex over the raw string kept failing to do: `rm -rf droost/` slipped
- * through a character class that did not list `/`, and so did `./droost`,
- * `droost//` and `droost/.`. Every one of those is the same token once it is a
- * token — and `normalised_path()` already collapses all of them, having been
- * attacked for exactly that.
- *
- * @param string $segment
- *   One command.
- *
- * @return list<string>
- *   Its words.
- */
-function operator_commands_operands(string $segment): array {
-  $tokens = [];
-  $current = '';
-  $quote = '';
-  $length = strlen($segment);
-  for ($i = 0; $i < $length; $i++) {
-    $char = $segment[$i];
-    if ($quote !== '') {
-      if ($char === $quote) {
-        $quote = '';
-        continue;
-      }
-      $current .= $char;
-      continue;
-    }
-    if ($char === '\'' || $char === '"') {
-      $quote = $char;
-      continue;
-    }
-    if ($char === '\\' && $i + 1 < $length) {
-      $current .= $segment[++$i];
-      continue;
-    }
-    if (preg_match('/\s/', $char) === 1) {
-      if ($current !== '') {
-        $tokens[] = $current;
-        $current = '';
-      }
-      continue;
-    }
-    $current .= $char;
-  }
-  if ($current !== '') {
-    $tokens[] = $current;
-  }
-
-  return $tokens;
 }
 
 /**
@@ -788,11 +762,44 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       $cwd = $moved === FALSE ? $root : $moved;
       continue;
     }
+    // A READ is not a write, and refusing one costs more than it buys. The
+    // tier's own docblock says a shell string does not reliably tell them
+    // apart — true of a string, and this is a list of arguments with a command
+    // at the front. `git diff .claude/settings.local.json` was refused, which
+    // means the agent could not review or report a change to its own wiring;
+    // so were `cat`, `ls` and `git log` on the same paths.
+    //
+    // Each invocation is judged on its OWN leading command, so `cat x; rm y`
+    // still refuses the second half. A command that is not on this list is
+    // treated as a write, which is the right way round to be wrong.
+    $writesTo = FALSE;
+    foreach ($tokens as $token) {
+      if (str_starts_with($token, "\x01")) {
+        $writesTo = TRUE;
+        break;
+      }
+    }
+    $verb = strtolower($tokens[0] ?? '');
+    $sub = strtolower($tokens[1] ?? '');
+    $reading = !$writesTo && in_array($verb, [
+      'cat', 'less', 'more', 'head', 'tail', 'ls', 'stat', 'file', 'wc',
+      'grep', 'egrep', 'rg', 'diff', 'md5', 'shasum', 'md5sum', 'sha1sum',
+      'sha256sum', 'cmp', 'realpath', 'readlink', 'jq',
+      // NOT sqlite3. `sqlite3 db "select 1"` and `sqlite3 db "update …"`
+      // differ only in a string this cannot parse, and the store is what
+      // that string would be rewriting. Read it with `droost-workflow
+      // evidence`, which renders the whole round.
+    ], TRUE)
+      || ($verb === 'git' && in_array($sub, ['diff', 'log', 'show', 'status', 'blame'], TRUE));
+    if ($reading) {
+      continue;
+    }
     foreach ($tokens as $operand) {
       if ($operand === '' || str_starts_with($operand, '-')) {
         continue;
       }
       // Resolved against the tracked cwd, then judged exactly as a Write is.
+      $operand = ltrim($operand, "\x01");
       $absolute = str_starts_with($operand, '/') ? $operand : $cwd . '/' . $operand;
       $refusal = enforcement_refusal($absolute, $root, $stateDir);
       if ($refusal !== '') {
@@ -846,15 +853,20 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
   // this cannot resolve without running the shell, which is not something a
   // pre-tool hook may do. An absolute path is caught; an unexpanded one is not,
   // and that is stated rather than left to be discovered.
+  // Through the SAME tokeniser as everything else. This used its own
+  // segment/operand pair, which did not strip comments — so `cp .env.example
+  // .env # set up droost` and `mv x.php y.php # renamed for droost` were
+  // refused. Two implementations of "what are this command's words" is how they
+  // drift, and one of them had already been fixed.
   $directory = NULL;
-  foreach (operator_commands_segments($command) as $segment) {
-    if (preg_match($destructive, $segment) !== 1) {
+  foreach (operator_commands_invocations($command) as $tokens) {
+    if (preg_match($destructive, implode(' ', $tokens)) !== 1) {
       continue;
     }
-    foreach (operator_commands_operands($segment) as $operand) {
-      $landing = resolved_relative($operand, $root);
+    foreach ($tokens as $operand) {
+      $landing = resolved_relative(ltrim($operand, "\x01"), $root);
       if ($landing === '') {
-        $landing = rtrim(normalised_path($operand), '/');
+        $landing = rtrim(normalised_path(ltrim($operand, "\x01")), '/');
       }
       if (in_array($landing, $protected, TRUE)) {
         $directory = $landing;
