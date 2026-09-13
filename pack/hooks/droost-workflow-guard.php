@@ -70,6 +70,14 @@ $stateDir = (is_dir($root . '/.droost-workflow')
 $stdin = (string) stream_get_contents(STDIN);
 
 if ($mode === 'operator-commands') {
+  // A shell is a file editor. `baseline_dir_guard()` refuses the store and the
+  // baseline for Edit|Write|MultiEdit|NotebookEdit, and Bash is wired to THIS
+  // branch — which only ever looked at drush command names and returned. So the
+  // identical write went through: the Write tool was refused and
+  // `sqlite3 evidence.sqlite "UPDATE check_result SET state='satisfied'"` was
+  // not. Every claim resting on "droost wrote these rows and the agent could
+  // not" was false for as long as an agent had a shell.
+  protected_path_shell_guard($stdin);
   // Run state is irrelevant here: bypass is granted precisely when there is
   // no run, and a waiver during one. The rule is about WHO, not WHEN.
   operator_commands_guard($stdin);
@@ -353,6 +361,62 @@ function operator_commands_guard(string $stdin): void {
     str_starts_with($which, 'gate (') ? ' (Disarming a gate — `off` — needs no operator; only arming does.)' : '',
   ));
   exit(2);
+}
+
+/**
+ * Refuses a shell command that reaches the evidence store or the baseline.
+ *
+ * The file-path guard covers the editing tools. This covers the other editor
+ * every agent has, and it has to be blunt: a command line can reach a file
+ * through `sqlite3`, `php -r`, `python3`, a redirect, `mv`, `dd`, a heredoc or
+ * a script it wrote a moment ago, and no parse of a shell string tells a read
+ * from a write reliably — `sqlite3 db "select 1"; sqlite3 db "update …"` is one
+ * command.
+ *
+ * So the rule is the path, not the verb: if a command mentions the store or the
+ * baseline, it is refused, and the sanctioned surface is named. Reading the
+ * store has one — `droost-workflow evidence` — and reading the baseline has
+ * another — `baseline --status`. Neither needs to touch the file.
+ *
+ * @param string $stdin
+ *   The hook payload.
+ */
+function protected_path_shell_guard(string $stdin): void {
+  $payload = json_decode($stdin, TRUE);
+  $payload = is_array($payload) ? $payload : [];
+  $input = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
+  $command = $input['command'] ?? '';
+  if (!is_string($command) || $command === '') {
+    return;
+  }
+
+  if (preg_match('#evidence\.sqlite#', $command) === 1) {
+    fwrite(STDERR, sprintf(
+      'A shell command in this run reaches the evidence store. That store is the '
+      . 'run\'s own record of what droost measured — gate verdicts, which '
+      . 'citations resolved, which tools were called — and a record its subject '
+      . 'can edit proves nothing about its subject. Read it with '
+      . '`droost-workflow evidence` (or `drush droost:workflow:evidence`), which '
+      . 'renders the whole round. If a verdict in it is wrong, fix the thing it '
+      . 'measured and let the gate run again; if the store itself is broken, the '
+      . 'OPERATOR clears it. (Refused: %s)',
+      trim($command),
+    ));
+    exit(2);
+  }
+
+  if (preg_match('#(^|[\s\'"=/])droost/baseline(/|\s|$)#', $command) === 1) {
+    fwrite(STDERR, sprintf(
+      'A shell command in this run reaches droost/baseline/. That is the '
+      . 'OPERATOR\'s adoption record, written by `droost-workflow baseline` from '
+      . 'their terminal and never by hand — editing it is the one move that turns '
+      . 'the whole discipline into a formality, because it redefines what counts '
+      . 'as debt. Read it with `droost-workflow baseline --status`. If debt was '
+      . 'paid, ask the operator for `baseline --refresh`. (Refused: %s)',
+      trim($command),
+    ));
+    exit(2);
+  }
 }
 
 /**
