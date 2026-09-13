@@ -133,6 +133,45 @@ A green is not a measurement. Classify every one.
 
 ---
 
+## 4a. The tool-call ledger — what droost was ACTUALLY asked
+
+`droost/droost-workflow/tool-calls.jsonl`, one line per tool result, successes
+and refusals alike. This is the only place in the system that is not the
+subject's account of itself: the agent cannot write here, and a refusal lands
+here the same way a success does.
+
+```bash
+# the tally
+jq -r .tool droost/droost-workflow/tool-calls.jsonl | sort | uniq -c | sort -rn
+# refusals — the most informative rows in the file
+jq -r 'select(.outcome=="fail") | .tool' droost/droost-workflow/tool-calls.jsonl | sort | uniq -c
+```
+
+| Measure | Value | Reading |
+|---|---|---|
+| Total calls | | |
+| Distinct tools | | |
+| **Knowledge calls** (`search`, `symbol`, `graph`, `module_patterns`, `module_docs`, `deprecations`, `entities`, `routes`, `capabilities`, `architecture`) | | **zero here means the run never asked the codebase anything**, whatever its grounding table says |
+| Router calls (`droost_decide`) | | |
+| **Knowledge : router ratio** | | the number that exposed the original defect — 6 : 179 across 39 rounds |
+| Write/scaffold calls (`scaffold`, `structure_create`, `config_set`, `entity_create`, `views_compose`) | | |
+| Refusals (`outcome: fail`) | | each one is a gate that was off, or an argument that was wrong |
+
+**Tooling-plan fidelity.** Every droost tool the Tooling plan named, against
+the ledger:
+
+| Tool the plan named | In the ledger? | If not — was the plan changed to hand-written with a reason? |
+|---|---|---|
+
+> A plan that says `droost_structure_create` while the code hand-writes the
+> YAML is drift. `grounding_check` fails on it now, but record it here too:
+> the gate says *that* it drifted, the table says *what* it drifted to.
+
+**Scaffold-vs-handwritten.** Of the files added under `web/modules/custom` and
+`web/themes/custom`, how many came from a droost blueprint or a
+`drush generate`, and how many were typed? A run whose Tooling plan is all
+droost tools and whose diff is all hand-written prose has followed neither.
+
 ## 5. Build verdict
 
 Against the spec's own acceptance criteria, **verified live** — not from the
@@ -170,6 +209,7 @@ downstream of it provisional.
 | 2 | Lever resolved | resolver output | `droost-workflow status` → `.levers` | |
 | 3 | Frozen into the run | `run.json` | `.run.preset` etc. at begin | |
 | 4 | Phase map derived | `run.json` | `.run.phase_gates[phase]` | |
+| 4b | **Tool actually called** | `tool-calls.jsonl` | the ledger — NOT the spec's claim | |
 | 5 | Gate invoked | the argv | `gate_results[…].invocation` | |
 | 6 | Tool ran | exit + duration | `exit_code`, `duration_ms > 0` | |
 | 7 | Verdict recorded | `gate_results` | status + summary + findings | |
@@ -202,8 +242,8 @@ is a false claim of coverage.
 | Blind spot | Why it is dark | Consequence for this round |
 |---|---|---|
 | Enforcement effectiveness | `run.json` stores the **requested** value only; `{requested, effective, reason}` is computed at read time and never persisted | No archived round can say whether its discipline held |
-| Knowledge-layer usage | No tool call is logged anywhere in the run record | "The brain is always used" is unverifiable from the product alone |
-| Write-gate decisions | No logger, watchdog or hook in the gate path | Refusals exist only in a transcript |
+| ~~Knowledge-layer usage~~ | **NO LONGER BLIND.** Every tool result appends to `tool-calls.jsonl`, so "was the codebase asked" is a fact with a count, not a doctrine. | Report it in §4a rather than listing it here |
+| ~~Write-gate decisions~~ | **NO LONGER BLIND** for tool refusals: a gate refusal returns through `fail()` and lands in the ledger with `outcome: fail`. Drush-surface arming is still unlogged. | Count refusals in §4a |
 | Search quality | With no embedding backend, conceptual queries return **empty-but-successful** | Indistinguishable from "nothing exists" |
 | Wiki accuracy | Freshness is a source hash; `--all-stale` re-stamps without reading prose | "Fresh" is not "true" — nothing checks accuracy anywhere |
 | `<add this round's own>` | | |
