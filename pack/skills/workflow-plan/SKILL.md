@@ -124,8 +124,15 @@ Then produce the spec:
    what your own plan said a tool would build is drift, and so is a
    hand-written row whose construct a listed generator covers.
 5. **Declare what will change, before it changes.** Two lists, recorded by
-   droost rather than written in prose, because the code phase is AUDITED
-   against them:
+   droost rather than written in prose. They are not the same kind of claim:
+
+   - **`--files` is AUDITED** against the real diff at the code phase. Touch a
+     file nobody declared and the phase stops.
+   - **`--tests` is RECORDED, not verified.** droost sees that a suite ran and
+     how many tests it held; it cannot see WHICH tests ran, because the gate
+     reports totals rather than names. Naming them is still worth doing — it is
+     the plan on record, and a reviewer reads it against the diff — but nothing
+     here checks it, and nothing will block you for it.
 
    ```bash
    vendor/bin/droost-workflow declare-changes \

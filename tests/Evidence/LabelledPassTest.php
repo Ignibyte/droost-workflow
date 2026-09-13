@@ -94,7 +94,7 @@ final class LabelledPassTest extends TestCase {
     $this->assertSame([], $store->measuredGates('r1'), 'nothing here measured anything');
 
     $audit = new DeclarationAudit(
-      ['web/modules/custom/x'], [], ['web/modules/custom/x/x.php'], [],
+      ['web/modules/custom/x'], [], ['web/modules/custom/x/x.php'],
       WorkType::Code, $store->measuredGates('r1'),
     );
     $blocked = [];

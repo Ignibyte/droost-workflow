@@ -88,8 +88,6 @@ final class DeclarationAudit {
    *   The tests the plan said would run — class names, methods or paths.
    * @param list<string> $changedFiles
    *   What the diff actually shows, project-relative.
-   * @param list<string> $ranTests
-   *   The tests that actually ran, when the caller can tell.
    * @param \Droost\Workflow\Evidence\WorkType|null $workType
    *   What the plan said this run is, or NULL when nothing was declared.
    * @param list<string> $measuredGates
@@ -108,7 +106,6 @@ final class DeclarationAudit {
     private readonly array $declaredFiles,
     private readonly array $declaredTests,
     private readonly array $changedFiles,
-    private readonly array $ranTests = [],
     private readonly ?WorkType $workType = NULL,
     private readonly array $measuredGates = [],
     private readonly array $gatesOff = [],
@@ -154,15 +151,32 @@ final class DeclarationAudit {
    *   The missing tests.
    */
   public function missingTests(): array {
-    if ($this->declaredTests === []) {
-      return [];
-    }
-    $ran = implode("\n", $this->ranTests);
-
-    return array_values(array_filter(
-      $this->declaredTests,
-      static fn (string $test): bool => $test !== '' && stripos($ran, $test) === FALSE,
-    ));
+    // DELIBERATELY EMPTY, and the emptiness is the honest answer.
+    //
+    // This used to substring-search the test gates' summary and invocation for
+    // each declared name. Neither string ever contains a test name: a passing
+    // phpunit gate stores "phpunit passed — 3 test(s), 7 assertion(s)" and an
+    // argv with no filter and no path. So the search could only ever fail on a
+    // real name and succeed on an accident:
+    //
+    //     --tests=WidgetTest::testReturns   blocked, forever, zero budget spent
+    //     --tests=WidgetTest                blocked, forever
+    //     --tests=phpunit                   advanced immediately
+    //     --tests=test                      advanced, on a flag name
+    //
+    // An agent naming its tests honestly was wedged at every level above `low`;
+    // an agent naming a meaningless word walked through. That is the exact
+    // inversion this class's docblock says it exists to prevent, shipped inside
+    // the class itself — and the shipped worked example in
+    // `pack/skills/workflow-plan/SKILL.md` is the trigger.
+    //
+    // droost cannot currently observe WHICH tests ran, so it must not pretend
+    // to. The declaration is still recorded and still shown; the test gate's
+    // own verdict — did the suite pass, how many tests — is in §4 and is real.
+    // Making this answerable needs the phpunit gate to emit JUnit XML and the
+    // executor to read the class and method names out of it; until it does, a
+    // promise droost cannot check is a promise droost records.
+    return [];
   }
 
   /**
@@ -189,7 +203,6 @@ final class DeclarationAudit {
   public function checks(?string $phase = NULL): array {
     $undeclared = $this->undeclared();
     $untouched = $this->untouched();
-    $missing = $this->missingTests();
 
     $scopeSummary = $undeclared === []
       ? sprintf(
@@ -299,21 +312,21 @@ final class DeclarationAudit {
       $checks[] = new CheckRecord(
         'declaration',
         'declared_tests',
-        match (TRUE) {
-          $noRunner => CheckState::NotApplicable,
-          $missing === [] => CheckState::Satisfied,
-          default => CheckState::Blocked,
-        },
-        $missing === [] || $noRunner ? Fault::None : Fault::Agent,
-        match (TRUE) {
-          $noRunner => sprintf(
-            '%d planned test(s), and this level runs no test gate, so nothing can say whether they '
-            . 'ran. Recorded, not verified.',
+        $noRunner ? CheckState::NotApplicable : CheckState::Recorded,
+        Fault::None,
+        $noRunner
+          ? sprintf(
+            '%d planned test(s), and this level runs no test gate at all, so nothing here could '
+            . 'say whether they ran.',
             count($this->declaredTests),
+          )
+          : sprintf(
+            '%d planned test(s), recorded: %s. droost cannot see WHICH tests a suite ran — the '
+            . 'gate reports totals, not names — so this is the plan on record, not a '
+            . 'verification of it. Whether the suite passed is the phpunit row in §4.',
+            count($this->declaredTests),
+            implode(', ', $this->declaredTests),
           ),
-          $missing === [] => sprintf('%d planned test(s), all run', count($this->declaredTests)),
-          default => sprintf('planned and never run: %s', implode(', ', $missing)),
-        },
       );
     }
 

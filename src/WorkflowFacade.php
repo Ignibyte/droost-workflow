@@ -846,7 +846,16 @@ final class WorkflowFacade {
       // the exact shape the comment above was already written against.
       if (($phase === Phase::Code || $phase === Phase::Test)
         && $this->auditDeclarationsFor($answered, $phase, $projectRoot)) {
-        $answered = $answered->withPhaseStatus($phase, PhaseStatus::Failed);
+        // The phase does not ADVANCE, and it does not FAIL either. Marking it
+        // Failed here was terminal and unrecoverable: `run()` then refuses
+        // unless `waiversCoverTheFailure()` agrees, and that reads blocking
+        // GATE rows — but the phase paused precisely because the gates passed,
+        // so the blocking set is empty and no waiver, however many, could
+        // reopen it. The only exit was abandoning the run.
+        //
+        // A declaration block is a correctable condition: declare the file, or
+        // stop touching it, and answer again. Leaving the phase ACTIVE is what
+        // makes that possible, and the blocked rows are already recorded.
         $store->save($answered);
 
         return $answered;
@@ -1628,7 +1637,6 @@ final class WorkflowFacade {
         $files,
         $tests,
         $this->vcs->changedFiles($projectRoot, $state->baseCommit),
-        $store->ranTests($state->runId),
         $store->workType($state->runId),
         $store->measuredGates($state->runId),
         // Off by level, or unreachable on this surface: both are gates the

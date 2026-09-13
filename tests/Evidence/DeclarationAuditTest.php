@@ -95,33 +95,57 @@ final class DeclarationAuditTest extends TestCase {
   }
 
   /**
-   * A promised test that never ran blocks.
+   * A declared test is RECORDED, because droost cannot see which tests ran.
    *
-   * "I will cover this" is a promise about verification, and dropping it
-   * silently is how a green arrives over untested code.
+   * This check used to block, and could not be satisfied by any real test name.
+   * `ranTests()` returns the test gates' summary and invocation strings, and
+   * neither ever contains a test name: a passing phpunit gate stores "phpunit
+   * passed — 3 test(s), 7 assertion(s)" and an argv with no filter and no path.
+   * A substring search over those could only fail on a real name and succeed on
+   * an accident:
+   *
+   *     --tests=WidgetTest::testReturns   blocked forever, zero budget spent
+   *     --tests=phpunit                   advanced immediately
+   *     --tests=test                      advanced ("--do-not-fail-on-empty-…")
+   *
+   * So an agent naming its tests honestly was wedged at every level above
+   * `low`, and one naming a meaningless word walked through — the exact
+   * inversion this class exists to prevent, shipped inside the class, with the
+   * plan skill's own worked example as the trigger.
+   *
+   * The old test passed because it handed `ranTests` a fabricated
+   * `Drupal\Tests\kchockey\Unit\RinkTest::testItRenders` that production
+   * cannot produce. A fixture that invents its input proves nothing about the
+   * path it claims to cover.
+   *
+   * droost records the promise and says plainly that it is not a verification.
+   * Making it one needs the phpunit gate to emit JUnit XML and the executor to
+   * read class and method names out of it.
    */
-  public function testPlannedTestThatNeverRanBlocks(): void {
-    $audit = new DeclarationAudit([], ['RinkTest'], [], []);
+  public function testDeclaredTestsAreRecordedNotVerified(): void {
 
-    $this->assertSame(['RinkTest'], $audit->missingTests());
-    $check = $this->check($audit, 'declared_tests');
-    $this->assertSame(CheckState::Blocked, $check->state);
-    $this->assertSame(Fault::Agent, $check->fault);
-  }
+    foreach (['RinkTest::testItRenders', 'RinkTest', 'phpunit', 'test'] as $declared) {
+      $audit = new DeclarationAudit([], [$declared], []);
+      $check = $this->check($audit, 'declared_tests');
 
-  /**
-   * A promised test found anywhere in what ran is satisfied.
-   */
-  public function testPlannedTestThatRanIsSatisfied(): void {
-    $audit = new DeclarationAudit(
+      $this->assertSame(
+        CheckState::Recorded,
+        $check->state,
+        sprintf('"%s" is recorded — no declaration is cheaper than another', $declared),
+      );
+      $this->assertSame(Fault::None, $check->fault);
+      $this->assertStringContainsString(
+        $declared,
+        $check->summary,
+        'and the promise itself is on the record',
+      );
+    }
+
+    $this->assertSame(
       [],
-      ['RinkTest'],
-      [],
-      ['Drupal\Tests\kchockey\Unit\RinkTest::testItRenders'],
+      (new DeclarationAudit([], ['RinkTest'], []))->missingTests(),
+      'nothing is reported missing, because nothing here can tell',
     );
-
-    $this->assertSame([], $audit->missingTests());
-    $this->assertSame(CheckState::Satisfied, $this->check($audit, 'declared_tests')->state);
   }
 
   /**

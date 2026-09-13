@@ -41,10 +41,10 @@ three outcomes stop the phase:
   the file list; declaring only the file you just added drops everything you
   declared at plan, and every one of those files then reads as scope creep. The
   verb is not `add`.
-- **a test you named that never ran BLOCKS — at the TEST phase, not here.**
-  Tests run at test; this phase cannot judge whether one ran. And a level that
-  turns every test gate off (`low` does) cannot judge it at all, so a declared
-  test is recorded there as unverified rather than held against you.
+- **a test you named is RECORDED, never held against you.** droost sees that a
+  suite ran and how many tests it held; it cannot see which ones, so it does not
+  pretend to. What DOES block is the suite failing — that is the phpunit gate,
+  at the test phase, on its own merits.
 - a file declared and not touched is recorded and does not block.
 
 The spec's contract sections are also frozen now. `## Tooling plan`,

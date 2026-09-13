@@ -57,7 +57,6 @@ final class WorkTypeTest extends TestCase {
       ['config'],
       [],
       ['config/sync/node.type.rink.yml', 'config/sync/views.view.rinks.yml'],
-      [],
       WorkType::ContentModel,
       ['config_clean', 'rendered_check'],
     );
@@ -78,7 +77,6 @@ final class WorkTypeTest extends TestCase {
       ['web/modules/custom/x'],
       [],
       ['web/modules/custom/x/a.php', 'web/modules/custom/x/B.php', 'web/modules/custom/x/C.php'],
-      [],
       WorkType::ContentModel,
       ['config_clean', 'rendered_check'],
     );
@@ -105,7 +103,6 @@ final class WorkTypeTest extends TestCase {
         'config/sync/core.entity_view_display.node.rink.default.yml',
         'web/themes/custom/x/x.theme',
       ],
-      [],
       WorkType::ContentModel,
       ['config_clean', 'rendered_check'],
     );
@@ -125,7 +122,6 @@ final class WorkTypeTest extends TestCase {
       ['config'],
       [],
       ['config/sync/a.yml'],
-      [],
       WorkType::ContentModel,
       ['rendered_check'],
     );
@@ -159,7 +155,7 @@ final class WorkTypeTest extends TestCase {
   public function testDocsRestsOnNothingAndRemovesNothing(): void {
     $this->assertSame([], WorkType::Docs->mustMeasure());
 
-    $audit = new DeclarationAudit(['docs'], [], ['docs/a.md'], [], WorkType::Docs, []);
+    $audit = new DeclarationAudit(['docs'], [], ['docs/a.md'], WorkType::Docs, []);
 
     $this->assertFalse(
       $this->hasCheck($audit, 'type_coverage'),
@@ -178,7 +174,6 @@ final class WorkTypeTest extends TestCase {
       ['.'],
       [],
       ['web/modules/custom/x/a.php', 'web/modules/custom/x/b.module', 'docs/readme.md'],
-      [],
       WorkType::Docs,
       [],
     );
