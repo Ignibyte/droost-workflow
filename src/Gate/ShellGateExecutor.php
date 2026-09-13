@@ -1115,11 +1115,47 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     $level = $gate->option('level');
     $msi = $gate->option('msi_min');
 
+    // A repository with its own phpcs ruleset is told to use it, which is what
+    // the lever file has always promised — "omitted, each tool discovers the
+    // repo's own config" — and what phpcs never did, because `--standard` was
+    // injected unconditionally and `--standard` makes phpcs DISCARD the
+    // ruleset file, including the `<file>` paths that tell it what to check.
+    //
+    // With no `paths` lever either, the result was `phpcs -q --report=json
+    // --standard=… --extensions=…` and no path at all: exit 16, "You must
+    // supply at least one file or directory to process", recorded as a labeled
+    // pass. A reviewer put eleven real violations in a file, ran their own
+    // phpcs (eleven errors), and watched the mandatory gate report `passed`.
+    //
+    // It also caused a wall: nothing measured means `type_coverage` blocks at
+    // test, and phpcs does not re-run there, so the run could not be recovered
+    // from its own levers.
+    $ownRuleset = NULL;
+    foreach (['phpcs.xml.dist', 'phpcs.xml'] as $candidate) {
+      if (is_file(rtrim($root, '/') . '/' . $candidate)) {
+        $ownRuleset = $candidate;
+        break;
+      }
+    }
+
     return match ($gate->name) {
-      'phpcs' => [
+      // The repo's ruleset decides the standard, the extensions and the files.
+      // Overriding any of them is how the gate stopped agreeing with the
+      // command the developer runs by hand.
+      'phpcs' => $ownRuleset !== NULL ? [
         $binary,
         '-q',
         '--report=json',
+        '--ignore=' . self::VENDORED_IGNORE,
+      ] : [
+        $binary,
+        '-q',
+        '--report=json',
+        // The project root, because a `--standard` with no path is not a scan:
+        // phpcs exits 16 and the gate records a labeled pass over nothing. A
+        // `paths` lever replaces this below; the vendored ignore keeps it from
+        // walking dependencies.
+        '.',
         '--standard=' . (is_string($standard) ? $standard : 'Drupal'),
         // PHP_CodeSniffer 4 dropped the JS/CSS tokenizers and with them the
         // wider default extension set: left alone it now checks `php` only.

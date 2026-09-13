@@ -108,6 +108,11 @@ class ShellGateExecutorTest extends WorkflowTestCase {
         [
           '-q',
           '--report=json',
+          // The project root. A `--standard` with no path is not a scan: phpcs
+          // exits 16, "You must supply at least one file or directory", and the
+          // gate recorded a labeled pass over nothing. Eleven real violations,
+          // gate `passed`.
+          '.',
           '--standard=Drupal,DrupalPractice',
           // Without this, PHP_CodeSniffer 4 checks `php` only and a Drupal
           // project whose code is .module/.theme/.install files gets
@@ -915,6 +920,59 @@ class ShellGateExecutorTest extends WorkflowTestCase {
     // carries the stub config too.
     file_put_contents($root . '/phpunit.xml.dist', "<phpunit/>\n");
     return $root;
+  }
+
+  /**
+   * Phpcs is always given something to check, and uses the repo's own ruleset.
+   *
+   * The mandatory gate checked NOTHING on a stock project. `--standard` was
+   * injected unconditionally, and `--standard` makes phpcs discard the ruleset
+   * file — including the `<file>` paths that say what to scan. With no `paths`
+   * lever either, the invocation was `phpcs -q --report=json --standard=…
+   * --extensions=…` and no path at all: exit 16, "You must supply at least one
+   * file or directory to process", recorded as a labeled pass.
+   *
+   * A reviewer put eleven real violations in a file, ran their own phpcs
+   * (eleven errors), and watched the gate report `passed`. It also caused a
+   * wall they could not pass: nothing measured means `type_coverage` blocks at
+   * test, and phpcs does not re-run there.
+   *
+   * The lever file has promised the fix all along — "omitted, each tool
+   * discovers the repo's own config" — while shipping a `standard` that made it
+   * impossible.
+   */
+  public function testPhpcsAlwaysHasSomethingToCheck(): void {
+    $root = $this->makeRoot();
+    $method = new \ReflectionMethod(ShellGateExecutor::class, 'argvFor');
+    $executor = new ShellGateExecutor(
+      static fn (array $argv, string $cwd, int $timeout): array => [0, '', ''],
+      static fn (): int => 0,
+    );
+    $gate = new GateSettings('phpcs', TRUE, ['standard' => 'Drupal,DrupalPractice']);
+
+    // No ruleset of its own: the standard is injected AND a path is supplied,
+    // because a standard without a path is not a scan.
+    $argv = $method->invoke($executor, $gate, '/bin/phpcs', $root);
+    $this->assertIsArray($argv);
+    $this->assertContains('.', $argv, 'phpcs is told what to look at');
+    $this->assertNotSame([], array_filter($argv, static fn (mixed $a): bool => is_string($a) && str_starts_with($a, '--standard=')));
+
+    // Its own ruleset: honoured, not overridden. The ruleset names the
+    // standard, the extensions and the files, and overriding any of them is
+    // how the gate stopped agreeing with the command a developer runs by hand.
+    file_put_contents($root . '/phpcs.xml.dist', '<?xml version="1.0"?><ruleset name="p"><rule ref="PSR12"/><file>src</file></ruleset>');
+    $own = $method->invoke($executor, $gate, '/bin/phpcs', $root);
+    $this->assertIsArray($own);
+    $this->assertSame(
+      [],
+      array_filter($own, static fn (mixed $a): bool => is_string($a) && str_starts_with($a, '--standard=')),
+      "the repo's own standard wins, which is what the lever file has always promised",
+    );
+    $this->assertSame(
+      [],
+      array_filter($own, static fn (mixed $a): bool => is_string($a) && str_starts_with($a, '--extensions=')),
+      'and its own extensions',
+    );
   }
 
 }

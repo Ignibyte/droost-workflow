@@ -27,12 +27,17 @@ final class RunOutcome {
    *   The phase's gate report, when gates ran.
    * @param \Droost\Workflow\Mode\PendingQuestion|null $question
    *   The question the run is waiting on, when it paused.
+   * @param list<array<string, string>> $blocked
+   *   The non-gate checks holding this phase — name, fault, summary and
+   *   remedy. A gate failure is already in the report; these were not
+   *   anywhere a caller could see, which made them unactionable.
    */
   public function __construct(
     public readonly Outcome $outcome,
     public readonly RunState $state,
     public readonly ?PhaseReport $report = NULL,
     public readonly ?PendingQuestion $question = NULL,
+    public readonly array $blocked = [],
   ) {}
 
   /**
@@ -83,6 +88,12 @@ final class RunOutcome {
       'current_phase' => $this->state->currentPhase?->value,
       'preset' => $this->state->preset,
       'report' => $this->report?->toArray(),
+      // The blocks that are NOT gates, which used to exist only as rows in a
+      // SQLite file. A reviewer driving a real run hit `outcome: failed` with
+      // `failed: 0`, `advance: true`, every gate green and no reason anywhere
+      // in the output — and escaped only by opening the store with a
+      // third-party tool. An agent cannot do that, and loops.
+      'blocked' => $this->blocked,
       'awaiting' => $this->question?->toArray(),
       'retries' => [
         'attempts' => $this->state->feedbackAttempts,

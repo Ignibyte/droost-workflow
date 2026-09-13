@@ -561,4 +561,51 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     );
   }
 
+  /**
+   * A non-gate block says why, in the envelope the caller reads.
+   *
+   * A reviewer drove a real run as a new user and hit a wall nothing could
+   * explain: `outcome: failed`, `failed: 0`, `advance: true`, every gate green,
+   * `awaiting: null`, retries not exhausted, and no reason anywhere in the
+   * output. `status` said the phase was active. Re-running repeated it.
+   * `answer` said the run was not waiting. The cause existed only as a row
+   * inside `evidence.sqlite`, and they escaped by opening that file with a
+   * third-party tool.
+   *
+   * An agent has no such option. It sees a green report and a bare `failed`,
+   * and loops until something else stops it — which is what the block ceiling
+   * was built for, and a ceiling is a poor substitute for saying why.
+   */
+  public function testNonGateBlockTellsTheCallerWhy(): void {
+    $root = $this->makeRootWithConfig("preset: low\nmode: agentic\n");
+    exec(sprintf('cd %s && git init -q . && git add -A && git commit -q -m base', escapeshellarg($root)));
+    $spec = $this->writeSpec($root);
+    $facade = $this->facade();
+
+    $facade->run($root, $spec);
+    $facade->declareChanges($root, ['src'], [], 'code');
+    file_put_contents($root . '/undeclared.php', "<?php // never declared\n");
+
+    $outcome = $facade->run($root, $spec);
+    $this->assertSame(Outcome::Failed, $outcome->outcome);
+
+    $envelope = $outcome->toArray();
+    $this->assertArrayHasKey('blocked', $envelope, 'the envelope has somewhere to say why');
+    $blocked = $envelope['blocked'];
+    $this->assertIsArray($blocked);
+    $this->assertNotSame([], $blocked, 'and it is not empty when something blocks');
+
+    $first = $blocked[0];
+    $this->assertIsArray($first);
+    $this->assertSame('declared_files', $first['check']);
+    $this->assertIsString($first['why']);
+    $this->assertStringContainsString('undeclared.php', $first['why'], 'it names the file');
+    $this->assertIsString($first['guidance']);
+    $this->assertStringContainsString(
+      'no waiver',
+      $first['guidance'],
+      'and says what kind of problem it is: work to do, not setup to fix',
+    );
+  }
+
 }

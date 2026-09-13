@@ -1474,7 +1474,13 @@ final class WorkflowFacade {
       $this->now(),
     );
 
-    return $stuck ?? new RunOutcome(Outcome::Failed, $outcome->state, $outcome->report);
+    return $stuck ?? new RunOutcome(
+      Outcome::Failed,
+      $outcome->state,
+      $outcome->report,
+      NULL,
+      self::blockingRows($outcome->state, $phase, $projectRoot),
+    );
   }
 
   /**
@@ -1620,6 +1626,51 @@ final class WorkflowFacade {
     }
 
     return $demanding;
+  }
+
+  /**
+   * The non-gate checks holding a phase, for the envelope.
+   *
+   * A gate failure is already in the report, with its summary and its exit
+   * code. A declaration block, a contributed check and a spec condition were
+   * nowhere: the run returned `outcome: failed` with `failed: 0`, every gate
+   * green, and no reason a caller could read. A reviewer driving a real run
+   * found the cause only by opening the SQLite store with a third-party tool.
+   * An agent has no such option, and loops.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase.
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return list<array<string, string>>
+   *   Name, fault, summary and remedy for each blocking non-gate check.
+   */
+  private static function blockingRows(RunState $state, Phase $phase, string $projectRoot): array {
+    try {
+      $rows = (new EvidenceStore($projectRoot))->unresolved($state->runId, $phase->value);
+    }
+    catch (\Throwable) {
+      return [];
+    }
+    $blocking = [];
+    foreach ($rows as $row) {
+      if (($row['kind'] ?? '') === 'gate') {
+        continue;
+      }
+      $fault = is_string($row['fault'] ?? NULL) ? $row['fault'] : '';
+      $blocking[] = [
+        'check' => is_string($row['name'] ?? NULL) ? $row['name'] : '',
+        'fault' => $fault,
+        'why' => is_string($row['summary'] ?? NULL) ? $row['summary'] : '',
+        'remedy' => is_string($row['remedy'] ?? NULL) ? $row['remedy'] : '',
+        'guidance' => (Fault::tryFrom($fault) ?? Fault::None)->guidance(),
+      ];
+    }
+
+    return $blocking;
   }
 
   /**
