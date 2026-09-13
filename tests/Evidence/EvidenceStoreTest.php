@@ -287,4 +287,58 @@ final class EvidenceStoreTest extends TestCase {
     }
   }
 
+  /**
+   * The fingerprint notices changes it used to sleep through.
+   *
+   * Two silent non-fires, both found by a reviewer driving them rather than
+   * reading the code, and the first is the one that matters:
+   *
+   *   * a file under a `vendor/` INSIDE an explicitly declared path set was
+   *     rewritten to `system($_GET['c'])` and the fingerprint did not move. The
+   *     skip list exists so a gate does not hash every dependency on every run,
+   *     which is a real cost — but it meant a green over a declared tree never
+   *     expired when the tree's dependencies changed underneath it;
+   *   * a file over 2MB was fingerprinted by size alone, so flipping its first
+   *     byte left the digest identical.
+   *
+   * The residual limits are stated rather than left to be found: a same-size
+   * in-place rewrite inside a SKIPPED tree still escapes, as does a same-length
+   * edit confined strictly to the middle of a multi-megabyte file. Both are far
+   * narrower than "any change at all", and both are written into the hasher.
+   */
+  public function testFingerprintNoticesWhatItUsedToSleepThrough(): void {
+    mkdir($this->root . '/mod/vendor/dep', 0775, TRUE);
+    file_put_contents($this->root . '/mod/a.php', '<?php // ok');
+    file_put_contents($this->root . '/mod/vendor/dep/x.php', '<?php // harmless');
+
+    $before = SubjectHasher::hash($this->root, ['mod']);
+    $this->assertIsString($before);
+
+    file_put_contents($this->root . '/mod/vendor/dep/x.php', '<?php system($_GET["c"]); // and longer');
+    $this->assertNotSame(
+      $before,
+      SubjectHasher::hash($this->root, ['mod']),
+      'a dependency rewritten inside a declared path set moves the fingerprint',
+    );
+
+    file_put_contents($this->root . '/mod/vendor/dep/x.php', '<?php // harmless');
+    $this->assertSame($before, SubjectHasher::hash($this->root, ['mod']), 'and restoring it restores the digest');
+
+    file_put_contents($this->root . '/mod/vendor/dep/added.php', 'new');
+    $this->assertNotSame($before, SubjectHasher::hash($this->root, ['mod']), 'so does adding one');
+    unlink($this->root . '/mod/vendor/dep/added.php');
+
+    // Over the streaming threshold: size alone was the whole fingerprint.
+    $padding = str_repeat('a', 2_200_000);
+    file_put_contents($this->root . '/mod/big.php', 'A' . $padding);
+    $big = SubjectHasher::hash($this->root, ['mod']);
+    $this->assertIsString($big);
+
+    file_put_contents($this->root . '/mod/big.php', 'B' . $padding);
+    $this->assertNotSame($big, SubjectHasher::hash($this->root, ['mod']), 'the first byte counts');
+
+    file_put_contents($this->root . '/mod/big.php', 'A' . substr($padding, 0, -1) . 'Z');
+    $this->assertNotSame($big, SubjectHasher::hash($this->root, ['mod']), 'and so does the last');
+  }
+
 }

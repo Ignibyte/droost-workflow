@@ -34,6 +34,17 @@ final class SubjectHasher {
   private const int STREAM_ABOVE = 2_097_152;
 
   /**
+   * How much of a very large file's head and tail is read into the digest.
+   *
+   * Size alone was not enough: a same-length edit vanished. Two 64KB reads
+   * bound the cost regardless of the file's size, and the only edit that still
+   * escapes is a same-length change confined strictly to the middle of a
+   * multi-megabyte file — which is a narrower hole than "any edit at all", and
+   * is stated rather than left to be discovered.
+   */
+  private const int ENDS_BYTES = 65_536;
+
+  /**
    * Directory names never descended into.
    */
   private const array SKIP_DIRS = ['.git', 'node_modules', 'vendor', '.ddev', '.idea'];
@@ -81,6 +92,18 @@ final class SubjectHasher {
         foreach (self::walk($absolute) as $relative => $found) {
           $files[$path . '/' . $relative] = $found;
         }
+        // The directories the walk refused to descend into are part of what
+        // this path set contains, and pretending otherwise made them invisible:
+        // a reviewer rewrote a file under a `vendor/` INSIDE an explicitly
+        // declared path to `system($_GET['c'])` and the fingerprint did not
+        // move. Their shape — names, entry counts, total bytes — is cheap and
+        // catches an addition, a removal or a size change. A same-size in-place
+        // rewrite inside a skipped tree still escapes; hashing every dependency
+        // on every gate is the cost this skip exists to avoid, and the trade is
+        // named here rather than discovered later.
+        foreach (self::skippedShape($absolute) as $shape) {
+          $files['skipped:' . $path . '/' . $shape] = NULL;
+        }
       }
     }
     if ($files === []) {
@@ -92,10 +115,30 @@ final class SubjectHasher {
     ksort($files);
     $digest = hash_init('xxh128');
     foreach ($files as $relative => $absolute) {
+      if ($absolute === NULL) {
+        // A skipped directory's shape, already encoded in the key.
+        hash_update($digest, $relative . "\0");
+        continue;
+      }
       $size = @filesize($absolute);
       hash_update($digest, $relative . "\0");
       if ($size !== FALSE && $size > self::STREAM_ABOVE) {
+        // Size ALONE was the fingerprint here, so editing a large file in place
+        // without changing its length left the digest identical — a reviewer
+        // flipped the first byte of a 2.2MB file and `stillGreen()` said yes.
+        // The ends plus the size cost two reads of 64KB however large the file
+        // is, and catch every edit that is not a same-length change confined to
+        // the middle.
         hash_update($digest, 'size:' . $size . "\0");
+        $handle = @fopen($absolute, 'rb');
+        if ($handle !== FALSE) {
+          hash_update($digest, (string) fread($handle, self::ENDS_BYTES));
+          if (fseek($handle, -self::ENDS_BYTES, SEEK_END) === 0) {
+            hash_update($digest, (string) fread($handle, self::ENDS_BYTES));
+          }
+          fclose($handle);
+        }
+        hash_update($digest, "\0");
         continue;
       }
       $content = @file_get_contents($absolute);
@@ -175,6 +218,51 @@ final class SubjectHasher {
     $lexical = '/' . implode('/', $parts);
 
     return $lexical === $realRoot || str_starts_with($lexical, $realRoot . '/');
+  }
+
+  /**
+   * The shape of the directories the walk refused to descend into.
+   *
+   * Not their contents — that is the cost this skip exists to avoid — but their
+   * name, how many entries they hold and how many bytes those come to. Enough
+   * that adding, removing or resizing anything inside one moves the digest, and
+   * cheap enough to run on every gate.
+   *
+   * @param string $directory
+   *   The absolute directory being walked.
+   *
+   * @return list<string>
+   *   One descriptor per skipped directory.
+   */
+  private static function skippedShape(string $directory): array {
+    $shapes = [];
+    $iterator = new \RecursiveIteratorIterator(
+      new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS),
+      \RecursiveIteratorIterator::SELF_FIRST,
+    );
+    foreach ($iterator as $entry) {
+      if (!$entry instanceof \SplFileInfo || !$entry->isDir()) {
+        continue;
+      }
+      if (!in_array($entry->getFilename(), self::SKIP_DIRS, TRUE)) {
+        continue;
+      }
+      $count = 0;
+      $bytes = 0;
+      foreach (new \RecursiveIteratorIterator(
+        new \RecursiveDirectoryIterator($entry->getPathname(), \FilesystemIterator::SKIP_DOTS),
+        \RecursiveIteratorIterator::LEAVES_ONLY,
+      ) as $inside) {
+        if ($inside instanceof \SplFileInfo && $inside->isFile()) {
+          $count++;
+          $bytes += $inside->getSize();
+        }
+      }
+      $shapes[] = sprintf('%s|%d|%d', $entry->getFilename(), $count, $bytes);
+    }
+    sort($shapes);
+
+    return $shapes;
   }
 
   /**
