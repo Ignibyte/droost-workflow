@@ -47,6 +47,10 @@ final class GateSettings {
     'coverage',
     'rendered_check',
     'config_clean',
+    // Resolves the spec's grounding citations against the site's symbol
+    // graph. Engine-side this gate has only a name and a phase; the truth
+    // lives where the graph does, exactly as rendered_check does.
+    'grounding_check',
     'wiki_fresh',
   ];
 

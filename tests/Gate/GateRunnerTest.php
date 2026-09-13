@@ -99,7 +99,7 @@ class GateRunnerTest extends WorkflowTestCase {
       ['phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier'],
       $executor->ran,
     );
-    $this->assertCount(6, $report->results);
+    $this->assertCount(7, $report->results);
   }
 
   /**
@@ -126,8 +126,8 @@ class GateRunnerTest extends WorkflowTestCase {
     // site), so it is not skipped here — with no drush on the path it
     // reports tool-missing, which is a distinct outcome from both passed
     // and skipped.
-    $this->assertCount(12, $report->results);
-    $this->assertCount(2, $report->skipped());
+    $this->assertCount(13, $report->results);
+    $this->assertCount(3, $report->skipped());
   }
 
   /**

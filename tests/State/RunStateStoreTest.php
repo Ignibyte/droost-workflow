@@ -311,7 +311,13 @@ class RunStateStoreTest extends WorkflowTestCase {
 
     $this->assertNotNull($loaded);
     $this->assertSame(
-      ['plan' => [], 'code' => ['phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier', 'config_clean']],
+      [
+        'plan' => [],
+        'code' => [
+          'phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier',
+          'config_clean', 'grounding_check',
+        ],
+      ],
       $loaded->phaseGates,
     );
   }

@@ -49,7 +49,7 @@ class SurfaceParityTest extends WorkflowTestCase {
     $phaseGates = $levers['phase_gates'];
     $this->assertIsArray($phaseGates);
     $this->assertSame([], $phaseGates['plan']);
-    $this->assertSame(['phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier', 'config_clean'], $phaseGates['code']);
+    $this->assertSame(['phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier', 'config_clean', 'grounding_check'], $phaseGates['code']);
   }
 
   /**
@@ -94,7 +94,7 @@ class SurfaceParityTest extends WorkflowTestCase {
     $this->assertSame(array_keys($cliGates), array_keys($liveGates));
 
     foreach ($cliGates as $name => $cliResult) {
-      if (in_array($name, ['rendered_check', 'config_clean'], TRUE)) {
+      if (in_array($name, ['rendered_check', 'config_clean', 'grounding_check'], TRUE)) {
         $this->assertSame('skipped-no-site', $cliResult['status']);
         $this->assertSame('passed', $liveGates[$name]['status']);
         continue;
@@ -431,7 +431,7 @@ class SurfaceParityTest extends WorkflowTestCase {
        * {@inheritdoc}
        */
       public function supports(): array {
-        return ['rendered_check', 'config_clean'];
+        return ['rendered_check', 'config_clean', 'grounding_check'];
       }
 
       /**

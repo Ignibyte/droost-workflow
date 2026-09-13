@@ -219,9 +219,10 @@ final class SpecContract {
    * @param string $spec
    *   The governing spec, project-relative.
    *
-   * @return array{rows: int, phases: array<string, list<string>>, unanswered: list<string>}|null
-   *   Rows counted, the tiers each phase reached, and the row ids whose Found
-   *   cell is empty. NULL when the spec has no grounding table at all.
+   * @return array{rows: int, phases: array<string, list<string>>, unanswered: list<string>, uncited: list<string>, evidence: list<array{row: int, tier: string, cite: string}>}|null
+   *   Rows counted, the tiers each phase reached, the rows whose Found cell is
+   *   empty, the rows citing no evidence, and every citation for a site-side
+   *   gate to RESOLVE. NULL when the spec has no grounding table at all.
    */
   public static function grounding(string $projectRoot, string $spec): ?array {
     $text = @file_get_contents(rtrim($projectRoot, '/') . '/' . $spec);
@@ -243,7 +244,7 @@ final class SpecContract {
       return NULL;
     }
     $header = self::cells($rows[0]);
-    $idx = ['phase' => NULL, 'tier' => NULL, 'found' => NULL];
+    $idx = ['phase' => NULL, 'tier' => NULL, 'found' => NULL, 'evidence' => NULL];
     foreach ($header as $i => $cell) {
       $key = strtolower(trim($cell));
       if ($key === 'phase') {
@@ -255,9 +256,14 @@ final class SpecContract {
       elseif (in_array($key, ['found', 'what came back', 'answer'], TRUE)) {
         $idx['found'] = $i;
       }
+      elseif (in_array($key, ['evidence', 'cite', 'reference'], TRUE)) {
+        $idx['evidence'] = $i;
+      }
     }
     $phases = [];
     $unanswered = [];
+    $uncited = [];
+    $evidence = [];
     $counted = 0;
     foreach (array_slice($rows, 1) as $n => $row) {
       $cells = self::cells($row);
@@ -277,9 +283,22 @@ final class SpecContract {
       if ($found === '' || in_array($found, ['—', '-', 'TBD', 'tbd', 'n/a'], TRUE)) {
         $unanswered[] = 'row ' . ($n + 1);
       }
+      $cite = $idx['evidence'] !== NULL ? trim($cells[$idx['evidence']] ?? '') : '';
+      if ($cite === '' || in_array($cite, ['—', '-', 'TBD', 'tbd', 'n/a'], TRUE)) {
+        $uncited[] = 'row ' . ($n + 1);
+      }
+      else {
+        $evidence[] = ['row' => $n + 1, 'tier' => $tier, 'cite' => $cite];
+      }
     }
 
-    return ['rows' => $counted, 'phases' => $phases, 'unanswered' => $unanswered];
+    return [
+      'rows' => $counted,
+      'phases' => $phases,
+      'unanswered' => $unanswered,
+      'uncited' => $uncited,
+      'evidence' => $evidence,
+    ];
   }
 
   /**

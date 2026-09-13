@@ -368,7 +368,7 @@ setting, gate, option, phase, mode and preset is refused by name:
 ```
 droost.workflow.yml: unknown gate "phpstain" (known: phpcs, phpstan, eslint,
 stylelint, prettier, phpunit, mutation, playwright, coverage, rendered_check,
-config_clean, wiki_fresh)
+config_clean, grounding_check, wiki_fresh)
 ```
 
 ## Which gates run when
@@ -378,9 +378,9 @@ engine's phase map, frozen into each run when it begins:
 
 ```text
 plan: none
-code: phpcs, phpstan, eslint, stylelint, prettier, config_clean
+code: phpcs, phpstan, eslint, stylelint, prettier, config_clean, grounding_check
 test: phpunit, mutation, playwright, coverage, rendered_check, config_clean
-complete: phpcs, phpstan, eslint, stylelint, prettier, phpunit, mutation, playwright, coverage, rendered_check, config_clean, wiki_fresh
+complete: phpcs, phpstan, eslint, stylelint, prettier, phpunit, mutation, playwright, coverage, rendered_check, config_clean, grounding_check, wiki_fresh
 ```
 
 Plan runs nothing — there is nothing yet to measure. Code gates the diff with

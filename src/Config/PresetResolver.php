@@ -159,6 +159,7 @@ final class PresetResolver {
       'coverage' => new GateSettings('coverage', FALSE, ['min' => 0]),
       'rendered_check' => new GateSettings('rendered_check', TRUE),
       'config_clean' => new GateSettings('config_clean', TRUE),
+      'grounding_check' => new GateSettings('grounding_check', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', FALSE),
     ]);
   }
@@ -191,6 +192,7 @@ final class PresetResolver {
       'coverage' => new GateSettings('coverage', FALSE, ['min' => 0]),
       'rendered_check' => new GateSettings('rendered_check', TRUE),
       'config_clean' => new GateSettings('config_clean', TRUE),
+      'grounding_check' => new GateSettings('grounding_check', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', TRUE),
     ]);
   }
@@ -238,6 +240,7 @@ final class PresetResolver {
       'coverage' => new GateSettings('coverage', TRUE, ['min' => 60, 'timeout' => 900]),
       'rendered_check' => new GateSettings('rendered_check', TRUE),
       'config_clean' => new GateSettings('config_clean', TRUE),
+      'grounding_check' => new GateSettings('grounding_check', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', TRUE),
     ]);
   }
@@ -273,6 +276,7 @@ final class PresetResolver {
       'coverage' => new GateSettings('coverage', TRUE, ['min' => 80, 'timeout' => 900]),
       'rendered_check' => new GateSettings('rendered_check', TRUE),
       'config_clean' => new GateSettings('config_clean', TRUE),
+      'grounding_check' => new GateSettings('grounding_check', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', TRUE),
     ]);
   }
@@ -313,6 +317,7 @@ final class PresetResolver {
       'coverage' => new GateSettings('coverage', FALSE, ['min' => 0]),
       'rendered_check' => new GateSettings('rendered_check', TRUE),
       'config_clean' => new GateSettings('config_clean', TRUE),
+      'grounding_check' => new GateSettings('grounding_check', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', TRUE),
     ];
   }

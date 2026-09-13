@@ -65,7 +65,7 @@ class PhaseGateMapTest extends TestCase {
    */
   public function testCodeRunsStaticAnalysisOnly(): void {
     $this->assertSame(
-      ['phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier', 'config_clean'],
+      ['phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier', 'config_clean', 'grounding_check'],
       PhaseGateMap::gatesFor(Phase::Code),
     );
   }
@@ -130,7 +130,7 @@ class PhaseGateMapTest extends TestCase {
     $this->assertSame(
       [
         'plan' => [],
-        'code' => ['phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier', 'config_clean'],
+        'code' => ['phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier', 'config_clean', 'grounding_check'],
         'complete' => GateSettings::KNOWN_GATES,
       ],
       PhaseGateMap::forPhases(['plan', 'code', 'complete']),

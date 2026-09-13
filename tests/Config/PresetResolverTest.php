@@ -59,6 +59,7 @@ class PresetResolverTest extends TestCase {
       'coverage' => ['on' => FALSE, 'min' => 0],
       'rendered_check' => ['on' => TRUE],
       'config_clean' => ['on' => TRUE],
+      'grounding_check' => ['on' => TRUE],
       'wiki_fresh' => ['on' => TRUE],
     ];
     $low = [
@@ -73,6 +74,7 @@ class PresetResolverTest extends TestCase {
       'coverage' => ['on' => FALSE, 'min' => 0],
       'rendered_check' => ['on' => TRUE],
       'config_clean' => ['on' => TRUE],
+      'grounding_check' => ['on' => TRUE],
       'wiki_fresh' => ['on' => FALSE],
     ];
     $medium = [
@@ -87,6 +89,7 @@ class PresetResolverTest extends TestCase {
       'coverage' => ['on' => FALSE, 'min' => 0],
       'rendered_check' => ['on' => TRUE],
       'config_clean' => ['on' => TRUE],
+      'grounding_check' => ['on' => TRUE],
       'wiki_fresh' => ['on' => TRUE],
     ];
     $xhigh = [
@@ -101,6 +104,7 @@ class PresetResolverTest extends TestCase {
       'coverage' => ['on' => TRUE, 'min' => 60, 'timeout' => 900],
       'rendered_check' => ['on' => TRUE],
       'config_clean' => ['on' => TRUE],
+      'grounding_check' => ['on' => TRUE],
       'wiki_fresh' => ['on' => TRUE],
     ];
     $max = [
@@ -115,6 +119,7 @@ class PresetResolverTest extends TestCase {
       'coverage' => ['on' => TRUE, 'min' => 80, 'timeout' => 900],
       'rendered_check' => ['on' => TRUE],
       'config_clean' => ['on' => TRUE],
+      'grounding_check' => ['on' => TRUE],
       'wiki_fresh' => ['on' => TRUE],
     ];
     return [

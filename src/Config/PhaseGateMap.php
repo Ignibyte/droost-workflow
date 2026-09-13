@@ -48,6 +48,11 @@ final class PhaseGateMap {
       'stylelint',
       'prettier',
       'config_clean',
+      // The code phase is where grounding citations are first resolvable:
+      // plan WROTE the rows, code has just put the thing it grounded against
+      // on disk. Resolving here means a citation to a symbol that does not
+      // exist fails while the phase that invented it is still open.
+      'grounding_check',
     ],
     'test' => [
       'phpunit',
@@ -69,6 +74,7 @@ final class PhaseGateMap {
       'coverage',
       'rendered_check',
       'config_clean',
+      'grounding_check',
       'wiki_fresh',
     ],
   ];
