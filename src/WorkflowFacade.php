@@ -815,8 +815,17 @@ final class WorkflowFacade {
       // rows, and a criterion rewritten mid-run went unnoticed while the same
       // rewrite under agentic mode was refused. A discipline that switches
       // itself off in one of the two supported modes is not a discipline.
-      if ($phase === Phase::Code || $phase === Phase::Test) {
-        $this->auditDeclarationsFor($answered, $phase, $projectRoot);
+      // And it must DECIDE here, not merely record. The verdict was computed
+      // and thrown away, so the same undeclared file blocked the code phase
+      // under `agentic` and advanced under `interactive` — leaving a blocked
+      // row behind in a run that carried on regardless. Half a discipline is
+      // the exact shape the comment above was already written against.
+      if (($phase === Phase::Code || $phase === Phase::Test)
+        && $this->auditDeclarationsFor($answered, $phase, $projectRoot)) {
+        $answered = $answered->withPhaseStatus($phase, PhaseStatus::Failed);
+        $store->save($answered);
+
+        return $answered;
       }
       $next = $this->nextPhase($answered, $phase);
       $answered = $next === NULL
@@ -1027,6 +1036,10 @@ final class WorkflowFacade {
    *   What KIND of work this is — see WorkType. Distinct from the effort dial:
    *   preset says how hard to try, this says what is being built, and the two
    *   are orthogonal. Never a waiver; it is audited against the diff.
+   * @param string|null $workItem
+   *   The ticket or request this run answers, when the site's process wants
+   *   one. Sites that contribute the `work_item_declared` check require it;
+   *   everywhere else it is simply unrecorded.
    *
    * @return array{files: list<string>, tests: list<string>, type: string|null}
    *   What was recorded.
@@ -1034,7 +1047,7 @@ final class WorkflowFacade {
    * @throws \InvalidArgumentException
    *   When nothing was declared, or there is no run to declare against.
    */
-  public function declareChanges(string $projectRoot, array $files, array $tests, ?string $type = NULL): array {
+  public function declareChanges(string $projectRoot, array $files, array $tests, ?string $type = NULL, ?string $workItem = NULL): array {
     $files = self::cleanList($files);
     $tests = self::cleanList($tests);
     $workType = NULL;
@@ -1071,7 +1084,18 @@ final class WorkflowFacade {
     // verb a declaration it could not satisfy left no move but abandoning the
     // run. Only the kinds actually passed are touched, so `--tests=` alone does
     // not silently wipe the file declaration.
-    foreach (['file' => $files, 'test' => $tests] as $kind => $values) {
+    // `work_item` is the third kind because a check shipped that READS it and
+    // nothing anywhere could write it. Any site adding the documented
+    // `work_item:` config block got a blocking check with fault `agent`, whose
+    // own guidance says "There is no waiver for it" — every run failing at plan,
+    // forever, told to declare a ticket by a tool with no way to declare one.
+    // That is the SpecFreeze deadlock's exact shape, which `DeclarationAudit`
+    // names in a comment fifty lines away.
+    $kinds = ['file' => $files, 'test' => $tests];
+    if ($workItem !== NULL && trim($workItem) !== '') {
+      $kinds['work_item'] = [trim($workItem)];
+    }
+    foreach ($kinds as $kind => $values) {
       if ($values === []) {
         continue;
       }
@@ -1081,7 +1105,12 @@ final class WorkflowFacade {
       }
     }
 
-    return ['files' => $files, 'tests' => $tests, 'type' => $workType?->value];
+    return [
+      'files' => $files,
+      'tests' => $tests,
+      'type' => $workType?->value,
+      'work_item' => $workItem !== NULL && trim($workItem) !== '' ? trim($workItem) : NULL,
+    ];
   }
 
   /**

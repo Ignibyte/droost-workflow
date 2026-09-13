@@ -315,6 +315,7 @@ final class ArgvDispatcher {
     $files = [];
     $tests = [];
     $type = NULL;
+    $workItem = NULL;
     foreach (array_slice($argv, 1) as $argument) {
       if (str_starts_with($argument, '--files=')) {
         $files[] = substr($argument, 8);
@@ -325,9 +326,12 @@ final class ArgvDispatcher {
       elseif (str_starts_with($argument, '--type=')) {
         $type = substr($argument, 7);
       }
+      elseif (str_starts_with($argument, '--work-item=')) {
+        $workItem = substr($argument, 12);
+      }
     }
     try {
-      $declared = $this->facade($projectRoot)->declareChanges($projectRoot, $files, $tests, $type);
+      $declared = $this->facade($projectRoot)->declareChanges($projectRoot, $files, $tests, $type, $workItem);
     }
     catch (\InvalidArgumentException $e) {
       $this->fail($e->getMessage());
@@ -505,7 +509,8 @@ final class ArgvDispatcher {
       swap agentic     stop holding at phases and finish without stopping
       seeker-report    record an adversarial inspection (ledger on stdin)
       declare-changes  say what this run will touch, before touching it:
-                       --files=<a,b> --tests=<X,Y> [--type=<kind>]. The code
+                       --files=<a,b> --tests=<X,Y> [--type=<kind>]
+                       [--work-item=<id>]. The code
                        phase audits the claim against the real diff, so a file
                        nobody declared blocks and a declared test that never
                        ran blocks. --type is one of code, content_model,

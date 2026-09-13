@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Evidence;
 
+use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Evidence\CheckRecord;
 use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\Evidence\DeclarationAudit;
@@ -215,6 +216,44 @@ final class DeclarationAuditTest extends TestCase {
     }
 
     return FALSE;
+  }
+
+  /**
+   * The kind a contributed check reads is a kind some verb can write.
+   *
+   * `WorkItemDeclared` — the shipped worked example for contributed checks —
+   * blocks a phase when `declared($runId, 'work_item')` is empty, with fault
+   * `agent`, whose own guidance reads "There is no waiver for it". Nothing
+   * anywhere could write that kind: the declaration loop was hard-coded to
+   * `file` and `test`, and `declare-changes` took only `--files`, `--tests` and
+   * `--type`.
+   *
+   * So any site adding the documented `work_item:` block got every run failing
+   * at plan, permanently, told to declare a ticket by a tool with no way to
+   * declare one — the SpecFreeze deadlock's exact shape, which this very file
+   * names in a comment fifty lines away.
+   *
+   * Asserted as a property, because the next contributed check will read the
+   * next kind: every kind any check reads must be writable through the facade.
+   */
+  public function testEveryDeclarationKindACheckReadsIsWritable(): void {
+    $root = sys_get_temp_dir() . '/droost-kinds-' . bin2hex(random_bytes(6));
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+
+    $store = new EvidenceStore($root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
+
+    // The kinds droost itself reads back anywhere, contributed checks included.
+    foreach (['file', 'test', 'work_item'] as $kind) {
+      $store->declare('r1', 'plan', $kind, 'value-' . $kind, date('c'));
+      $this->assertSame(
+        ['value-' . $kind],
+        $store->declared('r1', $kind),
+        sprintf('"%s" is a kind something can actually declare', $kind),
+      );
+    }
+
+    exec('rm -rf ' . escapeshellarg($root));
   }
 
 }
