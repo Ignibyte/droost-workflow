@@ -444,6 +444,80 @@ final class EvidenceStore {
   }
 
   /**
+   * Records one declared file or test.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $phase
+   *   The phase declaring it.
+   * @param string $kind
+   *   Either 'file' or 'test'.
+   * @param string $value
+   *   The path, class or method.
+   * @param string|null $at
+   *   The timestamp, ISO-8601.
+   */
+  public function declare(string $runId, string $phase, string $kind, string $value, ?string $at = NULL): void {
+    $this->connection()
+      ->prepare('INSERT INTO declaration (run_id, phase, kind, value, declared_at) VALUES (?, ?, ?, ?, ?)')
+      ->execute([$runId, $phase, $kind, $value, $at ?? date('c')]);
+  }
+
+  /**
+   * What a run declared, by kind.
+   *
+   * Across the whole run, not one phase: a declaration made while planning is
+   * what the code phase is audited against, and asking only about the current
+   * phase would find nothing.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $kind
+   *   Either 'file' or 'test'.
+   *
+   * @return list<string>
+   *   The declared values, deduplicated.
+   */
+  public function declared(string $runId, string $kind): array {
+    $statement = $this->connection()
+      ->prepare('SELECT DISTINCT value FROM declaration WHERE run_id = ? AND kind = ? ORDER BY value');
+    $statement->execute([$runId, $kind]);
+
+    return array_map(static fn (array $row): string => (string) $row['value'], $statement->fetchAll() ?: []);
+  }
+
+  /**
+   * The tests a run's phpunit gate actually executed, as far as it can tell.
+   *
+   * Read from the invocation and the summary of every phpunit-shaped check,
+   * which is all the store holds about a suite run. Deliberately coarse: the
+   * audit only asks whether a promised test appears anywhere in what ran, and
+   * a false MATCH is far cheaper than a false accusation of dropping coverage.
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return list<string>
+   *   Text in which a declared test may be looked for.
+   */
+  public function ranTests(string $runId): array {
+    $statement = $this->connection()->prepare(
+      'SELECT summary, invocation FROM check_result
+        WHERE run_id = ? AND name IN (\'phpunit\', \'playwright\', \'coverage\', \'mutation\')'
+    );
+    $statement->execute([$runId]);
+    $seen = [];
+    foreach ($statement->fetchAll() ?: [] as $row) {
+      foreach (['summary', 'invocation'] as $column) {
+        if (is_string($row[$column] ?? NULL) && $row[$column] !== '') {
+          $seen[] = $row[$column];
+        }
+      }
+    }
+    return $seen;
+  }
+
+  /**
    * Records one droost tool call, with the phase it happened in.
    *
    * The JSONL ledger records the tool and the outcome and no phase, so its

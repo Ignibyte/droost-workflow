@@ -98,6 +98,7 @@ final class ArgvDispatcher {
         'seeker-report' => $this->seekerReport($projectRoot),
         'declare-browser' => $this->declareBrowser($projectRoot, $argv),
         'declare-tasks' => $this->declareTasks($projectRoot, $argv),
+        'declare-changes' => $this->declareChanges($projectRoot, $argv),
         'reset' => $this->reset($projectRoot, $argv),
         'baseline' => $this->baseline($projectRoot, $argv),
         default => $this->unknown($verb),
@@ -294,6 +295,44 @@ final class ArgvDispatcher {
     }
     $this->facade($projectRoot)->declareBrowser($projectRoot, $word);
     $this->say('browser: ' . $word);
+    return self::EXIT_OK;
+  }
+
+  /**
+   * Records what this phase will change, and what will cover it.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The arguments: --files=a,b --tests=c,d, either repeatable.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function declareChanges(string $projectRoot, array $argv): int {
+    $files = [];
+    $tests = [];
+    foreach (array_slice($argv, 1) as $argument) {
+      if (str_starts_with($argument, '--files=')) {
+        $files[] = substr($argument, 8);
+      }
+      elseif (str_starts_with($argument, '--tests=')) {
+        $tests[] = substr($argument, 8);
+      }
+    }
+    try {
+      $declared = $this->facade($projectRoot)->declareChanges($projectRoot, $files, $tests);
+    }
+    catch (\InvalidArgumentException $e) {
+      $this->fail($e->getMessage());
+      return self::EXIT_USAGE;
+    }
+    $this->say(sprintf(
+      'declared: %d file(s), %d test(s)',
+      count($declared['files']),
+      count($declared['tests']),
+    ));
+
     return self::EXIT_OK;
   }
 

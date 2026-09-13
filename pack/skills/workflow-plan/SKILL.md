@@ -121,7 +121,32 @@ Then produce the spec:
    novel. The seeker grades the diff against this map — building by hand
    what your own plan said a tool would build is drift, and so is a
    hand-written row whose construct a listed generator covers.
-5. **Acceptance criteria in EARS form** — "When <trigger>, the <system> shall
+5. **Declare what will change, before it changes.** Two lists, recorded by
+   droost rather than written in prose, because the code phase is AUDITED
+   against them:
+
+   ```bash
+   vendor/bin/droost-workflow declare-changes \
+     --files=web/themes/custom/kchockey,config/sync/system.site.yml \
+     --tests=KchockeySafeUrlTest
+   ```
+
+   A directory covers what you create under it, so name the module or theme
+   rather than every file you expect to write. The audit is asymmetric on
+   purpose:
+
+   - **a file you touch that you never declared BLOCKS the code phase.** Scope
+     found mid-build belongs in the spec first — re-declare and say why in the
+     plan, rather than letting the diff grow quietly.
+   - **a file you declared and did not touch is recorded, and does not block.**
+     Plans shrink for good reasons.
+   - **a test you named that never ran BLOCKS.** "I will cover this" is a
+     promise about verification.
+
+   The run's own record (`droost/droost-workflow/`) and lock files are never
+   counted against you.
+
+6. **Acceptance criteria in EARS form** — "When <trigger>, the <system> shall
    <observable response>", one observable behaviour per row, each with a way
    to check it. A criterion nobody can check is not a criterion.
 

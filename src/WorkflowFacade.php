@@ -20,6 +20,7 @@ use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Event\NullWorkflowListener;
 use Droost\Workflow\Event\WorkflowListenerInterface;
 use Droost\Workflow\Gate\GateExecutorInterface;
+use Droost\Workflow\Evidence\DeclarationAudit;
 use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Evidence\SpecFreeze;
 use Droost\Workflow\Gate\GateRunner;
@@ -709,6 +710,16 @@ final class WorkflowFacade {
       $projectRoot,
       $this->now(),
     );
+    // Scope is audited where it is created. A file touched that nobody declared
+    // is the drift the seeker exists to catch by judgement — and the seeker is
+    // OFF below `medium`, so on a light run nothing looked at all. This looks
+    // by arithmetic, at every level.
+    //
+    // It runs after the gates and before the advance, so a phase whose tools
+    // were all green still does not move while its diff exceeds its plan. The
+    // checks land in the evidence store either way, which is what lets the Stop
+    // hook name the reason rather than repeat that a phase is open.
+    $outcome = $this->auditDeclarations($outcome, $phase, $projectRoot);
     $advanced = $this->advanceIfDue($outcome, $phase);
     // The moment the contract stops being drafted and starts being binding.
     // Frozen on the way OUT of plan, not on the way in, because plan is where
@@ -973,6 +984,79 @@ final class WorkflowFacade {
   }
 
   /**
+   * Records what this phase intends to change, and what will cover it.
+   *
+   * Nothing asked for this before. The `## Tooling plan` maps constructs to
+   * surfaces and never names a path; the `Verified By` column names a test and
+   * is filled at the TEST phase, after the fact. The only statement of scope
+   * was a sentence of prose in the code brief that nothing checked.
+   *
+   * A declaration is not a promise the agent grades itself against: the code
+   * phase audits it against the diff. Files touched but never declared block;
+   * files declared and not touched are recorded and do not, because plans
+   * shrink for good reasons and a run that wedged over one would teach the
+   * agent to pad its declarations.
+   *
+   * @param string $projectRoot
+   *   The repository root.
+   * @param list<string> $files
+   *   Paths this phase will change. A directory covers what is under it.
+   * @param list<string> $tests
+   *   Tests that will cover the work — classes, methods or paths.
+   *
+   * @return array{files: list<string>, tests: list<string>}
+   *   What was recorded.
+   *
+   * @throws \InvalidArgumentException
+   *   When nothing was declared, or there is no run to declare against.
+   */
+  public function declareChanges(string $projectRoot, array $files, array $tests): array {
+    $files = self::cleanList($files);
+    $tests = self::cleanList($tests);
+    if ($files === [] && $tests === []) {
+      throw new \InvalidArgumentException(
+        'declare-changes needs at least one file or test. An empty declaration '
+        . 'is not a small scope, it is no scope — and the code phase audits '
+        . 'the diff against what was declared.'
+      );
+    }
+    $state = $this->requireRun(new RunStateStore($projectRoot));
+    $phase = $state->currentPhase?->value ?? 'plan';
+    $store = new EvidenceStore($projectRoot);
+    $now = $this->now();
+    foreach (['file' => $files, 'test' => $tests] as $kind => $values) {
+      foreach ($values as $value) {
+        $store->declare($state->runId, $phase, $kind, $value, $now);
+      }
+    }
+
+    return ['files' => $files, 'tests' => $tests];
+  }
+
+  /**
+   * A comma-or-repeat argument list, trimmed and deduplicated.
+   *
+   * @param list<string> $values
+   *   The raw values.
+   *
+   * @return list<string>
+   *   The cleaned values.
+   */
+  private static function cleanList(array $values): array {
+    $flat = [];
+    foreach ($values as $value) {
+      foreach (explode(',', $value) as $part) {
+        $part = trim($part);
+        if ($part !== '') {
+          $flat[] = $part;
+        }
+      }
+    }
+
+    return array_values(array_unique($flat));
+  }
+
+  /**
    * Records the host task surface the running agent can drive.
    *
    * Same shape and same reason as declareBrowser(): whether this session can
@@ -1103,6 +1187,56 @@ final class WorkflowFacade {
     catch (\Throwable $e) {
       // Deliberately swallowed: see the docblock.
     }
+  }
+
+  /**
+   * Holds the code phase to the scope its plan declared.
+   *
+   * Silent unless something was declared: a run that never used
+   * `declare-changes` is not retroactively in breach, and the verb is new.
+   *
+   * @param \Droost\Workflow\Mode\RunOutcome $outcome
+   *   What the phase produced.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase that just ran.
+   * @param string $projectRoot
+   *   The repository root.
+   *
+   * @return \Droost\Workflow\Mode\RunOutcome
+   *   The outcome, downgraded to Failed when the audit blocks.
+   */
+  private function auditDeclarations(RunOutcome $outcome, Phase $phase, string $projectRoot): RunOutcome {
+    if ($phase !== Phase::Code || $outcome->outcome !== Outcome::Advanced) {
+      return $outcome;
+    }
+    $state = $outcome->state;
+    try {
+      $store = new EvidenceStore($projectRoot);
+      $files = $store->declared($state->runId, 'file');
+      $tests = $store->declared($state->runId, 'test');
+      if ($files === [] && $tests === []) {
+        return $outcome;
+      }
+      $audit = new DeclarationAudit(
+        $files,
+        $tests,
+        $this->vcs->changedFiles($projectRoot, $state->baseCommit),
+        $store->ranTests($state->runId),
+      );
+      $blocked = FALSE;
+      foreach ($audit->checks() as $check) {
+        $store->record($state->runId, $phase->value, $check, $this->now());
+        $blocked = $blocked || $check->state->blocksAdvance();
+      }
+    }
+    catch (\Throwable $e) {
+      // An audit that cannot read its own record must not fail a green phase.
+      return $outcome;
+    }
+
+    return $blocked
+      ? new RunOutcome(Outcome::Failed, $state, $outcome->report)
+      : $outcome;
   }
 
   /**
