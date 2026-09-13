@@ -797,7 +797,7 @@ final class GuardTest extends WorkflowTestCase {
    * now, on a path that only fires when the input is already hostile or broken
    * — which is the input that matters.
    */
-  public function testSoftNudgeSurvivesAMalformedByte(): void {
+  public function testSoftNudgeSurvivesMalformedBytes(): void {
     $root = $this->makeRoot();
     mkdir($root . '/droost/droost-workflow', 0775, TRUE);
     // A blocked gate whose summary carries a lone continuation byte, which is
