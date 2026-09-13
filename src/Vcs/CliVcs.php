@@ -55,16 +55,37 @@ final class CliVcs implements VcsInterface {
         }
       }
     }
-    [$exit, $stdout] = $this->git($projectRoot, ['status', '--porcelain', '--untracked-files=all']);
+    // `-z`, because `--porcelain` QUOTES any path containing a space — literal
+    // double quotes, passed straight through — and nothing downstream strips
+    // them. The leading `"` then breaks every prefix match, so a file inside an
+    // exempt tree stopped being exempt: a stock `composer require --dev
+    // squizlabs/php_codesniffer` in a repo that commits vendor/ blocked the
+    // code phase over
+    // `"vendor/…/ClassFileName Spaces In Filename.inc"` — the exact wall
+    // class the exemptions exist to remove, still standing. `core.quotePath`
+    // does not fix it; that covers non-ASCII, not spaces.
+    //
+    // Under `-z` the records are NUL-separated and never quoted, and a RENAME
+    // emits the new path then the old one as a second field — so the old path
+    // is consumed rather than parsed as a record of its own.
+    [$exit, $stdout] = $this->git(
+      $projectRoot,
+      ['status', '--porcelain', '-z', '--untracked-files=all'],
+    );
     if ($exit === 0) {
-      foreach (preg_split('/\R/', $stdout) ?: [] as $line) {
+      $records = explode("\0", $stdout);
+      $count = count($records);
+      for ($i = 0; $i < $count; $i++) {
+        $line = $records[$i];
         if (strlen($line) < 4) {
           continue;
         }
-        $path = trim(substr($line, 3));
-        // A rename prints "old -> new"; the new path is the one that exists.
-        if (str_contains($path, ' -> ')) {
-          $path = trim(substr($path, strrpos($path, ' -> ') + 4));
+        $status = substr($line, 0, 2);
+        $path = substr($line, 3);
+        // R and C carry their source as the NEXT field; the path above is the
+        // one that exists now, which is the one a diff is about.
+        if (str_contains($status, 'R') || str_contains($status, 'C')) {
+          $i++;
         }
         if ($path !== '') {
           $files[] = $path;

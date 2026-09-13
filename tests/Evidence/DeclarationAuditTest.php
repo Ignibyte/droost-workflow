@@ -417,4 +417,43 @@ final class DeclarationAuditTest extends TestCase {
     $this->assertNotContains('mandatory_measured', $names);
   }
 
+  /**
+   * The gate binaries are not covered by the dependency exemption.
+   *
+   * `vendor/` and `node_modules/` were exempted so `composer require` would
+   * stop being charged to the agent — and they took `vendor/bin/` and
+   * `node_modules/.bin/` with them, which is where every gate droost runs
+   * lives. Replacing `vendor/bin/phpstan` with `#!/bin/sh\nexit 0` used to be
+   * undeclared scope: blocked, agent fault, no waiver.
+   *
+   * A reviewer drove the consequence end to end: all three binaries stubbed,
+   * the code phase PASSED, and phpcs and phpstan recorded `satisfied` with
+   * `measured = 1`. Not even a labelled pass — an ordinary green over a tool
+   * that did nothing. "The gates passed" had become "the gates were replaced".
+   */
+  public function testTheGateBinariesAreNotExempt(): void {
+    $audit = new DeclarationAudit(
+      ['src/A.php'],
+      [],
+      [
+        'src/A.php',
+        'vendor/bin/phpstan',
+        'node_modules/.bin/eslint',
+        // The trees around them stay exempt: this is about the executables.
+        'vendor/acme/lib/Thing.php',
+        'vendor/composer/installed.json',
+        'node_modules/left-pad/index.js',
+      ],
+    );
+
+    $undeclared = $audit->undeclared();
+    sort($undeclared);
+
+    $this->assertSame(
+      ['node_modules/.bin/eslint', 'vendor/bin/phpstan'],
+      $undeclared,
+      'the tools droost trusts are the agent\'s to install, never to write',
+    );
+  }
+
 }

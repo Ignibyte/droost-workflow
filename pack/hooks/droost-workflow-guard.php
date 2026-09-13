@@ -636,6 +636,13 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
       $endCommand();
       continue;
     }
+    if ($char === '(' || $char === ')' || $char === '{' || $char === '}') {
+      // Grouping punctuation is not part of a word: `(cd x && …)` has `cd` as
+      // the head of its first command, and treating `(cd` as one token meant
+      // the subshell's `cd` was never seen.
+      $endToken();
+      continue;
+    }
     if ($char === '>' || $char === '<') {
       // A redirection separates words, not commands: its target is an operand
       // and has to be seen as one. But WHICH operand matters — `cat x >
@@ -674,6 +681,13 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
   // fixed this once, for heredoc bodies (F-EMT-11, a pull-request body quoting
   // a waiver). Quoting a command to a human is not running it, and only
   // something that will EXECUTE its argument makes it a command line again.
+  // PREFIX WRAPPERS. `$head` is token 0, so anything in front of the runner hid
+  // it: `nice bash -c …`, `time bash -c …`, `watch -n1 …`, `flock … -c …`,
+  // `setsid`, `stdbuf`, `su -c`, `git -c alias.z='!drush …' z`. Growing the
+  // allowlist loses that race, so the wrappers are STRIPPED first and whatever
+  // is left is judged.
+  $wrappers = '/^(?:sudo|command|env|nice|time|setsid|stdbuf|ionice|caffeinate|arch'
+    . '|unbuffer|doas|busybox|nohup|timeout|watch|flock|parallel|su|script)$/';
   $runner = '/^(?:sudo|command|env)?$|^(?:\/\S+\/)?(?:sh|bash|zsh|dash|ksh|fish|eval'
     . '|php|python3?|perl|node|ruby|expect|xargs|nohup|timeout|script)$/';
   $verbs = '/droost:workflow:(gate-waive|baseline|bypass|effort)\b'
@@ -683,9 +697,43 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
   foreach ($invocations as $tokens) {
     // The subcommand forms — `ddev exec …`, `lando ssh …`, `docker exec …` —
     // plus anything that runs a string it was handed.
-    $head = strtolower($tokens[0] ?? '');
-    $second = strtolower($tokens[1] ?? '');
-    $runs = preg_match($runner, $head) === 1
+    // Strip leading wrappers and their own flags before asking what this is.
+    $bare = $tokens;
+    $stripped = 0;
+    for ($strip = 0; $strip < 8 && $bare !== []; $strip++) {
+      $word = strtolower(basename($bare[0]));
+      if (preg_match($wrappers, $word) !== 1) {
+        break;
+      }
+      array_shift($bare);
+      $stripped++;
+      while ($bare !== [] && str_starts_with($bare[0], '-')) {
+        array_shift($bare);
+      }
+    }
+    // A wrapper's whole job is to run what follows, so when stripping one
+    // leaves a single multi-word token, that token IS the command line —
+    // `watch -n1 'drush …'` and `flock /tmp/l -c '…'` hand over a string
+    // exactly as `bash -c` does, without being named `bash`.
+    $wrapped = $stripped > 0
+      && ($bare[0] ?? '') !== ''
+      && preg_match('/\s/', $bare[0]) === 1;
+    // `flock /tmp/lock -c '…'` and `su -c '…' me` put the string after their
+    // own `-c`, past an operand of their own, so the head is not it. Only the
+    // token immediately after a `-c` counts — scanning for any multi-word token
+    // would read `nice git commit -m "…"`'s MESSAGE as a command line.
+    if ($stripped > 0 && !$wrapped) {
+      foreach ($tokens as $index => $word) {
+        if ($word === '-c' && preg_match('/\s/', $tokens[$index + 1] ?? '') === 1) {
+          $wrapped = TRUE;
+          break;
+        }
+      }
+    }
+    $head = strtolower($bare[0] ?? '');
+    $second = strtolower($bare[1] ?? '');
+    $runs = $wrapped
+      || preg_match($runner, $head) === 1
       || ($head === 'ssh')
       || (in_array($head, ['ddev', 'lando', 'fin', 'docker', 'docker-compose', 'podman'], TRUE)
         && in_array($second, ['exec', 'ssh', 'run'], TRUE))
@@ -693,7 +741,13 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
     $kept = [];
     $inners = [];
     foreach ($tokens as $token) {
-      if ($runs && preg_match('/\s/', $token) === 1 && preg_match($verbs, $token) === 1) {
+      // WHATEVER is in it. This also required the token to carry an operator
+      // VERB, so every protected-path write inside a runner was invisible —
+      // `bash -c 'echo bad > .claude/hooks/droost-workflow-guard.php'` kept the
+      // whole thing as one multi-word token that no path check can match, and
+      // the guard overwrote itself. `$runs` is the gate; what the runner was
+      // handed is a command line either way.
+      if ($runs && preg_match('/\s/', $token) === 1) {
         // The nested line REPLACES the argument that carried it. Keeping both
         // meant the outer invocation still held the verb — as one long token,
         // where its `--off` is not an argument — so `ddev exec "drush …
@@ -796,8 +850,28 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
   foreach (operator_commands_invocations($command) as $tokens) {
     // `cd X` moves the floor for everything after it. `cd` with no argument,
     // or to somewhere unreadable, gives up on tracking rather than guessing.
-    if (($tokens[0] ?? '') === 'cd') {
-      $target = $tokens[1] ?? '';
+    // EVERY spelling of it. Only a bare `cd X` moved the floor, so `pushd X`,
+    // `cd -- X`, `cd -P X` and `(cd X && …)` all left the guard resolving bare
+    // filenames against the project root — and a forged bypass.json written
+    // that way took the require_run wall from exit 2 to exit 0. Proven with
+    // `pushd`.
+    //
+    // A leading `(` or `{` is its own token now, so a subshell's `cd` is still
+    // the head of its invocation.
+    $verbWord = strtolower(ltrim($tokens[0] ?? '', '({'));
+    if ($verbWord === 'cd' || $verbWord === 'pushd') {
+      // The first operand that is not one of `cd`'s own flags.
+      $target = '';
+      foreach (array_slice($tokens, 1) as $word) {
+        if ($word === '--') {
+          continue;
+        }
+        if (str_starts_with($word, '-')) {
+          continue;
+        }
+        $target = ltrim($word, "\x01");
+        break;
+      }
       $moved = $target === '' ? FALSE : realpath(
         str_starts_with($target, '/') ? $target : $cwd . '/' . $target,
       );
@@ -841,9 +915,20 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
         continue;
       }
       // Resolved against the tracked cwd, then judged exactly as a Write is.
+      // Is this operand being WRITTEN? A redirection target always is; a file
+      // named to `cp`, `mv`, `tee` and friends is; a file named to anything
+      // else is usually being read or run.
+      $target = str_starts_with($operand, "\x01");
       $operand = ltrim($operand, "\x01");
       $absolute = str_starts_with($operand, '/') ? $operand : $cwd . '/' . $operand;
       $refusal = enforcement_refusal($absolute, $root, $stateDir);
+      if ($refusal !== ''
+        && preg_match('#(^|/)(vendor/bin|node_modules/\.bin)/[^/]+$#', $operand) === 1
+        && !$target
+        && preg_match('/^(cp|mv|ln|install|tee|dd|truncate|sed|chmod|chown|rm|shred|patch)$/', $verb) !== 1) {
+        // Named, not written: running a gate's own tool is what it is for.
+        continue;
+      }
       if ($refusal !== '') {
         fwrite(STDERR, sprintf('%s (Refused: %s)', $refusal, trim($command)));
         exit(2);
@@ -1184,6 +1269,27 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
   // this is a wall against the obvious route, not a signature. Making it a
   // signature needs a secret that does not live in the repository, which is the
   // same open problem the evidence chain has.
+  // The gate executables. `ShellGateExecutor::binaryPathFor()` resolves every
+  // gate to `vendor/bin/<tool>` or `node_modules/.bin/<tool>`, so these are the
+  // programs whose exit codes this whole pipeline treats as the truth. An agent
+  // that can replace one has replaced the verdict — a reviewer stubbed all
+  // three with `exit 0` and watched the code phase pass with phpcs and phpstan
+  // recorded `satisfied`.
+  //
+  // The directories they sit in stay writable: `composer install` and `npm ci`
+  // are ordinary work, and this is about the files, not the trees. The SHELL
+  // tier asks this only in a writing context, because naming one of these is
+  // usually how you RUN it — `timeout 30 vendor/bin/phpunit` is a test suite,
+  // not an attack, and refusing it would be the kind of false positive that
+  // gets a guard switched off.
+  if (preg_match('#(^|/)(vendor/bin|node_modules/\.bin)/[^/]+$#', $relative) === 1) {
+    return 'That is a gate\'s own executable. droost runs it and reads its exit '
+      . 'code as the verdict, so an agent that can rewrite it can make any gate '
+      . 'say anything — and the run would report the tools as passing. Install '
+      . 'and update these through composer or npm, which the OPERATOR runs, '
+      . 'never by writing the file.';
+  }
+
   if (preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/bypass\.json$#', $relative) === 1) {
     return 'That file IS the bypass grant — the operator\'s recorded decision '
       . 'to let this session build with no run at all. Writing your own is not '

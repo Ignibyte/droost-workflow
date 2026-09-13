@@ -1552,6 +1552,107 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * The runner's argument is a command line whatever is inside it.
+   *
+   * Recursion into a runner's string required it to carry an operator VERB, so
+   * every protected-path write inside one was invisible: the outer invocation
+   * kept it as a single multi-word token that no path check can match, and
+   * `bash -c 'echo bad > .claude/hooks/…guard.php'` overwrote the guard.
+   * Being a runner is the gate; what it was handed is a command line
+   * either way.
+   */
+  public function testProtectedWritesInsideRunnersAreSeen(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    foreach ([
+      "bash -c 'echo bad > .claude/hooks/droost-workflow-guard.php'",
+      "sh -c 'echo \"{}\" > .claude/settings.json'",
+      "bash -c 'rm -rf droost/droost-workflow'",
+      "bash -c 'cd droost/droost-workflow && echo x > bypass.json'",
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(2, $code, $command . ' reaches an enforcement file');
+    }
+  }
+
+  /**
+   * Every spelling of `cd` moves the floor, and a wrapper does not hide a run.
+   *
+   * Only a bare `cd X` was tracked, so `pushd`, `cd --`, `cd -P` and a
+   * subshell's `(cd X && …)` left bare filenames resolving against the project
+   * root — a forged bypass.json written through `pushd` took the require_run
+   * wall from exit 2 to exit 0. And `$head` was token 0, so `nice`, `time`,
+   * `watch`, `flock` and friends hid the runner behind them.
+   */
+  public function testCdSpellingsAndWrappersHideNoCommand(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    foreach ([
+      'pushd droost/droost-workflow >/dev/null && echo x > bypass.json',
+      'cd -- droost/droost-workflow && echo x > bypass.json',
+      '(cd droost/droost-workflow && echo x > bypass.json)',
+      "nice bash -c 'drush droost:workflow:bypass x'",
+      "time bash -c 'drush droost:workflow:bypass x'",
+      "watch -n1 'drush droost:workflow:bypass x'",
+      "flock /tmp/l -c 'drush droost:workflow:gate-waive phpcs'",
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(2, $code, $command);
+    }
+  }
+
+  /**
+   * The gate's own executable is not the agent's to rewrite, but is to RUN.
+   *
+   * `ShellGateExecutor::binaryPathFor()` resolves each gate to `vendor/bin/` or
+   * `node_modules/.bin/`, so these are the programs whose exit codes the
+   * pipeline treats as the truth. Naming one is usually how you run it, though,
+   * and refusing `timeout 30 vendor/bin/phpunit` would be the kind of false
+   * positive that gets a guard switched off — so the shell tier asks only in a
+   * writing context.
+   */
+  public function testGateBinariesAreWritableOnlyByTheOperator(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/vendor/bin', 0775, TRUE);
+    foreach ([
+      'cp /bin/true vendor/bin/phpstan',
+      "echo 'exit 0' > vendor/bin/phpcs",
+      'mv /tmp/fake vendor/bin/phpunit',
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(2, $code, $command . ' replaces a verdict');
+    }
+    [$write] = $this->guard($root, 'pre-tool-use', [
+      'tool_name' => 'Write',
+      'tool_input' => ['file_path' => 'vendor/bin/phpstan'],
+    ]);
+    $this->assertSame(2, $write);
+
+    foreach ([
+      'timeout 30 vendor/bin/phpunit',
+      'vendor/bin/phpcs --standard=Drupal src',
+      "bash -c 'vendor/bin/phpunit --testsuite unit'",
+      'composer install',
+      'npm ci',
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(0, $code, $command . ' runs the tool, which is what it is for');
+    }
+  }
+
+  /**
    * Executes the packed guard exactly as Claude Code would.
    *
    * @param string $root

@@ -63,6 +63,21 @@ final class DeclarationAudit {
    */
   private const array TEST_GATES = ['phpunit', 'playwright', 'coverage', 'mutation'];
 
+  /**
+   * Where the gates' executables live, which no exemption covers.
+   *
+   * `ShellGateExecutor::binaryPathFor()` resolves every gate to one of these,
+   * so a tool droost is about to trust is not the agent's to rewrite — and a
+   * dependency-tree exemption that swallowed them turned "the gates passed"
+   * into "the gates were replaced".
+   *
+   * @var list<string>
+   */
+  private const array TOOL_DIRS = [
+    'vendor/bin/',
+    'node_modules/.bin/',
+  ];
+
   private const array NEVER_CREEP = [
     'droost/droost-workflow/',
     '.droost-workflow/',
@@ -461,6 +476,24 @@ final class DeclarationAudit {
    */
   private static function exempt(string $file): bool {
     $file = self::normalise($file);
+    // THE GATE BINARIES ARE NOT EXEMPT, whatever tree they sit in. `vendor/`
+    // and `node_modules/` were added so a `composer require` would stop being
+    // charged to the agent — and they took `vendor/bin/` and
+    // `node_modules/.bin/` with them, which is where every gate droost runs
+    // actually lives. Replacing `vendor/bin/phpstan` with `#!/bin/sh\nexit 0`
+    // used to be undeclared scope: blocked, agent fault, no waiver. The
+    // exemption made it invisible, and a reviewer drove it end to end — all
+    // three binaries stubbed, the code phase PASSED, and phpcs and phpstan
+    // recorded `satisfied` with `measured = 1`. Not even a labelled pass: an
+    // ordinary green over a tool that did nothing.
+    //
+    // Checked before the prefixes, because the prefixes would otherwise match.
+    foreach (self::TOOL_DIRS as $tools) {
+      $tools = self::normalise($tools);
+      if (str_starts_with($file, rtrim($tools, '/') . '/')) {
+        return FALSE;
+      }
+    }
     foreach (self::NEVER_CREEP as $prefix) {
       // Both sides normalised: comparing a normalised path against a raw
       // prefix is how `.droost-workflow/` stopped matching itself.
