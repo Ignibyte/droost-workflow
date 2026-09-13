@@ -135,6 +135,25 @@ A green is not a measurement. Classify every one.
 
 ---
 
+## 4-evidence. Read the store, not this form, where the store knows
+
+Since the evidence store landed, most of what follows is recorded rather than
+reconstructed, and `droost:workflow:evidence --export` renders it. Fill this
+form by hand only for the parts a machine must not answer — §5, §6 and §8 —
+and for anything the store could not see.
+
+What the store now holds that this form used to ask you to dig for:
+
+| Question | Where |
+|---|---|
+| every attempt of every gate, not just the last | `check_result`, one row per attempt |
+| whose fault a block was, and its remedy | `check_result.fault`, `.remedy` |
+| whether a green still describes the current code | `check_result.subject_hash` |
+| what the tool actually printed | `transcript` |
+| which phase a tool call happened in | `tool_call.phase` |
+| what the plan said it would change | `declaration`, and the `declared_files` / `declared_tests` checks |
+| whether the spec was edited after the plan froze it | `run.spec_hash` |
+
 ## 4a. The tool-call ledger — what droost was ACTUALLY asked
 
 `droost/droost-workflow/tool-calls.jsonl`, one line per tool result, successes

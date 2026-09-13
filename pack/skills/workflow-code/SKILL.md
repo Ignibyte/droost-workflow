@@ -26,6 +26,24 @@ search that really did come back empty. `grounding_check` re-runs each one,
 including the negative claims, and fails any tier that cites nothing.
 
 
+## Your declaration is audited here
+
+The plan declared the files this work would touch and the tests that would
+cover it. The code phase checks that against the real diff, and two of the
+three outcomes stop the phase:
+
+- **a file you touch that was never declared BLOCKS.** If the work genuinely
+  needs more scope than the plan named, re-declare it —
+  `vendor/bin/droost-workflow declare-changes --files=...` — and say in the
+  spec why it grew. Growing the diff quietly is the drift this exists to catch.
+- **a test you named that never ran BLOCKS.**
+- a file declared and not touched is recorded and does not block.
+
+The spec's contract sections are also frozen now. `## Tooling plan`,
+`## Grounding` and `## Acceptance criteria` were fixed when plan passed, and
+editing one is refused by name. Appending is still expected: `## Realized` and
+the seeker's ledgers belong in this file.
+
 ## Entry gate
 
 - A spec exists from the plan phase and its acceptance criteria are readable.
