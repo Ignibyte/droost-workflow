@@ -1565,7 +1565,12 @@ final class WorkflowFacade {
         $store->ranTests($state->runId),
         $store->workType($state->runId),
         $store->measuredGates($state->runId),
-        self::gatesOff($state),
+        // Off by level, or unreachable on this surface: both are gates the
+        // agent cannot make measure, and neither is its fault.
+        array_values(array_unique(array_merge(
+          self::gatesOff($state),
+          $store->skippedGates($state->runId),
+        ))),
       );
       $blocked = FALSE;
       foreach ($audit->checks($phase->value) as $check) {

@@ -36,7 +36,15 @@ three outcomes stop the phase:
   needs more scope than the plan named, re-declare it —
   `vendor/bin/droost-workflow declare-changes --files=...` — and say in the
   spec why it grew. Growing the diff quietly is the drift this exists to catch.
-- **a test you named that never ran BLOCKS.**
+
+  **Pass the WHOLE list, not just the new thing.** A re-declaration REPLACES
+  the file list; declaring only the file you just added drops everything you
+  declared at plan, and every one of those files then reads as scope creep. The
+  verb is not `add`.
+- **a test you named that never ran BLOCKS — at the TEST phase, not here.**
+  Tests run at test; this phase cannot judge whether one ran. And a level that
+  turns every test gate off (`low` does) cannot judge it at all, so a declared
+  test is recorded there as unverified rather than held against you.
 - a file declared and not touched is recorded and does not block.
 
 The spec's contract sections are also frozen now. `## Tooling plan`,
@@ -114,7 +122,10 @@ static analysis only, and non-negotiable: the pair is mandatory since 0.4,
 tunable but never off. The functional gates belong to the test phase, where
 there is behaviour to verify.
 
-**Then the seeker checkpoint.** When the static pair passes, the engine
+**Then the seeker checkpoint, at the levels that run one.** `low` has no
+seeker — the phase returns `advanced` and no inspection is due, so do not
+dispatch a reviewer for a checkpoint that never fires. Everywhere else: when
+the static pair passes, the engine
 holds the run at `inspection-due` rather than advancing: dispatch the
 `workflow-seeker` agent over everything this run changed, append its
 `## Seeker Inspection` section to the spec verbatim, and record it with the

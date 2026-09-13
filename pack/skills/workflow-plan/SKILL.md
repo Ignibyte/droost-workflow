@@ -55,7 +55,9 @@ there. Three forms resolve:
 
 **Every tier you claim needs at least one citation that resolves.** Prose in
 `Found` is what you say about yourself; the citation is what the site can
-confirm. A table with no `Evidence` column is refused — it used to pass, which
+confirm. A table with no `Evidence` column is refused at CODE, where
+`grounding_check` runs — plan runs no gates, so a missing column will not stop
+you here and will stop you one phase later. It used to pass entirely, which
 is exactly the hole this column closes.
 
 **All three tiers, every phase that decides.** They answer different questions
@@ -154,10 +156,18 @@ Then produce the spec:
    about. It never turns a gate OFF; the mandatory trio is the operator's dial,
    not yours.
 
-   **When to run it:** at the end of planning, before you write anything.
+   **When to run it:** after the PLAN phase has advanced, and before you write
+   anything. Not earlier: this verb needs a run to declare against, and the run
+   does not exist until the first `run` invocation writes `run.json`. Called
+   before that it refuses with *"there is no run in progress"* — the same trap
+   `declare-browser` already carries a warning about. The window is between the
+   plan `run` and the code `run`.
+
    Re-running it REPLACES the previous declaration for whichever lists you
    pass, so correcting a declaration is one command and not a second promise
-   stacked on the first.
+   stacked on the first. That also means a re-declaration must carry the WHOLE
+   list: passing only the new file drops every file you declared before, and
+   each of them then reads as scope creep.
 
    The audit is asymmetric on purpose:
 

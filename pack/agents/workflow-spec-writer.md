@@ -32,6 +32,29 @@ exists at every level:
 how we'll know — about ten lines. No EARS table; the discipline survives,
 the ceremony does not.
 
+**Two sections are NOT optional at either weight, because the plan gate reads
+them and refuses without them.** They are short, and leaving them out is the
+most common way a run fails before it starts:
+
+```markdown
+## Tooling plan
+
+| # | Construct | Surface |
+|---|---|---|
+| 1 | the thing you are building | `the droost tool that builds it` |
+
+## Grounding
+
+| Phase | Tier | Asked | Found | Evidence |
+|---|---|---|---|---|
+| plan | custom | what you asked of this project's own code | what you found | `the symbol or path` |
+| plan | contrib | the same, of a contributed module | | |
+| plan | core | the same, of core | | |
+```
+
+All three tiers at `plan`, or the gate names the ones you skipped and stops.
+The code phase adds its own three rows later; write only the `plan` rows now.
+
 Both weights build on the researcher's findings, never on assumption. Where
 a finding is marked UNVERIFIED, the spec carries that marker forward.
 

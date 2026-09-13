@@ -82,9 +82,11 @@ realized plan against it.
 
 ## The mandatory trio
 
-`phpcs`, `phpstan` and `phpunit` run on every run — they are the toolchain
-Drupal core itself develops with, and 0.4 made them non-negotiable. The lever
-file tunes HOW they run (standard, level, paths), never whether. A repo that
+`phpcs` and `phpstan` run on every run at every level — they are the toolchain
+Drupal core itself develops with, and the LEVER FILE tunes HOW they run
+(standard, level, paths), never whether. `phpunit` joins them everywhere except
+`low`, which turns it off as that level's declared trade; moving the dial is the
+operator's act, not the agent's, and nothing a run does can turn a gate back on. A repo that
 cannot run one of them yet gets an honest answer instead of a pass: tool
 missing, config missing, or a labeled "nothing to analyse / no tests yet".
 
@@ -235,8 +237,8 @@ and with what thresholds, is the lever file's business:
 | phase | gates due |
 |---|---|
 | plan | none — the spec is the gate |
-| code | phpcs, phpstan, plus custom gates placed at `code`; then the seeker checkpoint |
-| test | phpunit, mutation, playwright, coverage, rendered_check, plus custom gates placed at `test` |
+| code | phpcs, phpstan, eslint, stylelint, prettier, config_clean, grounding_check, plus custom gates placed at `code`; then the seeker checkpoint, where the level runs one |
+| test | phpunit, mutation, playwright, coverage, rendered_check, config_clean, plus custom gates placed at `test` |
 | complete | documentation first, then the full enabled set re-run — the terminal safety net — behind a clean inspection |
 
 Custom gates are the repo's own commands (`gates.custom` in the lever file —

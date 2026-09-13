@@ -850,6 +850,33 @@ final class EvidenceStore {
   }
 
   /**
+   * The gates that could not run here, whatever the levers asked for.
+   *
+   * A site gate on the standalone binary is ON and unreachable: no booted site,
+   * so `rendered_check` and its kin record `skipped` and measure nothing. For
+   * anything asking "did this gate measure?", that is indistinguishable from a
+   * gate the level turned off — and holding an agent to a gate its SURFACE
+   * cannot run is the same unclearable block as holding it to one the operator
+   * removed. Declaring `--type=theme` from the CLI wedged the test phase
+   * forever on exactly this.
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return list<string>
+   *   Gate names recorded as skipped.
+   */
+  public function skippedGates(string $runId): array {
+    $statement = $this->connection()->prepare(
+      'SELECT DISTINCT name FROM check_result
+        WHERE run_id = ? AND kind = \'gate\' AND state = ?'
+    );
+    $statement->execute([$runId, CheckState::Skipped->value]);
+
+    return array_map(static fn (array $row): string => self::text($row, 'name'), self::rows($statement));
+  }
+
+  /**
    * The gates that actually measured something in this run.
    *
    * "Measured" is a stricter claim than "passed": a gate that was off by

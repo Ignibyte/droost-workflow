@@ -22,14 +22,16 @@ record and the report from drifting apart.
 
 ### Before capture: what the export carries
 
-If this run exported site configuration, check whether `droost.settings`
-rides in it. Those are the agent write gates: a `drush config:import` on
-any site this repo deploys to will ARM them there, silently. That is the
-operator's call to make, not a default to inherit — hand it to them in the
-report (a live run's handoff named exactly this), with the site-local
-options: core's `$settings['config_exclude_modules']`, a config-ignore
-module, or deliberately keeping the flags tracked because every target is
-a disposable agent site.
+If this run exported site configuration, read what moved and say so in the
+report — an export is a change to every site this repo deploys to, and the
+diff is the only place anybody will see it before it lands.
+
+The write gates are NOT in that export, and used to be: `allow_*` is
+per-environment operator state armed at a TTY and kept in `$settings` (see
+`\Drupal\droost\GateState`), precisely so `config:export` can never sweep an
+armed gate into `config/sync` and arm it on another site. If you find
+`droost.settings` in an export carrying `allow_*` keys, that is a finding about
+a very old site, not the normal case.
 
 ### First half: capture
 
@@ -64,7 +66,7 @@ Tools that help — every one needs a booted site:
   generation packet you write FROM.
 - `droost_wiki_write` — the one MCP tool that writes the wiki. You supply
   the body; Droost composes the provenance and rolls the write back unless
-  the page verifies fresh. Gated behind `droost.settings.allow_scaffold`.
+  the page verifies fresh. Gated behind the `allow_scaffold` write gate — armed at a TTY with `drush droost:gate allow_scaffold on`, never through config.
   **Follow the `documenting-changes` skill.** (`drush droost:wiki:generate`
   still exists for batch regeneration; it needs an AI provider configured,
   which this path does not.)

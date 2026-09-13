@@ -425,4 +425,41 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     }
   }
 
+  /**
+   * Declaring theme work on the siteless binary does not wedge the run.
+   *
+   * The plan skill's own worked example declares `--type=theme`, and `theme`
+   * work rests on `rendered_check` — a gate that needs a booted site. On the
+   * standalone binary there is none, so it records `skipped`, measures nothing,
+   * and `type_coverage` blocked forever with fault `agent`: unclearable, since
+   * no phase can conjure a site, and pointed at the agent for obeying the
+   * example in its own brief.
+   *
+   * A gate the SURFACE cannot run is as unmeasurable as one the level turned
+   * off, and neither is the agent's doing.
+   */
+  public function testDeclaringThemeOnSitelessSurfaceDoesNotWedge(): void {
+    $root = $this->makeRootWithConfig("preset: medium\nmode: agentic\n");
+    $spec = $this->writeSpec($root);
+    $facade = $this->facade();
+
+    $this->assertSame(Outcome::Advanced, $facade->run($root, $spec)->outcome, 'plan');
+    $facade->declareChanges($root, ['web/themes/custom/kchockey'], [], 'theme');
+
+    $seen = [];
+    for ($i = 0; $i < 6; $i++) {
+      $outcome = $facade->run($root, $spec);
+      $seen[] = $outcome->outcome->value;
+      if ($outcome->outcome === Outcome::InspectionDue) {
+        $facade->recordSeeker($root, "## Seeker Inspection\n\nInspector: independent\n\n(no findings)\n");
+      }
+    }
+
+    $this->assertContains(
+      'completed',
+      $seen,
+      'the run finishes rather than looping on a gate this surface cannot run: ' . implode(', ', $seen),
+    );
+  }
+
 }

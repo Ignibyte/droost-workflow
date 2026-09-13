@@ -34,7 +34,8 @@ for**, and the default is narrower than people expect:
 
 | Call | Legs that run |
 |---|---|
-| no `checks` argument | **phpcs and phpstan only** |
+| no `module` and no `path` | **none at all** — it returns an inventory of what COULD run. Useful, and never a run: reporting it as one is the failure this table exists to prevent |
+| a target, no `checks` | **phpcs and phpstan only** |
 | `checks: [deprecations]` | deprecations, which is opt-in |
 | `checks: [phpunit], confirm: true` | phpunit, which needs `confirm` because the suite creates and drops databases |
 
