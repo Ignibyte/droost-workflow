@@ -468,6 +468,29 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       );
     }
 
+    if ($gate->name === 'phpunit') {
+      // The counts go in the FINDINGS, the shape phpcs and phpstan already
+      // use, and in the summary so a reader who never opens the findings
+      // still sees the size of what passed.
+      $counts = $this->phpunitTotals($stdout);
+      if ($counts !== NULL) {
+        return GateResult::ran(
+          $gate->name,
+          $exit === 0 ? GateStatus::Passed : GateStatus::Failed,
+          $exit,
+          $elapsed,
+          sprintf(
+            'phpunit %s — %d test(s), %d assertion(s)',
+            $exit === 0 ? 'passed' : 'FAILED',
+            $counts['tests'],
+            $counts['assertions'],
+          ),
+          [['key' => 'totals', 'detail' => $counts]],
+          $invocation,
+        );
+      }
+    }
+
     return GateResult::ran(
       $gate->name,
       $exit === 0 ? GateStatus::Passed : GateStatus::Failed,
@@ -643,6 +666,38 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
           $invocation,
         );
       }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * The phpunit run counts, or NULL when the tail cannot be read.
+   *
+   * The gate used to record `exit: 0` and nothing else, so a run whose suite
+   * was twenty tests and one whose suite was a single assertion left
+   * byte-identical records — while phpcs beside it stored per-file totals and
+   * phpstan stored an error count. In a dogfood round the one gate that
+   * caught a live XSS bypass was the one whose record said the least about
+   * what it had checked.
+   *
+   * Two shapes, because phpunit prints one or the other and never both: the
+   * clean tail `OK (20 tests, 32 assertions)`, and the counted tail
+   * `Tests: 14, Assertions: 18, Failures: 2.` used whenever anything is not a
+   * plain pass.
+   *
+   * @param string $stdout
+   *   The runner's output.
+   *
+   * @return array{tests: int, assertions: int}|null
+   *   The counts, or NULL when neither tail is present.
+   */
+  private function phpunitTotals(string $stdout): ?array {
+    if (preg_match('/^OK \((\d+) tests?, (\d+) assertions?\)/m', $stdout, $m) === 1) {
+      return ['tests' => (int) $m[1], 'assertions' => (int) $m[2]];
+    }
+    if (preg_match('/^Tests: (\d+), Assertions: (\d+)/m', $stdout, $m) === 1) {
+      return ['tests' => (int) $m[1], 'assertions' => (int) $m[2]];
     }
 
     return NULL;
