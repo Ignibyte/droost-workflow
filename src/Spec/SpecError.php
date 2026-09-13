@@ -216,15 +216,14 @@ final class SpecError extends \RuntimeException {
    */
   public static function contractChanged(string $path, array $sections): self {
     return new self(sprintf(
-      '%s changed after the plan phase froze it%s. The spec is the contract '
-      . 'this run is held to: the tooling plan, the grounding table and the '
-      . 'acceptance criteria are fixed when plan passes, and the phases after '
-      . 'it are graded against what was frozen, not against what the file says '
-      . 'now. Appending is fine and expected — the "## Realized" capture and '
-      . 'the seeker ledgers belong in this file — but a criterion, a citation '
-      . 'or a tooling row may not be rewritten under a gate that already read '
-      . 'it. Restore the frozen text, or reset the run and plan again with the '
-      . 'contract you actually mean.',
+      '%s broke the contract the plan phase recorded%s. ADDING is expected and '
+      . 'legal: the code phase adds its grounding rows, the test phase fills '
+      . '"Verified By", complete appends "## Realized", and the seeker appends '
+      . 'its ledgers — all to this same file. What may not happen is a row that '
+      . 'was there at plan being REMOVED or REWRITTEN, because the gates after '
+      . 'plan are graded against what was promised, not against what the file '
+      . 'says once the work turned out to be harder. Put the original rows '
+      . 'back, or reset the run and plan again with the contract you mean.',
       $path,
       $sections === [] ? '' : ' — changed: ' . implode(', ', $sections),
     ));

@@ -1274,15 +1274,20 @@ final class WorkflowFacade {
     if (!is_array($row) || !is_string($row['spec_hash'] ?? NULL) || $row['spec_hash'] === '') {
       return;
     }
+    // The recorded TEXT is what this is checked against, not the digest: two of
+    // the three sections are append-only, and "every row that was there is
+    // still there" is not a question a hash can answer.
+    $frozenText = is_string($row['spec_text'] ?? NULL) ? $row['spec_text'] : NULL;
     $text = @file_get_contents(rtrim($projectRoot, '/') . '/' . $spec);
-    if ($text === FALSE || SpecFreeze::intact($text, $row['spec_hash'])) {
+    if ($text === FALSE || $frozenText === NULL) {
       return;
     }
-    $changed = is_string($row['spec_text'] ?? NULL)
-      ? SpecFreeze::changedSections($text, $row['spec_text'])
-      : [];
+    $breaches = SpecFreeze::breaches($text, $frozenText);
+    if ($breaches === []) {
+      return;
+    }
 
-    throw SpecError::contractChanged($spec, $changed);
+    throw SpecError::contractChanged($spec, $breaches);
   }
 
   /**
