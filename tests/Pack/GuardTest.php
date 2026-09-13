@@ -783,6 +783,74 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * A soft nudge survives a malformed byte out of a tool, and burns no marker.
+   *
+   * Soft enforcement's entire product is the message. It is emitted at most
+   * once per phase per mode, through a marker file — and `json_encode` returns
+   * FALSE on malformed UTF-8, while the message carries a gate summary built
+   * from the tool's own bytes. So one stray 0xC3 out of phpstan produced an
+   * empty echo AFTER the marker had been touched: the operator was told
+   * nothing, and then told nothing again, permanently, for that phase.
+   *
+   * The encode now happens BEFORE the marker is burned, substitutes invalid
+   * bytes, and falls back to ASCII rather than emitting nothing. Untested until
+   * now, on a path that only fires when the input is already hostile or broken
+   * — which is the input that matters.
+   */
+  public function testSoftNudgeSurvivesAMalformedByte(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    // A blocked gate whose summary carries a lone continuation byte, which is
+    // exactly what a truncated multibyte sequence out of a tool looks like.
+    $this->seedBlockedCheck($root, 'phpstan', 'found ' . chr(0xC3) . ' errors');
+    file_put_contents(
+      $root . '/droost/droost-workflow/run.json',
+      (string) json_encode([
+        'run_id' => 'r1',
+        'current_phase' => 'code',
+        'phases' => ['code' => 'running'],
+        'enforcement' => 'soft',
+      ]),
+    );
+
+    [$code, $stdout] = $this->guard($root, 'stop', ['tool_name' => 'Stop', 'tool_input' => []]);
+
+    $this->assertSame(0, $code, 'soft enforcement allows the stop');
+    $this->assertNotSame('', $stdout, 'and says something — the message IS the product');
+    $decoded = json_decode($stdout, TRUE);
+    $this->assertIsArray($decoded, 'what it says is valid JSON the host can read');
+    $this->assertArrayHasKey('systemMessage', $decoded);
+    $this->assertNotSame('', $decoded['systemMessage']);
+  }
+
+  /**
+   * Records one blocked gate in a root's evidence store.
+   *
+   * Written with raw PDO rather than through EvidenceStore, because the guard
+   * reads the file with raw PDO too — it carries no autoloader by design, and a
+   * fixture built through the library would test a path the guard never takes.
+   *
+   * @param string $root
+   *   The project root.
+   * @param string $name
+   *   The gate name.
+   * @param string $summary
+   *   The summary, byte for byte.
+   */
+  private function seedBlockedCheck(string $root, string $name, string $summary): void {
+    $pdo = new \PDO('sqlite:' . $root . '/droost/droost-workflow/evidence.sqlite');
+    $pdo->exec(
+      'CREATE TABLE check_result (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, '
+      . 'phase TEXT, attempt INTEGER, kind TEXT, name TEXT, state TEXT, fault TEXT, '
+      . 'summary TEXT, remedy TEXT)'
+    );
+    $pdo->prepare(
+      'INSERT INTO check_result (run_id, phase, attempt, kind, name, state, fault, summary, remedy) '
+      . 'VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)'
+    )->execute(['r1', 'code', 'gate', $name, 'blocked', 'agent', $summary, NULL]);
+  }
+
+  /**
    * Executes the packed guard exactly as Claude Code would.
    *
    * @param string $root

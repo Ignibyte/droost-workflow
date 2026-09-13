@@ -357,4 +357,89 @@ final class EvidenceStoreTest extends TestCase {
     $this->assertNotSame($big, SubjectHasher::hash($this->root, ['mod']), 'and so does the last');
   }
 
+  /**
+   * A gate the operator waived is a gate that could not measure.
+   *
+   * Two ways in, found one at a time, and the second is the one that matters
+   * because it turns the rescue into the next wall: a run blocks, the operator
+   * waives the gate to free it, the waived gate then measures nothing, and
+   * `type_coverage` blocks on exactly that. The one documented way out of a
+   * stuck run produced the next stuck run.
+   *
+   * A waived gate records as `Unblocked` — not measured, not off by level, not
+   * skipped by surface, and in none of the exemptions. It was added to this
+   * query in fa3486d with no test, which is how it would have come back.
+   */
+  public function testWaivedAndSkippedGatesAreBothUnmeasurable(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
+    $cases = [
+      ['rendered_check', CheckState::Skipped, Fault::None],
+      ['snyk', CheckState::Unblocked, Fault::None],
+      ['phpcs', CheckState::Satisfied, Fault::None],
+      ['phpstan', CheckState::Blocked, Fault::Agent],
+      ['phpunit', CheckState::NotApplicable, Fault::None],
+      ['config_clean', CheckState::Recorded, Fault::None],
+    ];
+    foreach ($cases as [$name, $state, $fault]) {
+      $store->record('r1', 'test', new CheckRecord(
+        kind: 'gate',
+        name: $name,
+        state: $state,
+        fault: $fault,
+        summary: 'x',
+        exitCode: $state === CheckState::Blocked ? 1 : 0,
+      ));
+    }
+
+    $unmeasurable = $store->unmeasurableGates('r1');
+    sort($unmeasurable);
+
+    $this->assertSame(
+      ['rendered_check', 'snyk'],
+      $unmeasurable,
+      'skipped and waived, and nothing else — a blocked gate is the agent\'s '
+      . 'problem and a satisfied one measured',
+    );
+  }
+
+  /**
+   * A check that is not a gate does not appear, whatever its state.
+   *
+   * The query is scoped to `kind = gate` and the caller feeds the list to the
+   * declaration audit as "gates that cannot show a measurement". A contributed
+   * check landing in there would exempt a gate nobody waived.
+   */
+  public function testOnlyGatesAreUnmeasurable(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
+    $store->record('r1', 'complete', new CheckRecord(
+      kind: 'check',
+      name: 'jira_transitioned',
+      state: CheckState::Unblocked,
+      summary: 'lifted',
+    ));
+
+    $this->assertSame([], $store->unmeasurableGates('r1'));
+  }
+
+  /**
+   * And it answers for ONE run.
+   */
+  public function testUnmeasurableGatesAreScopedToTheRun(): void {
+    $store = new EvidenceStore($this->root);
+    foreach (['r1', 'r2'] as $run) {
+      $store->upsertRun($run, ['preset' => 'medium']);
+    }
+    $store->record('r1', 'test', new CheckRecord(
+      kind: 'gate', name: 'rendered_check', state: CheckState::Skipped, summary: 'no site',
+    ));
+    $store->record('r2', 'test', new CheckRecord(
+      kind: 'gate', name: 'snyk', state: CheckState::Unblocked, summary: 'waived',
+    ));
+
+    $this->assertSame(['rendered_check'], $store->unmeasurableGates('r1'));
+    $this->assertSame(['snyk'], $store->unmeasurableGates('r2'));
+  }
+
 }
