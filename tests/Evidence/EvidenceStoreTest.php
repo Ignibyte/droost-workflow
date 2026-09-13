@@ -446,49 +446,51 @@ final class EvidenceStoreTest extends TestCase {
    * Only a state that looked at something counts as having measured.
    *
    * This feeds `type_coverage`, the one BLOCKING check derived from the idea,
-   * and it is the looser of two implementations of one question — the shape
-   * `migrateToV3`'s docblock was written about. The column filter is
-   * `measured IS NULL OR measured = 1`, and a gate turned off by the level or
-   * skipped for want of a site records `measured` as NULL, so the STATE filter
-   * is the only thing excluding them. Relaxing it made `measuredGates()` return
-   * a gate the operator had switched off as one that had measured.
+   * and it is the looser of two implementations of one question.
    *
-   * Driven from `CheckState::cases()` so a new state cannot be forgotten: the
-   * enum decides, and this asserts the enum is what is being asked.
+   * The expected list is HARD-CODED, and the first version was not — it built
+   * `$expected` from `CheckState::measured()`, the very method the query builds
+   * its `IN` list from, so `assertSame($expected, $measured)` compared a thing
+   * to itself. Adding `Unblocked` to `measured()` — making a WAIVED gate count
+   * as one that measured something — left the test green. A test that derives
+   * its answer from the code under test asserts nothing at all.
+   *
+   * The column filter gets its own row too: a gate in a measuring STATE that
+   * recorded `measured: FALSE` is a labelled pass, and must not count either.
    */
   public function testOnlyStatesThatLookedAtSomethingCountAsMeasured(): void {
     $store = new EvidenceStore($this->root);
     $store->upsertRun('r1', ['preset' => 'medium']);
-    $expected = [];
     foreach (CheckState::cases() as $state) {
-      $name = 'gate_' . $state->value;
       $store->record('r1', 'code', new CheckRecord(
         kind: 'gate',
-        name: $name,
+        name: 'gate_' . $state->value,
         state: $state,
         fault: $state === CheckState::Blocked ? Fault::Agent : Fault::None,
         summary: 'x',
         exitCode: $state === CheckState::Blocked ? 1 : 0,
+        measured: TRUE,
       ));
-      if ($state->measured()) {
-        $expected[] = $name;
-      }
     }
+    // A labelled pass: a measuring state that looked at nothing.
+    $store->record('r1', 'code', new CheckRecord(
+      kind: 'gate',
+      name: 'gate_labelled',
+      state: CheckState::Satisfied,
+      summary: 'nothing to analyse',
+      exitCode: 0,
+      measured: FALSE,
+    ));
 
     $measured = $store->measuredGates('r1');
     sort($measured);
-    sort($expected);
 
-    $this->assertSame($expected, $measured);
-    $this->assertNotContains(
-      'gate_not_applicable',
+    $this->assertSame(
+      ['gate_recorded', 'gate_satisfied'],
       $measured,
-      'a gate the LEVEL turned off has not measured anything',
-    );
-    $this->assertNotContains(
-      'gate_skipped',
-      $measured,
-      'nor has one the surface could not run',
+      'satisfied and recorded rest on a measurement; nothing else does — and '
+      . 'a waived gate (unblocked) is the one the operator lifted, which is '
+      . 'not the same as one that looked',
     );
   }
 

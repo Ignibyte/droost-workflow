@@ -100,18 +100,38 @@ final class CliErrorCoverageTest extends TestCase {
       static fn (): string => 'run-clierr',
     );
 
-    // No lever file and no run: `continue` cannot proceed, and says so.
-    $code = $dispatcher->dispatch(['droost-workflow', 'continue'], $root);
+    // `run` with a spec that is not there, which is how a SpecError is really
+    // constructed — one of the three classes this file exists for.
+    //
+    // The first version passed `['droost-workflow', 'continue']`. argv arrives
+    // WITHOUT the script name, so the verb was `droost-workflow`, it fell to
+    // `unknown()`, and printed the usage banner — which satisfies all three
+    // assertions below without a typed error ever existing. Deleting the entire
+    // catch list left this test green. A test for a catch block has to make
+    // something throw.
+    exec('git -C ' . escapeshellarg($root) . ' init -q 2>/dev/null');
+    exec('git -C ' . escapeshellarg($root) . ' commit -q --allow-empty -m i 2>/dev/null');
+    $code = $dispatcher->dispatch(['run', '--spec=does-not-exist.md'], $root);
 
     $printed = implode("\n", $printedLines);
     exec('rm -rf ' . escapeshellarg($root));
 
     $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code);
-    $this->assertNotSame('', trim($printed), 'it says something');
     $this->assertStringNotContainsString(
       'Stack trace',
       $printed,
-      'and what it says is a sentence, not a trace',
+      'what it says is a sentence, not a trace',
+    );
+    // The error's OWN words, so a usage banner cannot stand in for them.
+    $this->assertStringContainsString(
+      'spec',
+      strtolower($printed),
+      'and the sentence is the one SpecError wrote, not a generic usage line',
+    );
+    $this->assertStringNotContainsString(
+      'unknown command',
+      $printed,
+      'the verb really ran — argv arrives without the script name',
     );
   }
 

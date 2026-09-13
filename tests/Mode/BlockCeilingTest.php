@@ -262,18 +262,40 @@ final class BlockCeilingTest extends TestCase {
   }
 
   /**
-   * With no store there is no count, and the run is not held on one.
+   * A store that cannot be read leaves no ceiling, and no exception either.
    *
-   * The phase that could not write its evidence already says so, loudly. A
-   * second failure here would only replace a clear message with a confusing
-   * one.
+   * The first version simply pointed at a root with no store — and SQLite
+   * CREATES a database on connect, so nothing threw, `blockedAttempts()`
+   * returned 0, and the assertion passed on the "below the ceiling" path that
+   * another test already covers. Making the catch rethrow left it green: the
+   * rescue it is named for was never entered.
+   *
+   * A store that is a file and not a database is what the reported failures
+   * actually produce — a botched chmod, a restored backup, a container UID
+   * mismatch — and it throws where a missing file does not.
+   *
+   * The rescue matters because the phase that could not write its evidence has
+   * already said so, loudly. A second failure here would replace a clear
+   * message with a confusing one, and would hold a run on a fault nobody can
+   * clear from inside it.
+   *
+   * @param string $mode
+   *   The run mode.
    */
   #[DataProvider('modes')]
-  public function testNoStoreMeansNoCeiling(string $mode): void {
+  public function testAnUnreadableStoreLeavesNoCeiling(string $mode): void {
     [$engine, $state] = $this->engineFor($mode);
+    $dir = $this->root . '/droost/droost-workflow';
+    if (!is_dir($dir)) {
+      mkdir($dir, 0775, TRUE);
+    }
+    file_put_contents($dir . '/evidence.sqlite', 'not a database');
+    chmod($dir . '/evidence.sqlite', 0444);
 
     $this->assertNull(
       $engine->stuckOutcome($state, Phase::Code, $this->root, NULL, '2026-09-13T01:00:00+00:00'),
+      'the run carries on; the unwritable record is reported by the phase that '
+      . 'could not write it, not by a second wall here',
     );
   }
 

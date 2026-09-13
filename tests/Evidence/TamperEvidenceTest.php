@@ -310,6 +310,13 @@ final class TamperEvidenceTest extends TestCase {
     $this->honestRun();
 
     $pdo = $this->raw();
+    // MARKED LEGACY FIRST, so the sibling rule legitimately stands down and
+    // this test measures the rule it is named for. Without the mark, both
+    // fixtures were caught by "an unmarked store may not claim a watermark",
+    // and `if ($watermark > $highest)` could be DELETED OUTRIGHT with the whole
+    // suite still green — a security rule pinned by nothing, under a test whose
+    // name said otherwise.
+    $pdo->exec('PRAGMA application_id = ' . 0x44524C47);
     $pdo->exec("UPDATE check_result SET state='satisfied', fault='none'");
     $pdo->exec('UPDATE run SET chained_from = 999999');
     $pdo->exec("UPDATE check_result SET row_digest=''");
