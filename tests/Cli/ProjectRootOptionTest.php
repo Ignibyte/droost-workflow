@@ -139,4 +139,79 @@ final class ProjectRootOptionTest extends TestCase {
     }
   }
 
+  /**
+   * The init command says what it just set the repo to.
+   *
+   * It printed "wrote 21 file(s)" and nothing else, while the lever file it
+   * writes moves a repo from the built-in defaults — preset max, enforcement
+   * hard, every gate on — to preset custom, enforcement soft, and six optional
+   * tiers off. Running the documented FIRST COMMAND opted you out of six things
+   * in silence, under a README line saying a repo which has said nothing has
+   * not opted out of anything.
+   */
+  public function testInitReportsTheLeversItLeavesBehind(): void {
+    [$code, $printed] = $this->dispatch(['init'], $this->root);
+
+    $this->assertSame(0, $code);
+    $this->assertStringContainsString('This repo now resolves to', $printed);
+    $this->assertStringContainsString('preset', $printed);
+    $this->assertStringContainsString('enforcement', $printed);
+    $this->assertStringContainsString(
+      'gates off',
+      $printed,
+      'and names what it turned off, which is the part that was silent',
+    );
+  }
+
+  /**
+   * The space form of --spec is read, as `--spec=<path>` is.
+   *
+   * It was dropped without a word, and the failure that followed said "…and no
+   * --spec declared" — false, and it sends a reader looking for a spec they had
+   * just named. Every other CLI in a developer's day takes both spellings.
+   *
+   * TWO specs, because with one in the directory the facade resolves it
+   * whatever the flag says, and a fixture with one spec passes this test with
+   * the flag handling deleted. That is exactly the situation the bug was found
+   * in: a state directory accretes a spec per ticket, and the run has to be
+   * told which is its own.
+   */
+  public function testTheSpaceFormOfSpecIsRead(): void {
+    mkdir($this->root . '/droost/droost-workflow', 0775, TRUE);
+    foreach (['spec-aaa-other.md', 'spec-zzz-mine.md'] as $name) {
+      file_put_contents(
+        $this->root . '/droost/droost-workflow/' . $name,
+        "## Acceptance criteria\n\n## Tooling plan\n\n## Grounding\n",
+      );
+    }
+    exec('git -C ' . escapeshellarg($this->root) . ' init -q 2>/dev/null');
+    exec('git -C ' . escapeshellarg($this->root) . ' commit -q --allow-empty -m i 2>/dev/null');
+
+    $this->dispatch(
+      ['run', '--spec', 'droost/droost-workflow/spec-zzz-mine.md'],
+      $this->root,
+    );
+
+    $state = json_decode(
+      (string) file_get_contents($this->root . '/droost/droost-workflow/run.json'),
+      TRUE,
+    );
+    $this->assertIsArray($state);
+    $this->assertSame(
+      'droost/droost-workflow/spec-zzz-mine.md',
+      $state['spec_path'] ?? NULL,
+      'the run is governed by the spec that was named, not by whichever sorts first',
+    );
+  }
+
+  /**
+   * But `--spec` with nothing after it says so rather than guessing.
+   */
+  public function testSpecWithNoPathIsRefused(): void {
+    [$code, $printed] = $this->dispatch(['run', '--spec'], $this->root);
+
+    $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code);
+    $this->assertStringContainsString('--spec needs a path', $printed);
+  }
+
 }

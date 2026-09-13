@@ -189,7 +189,66 @@ final class ArgvDispatcher {
     }
     $report = $this->facade($projectRoot)->init($projectRoot, $takeUpstream);
     $this->say($report->summary());
+    // And SAY WHAT IT JUST SET YOU TO. `init` printed "wrote 21 file(s)" and
+    // nothing else, while the lever file it writes moves a repo from the
+    // built-in defaults (preset max, enforcement hard, every gate on) to
+    // preset custom, enforcement soft, and six optional tiers off. Running the
+    // documented first command opted you out of six things in silence — under
+    // a README line that says a repo which has said nothing has not opted out
+    // of anything.
+    //
+    // Read back from the file that was just written rather than from what was
+    // intended, so this reports the levers a run will actually be held to.
+    $this->say('');
+    $this->say($this->leverSummary($projectRoot));
+
     return self::EXIT_OK;
+  }
+
+  /**
+   * One block naming the levers a run in this repo would be held to.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return string
+   *   The summary.
+   */
+  private function leverSummary(string $projectRoot): string {
+    $status = $this->facade($projectRoot)->status($projectRoot);
+    $levers = is_array($status['levers'] ?? NULL) ? $status['levers'] : [];
+    $gates = is_array($levers['gates'] ?? NULL) ? $levers['gates'] : [];
+    $off = [];
+    foreach ($gates as $name => $gate) {
+      if (is_array($gate) && ($gate['on'] ?? TRUE) === FALSE) {
+        $off[] = (string) $name;
+      }
+    }
+
+    return sprintf(
+      "This repo now resolves to:
+"
+      . "  preset       %s
+"
+      . "  enforcement  %s
+"
+      . "  mode         %s
+"
+      . "  gates off    %s
+"
+      . "
+"
+      . "Those come from droost.workflow.yml, which is yours to edit — it is
+"
+      . "version-controlled intent and no re-install overwrites it. `%s status`
+"
+      . "prints this at any time.",
+      is_scalar($levers['preset'] ?? NULL) ? (string) $levers['preset'] : '?',
+      is_scalar($levers['enforcement'] ?? NULL) ? (string) $levers['enforcement'] : '?',
+      is_scalar($levers['mode'] ?? NULL) ? (string) $levers['mode'] : '?',
+      $off === [] ? 'none — every gate runs' : implode(', ', $off),
+      'droost-workflow',
+    );
   }
 
   /**
@@ -213,16 +272,33 @@ final class ArgvDispatcher {
    * @param string $projectRoot
    *   The repository.
    * @param list<string> $argv
-   *   The arguments; --spec=<path> declares the governing spec at begin.
+   *   The arguments; `--spec=<path>` or `--spec <path>` declares the governing
+   *   spec at begin.
    *
    * @return int
    *   The exit code.
    */
   private function run(string $projectRoot, array $argv): int {
     $spec = NULL;
-    foreach ($argv as $arg) {
+    $count = count($argv);
+    for ($i = 0; $i < $count; $i++) {
+      $arg = $argv[$i];
       if (str_starts_with($arg, '--spec=')) {
         $spec = substr($arg, 7);
+        continue;
+      }
+      // The SPACE form too. It was dropped in silence, and the failure that
+      // followed said "…and no --spec declared" — which is false, and sends the
+      // reader to look for a spec they had just named. Every other CLI in a
+      // developer's day takes both spellings; a pipeline that takes one and
+      // says nothing about the other is teaching a lesson about itself.
+      if ($arg === '--spec') {
+        if ($i + 1 >= $count || str_starts_with($argv[$i + 1], '-')) {
+          $this->fail('--spec needs a path: `--spec=<path>`, or `--spec <path>`.');
+
+          return self::EXIT_USAGE;
+        }
+        $spec = $argv[++$i];
       }
     }
     $outcome = $this->facade($projectRoot)->run($projectRoot, $spec);
