@@ -495,9 +495,22 @@ real blind spots — and a run that hides them produces a report nobody should
 trust.
 
 The guard hook is the one host-specific piece: it is a Claude Code pre-tool
-hook, and it refuses the operator's commands from the agent's shell (a waiver,
-a bypass, moving the dial, writing the baseline) and any agent edit under
-`droost/baseline/`. On a host without pre-tool hooks the status document's
+hook, and it refuses the operator's commands from the agent's shell, plus any
+agent edit under `droost/baseline/`, under `droost/droost-workflow/`, or to the
+guard itself. There are five, and each is a loosening somebody has to own:
+
+| Refused from the agent's shell | What is still the agent's to run |
+|---|---|
+| `droost:workflow:gate-waive` | — nothing; a waiver is always the operator's |
+| `droost:workflow:baseline` (writing) | `--status` and `--measure`, which only read |
+| `droost:workflow:bypass` | `bypass --off`, which tightens |
+| `droost:workflow:effort <level>` | bare `effort` (reports) and `effort <level> --preview` (prices it) |
+| arming a write gate — `droost:gate allow_* on`, or the `config:set droost.settings allow_* true` form | disarming the same gate, which tightens |
+
+The pattern is the same in each row: the reading and the tightening are the
+agent's, the loosening is not. An agent that needs one proposes it — the
+refusal prints the exact command to hand over, and in Claude Code the operator
+runs it with `! drush …` so it lands in the same transcript. On a host without pre-tool hooks the status document's
 run half says so — `enforcement.effective: advisory` — because the gates still
 hold the run server-side but nothing stops an out-of-phase edit, and a report
 must not claim a discipline the host never had.
