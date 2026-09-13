@@ -291,4 +291,149 @@ final class TamperEvidenceTest extends TestCase {
     $this->assertStringContainsString('deleted', $break['name']);
   }
 
+  /**
+   * Raising the watermark does not grant a blanket amnesty.
+   *
+   * The watermark was the escape hatch the last fix installed: below it an
+   * empty digest is legitimate, because those rows predate the chain. The
+   * watermark itself was unauthenticated, so three statements erased the whole
+   * record — declare every row legacy, blank every digest, blank the head —
+   * with no knowledge of the hash at all.
+   *
+   * Two facts bound it now, and either alone is enough. A watermark cannot
+   * exceed the highest id that exists, because the migration sets it to MAX(id)
+   * as it stood and ids only climb. And a store only carries the legacy mark if
+   * the migration actually found rows to exempt, which a store created for this
+   * round did not.
+   */
+  public function testRaisingTheWatermarkIsCaught(): void {
+    $this->honestRun();
+
+    $pdo = $this->raw();
+    $pdo->exec("UPDATE check_result SET state='satisfied', fault='none'");
+    $pdo->exec('UPDATE run SET chained_from = 999999');
+    $pdo->exec("UPDATE check_result SET row_digest=''");
+    $pdo->exec("UPDATE run SET chain_head=''");
+    unset($pdo);
+
+    $break = (new EvidenceStore($this->root))->integrity('r1');
+    $this->assertIsArray($break, 'a watermark above the table is not a watermark');
+    $this->assertSame('the watermark', $break['name']);
+  }
+
+  /**
+   * Nor does a watermark that stays within the table.
+   *
+   * The obvious refinement of the attack above: set it to MAX(id) rather than
+   * to a number that gives itself away. That is a value the migration could
+   * legitimately have written — in a store that held rows before digests
+   * existed. This one never did, and the file says so.
+   */
+  public function testPlausibleWatermarkIsCaughtToo(): void {
+    $this->honestRun();
+
+    $pdo = $this->raw();
+    $pdo->exec("UPDATE check_result SET state='satisfied', fault='none'");
+    $pdo->exec('UPDATE run SET chained_from = (SELECT MAX(id) FROM check_result)');
+    $pdo->exec("UPDATE check_result SET row_digest=''");
+    $pdo->exec("UPDATE run SET chain_head=''");
+    unset($pdo);
+
+    $break = (new EvidenceStore($this->root))->integrity('r1');
+    $this->assertIsArray($break, 'a store that never held pre-digest rows may not claim to');
+    $this->assertSame('the watermark', $break['name']);
+  }
+
+  /**
+   * Blanking the head alone is caught, rather than switching the check off.
+   *
+   * The tail check only ran when a head was PRESENT, which made clearing it the
+   * way to opt out of it — the third statement of the cheapest attack. droost
+   * stamps the head on every insert, in the same pair of statements as the
+   * digest, so a run with digested rows and no head has been edited by
+   * something that is not droost.
+   */
+  public function testBlankingTheHeadIsItselfTheEvidence(): void {
+    $this->honestRun();
+
+    $pdo = $this->raw();
+    $pdo->exec("UPDATE run SET chain_head=''");
+    unset($pdo);
+
+    $break = (new EvidenceStore($this->root))->integrity('r1');
+    $this->assertIsArray($break, 'a run with digests and no head has been edited');
+    $this->assertSame('the chain head', $break['name']);
+  }
+
+  /**
+   * And the converse: a head with no digests is the residue of erasing them.
+   *
+   * This is the backstop, and reaching it takes work — blanking the digests in
+   * an ordinary store is caught a step earlier, by the rule that a row above
+   * the watermark must carry one, which names the first row it reaches. The
+   * backstop is for a store that really does predate the chain, where that rule
+   * legitimately stands down: droost never wrote a head for such a run, because
+   * the column did not exist when its rows did. A head there means droost DID
+   * write digests and something removed them.
+   *
+   * Built rather than asserted about, so the two rules are shown not to overlap
+   * into each other's blind spot.
+   */
+  public function testHeadWithoutDigestsIsCaught(): void {
+    $this->honestRun();
+
+    $pdo = $this->raw();
+    // The shape of a genuinely old store: marked as holding pre-digest rows,
+    // with a watermark that covers them.
+    $pdo->exec('PRAGMA application_id = ' . 0x44524C47);
+    $pdo->exec('UPDATE run SET chained_from = (SELECT MAX(id) FROM check_result)');
+    $pdo->exec("UPDATE check_result SET state='satisfied', fault='none', row_digest=''");
+    unset($pdo);
+
+    $break = (new EvidenceStore($this->root))->integrity('r1');
+    $this->assertIsArray($break, 'a legacy run does not get a chain head for free');
+    $this->assertSame('the erased digests', $break['name']);
+  }
+
+  /**
+   * The ordinary case reaches the stricter rule first, and names a row.
+   */
+  public function testBlankingDigestsInModernStoreNamesTheRow(): void {
+    $this->honestRun();
+
+    $pdo = $this->raw();
+    $pdo->exec("UPDATE check_result SET row_digest=''");
+    unset($pdo);
+
+    $break = (new EvidenceStore($this->root))->integrity('r1');
+    $this->assertIsArray($break);
+    $this->assertSame('phpcs', $break['name'], 'the first verdict that should have carried a digest');
+  }
+
+  /**
+   * A second run in the same store does not make the first one look forged.
+   *
+   * This is the cost of getting the tail check wrong in the other direction,
+   * and it was live: the head is stamped per RUN, and it was compared against
+   * the tail of the whole CHAIN, which is global to the store. So run A
+   * verified clean until run B wrote its first verdict beside it, and from that
+   * moment A reported "the last verdict" altered, for ever, with nothing
+   * altered.
+   *
+   * A record that cries tampering over an untouched archive teaches its reader
+   * to ignore the alarm, which is worse than never raising one.
+   */
+  public function testSecondRunDoesNotForgeTheFirst(): void {
+    $store = $this->honestRun();
+    $this->assertNull($store->integrity('r1'));
+
+    $store->upsertRun('r2', ['preset' => 'medium']);
+    $store->record('r2', 'code', new CheckRecord(
+      'gate', 'phpcs', CheckState::Satisfied, Fault::None, 'clean', NULL, NULL, 0, 'phpcs', NULL, 10,
+    ));
+
+    $this->assertNull($store->integrity('r2'), 'the new run verifies');
+    $this->assertNull($store->integrity('r1'), 'and so does the one it was recorded beside');
+  }
+
 }

@@ -63,6 +63,25 @@ final class EvidenceStore {
   public const int SCHEMA_VERSION = 5;
 
   /**
+   * Stamped into the file when, and only when, it has rows that predate v4.
+   *
+   * The legacy concession — an empty digest is legitimate below the watermark —
+   * exists for exactly one situation: a store that was recording verdicts
+   * before the chain was built. Every store created since has none, and a
+   * measured round always starts from an empty one.
+   *
+   * So the marker is written for the RARE case rather than the common one, and
+   * its absence is the strict reading. A fresh store carries no mark, which
+   * means no watermark above zero is legitimate in it, which means every row
+   * must carry a digest — enforced by two independent facts instead of one.
+   * `UPDATE run SET chained_from = <a plausible id>` no longer buys a blanket
+   * amnesty; the forger has to know this constant and set it too.
+   *
+   * SQLite's own field for exactly this purpose, unused by the schema.
+   */
+  private const int LEGACY_MARK = 0x44524C47;
+
+  /**
    * The open connection, or NULL until first use.
    */
   private ?\PDO $pdo = NULL;
@@ -1227,12 +1246,42 @@ final class EvidenceStore {
       'SELECT COALESCE(MIN(chained_from), 0) FROM run WHERE chained_from IS NOT NULL'
     );
     $watermark = $mark === FALSE ? 0 : (int) ($mark->fetchColumn() ?: 0);
+    // The watermark is set once, by the v5 migration, to MAX(id) as it stood
+    // then — so it is never above the highest id that exists, and it cannot
+    // become so afterwards, because ids only climb. A watermark above the table
+    // claims rows predate digests that are not there at all, which is not a
+    // state droost can produce. It is the first statement of the cheapest
+    // attack (`UPDATE run SET chained_from = 999999`, declaring the whole
+    // record legacy), and it costs one query to refuse.
+    $top = $this->connection()->query('SELECT COALESCE(MAX(id), 0) FROM check_result');
+    $highest = $top === FALSE ? 0 : (int) ($top->fetchColumn() ?: 0);
+    if ($watermark > $highest) {
+      return ['row' => $watermark, 'name' => 'the watermark', 'phase' => 'the start of the record'];
+    }
+    // And a store that never held pre-digest rows may not claim to. The v5
+    // migration marks the file when it finds any, so an unmarked store — which
+    // is every store created since, and every measured round — has no
+    // legitimate watermark but zero.
+    $marked = $this->connection()->query('PRAGMA application_id');
+    $isLegacy = $marked !== FALSE && (int) ($marked->fetchColumn() ?: 0) === self::LEGACY_MARK;
+    if (!$isLegacy && $watermark > 0) {
+      return ['row' => $watermark, 'name' => 'the watermark', 'phase' => 'the start of the record'];
+    }
 
+    // $previous walks the chain, which is global to the store — every row links
+    // to the one before it whatever run wrote it. $runTail and $runDigested are
+    // scoped to the run being verified, because the head is: it is stamped per
+    // run on every insert. Comparing the run's head against the GLOBAL tail was
+    // the bug: run A verified clean until run B wrote its first row into the
+    // same store, and from then on A reported "the last verdict" altered, for
+    // ever, with nothing altered. A record that cries tampering on an untouched
+    // archive teaches its reader to ignore it, which is worse than no check.
     $previous = '';
-    $seen = FALSE;
+    $runTail = '';
+    $runDigested = 0;
     $expectedId = NULL;
     foreach (self::rows($statement) as $row) {
-      $seen = TRUE;
+      $mine = self::text($row, 'run_id') === $runId;
       $stored = self::text($row, 'row_digest');
       if ($stored === '') {
         // An empty digest is only legitimate BELOW the watermark — the rows
@@ -1297,17 +1346,47 @@ final class EvidenceStore {
       }
       $expectedId = self::number($row, 'id') + 1;
       $previous = $stored;
+      if ($mine) {
+        $runTail = $stored;
+        $runDigested++;
+      }
     }
 
     // And the tail. A forward chain cannot see its own truncation: delete the
     // last verdict and every remaining link still follows from the one before
     // it. The run row carries the head, written in the same transaction as each
     // insert, so a missing tail is a mismatch here.
+    //
+    // A run with no digested rows demands no head — that is a run whose every
+    // verdict predates v4, and the watermark above is what bounds that
+    // concession. A run WITH digested rows must have one, and this is not a
+    // formality: `chain_head` is stamped on every single insert, so a run that
+    // has digests and no head has been edited by something that is not droost.
+    // Requiring only that a PRESENT head match was a fail-open, and the third
+    // statement of the cheapest attack anyone found:
+    //
+    //     UPDATE run SET chained_from = 999999;   -- every row is "legacy"
+    //     UPDATE check_result SET row_digest='';  -- so no row needs a digest
+    //     UPDATE run SET chain_head='';          -- the tail check opts out
+    //
+    // The first two are answered by each other — with every digest gone,
+    // $runTail is empty — and the third is now the thing that gives it away.
     $head = $this->connection()->prepare('SELECT chain_head FROM run WHERE run_id = ?');
     $head->execute([$runId]);
     $recorded = $head->fetchColumn();
-    if ($seen && is_string($recorded) && $recorded !== '' && !hash_equals($recorded, $previous)) {
+    if ($runDigested > 0 && (!is_string($recorded) || $recorded === '')) {
+      return ['row' => 0, 'name' => 'the chain head', 'phase' => 'the end of the record'];
+    }
+    if ($runDigested > 0 && is_string($recorded) && !hash_equals($recorded, $runTail)) {
       return ['row' => 0, 'name' => 'the last verdict', 'phase' => 'the end of the record'];
+    }
+    // And the converse, which is the same fact read the other way: droost
+    // writes the head and the digest in one pair of statements, so a head can
+    // only exist because a digest did. A run carrying a head and no digests has
+    // had its digests erased — the second statement of that attack, answered by
+    // the residue the first one leaves behind.
+    if ($runDigested === 0 && is_string($recorded) && $recorded !== '') {
+      return ['row' => 0, 'name' => 'the erased digests', 'phase' => 'the whole record'];
     }
 
     return NULL;
@@ -1365,6 +1444,12 @@ final class EvidenceStore {
     // no marker anyway: with no rows to exempt, the watermark is zero and every
     // verdict must carry a digest, which is exactly the rule a new run wants.
     $pdo->exec('UPDATE run SET chained_from = ' . $mark . ' WHERE chained_from IS NULL');
+    if ($mark > 0) {
+      // This store really does hold rows written before digests existed. Say so
+      // in the file itself, because the alternative is inferring it from the
+      // very value a forger would set.
+      $pdo->exec('PRAGMA application_id = ' . self::LEGACY_MARK);
+    }
   }
 
   /**
