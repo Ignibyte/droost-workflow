@@ -50,6 +50,16 @@ final class ContributedGate {
    * @param string $defaultMode
    *   Either 'block' or 'report': what the gate does with a blocking result
    *   unless the site's lever overrides it.
+   * @param array<int, string> $faults
+   *   (optional) What each exit code MEANS, as agent|environment|unknown. A
+   *   crashed tool is genuinely ambiguous — phpstan dying on PHP the agent just
+   *   wrote is the agent's problem, snyk dying unauthenticated is not — and the
+   *   module that owns the gate is the only place that knows which. An
+   *   environment fault is the only one an operator may lift, so this is what
+   *   decides whether a block has any way out at all.
+   * @param string $remedy
+   *   (optional) The command that clears an environment fault. Printed to the
+   *   agent as the OPERATOR's to run, never its own.
    * @param string $verdict
    *   A plain sentence: what exit zero means, and what a failure means. Shown
    *   in status and the bill so a contributed gate is never a mystery number.
@@ -61,6 +71,8 @@ final class ContributedGate {
     public readonly string $command,
     public readonly string $defaultMode = GateSettings::DEFAULT_MODE,
     public readonly string $verdict = '',
+    public readonly array $faults = [],
+    public readonly string $remedy = '',
   ) {
     if (preg_match(self::ID, $id) !== 1) {
       throw new \InvalidArgumentException(sprintf(
@@ -114,6 +126,25 @@ final class ContributedGate {
    * @return string
    *   The name carried through the resolved set, the run and every report.
    */
+  /**
+   * The declared faults, validated.
+   *
+   * @return array<int, string>
+   *   Exit code to fault name, with anything unrecognised dropped rather than
+   *   thrown: a gate with one bad entry should lose that entry, not refuse to
+   *   load and take its module's whole gate surface with it.
+   */
+  public function validatedFaults(): array {
+    $valid = [];
+    foreach ($this->faults as $exit => $fault) {
+      if (is_numeric($exit) && in_array($fault, ['agent', 'environment', 'unknown'], TRUE)) {
+        $valid[(int) $exit] = $fault;
+      }
+    }
+
+    return $valid;
+  }
+
   public function name(): string {
     return GateSettings::MODULE_PREFIX . $this->id;
   }
@@ -194,6 +225,20 @@ final class ContributedGate {
     ];
     if ($this->defaultMode === 'report') {
       $options['mode'] = 'report';
+    }
+    // Packed as "2:environment,1:agent" because a GateSettings option is a
+    // scalar — the levers round-trip through YAML and JSON, and a nested map
+    // here would be the one option that could not survive the trip.
+    $faults = $this->validatedFaults();
+    if ($faults !== []) {
+      $options['faults'] = implode(',', array_map(
+        static fn (int $exit, string $fault): string => $exit . ':' . $fault,
+        array_keys($faults),
+        $faults,
+      ));
+    }
+    if ($this->remedy !== '') {
+      $options['remedy'] = $this->remedy;
     }
     return new GateSettings($this->name(), TRUE, $options);
   }
