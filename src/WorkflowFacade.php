@@ -678,7 +678,7 @@ final class WorkflowFacade {
     if ($specPath !== NULL && $phase === Phase::Complete) {
       $criteria = SpecContract::criteriaVerification($projectRoot, $specPath);
       if ($criteria !== NULL && $criteria['unverified'] !== []) {
-        throw SpecError::criteriaUnverified($specPath, $criteria['unverified'], $criteria['column_missing']);
+        throw SpecError::criteriaUnverified($specPath, $criteria['unverified'], $criteria['column_missing'], $criteria['unnamed']);
       }
     }
 

@@ -152,7 +152,7 @@ final class SpecError extends \RuntimeException {
   }
 
   /**
-   * Acceptance criteria whose "Verified By" cell is empty at complete.
+   * Acceptance criteria not tied to a test at complete.
    *
    * @param string $path
    *   The spec, project-relative.
@@ -160,21 +160,40 @@ final class SpecError extends \RuntimeException {
    *   The criterion ids without a verification.
    * @param bool $columnMissing
    *   Whether the table has no such column at all.
+   * @param list<string> $unnamed
+   *   The subset of those ids whose cell WAS filled in but named no test.
+   *   An empty cell and a sentence of prose fail the same contract and need
+   *   different fixes, so the refusal says which rows have which problem.
    *
    * @return self
    *   The error, carrying the remedy.
    */
-  public static function criteriaUnverified(string $path, array $ids, bool $columnMissing): self {
+  public static function criteriaUnverified(
+    string $path,
+    array $ids,
+    bool $columnMissing,
+    array $unnamed = [],
+  ): self {
+    if ($columnMissing) {
+      $diagnosis = 'the acceptance-criteria table has no such column';
+    }
+    elseif ($unnamed === []) {
+      $diagnosis = 'the cells are empty';
+    }
+    elseif (count($unnamed) === count($ids)) {
+      $diagnosis = 'the cells name no test';
+    }
+    else {
+      $diagnosis = sprintf('%s name no test, and the rest are empty', implode(', ', $unnamed));
+    }
     return new self(sprintf(
-      '%s: %d acceptance criteri%s without a "%s" entry (%s) — %s. Fill it at the test phase with the test that proves each row (the PHPUnit method or class, or the Playwright spec), or `manual — <reason>` for a criterion no test can prove; the report prints manual as manual, never as passed. Then re-run.',
+      '%s: %d acceptance criteri%s without a "%s" entry (%s) — %s. Fill it at the test phase with a reference to the test that proves each row — a PHPUnit method or class (`FooTest::testBar`, `FooTest`), or a test file (`tests/e2e/rink.spec.ts`, `features/login.feature`) — or `manual — <reason>` for a criterion no test can prove; the report prints manual as manual, never as passed. The cell has to POINT at something a reader can open, so prose describing what was checked does not fill it. Then re-run.',
       $path,
       count($ids),
       count($ids) === 1 ? 'on' : 'a',
       SpecContract::VERIFIED_COLUMN,
       implode(', ', $ids),
-      $columnMissing
-        ? 'the acceptance-criteria table has no such column'
-        : 'the cells are empty',
+      $diagnosis,
     ));
   }
 

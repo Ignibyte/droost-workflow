@@ -88,6 +88,39 @@ final class SpecContract {
   public const STATE_DIR = RunStateStore::STATE_DIR;
 
   /**
+   * What a cell says when nobody has answered it yet, in any casing.
+   *
+   * Both tables have a column somebody must fill, and each had grown its own
+   * idea of what an unfilled cell looks like. The criteria table lowercased
+   * against seven spellings; grounding compared case-sensitively against five,
+   * so `Tbd`, `N/A`, `TODO` and the en-dash all read as real answers there —
+   * an empty cell dressed up enough to pass. One list and one comparison, so
+   * the two cannot drift apart again.
+   */
+  private const PLACEHOLDERS = ['—', '–', '-', 'tbd', 'todo', 'n/a', 'pending'];
+
+  /**
+   * What a filled `Verified By` cell has to look like: a pointer at a test.
+   *
+   * Not a rule about prose quality — a rule about POINTING. Anything that
+   * was not a placeholder scored as verified, so a cell reading "I tested it
+   * by hand" closed a run with the traceability link written as prose, which
+   * is the column doing the opposite of its job: it looks filled from the
+   * report and leads nowhere from the spec. A cell earns `verified` by naming
+   * something a reader can open — a `Class::method`, a class whose name ends
+   * `Test`, a path through a test directory, or a test file. A cell reading
+   * `manual — <reason>` is the honest other answer, and classifies as manual
+   * rather than as passed.
+   */
+  private const TEST_REFERENCE = '~
+      [A-Za-z_\\\\][\w\\\\]*::[A-Za-z_]\w*   # Class::method, namespaced or not
+    | [A-Za-z_]\w*Test\b                     # a class whose name ends Test
+    | \btests?/[\w.-]                        # a path through a test directory
+    | [\w./\\\\-]+\.(?:php|feature)\b        # a PHP or Gherkin file
+    | [\w./-]+\.(?:spec|test|cy)\.[jt]sx?\b  # a JS or TS spec file
+  ~x';
+
+  /**
    * Resolves which spec governs a run.
    *
    * @param string $projectRoot
@@ -133,9 +166,19 @@ final class SpecContract {
     // choice is unambiguous. One candidate is an adoption; several are a
     // guess, and a run governed by a guessed document is worse than a
     // refusal that names the fix.
+    //
+    // BOTH shapes the pack writes count as candidates. A high/xhigh/max run
+    // writes `spec-<slug>.md`; a medium/low run writes the quasi-spec to
+    // `tmp-spec-<slug>.md`, and a glob that had never heard of that name told
+    // a light run there was "no spec found" for a file its own plan phase had
+    // just written. Two live medium runs only survived it because begin() had
+    // already recorded the path — re-resolution would have refused.
     $stateDir = RunStateStore::resolveStateDir($root);
     $dir = $root . '/' . $stateDir;
-    $candidates = glob($dir . '/spec-*.md') ?: [];
+    $candidates = array_merge(
+      glob($dir . '/spec-*.md') ?: [],
+      glob($dir . '/tmp-spec-*.md') ?: [],
+    );
     if (count($candidates) === 1) {
       return self::relative($root, $candidates[0]);
     }
@@ -163,14 +206,14 @@ final class SpecContract {
     string $heading,
     string $why,
   ): void {
-    $path = rtrim($projectRoot, '/') . '/' . $spec;
-    $text = @file_get_contents($path);
-    if ($text === FALSE) {
+    $text = self::read(rtrim($projectRoot, '/') . '/' . $spec);
+    if ($text === NULL) {
       throw SpecError::missing($spec);
     }
     // Heading match at line start, tolerant of trailing words on the same
     // line ("## Tooling plan (all surfaces exhausted)") but never of a
-    // deeper heading level standing in for the required one.
+    // deeper heading level standing in for the required one — nor of a
+    // heading QUOTED inside a fenced block, which read() has already blanked.
     $pattern = '/^' . preg_quote($heading, '/') . '\b/mi';
     if (preg_match($pattern, $text) !== 1) {
       throw SpecError::sectionMissing($spec, $heading, $why);
@@ -197,12 +240,15 @@ final class SpecContract {
     string $spec,
   ): bool {
     $root = rtrim($projectRoot, '/');
-    $text = @file_get_contents($root . '/' . $spec);
-    if ($text !== FALSE
+    $text = self::read($root . '/' . $spec);
+    if ($text !== NULL
       && preg_match('/^' . preg_quote(self::REALIZED_HEADING, '/') . '\b/mi', $text) === 1) {
       return TRUE;
     }
-    $companion = preg_replace('~/spec-([^/]+)\.md$~', '/realized-$1.md', '/' . $spec);
+    // The companion is named for the slug, and a light run's spec carries the
+    // same slug behind a `tmp-` prefix — so the derivation reads through it
+    // rather than failing to match and reporting no capture at all.
+    $companion = preg_replace('~/(?:tmp-)?spec-([^/]+)\.md$~', '/realized-$1.md', '/' . $spec);
     return is_string($companion) && is_file($root . $companion);
   }
 
@@ -225,8 +271,8 @@ final class SpecContract {
    *   gate to RESOLVE. NULL when the spec has no grounding table at all.
    */
   public static function grounding(string $projectRoot, string $spec): ?array {
-    $text = @file_get_contents(rtrim($projectRoot, '/') . '/' . $spec);
-    if ($text === FALSE) {
+    $text = self::read(rtrim($projectRoot, '/') . '/' . $spec);
+    if ($text === NULL) {
       return NULL;
     }
     $heading = preg_quote(self::GROUNDING_HEADING, '/');
@@ -280,11 +326,11 @@ final class SpecContract {
           $phases[$phase][] = $tier;
         }
       }
-      if ($found === '' || in_array($found, ['—', '-', 'TBD', 'tbd', 'n/a'], TRUE)) {
+      if (self::isPlaceholder($found)) {
         $unanswered[] = 'row ' . ($n + 1);
       }
       $cite = $idx['evidence'] !== NULL ? trim($cells[$idx['evidence']] ?? '') : '';
-      if ($cite === '' || in_array($cite, ['—', '-', 'TBD', 'tbd', 'n/a'], TRUE)) {
+      if (self::isPlaceholder($cite)) {
         $uncited[] = 'row ' . ($n + 1);
       }
       else {
@@ -305,26 +351,30 @@ final class SpecContract {
    * How the spec's acceptance criteria stand against the tests that prove them.
    *
    * Reads the first markdown table under the acceptance-criteria heading and
-   * classifies every row by its "Verified By" cell: a test reference is
+   * classifies every row by its "Verified By" cell: a reference to a test is
    * verified; `manual — <reason>` is verified by hand and reported as such,
    * never as passed; an empty cell (or a placeholder such as "—" or "TBD")
-   * is unverified. A table with no such column counts every row as
-   * unverified and says so, because a column nobody added is the commonest
-   * way for the link to go missing.
+   * is unverified, and so is prose that points at no test — the cell is the
+   * traceability LINK, and a sentence about what somebody did is not one. A
+   * table with no such column counts every row as unverified and says so,
+   * because a column nobody added is the commonest way for the link to go
+   * missing.
    *
    * @param string $projectRoot
    *   The repository.
    * @param string $spec
    *   The governing spec, project-relative.
    *
-   * @return array{total: int, verified: list<string>, manual: list<string>, unverified: list<string>, column_missing: bool}|null
-   *   The classification, or NULL when the spec has no acceptance-criteria
-   *   table at all (a quasi-spec at medium/low, or a document that never had
-   *   one) — there is nothing to hold in that case.
+   * @return array{total: int, verified: list<string>, manual: list<string>, unverified: list<string>, unnamed: list<string>, column_missing: bool}|null
+   *   The classification — `unnamed` being the subset of `unverified` whose
+   *   cell was filled in but named no test, so the refusal can say which of
+   *   the two problems each row has. NULL when the spec has no
+   *   acceptance-criteria table at all (a quasi-spec at medium/low, or a
+   *   document that never had one) — there is nothing to hold in that case.
    */
   public static function criteriaVerification(string $projectRoot, string $spec): ?array {
-    $text = @file_get_contents(rtrim($projectRoot, '/') . '/' . $spec);
-    if ($text === FALSE) {
+    $text = self::read(rtrim($projectRoot, '/') . '/' . $spec);
+    if ($text === NULL) {
       return NULL;
     }
     $heading = preg_quote(self::ACCEPTANCE_HEADING, '/');
@@ -358,24 +408,40 @@ final class SpecContract {
     $verified = [];
     $manual = [];
     $unverified = [];
+    $unnamed = [];
+    $position = 0;
     foreach (array_slice($rows, 1) as $row) {
       $cells = self::cells($row);
       if (self::isSeparator($cells)) {
         continue;
       }
-      $id = trim(trim($cells[$idIndex] ?? ''), '*`_ ');
-      if ($id === '') {
+      // A row with nothing in any cell is table padding, not a criterion.
+      if (implode('', $cells) === '') {
         continue;
       }
+      $position++;
+      $id = trim(trim($cells[$idIndex] ?? ''), '*`_ ');
+      if ($id === '') {
+        // An unlabelled criterion is still a criterion. Dropping the row hid
+        // it from the count, the report and the refusal at once — the one
+        // shape of missing cell that makes the spec look BETTER than it is.
+        // Numbered by its place among the body rows, so it can be found.
+        $id = 'row ' . $position;
+      }
       $value = $verifiedIndex === NULL ? '' : trim($cells[$verifiedIndex] ?? '');
-      if ($value === '' || in_array(strtolower($value), ['—', '–', '-', 'tbd', 'todo', 'n/a', 'pending'], TRUE)) {
+      if (self::isPlaceholder($value)) {
         $unverified[] = $id;
       }
       elseif (preg_match('/^`?manual\b/i', $value) === 1) {
         $manual[] = $id;
       }
-      else {
+      elseif (preg_match(self::TEST_REFERENCE, $value) === 1) {
         $verified[] = $id;
+      }
+      else {
+        // Filled in, and pointing at nothing anyone can open.
+        $unverified[] = $id;
+        $unnamed[] = $id;
       }
     }
     $total = count($verified) + count($manual) + count($unverified);
@@ -387,8 +453,72 @@ final class SpecContract {
       'verified' => $verified,
       'manual' => $manual,
       'unverified' => $unverified,
+      'unnamed' => $unnamed,
       'column_missing' => $verifiedIndex === NULL,
     ];
+  }
+
+  /**
+   * The spec's text, with every fenced code block blanked out.
+   *
+   * Each reader here matches on markdown STRUCTURE — a heading at line start,
+   * a row opening with a pipe — and a fenced block is full of both while
+   * meaning neither. A spec that shows `## Tooling plan` as an example inside
+   * triple backticks satisfied the contract on the strength of its own
+   * teaching material, and a grounding table quoted as a template read as
+   * grounding that happened.
+   *
+   * The block's lines are emptied rather than removed, so every later line
+   * keeps its position and a section still runs exactly as far as it did —
+   * only its fenced content stops looking like structure.
+   *
+   * @param string $path
+   *   The spec, absolute.
+   *
+   * @return string|null
+   *   The text, or NULL when the file cannot be read.
+   */
+  private static function read(string $path): ?string {
+    $text = @file_get_contents($path);
+    if ($text === FALSE) {
+      return NULL;
+    }
+    $out = [];
+    $fence = '';
+    foreach (preg_split('/\R/', $text) ?: [] as $line) {
+      if ($fence === '') {
+        // An opening fence: three or more backticks or tildes, indented by no
+        // more than three spaces. Whatever follows them is the info string.
+        if (preg_match('/^ {0,3}(`{3,}|~{3,})/', $line, $m) === 1) {
+          $fence = $m[1];
+          $out[] = '';
+          continue;
+        }
+        $out[] = $line;
+        continue;
+      }
+      // Inside the block nothing is structure. It closes on the same
+      // character, at least as long, alone on its line — and an unclosed
+      // fence runs to the end of the document, as it does everywhere else.
+      $out[] = '';
+      if (preg_match('/^ {0,3}' . $fence[0] . '{' . strlen($fence) . ',}\s*$/', $line) === 1) {
+        $fence = '';
+      }
+    }
+    return implode("\n", $out);
+  }
+
+  /**
+   * Whether a cell is an unfilled one, however it was spelled.
+   *
+   * @param string $value
+   *   The cell, already trimmed.
+   *
+   * @return bool
+   *   TRUE when the cell says nothing.
+   */
+  private static function isPlaceholder(string $value): bool {
+    return $value === '' || in_array(strtolower($value), self::PLACEHOLDERS, TRUE);
   }
 
   /**
@@ -416,6 +546,9 @@ final class SpecContract {
   /**
    * Whether a row is the header/body separator (`|---|:--:|`).
    *
+   * GFM asks for one dash or more, not two: `|-|-|` is a valid separator and
+   * was being read as the table's first criterion.
+   *
    * @param list<string> $cells
    *   The row's cells.
    *
@@ -424,7 +557,7 @@ final class SpecContract {
    */
   private static function isSeparator(array $cells): bool {
     foreach ($cells as $cell) {
-      if (preg_match('/^:?-{2,}:?$/', $cell) !== 1) {
+      if (preg_match('/^:?-+:?$/', $cell) !== 1) {
         return FALSE;
       }
     }

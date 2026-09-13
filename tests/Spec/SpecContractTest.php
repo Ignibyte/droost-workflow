@@ -136,6 +136,83 @@ MD
   }
 
   /**
+   * A cell has to POINT at a test; prose about the work is not a reference.
+   *
+   * The column is the traceability link, and anything that was not a
+   * placeholder scored as verified — so "I tested it by hand" filled it,
+   * reading as a pass in the report and leading nowhere from the spec. A
+   * method, a class whose name ends Test, or a test file all point; a
+   * sentence does not.
+   */
+  public function testProseInVerifiedByNamesNoTest(): void {
+    $root = $this->makeRootWithConfig("preset: custom\n");
+    $this->writeCriteriaSpec($root, "| AC1 | When x, the system shall y. | drush | `XTest::testY` |\n"
+      . "| AC2 | When p, the system shall q. | eye | I tested it by hand |\n"
+      . "| AC3 | When r, the system shall s. | curl | tests/e2e/rink.spec.ts |\n"
+      . "| AC4 | When t, the system shall u. | eye | manual — config-only |\n");
+
+    $criteria = SpecContract::criteriaVerification($root, 'droost/droost-workflow/spec-test-run.md');
+
+    $this->assertNotNull($criteria);
+    $this->assertSame(['AC1', 'AC3'], $criteria['verified'], 'a method and a spec file both point at a test');
+    $this->assertSame(['AC4'], $criteria['manual'], 'the honest answer still classifies as manual');
+    $this->assertSame(['AC2'], $criteria['unverified']);
+    $this->assertSame(['AC2'], $criteria['unnamed'], 'filled in, pointing at nothing');
+  }
+
+  /**
+   * A criterion with no ID is counted and reported, never dropped.
+   *
+   * Skipping the row removed it from the total, the report and the refusal at
+   * once — the one shape of missing cell that makes a spec look BETTER than
+   * it is. It keeps its place in the table as its name.
+   */
+  public function testCriterionWithNoIdIsCountedNotDropped(): void {
+    $root = $this->makeRootWithConfig("preset: custom\n");
+    $spec = 'droost/droost-workflow/spec-test-run.md';
+    file_put_contents($root . '/' . $spec, <<<'MD'
+# Spec
+
+## Acceptance criteria
+
+| ID | Criterion | Check | Verified By |
+|---|---|---|---|
+| AC1 | When x, the system shall y. | drush | `XTest::testY` |
+|  | When p, the system shall q. | drush | |
+|  | When r, the system shall s. | drush | `ZTest::testS` |
+| | | | |
+MD
+    );
+
+    $criteria = SpecContract::criteriaVerification($root, $spec);
+
+    $this->assertNotNull($criteria);
+    $this->assertSame(3, $criteria['total'], 'a wholly empty row is padding, an unlabelled criterion is not');
+    $this->assertSame(['AC1', 'row 3'], $criteria['verified']);
+    $this->assertSame(['row 2'], $criteria['unverified'], 'the row is named by its place in the table');
+  }
+
+  /**
+   * A single-dash separator is GFM, and is not the table's first criterion.
+   */
+  public function testSingleDashSeparatorIsNotTheFirstCriterion(): void {
+    $root = $this->makeRootWithConfig("preset: custom\n");
+    $spec = 'droost/droost-workflow/spec-test-run.md';
+    file_put_contents(
+      $root . '/' . $spec,
+      "# Spec\n\n## Acceptance criteria\n\n| ID | Criterion | Check | Verified By |\n|-|:-|-:|:-:|\n"
+      . "| AC1 | When x, the system shall y. | drush | `XTest::testY` |\n",
+    );
+
+    $criteria = SpecContract::criteriaVerification($root, $spec);
+
+    $this->assertNotNull($criteria);
+    $this->assertSame(1, $criteria['total']);
+    $this->assertSame(['AC1'], $criteria['verified']);
+    $this->assertSame([], $criteria['unverified'], 'the separator row was being read as an unverified criterion');
+  }
+
+  /**
    * A spec with no criteria table is not held to one.
    */
   public function testNoCriteriaTableIsNothingToHold(): void {
@@ -163,6 +240,26 @@ MD
 
     $this->expectException(SpecError::class);
     $this->expectExceptionMessageMatches('/1 acceptance criterion without a "Verified By" entry \(AC2\).*manual — <reason>/s');
+    $facade->run($root);
+  }
+
+  /**
+   * Complete refuses a cell that names no test, and says what shape it wants.
+   *
+   * An empty cell and a sentence of prose fail the same contract and need
+   * different fixes, so the refusal distinguishes them rather than telling an
+   * agent its filled-in cell is empty.
+   */
+  public function testCompleteRefusesProseAndNamesTheShapeItWants(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
+    $this->writeCriteriaSpec($root, "| AC1 | When x, the system shall y. | drush | `XTest::testY` |\n| AC2 | When p, the system shall q. | eye | I tested it by hand |\n");
+    $facade = $this->facadeForCli();
+    $facade->run($root);
+    $facade->run($root);
+    $facade->run($root);
+
+    $this->expectException(SpecError::class);
+    $this->expectExceptionMessageMatches('/\(AC2\) — the cells name no test.*FooTest::testBar/s');
     $facade->run($root);
   }
 
@@ -238,6 +335,26 @@ MD
   }
 
   /**
+   * The companion is found for a light run's spec too.
+   *
+   * The capture is named for the SLUG, and a `medium`/`low` run carries the
+   * same slug behind a `tmp-` prefix. The derivation matched `spec-` alone,
+   * so a light run mid-transition was told it had left its own document
+   * behind while the file sat beside it.
+   */
+  public function testCompanionRealizedFileIsFoundForTheLightRunSpec(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0755, TRUE);
+    $spec = 'droost/droost-workflow/tmp-spec-hh-2.md';
+    file_put_contents($root . '/' . $spec, "# hh-2\n\nWhat was asked, what will change.\n");
+    $this->assertFalse(SpecContract::hasRealizedCapture($root, $spec));
+
+    file_put_contents($root . '/droost/droost-workflow/realized-hh-2.md', "Capture, companion form.\n");
+
+    $this->assertTrue(SpecContract::hasRealizedCapture($root, $spec));
+  }
+
+  /**
    * Ambiguity refuses; a lone candidate is adopted; conflicts refuse.
    */
   public function testResolutionAdoptsOneAndRefusesGuessesAndSwaps(): void {
@@ -294,6 +411,36 @@ MD
     }
     catch (SpecError $e) {
       $this->assertStringContainsString('ONE spec', $e->getMessage());
+    }
+  }
+
+  /**
+   * A light run's quasi-spec is a candidate like any other.
+   *
+   * `medium` and `low` write `tmp-spec-<slug>.md`, and the discovery glob had
+   * never heard of that name: a light run asked to re-resolve its own
+   * governing document was told there was no spec at all, for a file its plan
+   * phase had just written. Two live rounds survived it only because begin()
+   * had already recorded the path.
+   */
+  public function testResolutionAdoptsTheLightRunQuasiSpec(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0755, TRUE);
+    file_put_contents($root . '/droost/droost-workflow/tmp-spec-hh-1.md', "# hh-1\n");
+
+    $this->assertSame(
+      'droost/droost-workflow/tmp-spec-hh-1.md',
+      SpecContract::resolve($root, NULL),
+    );
+
+    // Finding both shapes is still a guess, and still refuses.
+    file_put_contents($root . '/droost/droost-workflow/spec-hh-1.md', "# hh-1\n");
+    try {
+      SpecContract::resolve($root, NULL);
+      $this->fail('a full spec beside a quasi-spec must refuse');
+    }
+    catch (SpecError $e) {
+      $this->assertStringContainsString('2 spec files', $e->getMessage());
     }
   }
 
@@ -376,6 +523,38 @@ MD
   }
 
   /**
+   * An empty cell in fancy dress is still an empty cell.
+   *
+   * The two tables had each grown their own idea of what unfilled looks like.
+   * Grounding compared case-sensitively against five spellings, so `Tbd`,
+   * `N/A`, `TODO`, `Pending` and the en-dash all passed as answers it had
+   * gone and found — the exact claim the row exists to make checkable.
+   */
+  public function testGroundingReadsPlaceholdersInAnyCasing(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
+    $spec = $this->writeGroundingSpec($root, [
+      ['plan', 'custom', 'does a rink type exist', 'Tbd'],
+      ['plan', 'contrib', 'what does views offer', 'N/A'],
+      ['plan', 'core', 'node bundle API', 'TODO'],
+      ['code', 'custom', 'existing field names', '–'],
+      ['code', 'contrib', 'ui_patterns props', 'Pending'],
+      ['code', 'core', 'FieldConfig::create', 'the documented shape'],
+    ]);
+
+    $grounding = SpecContract::grounding($root, $spec);
+    $this->assertNotNull($grounding);
+    $this->assertSame(
+      ['row 2', 'row 3', 'row 4', 'row 5', 'row 6'],
+      $grounding['unanswered'],
+      'every casing and both dashes read as unanswered',
+    );
+
+    $this->expectException(SpecError::class);
+    $this->expectExceptionMessageMatches('/no answer/');
+    $this->facadeForCli()->run($root);
+  }
+
+  /**
    * Writes a spec whose grounding table carries the given rows.
    *
    * @param string $root
@@ -397,6 +576,91 @@ MD
       . $table . "\n## Realized\n\nFixture capture.\n",
     );
     return 'droost/droost-workflow/spec-test-run.md';
+  }
+
+  /**
+   * A heading QUOTED inside a fenced block does not satisfy the contract.
+   *
+   * Every reader here matches on markdown structure, and a fenced block is
+   * full of structure while meaning none of it. A spec that showed the shape
+   * of `## Tooling plan` in an example satisfied the requirement on the
+   * strength of its own teaching material.
+   */
+  public function testFencedHeadingDoesNotSatisfyTheSection(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
+    file_put_contents($root . '/droost/droost-workflow/spec-test-run.md', <<<'MD'
+# Spec: test run
+
+What the section will look like once it is written:
+
+```markdown
+## Tooling plan
+
+- the rink list: views, via `drush generate`
+```
+
+## Grounding
+
+| Phase | Tier | Asked | Found |
+|---|---|---|---|
+| plan | custom | does a rink type exist | nothing matched |
+| plan | contrib | what does views offer | a page display |
+| plan | core | node bundle API | NodeType |
+
+## Realized
+
+Words.
+MD
+    );
+
+    $this->expectException(SpecError::class);
+    $this->expectExceptionMessageMatches('/Tooling plan.*surface that builds it/s');
+    $this->facadeForCli()->run($root);
+  }
+
+  /**
+   * Blanking a fence must not move where the section around it ends.
+   *
+   * The fenced example here carries a `## Realized` heading, which truncated
+   * the acceptance-criteria section before the real table, and a table of its
+   * own, which would be read as criteria if the fence were invisible. Both
+   * are examples; the section runs on to the REAL heading, and holds only the
+   * real row.
+   */
+  public function testFenceDoesNotShiftTheSectionItSitsIn(): void {
+    $root = $this->makeRootWithConfig("preset: custom\n");
+    $spec = 'droost/droost-workflow/spec-test-run.md';
+    file_put_contents($root . '/' . $spec, <<<'MD'
+# Spec
+
+## Acceptance criteria
+
+The shape to fill in at the test phase:
+
+```markdown
+## Realized
+
+| ID | Criterion | Check | Verified By |
+|---|---|---|---|
+| AX | When <trigger>, the system shall <response>. | how | |
+```
+
+| ID | Criterion | Check | Verified By |
+|---|---|---|---|
+| AC1 | When x, the system shall y. | drush | `XTest::testY` |
+
+## Realized
+
+Words.
+MD
+    );
+
+    $criteria = SpecContract::criteriaVerification($root, $spec);
+
+    $this->assertNotNull($criteria, 'the fenced heading truncated the section before the real table');
+    $this->assertSame(1, $criteria['total']);
+    $this->assertSame(['AC1'], $criteria['verified']);
+    $this->assertSame([], $criteria['unverified'], 'the example row is an example, not a criterion');
   }
 
   /**
