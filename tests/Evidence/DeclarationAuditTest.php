@@ -123,8 +123,9 @@ final class DeclarationAuditTest extends TestCase {
   /**
    * The run's own record is never scope creep.
    *
-   * The workflow writes run.json, the evidence store and the spec itself; blocking a phase because the workflow wrote its own record would
-   * be absurd, and a lock file a build legitimately rewrote is the same class.
+   * The workflow writes run.json, the evidence store and the spec itself.
+   * Blocking a phase because the workflow wrote its own record would be
+   * absurd, and a lock file a build legitimately rewrote is the same class.
    */
   public function testTheRunsOwnRecordAndLockFilesAreExempt(): void {
     $audit = new DeclarationAudit(
