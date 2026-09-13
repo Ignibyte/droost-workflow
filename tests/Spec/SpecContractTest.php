@@ -202,6 +202,13 @@ MD
     file_put_contents(
       $root . '/droost/droost-workflow/spec-test-run.md',
       "# Spec: test run\n\n## Tooling plan\n\n- everything: hand-written (fixture)\n\n"
+      // Grounding is a contract at plan and code, so a spec a run may
+      // actually advance carries it. These tests are about the criteria
+      // contract, not this one; the section is here so they reach it.
+      . "## Grounding\n\n| Phase | Tier | Asked | Found |\n|---|---|---|---|\n"
+      . "| plan | custom | fixture | fixture |\n| plan | contrib | fixture | fixture |\n"
+      . "| plan | core | fixture | fixture |\n| code | custom | fixture | fixture |\n"
+      . "| code | contrib | fixture | fixture |\n| code | core | fixture | fixture |\n\n"
       . "## Acceptance criteria\n\n| ID | Criterion | Check | Verified By |\n|---|---|---|---|\n" . $rows
       . "\n## Realized\n\nFixture capture.\n",
     );
@@ -288,6 +295,108 @@ MD
     catch (SpecError $e) {
       $this->assertStringContainsString('ONE spec', $e->getMessage());
     }
+  }
+
+  /**
+   * Grounding is a contract at plan, not advice.
+   *
+   * It WAS advice while routing was a contract, and usage followed the
+   * contract: across 39 graded rounds the build-surface router was called 179
+   * times while the codebase knowledge behind it was called six — symbol,
+   * graph, module_patterns and deprecations not once. The plan brief asked for
+   * both in one breath; only one produced a row anybody checked.
+   */
+  public function testPlanRefusesWithoutGrounding(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
+    file_put_contents(
+      $root . '/droost/droost-workflow/spec-test-run.md',
+      "# Spec: test run\n\n## Tooling plan\n\n- hand-written (fixture)\n\n## Realized\n\nx\n",
+    );
+
+    $this->expectException(SpecError::class);
+    $this->expectExceptionMessageMatches('/has no "## Grounding" section/');
+    $this->facadeForCli()->run($root);
+  }
+
+  /**
+   * Grounding that reached one tier is not grounding.
+   *
+   * A run that consulted contrib alone has confirmed a prior. The expensive
+   * plan-phase mistake is building what this site already has under another
+   * name, and no amount of contrib knowledge catches it.
+   */
+  public function testPlanRefusesWhenOneTierIsNeverReached(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
+    $this->writeGroundingSpec($root, [['plan', 'contrib', 'does views do this', 'yes']]);
+
+    $this->expectException(SpecError::class);
+    $this->expectExceptionMessageMatches('/never reached: custom, core/');
+    $this->facadeForCli()->run($root);
+  }
+
+  /**
+   * A row claiming a lookup with no answer is refused.
+   */
+  public function testGroundingRefusesRowsWithNoAnswer(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
+    $this->writeGroundingSpec($root, [
+      ['plan', 'custom', 'does a rink type exist', ''],
+      ['plan', 'contrib', 'what does views offer', 'a page display'],
+      ['plan', 'core', 'node bundle API', 'NodeType'],
+    ]);
+
+    $this->expectException(SpecError::class);
+    $this->expectExceptionMessageMatches('/no answer/');
+    $this->facadeForCli()->run($root);
+  }
+
+  /**
+   * An answer of "nothing matched" is real and is accepted.
+   *
+   * The contract asks what came back, not that something came back. A lookup
+   * that found nothing is the most useful kind — it is the one that stops a
+   * duplicate being built — so recording it must not be harder than silence.
+   */
+  public function testGroundingAcceptsNothingMatchedAsAnAnswer(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
+    $spec = $this->writeGroundingSpec($root, [
+      ['plan', 'custom', 'does a rink type exist', 'nothing matched — no rink bundle here'],
+      ['plan', 'contrib', 'what does views offer', 'a page display with an exposed filter'],
+      ['plan', 'core', 'node bundle API', 'NodeType config entity'],
+      ['code', 'custom', 'existing field names', 'field_city is free'],
+      ['code', 'contrib', 'ui_patterns props', 'slots accept render arrays'],
+      ['code', 'core', 'FieldConfig::create', 'the documented shape'],
+    ]);
+
+    $grounding = SpecContract::grounding($root, $spec);
+    $this->assertNotNull($grounding);
+    $this->assertSame([], $grounding['unanswered']);
+    $this->assertSame(['custom', 'contrib', 'core'], $grounding['phases']['plan']);
+    $this->facadeForCli()->run($root);
+  }
+
+  /**
+   * Writes a spec whose grounding table carries the given rows.
+   *
+   * @param string $root
+   *   The project root.
+   * @param list<list<string>> $rows
+   *   Rows of [phase, tier, asked, found].
+   *
+   * @return string
+   *   The spec path, project-relative.
+   */
+  private function writeGroundingSpec(string $root, array $rows): string {
+    $table = "## Grounding\n\n| Phase | Tier | Asked | Found |\n|---|---|---|---|\n";
+    foreach ($rows as $row) {
+      $table .= '| ' . implode(' | ', $row) . " |\n";
+    }
+    file_put_contents(
+      $root . '/droost/droost-workflow/spec-test-run.md',
+      "# Spec: test run\n\n## Tooling plan\n\n- hand-written (fixture)\n\n"
+      . $table . "\n## Realized\n\nFixture capture.\n",
+    );
+    return 'droost/droost-workflow/spec-test-run.md';
   }
 
   /**

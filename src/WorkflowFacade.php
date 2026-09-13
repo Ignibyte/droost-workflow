@@ -634,6 +634,30 @@ final class WorkflowFacade {
         . 'then re-run.',
       );
     }
+    // Grounding is a contract at plan and at code, and advisory after. The
+    // two phases that DECIDE things are the two that must look first: plan
+    // proposes a shape, code commits it to disk. Test and complete verify
+    // what those two chose, so a lookup there is welcome and not required.
+    //
+    // This exists because grounding was advice while routing was a contract,
+    // and the numbers followed the contract rather than the advice. The plan
+    // brief asks for both in one breath; only one produced a row anybody
+    // checked.
+    if ($specPath !== NULL && in_array($phase, [Phase::Plan, Phase::Code], TRUE)) {
+      $grounding = SpecContract::grounding($projectRoot, $specPath);
+      $name = strtolower($phase->value);
+      if ($grounding === NULL) {
+        throw SpecError::groundingMissing($specPath, $name, SpecContract::TIERS, TRUE, []);
+      }
+      if ($grounding['unanswered'] !== []) {
+        throw SpecError::groundingMissing($specPath, $name, [], FALSE, $grounding['unanswered']);
+      }
+      $reached = $grounding['phases'][$name] ?? [];
+      $missing = array_values(array_diff(SpecContract::TIERS, $reached));
+      if ($missing !== []) {
+        throw SpecError::groundingMissing($specPath, $name, $missing, FALSE, []);
+      }
+    }
     if ($specPath !== NULL && $phase === Phase::Complete
       && !SpecContract::hasRealizedCapture($projectRoot, $specPath)) {
       throw SpecError::sectionMissing(

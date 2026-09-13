@@ -76,6 +76,19 @@ abstract class WorkflowTestCase extends TestCase {
       mkdir($dir, 0755, TRUE);
     }
     $body = "# Spec: test run\n\n## Tooling plan\n\n- everything: hand-written (fixture)\n";
+    // A well-formed spec grounds before it proposes, at plan and at code, in
+    // all three tiers. The fixture carries it because the contract is not
+    // optional — a test that advanced without it would be asserting against a
+    // spec no real run may use.
+    $body .= "\n## Grounding\n\n"
+      . "| Phase | Tier | Asked | Found |\n"
+      . "|---|---|---|---|\n"
+      . "| plan | custom | fixture lookup | fixture answer |\n"
+      . "| plan | contrib | fixture lookup | fixture answer |\n"
+      . "| plan | core | fixture lookup | fixture answer |\n"
+      . "| code | custom | fixture lookup | fixture answer |\n"
+      . "| code | contrib | fixture lookup | fixture answer |\n"
+      . "| code | core | fixture lookup | fixture answer |\n";
     if ($realized) {
       $body .= "\n## Realized\n\nFixture capture.\n";
     }

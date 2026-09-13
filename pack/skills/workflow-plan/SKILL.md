@@ -23,10 +23,47 @@ against.
 
 ## Work
 
-**Ground first, propose second.** The most expensive mistake in this phase is
-describing a site that does not exist — a content type that is already there
-under another name, a route that is taken, a field you were about to
-duplicate. Ask the site before you assume:
+**Ground first, propose second — and RECORD IT.** The most expensive mistake in
+this phase is describing a site that does not exist: a content type already
+there under another name, a route that is taken, a field you were about to
+duplicate.
+
+This is a **contract, not advice**. The plan phase cannot end without a
+`## Grounding` section, and neither can code. One row per lookup:
+
+```markdown
+## Grounding
+
+| Phase | Tier | Asked | Found |
+|---|---|---|---|
+| plan | custom  | is there already a rink bundle? | nothing matched — no rink type on this site |
+| plan | contrib | what does views give me for a filtered listing? | a page display with an exposed taxonomy filter |
+| plan | core    | how is a node bundle created? | NodeType config entity |
+```
+
+**All three tiers, every phase that decides.** They answer different questions
+and are not interchangeable:
+
+- **custom** — what THIS site's own code already does. The wiki, and search
+  over `modules/custom` and `themes/custom`. This is the tier that stops you
+  rebuilding something that exists.
+- **contrib** — what the installed modules already offer, before you write it
+  yourself.
+- **core** — Drupal's own APIs and the pattern it expects.
+
+`Found` must say what came back. **"nothing matched" is a real and valuable
+answer** — often the most valuable, because it is the one that proves a
+duplicate was not about to be built. An empty cell is a claim to have looked,
+and is refused.
+
+Why this is enforced rather than suggested: grounding used to be advice while
+routing was a contract, and usage followed the contract. Across 39 graded
+rounds the build-surface router was called 179 times; the codebase knowledge
+behind it was called six, and `droost_symbol`, `droost_graph`,
+`droost_module_patterns` and `droost_deprecations` were never called at all.
+A lookup that produces no row is a lookup nobody can tell you made.
+
+Ask the site before you assume:
 
 - `droost_capabilities` — what this site can actually do right now.
 - `droost_architecture` — how it is put together.

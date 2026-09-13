@@ -35,6 +35,37 @@ final class SpecContract {
   public const REALIZED_HEADING = '## Realized';
 
   /**
+   * The section recording what the agent LOOKED UP before it proposed.
+   *
+   * Grounding was advice and routing was a contract, and usage followed the
+   * contract: across 39 graded rounds the build-surface router was called 179
+   * times while the codebase knowledge behind it was called six — symbol,
+   * graph, module_patterns and deprecations not once. The plan brief asks for
+   * both in the same breath, but only one of them produces a row somebody
+   * checks. An agent under time pressure does what is graded.
+   *
+   * So grounding produces a row too. Same mechanism as `## Tooling plan`:
+   * a section the phase cannot end without.
+   */
+  public const GROUNDING_HEADING = '## Grounding';
+
+  /**
+   * The three tiers a grounding row must name.
+   *
+   * They are not interchangeable and a run that only ever consulted one has
+   * not grounded — it has confirmed a prior. CUSTOM is what THIS site's own
+   * code already does (the wiki, and search over modules/custom and
+   * themes/custom); CONTRIB is what the installed modules this site depends
+   * on actually offer; CORE is Drupal's own APIs and the patterns it expects.
+   *
+   * The commonest expensive mistake in the plan phase — building a thing that
+   * already exists under another name — is a CUSTOM miss. The second
+   * commonest, reimplementing what a contrib module already gives you, is a
+   * CONTRIB miss. Neither is caught by knowing core well.
+   */
+  public const TIERS = ['custom', 'contrib', 'core'];
+
+  /**
    * The section holding the acceptance-criteria table.
    */
   public const ACCEPTANCE_HEADING = '## Acceptance criteria';
@@ -173,6 +204,82 @@ final class SpecContract {
     }
     $companion = preg_replace('~/spec-([^/]+)\.md$~', '/realized-$1.md', '/' . $spec);
     return is_string($companion) && is_file($root . $companion);
+  }
+
+  /**
+   * What the run looked up, per phase and per tier.
+   *
+   * Reads the first markdown table under `## Grounding`. Every row names the
+   * phase that did the looking, the tier it reached into, what was asked, and
+   * what came back. A row whose "Found" cell is empty is not grounding — it is
+   * a claim to have looked — and is reported unanswered.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $spec
+   *   The governing spec, project-relative.
+   *
+   * @return array{rows: int, phases: array<string, list<string>>, unanswered: list<string>}|null
+   *   Rows counted, the tiers each phase reached, and the row ids whose Found
+   *   cell is empty. NULL when the spec has no grounding table at all.
+   */
+  public static function grounding(string $projectRoot, string $spec): ?array {
+    $text = @file_get_contents(rtrim($projectRoot, '/') . '/' . $spec);
+    if ($text === FALSE) {
+      return NULL;
+    }
+    $heading = preg_quote(self::GROUNDING_HEADING, '/');
+    if (preg_match('/^' . $heading . '\b[^\n]*\n(.*?)(?=^#{1,2} |\z)/msi', $text, $m) !== 1) {
+      return NULL;
+    }
+    $rows = [];
+    foreach (preg_split('/\R/', $m[1]) ?: [] as $line) {
+      $line = trim($line);
+      if ($line !== '' && $line[0] === '|') {
+        $rows[] = $line;
+      }
+    }
+    if (count($rows) < 2) {
+      return NULL;
+    }
+    $header = self::cells($rows[0]);
+    $idx = ['phase' => NULL, 'tier' => NULL, 'found' => NULL];
+    foreach ($header as $i => $cell) {
+      $key = strtolower(trim($cell));
+      if ($key === 'phase') {
+        $idx['phase'] = $i;
+      }
+      elseif ($key === 'tier') {
+        $idx['tier'] = $i;
+      }
+      elseif (in_array($key, ['found', 'what came back', 'answer'], TRUE)) {
+        $idx['found'] = $i;
+      }
+    }
+    $phases = [];
+    $unanswered = [];
+    $counted = 0;
+    foreach (array_slice($rows, 1) as $n => $row) {
+      $cells = self::cells($row);
+      if ($cells === [] || preg_match('/^[\s\-:|]+$/', $row) === 1) {
+        continue;
+      }
+      $counted++;
+      $phase = $idx['phase'] !== NULL ? strtolower(trim($cells[$idx['phase']] ?? '')) : '';
+      $tier = $idx['tier'] !== NULL ? strtolower(trim($cells[$idx['tier']] ?? '')) : '';
+      $found = $idx['found'] !== NULL ? trim($cells[$idx['found']] ?? '') : '';
+      if ($phase !== '' && in_array($tier, self::TIERS, TRUE)) {
+        $phases[$phase] ??= [];
+        if (!in_array($tier, $phases[$phase], TRUE)) {
+          $phases[$phase][] = $tier;
+        }
+      }
+      if ($found === '' || in_array($found, ['—', '-', 'TBD', 'tbd', 'n/a'], TRUE)) {
+        $unanswered[] = 'row ' . ($n + 1);
+      }
+    }
+
+    return ['rows' => $counted, 'phases' => $phases, 'unanswered' => $unanswered];
   }
 
   /**

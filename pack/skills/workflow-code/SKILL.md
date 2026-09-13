@@ -8,6 +8,19 @@ description: Phase 2 of the Droost Workflow. Build what the spec describes, usin
 Build what the plan describes. Nothing more — scope discovered mid-build
 belongs in the spec first, not in the diff quietly.
 
+
+## Grounding — required again here
+
+The code phase cannot end without its own `## Grounding` rows in the spec, in
+all three tiers, the same shape the plan phase used. Plan grounded to choose a
+shape; code grounds to commit it to disk, and the questions are different ones:
+what the existing custom code names things, what a contrib module's API
+actually accepts, what core's constructor signature really is.
+
+Add rows tagged `code`. `Found` must carry what came back — "nothing matched"
+included. An empty cell is refused.
+
+
 ## Entry gate
 
 - A spec exists from the plan phase and its acceptance criteria are readable.

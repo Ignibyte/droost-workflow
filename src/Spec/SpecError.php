@@ -104,6 +104,54 @@ final class SpecError extends \RuntimeException {
   }
 
   /**
+   * The phase looked nothing up, or looked into too narrow a place.
+   *
+   * @param string $path
+   *   The spec.
+   * @param string $phase
+   *   The phase that must ground.
+   * @param list<string> $missingTiers
+   *   Tiers this phase never reached.
+   * @param bool $sectionMissing
+   *   TRUE when there is no grounding table at all.
+   * @param list<string> $unanswered
+   *   Rows claiming a lookup with no answer recorded.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function groundingMissing(
+    string $path,
+    string $phase,
+    array $missingTiers,
+    bool $sectionMissing,
+    array $unanswered,
+  ): self {
+    if ($sectionMissing) {
+      return new self(sprintf(
+        '%s has no "%s" section. The %s phase may not end until it records what it LOOKED UP before it proposed: one row per lookup, naming the phase, the tier (%s), what was asked and what came back. Grounding used to be advice while routing was a contract, and the numbers followed the contract — the build-surface router was called 179 times across 39 rounds while the codebase knowledge behind it was called six. A lookup that produces no row is a lookup nobody can tell you made.',
+        $path,
+        SpecContract::GROUNDING_HEADING,
+        $phase,
+        implode(' / ', SpecContract::TIERS),
+      ));
+    }
+    if ($unanswered !== []) {
+      return new self(sprintf(
+        '%s records grounding rows with no answer: %s. A row whose "Found" cell is empty is a claim to have looked, not a lookup. Write what came back — including "nothing matched", which is a real and useful answer.',
+        $path,
+        implode(', ', $unanswered),
+      ));
+    }
+
+    return new self(sprintf(
+      'The %s phase grounded, but never reached: %s. Each tier answers a different question and they are not interchangeable — custom is what THIS site already does, contrib is what its installed modules already give you, core is what Drupal expects. The expensive mistakes in this phase are a custom miss (building what exists under another name) and a contrib miss (reimplementing what a module already offers); neither is caught by knowing core well. Consult the missing tier and add its row, or state in the row why it does not apply here.',
+      $phase,
+      implode(', ', $missingTiers),
+    ));
+  }
+
+  /**
    * Acceptance criteria whose "Verified By" cell is empty at complete.
    *
    * @param string $path
