@@ -60,7 +60,7 @@ final class EvidenceStore {
    * build does not know about costs it nothing. A store written by an older one
    * is migrated up in place.
    */
-  public const int SCHEMA_VERSION = 4;
+  public const int SCHEMA_VERSION = 5;
 
   /**
    * The open connection, or NULL until first use.
@@ -180,6 +180,7 @@ final class EvidenceStore {
         2 => $this->migrateToV2($pdo),
         3 => $this->migrateToV3($pdo),
         4 => $this->migrateToV4($pdo),
+        5 => $this->migrateToV5($pdo),
         default => NULL,
       };
       // Stamped per rung, so an interrupted upgrade resumes where it stopped
@@ -505,7 +506,12 @@ final class EvidenceStore {
       $check->measured === NULL ? NULL : (int) $check->measured,
       $digest = self::chain($previous, $runId, $phase, $attempt, $check, $adjudicatedAt),
     ]);
-    $pdo->prepare('UPDATE run SET chain_head = ?')->execute([$digest]);
+    // Per RUN. Without the WHERE, two runs sharing a store carried one global
+    // head, so a second run's writes silently repaired the first run's
+    // truncation — and `integrity()` then read whichever row came back first,
+    // which is not necessarily the run being verified.
+    $pdo->prepare('UPDATE run SET chain_head = ? WHERE run_id = ?')
+      ->execute([$digest, $runId]);
     $id = (int) $pdo->lastInsertId();
     $this->recordFindings($pdo, $id, $check->findings);
     $this->recordTranscript($pdo, $id, $check->stdout, $check->stderr);
@@ -1146,10 +1152,23 @@ final class EvidenceStore {
    * still possible; it is no longer invisible, and `integrity()` names the
    * first row where the record stops being self-consistent.
    *
-   * What this does NOT do is stop somebody who reads this method and recomputes
-   * the chain after editing. That is a real limit, written down rather than
-   * implied away, because a defence whose limits are unstated gets trusted past
-   * them — which is the whole story of today.
+   * WHAT THIS DOES NOT DO, measured rather than guessed. A reviewer defeated
+   * the first cut in two statements with no knowledge of this method at all:
+   * blanking every digest made the record declare itself legacy. That is
+   * closed. After it, deleting from the END and repointing the head still
+   * works, because the head is stored in the very table it protects and a
+   * forger reads its correct value straight out of it.
+   *
+   * That last one is not a gap to patch. Every input to this check — the
+   * algorithm, the digests, the head — lives in a file the agent being measured
+   * can write, so nothing kept entirely inside it holds against somebody
+   * determined. This catches accident, corruption and casual editing, which is
+   * most of what actually goes wrong, and the evaluation says exactly that
+   * rather than implying more.
+   *
+   * If a record has to survive a determined local forger it has to leave the
+   * machine: committed, where a diff shows what changed, or written somewhere
+   * the agent has no credentials for. That is an operator's decision.
    *
    * @param string $previous
    *   The previous row's digest, or '' for the first row.
@@ -1223,31 +1242,41 @@ final class EvidenceStore {
    * @return array{row: int, name: string, phase: string}|null
    *   The first break, or NULL when the chain holds end to end.
    */
-  public function integrity(): ?array {
+  public function integrity(string $runId): ?array {
     $statement = $this->connection()->query(
       'SELECT * FROM check_result ORDER BY id'
     );
     if ($statement === FALSE) {
       return NULL;
     }
+    // The last row that existed when digests began. Zero for any store created
+    // since — which is every new run, and the case that matters most.
+    $mark = $this->connection()->query(
+      'SELECT COALESCE(MIN(chained_from), 0) FROM run WHERE chained_from IS NOT NULL'
+    );
+    $watermark = $mark === FALSE ? 0 : (int) ($mark->fetchColumn() ?: 0);
+
     $previous = '';
     $seen = FALSE;
+    $expectedId = NULL;
     foreach (self::rows($statement) as $row) {
       $seen = TRUE;
       $stored = self::text($row, 'row_digest');
       if ($stored === '') {
-        if ($previous !== '') {
-          // A row with no digest AFTER rows that have one. Pre-v4 rows are all
-          // at the start, by definition — this one was appended by something
-          // that did not know to chain it. Skipping it was how an invented gate
-          // stayed invisible.
+        // An empty digest is only legitimate BELOW the watermark — the rows
+        // that existed before digests began. Above it, a missing digest is a
+        // forgery, and this is the hole that made the whole mechanism
+        // worthless: an empty digest was itself unauthenticated, so
+        // `UPDATE check_result SET row_digest=''` declared the entire record
+        // legacy and `integrity()` agreed. Two statements, no knowledge of the
+        // hash, and the evaluation rendered clean.
+        if (self::number($row, 'id') > $watermark || $previous !== '') {
           return [
             'row' => self::number($row, 'id'),
             'name' => self::text($row, 'name'),
             'phase' => self::text($row, 'phase'),
           ];
         }
-        // Genuinely pre-v4: nothing to verify, and nobody to accuse.
         continue;
       }
       $expected = hash('xxh128', implode("\0", [
@@ -1277,6 +1306,24 @@ final class EvidenceStore {
           'phase' => self::text($row, 'phase'),
         ];
       }
+      // AUTOINCREMENT ids are monotonic and never reused, and nothing in this
+      // package deletes from check_result — the table is append-only by
+      // design, which is why a retried gate gets a new row rather than
+      // overwriting the one it failed on. So a GAP is a deletion, and deletion
+      // is the one edit a forward chain cannot see: remove a row and every
+      // remaining link still follows from the one before it.
+      //
+      // This does not stop a forger who also renumbers. It stops the plain
+      // `DELETE FROM check_result WHERE state='blocked'`, which was the first
+      // statement of the cheapest attack anyone found.
+      if ($expectedId !== NULL && self::number($row, 'id') !== $expectedId) {
+        return [
+          'row' => $expectedId,
+          'name' => 'a deleted verdict',
+          'phase' => self::text($row, 'phase'),
+        ];
+      }
+      $expectedId = self::number($row, 'id') + 1;
       $previous = $stored;
     }
 
@@ -1284,8 +1331,8 @@ final class EvidenceStore {
     // last verdict and every remaining link still follows from the one before
     // it. The run row carries the head, written in the same transaction as each
     // insert, so a missing tail is a mismatch here.
-    $head = $this->connection()->prepare('SELECT chain_head FROM run WHERE run_id IS NOT NULL LIMIT 1');
-    $head->execute();
+    $head = $this->connection()->prepare('SELECT chain_head FROM run WHERE run_id = ?');
+    $head->execute([$runId]);
     $recorded = $head->fetchColumn();
     if ($seen && is_string($recorded) && $recorded !== '' && !hash_equals($recorded, $previous)) {
       return ['row' => 0, 'name' => 'the last verdict', 'phase' => 'the end of the record'];
@@ -1308,6 +1355,44 @@ final class EvidenceStore {
     catch (\PDOException $e) {
       // A column another build already added.
     }
+  }
+
+  /**
+   * V5 — the watermark that says which rows must carry a digest.
+   *
+   * An empty digest meant "written before v4, nothing to verify" — and the
+   * empty digest was itself unauthenticated, so two statements erased the whole
+   * chain and the record declared itself legacy:
+   *
+   *     UPDATE check_result SET state='satisfied', row_digest='';
+   *     UPDATE run SET chain_head='';
+   *
+   * No knowledge of the hash, no knowledge of the code. `integrity()` returned
+   * NULL and the evaluation rendered clean, every gate satisfied.
+   *
+   * The watermark is the id of the last row that existed when digests began. A
+   * row above it with no digest is a forgery, not a legacy row — and for a
+   * store created after v5, which is every new run, the watermark is 0 and so
+   * EVERY row must carry one. That is the case that matters: a measured round
+   * starts from an empty store.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   */
+  private function migrateToV5(\PDO $pdo): void {
+    try {
+      $pdo->exec('ALTER TABLE run ADD COLUMN chained_from INTEGER');
+    }
+    catch (\PDOException $e) {
+      // A column another build already added.
+    }
+    $tail = $pdo->query('SELECT COALESCE(MAX(id), 0) FROM check_result');
+    $mark = $tail === FALSE ? 0 : (int) ($tail->fetchColumn() ?: 0);
+    // Only the runs that already exist. A sentinel row was the first idea and
+    // it polluted every query that reads the run table — a fresh store needs
+    // no marker anyway: with no rows to exempt, the watermark is zero and every
+    // verdict must carry a digest, which is exactly the rule a new run wants.
+    $pdo->exec('UPDATE run SET chained_from = ' . $mark . ' WHERE chained_from IS NULL');
   }
 
   /**

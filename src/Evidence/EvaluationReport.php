@@ -284,7 +284,25 @@ final class EvaluationReport {
     // from itself? A shell can reach this file — the guard refuses the obvious
     // routes and a reviewer defeated it in four more within minutes — so the
     // question is not whether forging is possible but whether it is visible.
-    $break = $this->store->integrity();
+    $break = $this->store->integrity($runId);
+    $out .= "\n> **What the integrity check does and does not establish.** Every\n"
+      . "> verdict carries a digest over the previous verdict's digest and its\n"
+      . "> own columns, and the ids are contiguous because nothing deletes from\n"
+      . "> that table. So an altered verdict, an invented one, or a deletion in\n"
+      . "> the middle of the record breaks the chain and is named below.\n"
+      . "> \n"
+      . "> It does NOT establish that the record is untampered. Every input to\n"
+      . "> the check — the algorithm, the digests, the head it ends at — lives in\n"
+      . "> a file the agent being measured can write, so anyone willing to read\n"
+      . "> `EvidenceStore::chain()` can recompute it, and deleting from the END\n"
+      . "> and repointing the head defeats it outright. It catches accident,\n"
+      . "> corruption and casual editing. It does not catch a determined local\n"
+      . "> forger, and no scheme kept entirely inside that file could.\n"
+      . "> \n"
+      . "> If this record has to hold against that, it has to leave the machine:\n"
+      . "> commit the rendered evaluation, where a diff shows what changed, or\n"
+      . "> write it somewhere the agent has no credentials for. That is an\n"
+      . "> operator's decision and droost cannot make it from in here.\n";
     if ($break !== NULL) {
       $out .= sprintf(
         "\n> ## ⚠ THIS RECORD HAS BEEN ALTERED\n"

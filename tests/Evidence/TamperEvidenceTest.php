@@ -90,7 +90,7 @@ final class TamperEvidenceTest extends TestCase {
    * An honest record follows from itself end to end.
    */
   public function testHonestRecordIsSelfConsistent(): void {
-    $this->assertNull($this->honestRun()->integrity(), 'nothing droost wrote breaks its own chain');
+    $this->assertNull($this->honestRun()->integrity('r1'), 'nothing droost wrote breaks its own chain');
   }
 
   /**
@@ -102,7 +102,7 @@ final class TamperEvidenceTest extends TestCase {
       "UPDATE check_result SET state='satisfied', fault='none', summary='wiki_fresh passed' WHERE state='blocked'"
     );
 
-    $break = (new EvidenceStore($this->root))->integrity();
+    $break = (new EvidenceStore($this->root))->integrity('r1');
 
     $this->assertIsArray($break, 'the forgery is visible');
     $this->assertSame('wiki_fresh', $break['name'], 'and the record names the row it happened at');
@@ -119,7 +119,7 @@ final class TamperEvidenceTest extends TestCase {
        VALUES ('r1', 'complete', 1, 'gate', 'security_audit', 'satisfied', 'none', 'no findings', '2026-09-13')"
     );
 
-    $this->assertIsArray((new EvidenceStore($this->root))->integrity());
+    $this->assertIsArray((new EvidenceStore($this->root))->integrity('r1'));
   }
 
   /**
@@ -129,7 +129,7 @@ final class TamperEvidenceTest extends TestCase {
     $this->honestRun();
     $this->raw()->exec("DELETE FROM check_result WHERE state='blocked'");
 
-    $this->assertIsArray((new EvidenceStore($this->root))->integrity());
+    $this->assertIsArray((new EvidenceStore($this->root))->integrity('r1'));
   }
 
   /**
@@ -190,7 +190,7 @@ final class TamperEvidenceTest extends TestCase {
       '2 vulnerabilities', 'snyk auth', 'abc123', 2, 'snyk test --all-projects',
       '2026-09-13T00:00:00+00:00', 900, [], '', '', 'droost_snyk', TRUE,
     ));
-    $this->assertNull($store->integrity(), 'the honest record holds');
+    $this->assertNull($store->integrity('r1'), 'the honest record holds');
 
     // Every column the row actually carries, except the ones that identify it
     // or hold the digest itself.
@@ -222,10 +222,73 @@ final class TamperEvidenceTest extends TestCase {
       unset($pdo);
 
       $this->assertIsArray(
-        (new EvidenceStore($copy))->integrity(),
+        (new EvidenceStore($copy))->integrity('r1'),
         sprintf('rewriting "%s" breaks the chain — it is inside the digest', $column),
       );
     }
+  }
+
+  /**
+   * Blanking every digest does not make the record declare itself legacy.
+   *
+   * The cheapest break anyone found, and it needed no knowledge of the hash:
+   *
+   *     UPDATE check_result SET state='satisfied', row_digest='';
+   *     UPDATE run SET chain_head='';
+   *
+   * An empty digest meant "written before digests existed, nothing to verify",
+   * and the empty digest was itself unauthenticated — so erasing them wholesale
+   * declared the entire record legacy and `integrity()` agreed. The evaluation
+   * rendered clean, every gate satisfied.
+   *
+   * A watermark records which rows predate digests. Above it, a missing digest
+   * is a forgery; and a store created since carries a watermark of zero, so
+   * every row must have one. That is the case that matters: a measured round
+   * starts from an empty store.
+   */
+  public function testBlankingEveryDigestIsCaught(): void {
+    $this->honestRun();
+
+    $pdo = $this->raw();
+    $pdo->exec("UPDATE check_result SET state='satisfied', fault='none', row_digest=''");
+    $pdo->exec("UPDATE run SET chain_head=''");
+    unset($pdo);
+
+    $this->assertIsArray(
+      (new EvidenceStore($this->root))->integrity('r1'),
+      'an erased chain is a broken chain, not a legacy one',
+    );
+  }
+
+  /**
+   * A deletion droost later writes over is still caught.
+   *
+   * A forward chain cannot see its own truncation, and the head only guards the
+   * tail — so deleting a row and letting droost record one more repaired the
+   * evidence automatically. In a test feedback loop that is seconds.
+   *
+   * The ids are AUTOINCREMENT and nothing in this package deletes from
+   * `check_result`; the table is append-only by design, which is why a retried
+   * gate gets a new row rather than overwriting the one it failed on. So a gap
+   * in the ids is a deletion.
+   */
+  public function testDeletionSurvivesDroostWritingAgain(): void {
+    $this->honestRun();
+
+    $pdo = $this->raw();
+    $pdo->exec("DELETE FROM check_result WHERE state='blocked'");
+    unset($pdo);
+
+    // Droost carries on and records another verdict, re-chaining from the
+    // surviving tail and rewriting the head.
+    $reopened = new EvidenceStore($this->root);
+    $reopened->record('r1', 'complete', new CheckRecord(
+      'gate', 'later', CheckState::Satisfied, Fault::None, 'ran after the deletion',
+    ));
+
+    $break = $reopened->integrity('r1');
+    $this->assertIsArray($break, 'the gap in the ids outlives the repair');
+    $this->assertStringContainsString('deleted', $break['name']);
   }
 
 }
