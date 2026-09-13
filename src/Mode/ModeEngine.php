@@ -331,6 +331,10 @@ final class ModeEngine {
    *   What the human said.
    * @param string $now
    *   The current time, as a caller-supplied ISO-8601 string.
+   * @param string $projectRoot
+   *   The repository, so an answer that ENDS the run can be recorded as a
+   *   verdict rather than only as a phase status. Empty skips that, for the
+   *   callers that have no root to give.
    *
    * @return \Droost\Workflow\State\RunState
    *   The run, no longer awaiting, with the exchange recorded.
@@ -343,6 +347,7 @@ final class ModeEngine {
     RunState $state,
     string $answer,
     string $now,
+    string $projectRoot = '',
   ): RunState {
     if ($state->awaiting === NULL) {
       throw new \InvalidArgumentException(
@@ -361,6 +366,38 @@ final class ModeEngine {
     // it sits behind the one wall that exists because the run cannot tell a
     // slow correction cycle from a wedge.
     if ($asked !== NULL && $asked->answerEndsTheRun($answer)) {
+      // Recorded as a verdict, not only as a phase status. A human deciding a
+      // run is stuck is the most consequential thing that happens in one, and
+      // the evaluation rendered nothing about it: the phase was failed, the
+      // envelope carried `report: null, blocked: []`, and the surface said
+      // "answered — now at code". A decision somebody made belongs in the
+      // record that decision produced.
+      //
+      // Best-effort: an unwritable store is already reported by the phase that
+      // could not write it, and losing this row must not lose the stop.
+      try {
+        (new EvidenceStore($projectRoot))->record(
+          $state->runId,
+          $asked->phase->value,
+          new CheckRecord(
+            'check',
+            'stopped_by_operator',
+            CheckState::Blocked,
+            Fault::Environment,
+            sprintf(
+              'A human was asked whether this run was stuck and answered "%s". The phase ends '
+              . 'here on their word, not on a gate.',
+              trim($answer),
+            ),
+            'droost-workflow reset --force, once whatever made it stick is understood',
+          ),
+          $now,
+        );
+      }
+      catch (\Throwable) {
+        // See above.
+      }
+
       return $answered->withPhaseStatus($asked->phase, PhaseStatus::Failed);
     }
 

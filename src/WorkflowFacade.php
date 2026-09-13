@@ -821,7 +821,7 @@ final class WorkflowFacade {
   public function answer(string $projectRoot, string $answer): RunState {
     $store = new RunStateStore($projectRoot);
     $state = $this->requireRun($store);
-    $answered = $this->engine()->answer($state, $answer, $this->now());
+    $answered = $this->engine()->answer($state, $answer, $this->now(), $projectRoot);
     // A pause exists for exactly one reason: the current phase passed its
     // gates and pair mode asked its check-in question. The answer IS that
     // check-in, so answering moves the run on — to the next phase, or, at the

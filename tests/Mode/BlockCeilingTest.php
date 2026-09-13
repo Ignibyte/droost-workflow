@@ -319,12 +319,36 @@ final class BlockCeilingTest extends TestCase {
     $paused = $engine->stuckOutcome($state, Phase::Code, $this->root, NULL, '2026-09-13T01:00:00+00:00');
     $this->assertNotNull($paused);
 
-    $stopped = $engine->answer($paused->state, 'stop here — this is stuck and I will look at it', '2026-09-13T02:00:00+00:00');
+    $stopped = $engine->answer(
+      $paused->state,
+      'stop here — this is stuck and I will look at it',
+      '2026-09-13T02:00:00+00:00',
+      $this->root,
+    );
 
     $this->assertSame(
       PhaseStatus::Failed,
       $stopped->phases['code'] ?? NULL,
       'the phase ends, rather than the answer being filed away',
+    );
+
+    // And the decision is in the RECORD, not only in a status field. A human
+    // deciding a run is stuck is the most consequential thing that happens in
+    // one, and the evaluation rendered nothing about it: the envelope carried
+    // `report: null, blocked: []` and the surface said "answered — now at
+    // code", which reads as carry on.
+    $rows = array_values(array_filter(
+      (new EvidenceStore($this->root))->unresolved('run-1', 'code'),
+      static fn (array $row): bool => $row['name'] === 'stopped_by_operator',
+    ));
+    $this->assertCount(1, $rows, 'the stop is a verdict the evaluation can render');
+    $summary = $rows[0]['summary'];
+    $this->assertIsString($summary);
+    $this->assertStringContainsString('stop here', $summary);
+    $this->assertStringContainsString(
+      'on their word, not on a gate',
+      $summary,
+      'and says what kind of ending it was',
     );
   }
 
@@ -352,7 +376,7 @@ final class BlockCeilingTest extends TestCase {
       'banana',
       '',
     ] as $answer) {
-      $carried = $engine->answer($paused->state, $answer, '2026-09-13T02:00:00+00:00');
+      $carried = $engine->answer($paused->state, $answer, '2026-09-13T02:00:00+00:00', $this->root);
       $this->assertNotSame(
         PhaseStatus::Failed,
         $carried->phases['code'] ?? NULL,
@@ -383,7 +407,7 @@ final class BlockCeilingTest extends TestCase {
     );
     $waiting = $state->awaiting($question->toArray());
 
-    $answered = $engine->answer($waiting, 'stop here', '2026-09-13T02:00:00+00:00');
+    $answered = $engine->answer($waiting, 'stop here', '2026-09-13T02:00:00+00:00', $this->root);
 
     $this->assertNotSame(
       PhaseStatus::Failed,

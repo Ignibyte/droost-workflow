@@ -16,6 +16,7 @@ use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Pack\PackError;
 use Droost\Workflow\Seeker\SeekerError;
+use Droost\Workflow\State\PhaseStatus;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\Spec\SpecError;
 use Droost\Workflow\State\StateError;
@@ -416,9 +417,29 @@ final class ArgvDispatcher {
     $state = $this->facade($projectRoot)->answer($projectRoot, $text);
     // Answering IS the check-in the pause was for, so the run moved on;
     // say where it now stands rather than a bare acknowledgment.
-    $this->say($state->currentPhase === NULL
+    //
+    // Unless the answer ENDED it. A human told the ceiling "stop here — this is
+    // stuck", the phase was failed, and this line said `answered — now at
+    // code`, which reads as "carry on". The one place the product asks somebody
+    // for a judgement then reported their judgement back as though it had not
+    // been made.
+    $phase = $state->currentPhase;
+    $stopped = $phase !== NULL
+      && ($state->phases[$phase->value] ?? NULL) === PhaseStatus::Failed;
+    if ($stopped) {
+      $this->say(sprintf(
+        'answered — the run is STOPPED at %s on your word, not on a gate. '
+        . 'Nothing further will advance it. `droost-workflow evidence` renders '
+        . 'what it had measured; `droost-workflow reset --force` archives it '
+        . 'once you know what made it stick.',
+        $phase->value,
+      ));
+
+      return self::EXIT_RUN_FAILED;
+    }
+    $this->say($phase === NULL
       ? 'answered — the run completed'
-      : 'answered — now at ' . $state->currentPhase->value);
+      : 'answered — now at ' . $phase->value);
     return self::EXIT_OK;
   }
 
