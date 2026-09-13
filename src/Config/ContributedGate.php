@@ -50,6 +50,9 @@ final class ContributedGate {
    * @param string $defaultMode
    *   Either 'block' or 'report': what the gate does with a blocking result
    *   unless the site's lever overrides it.
+   * @param string $verdict
+   *   A plain sentence: what exit zero means, and what a failure means. Shown
+   *   in status and the bill so a contributed gate is never a mystery number.
    * @param array<int, string> $faults
    *   (optional) What each exit code MEANS, as agent|environment|unknown. A
    *   crashed tool is genuinely ambiguous — phpstan dying on PHP the agent just
@@ -60,9 +63,6 @@ final class ContributedGate {
    * @param string $remedy
    *   (optional) The command that clears an environment fault. Printed to the
    *   agent as the OPERATOR's to run, never its own.
-   * @param string $verdict
-   *   A plain sentence: what exit zero means, and what a failure means. Shown
-   *   in status and the bill so a contributed gate is never a mystery number.
    */
   public function __construct(
     public readonly string $id,
@@ -126,6 +126,10 @@ final class ContributedGate {
    * @return string
    *   The name carried through the resolved set, the run and every report.
    */
+  public function name(): string {
+    return GateSettings::MODULE_PREFIX . $this->id;
+  }
+
   /**
    * The declared faults, validated.
    *
@@ -143,10 +147,6 @@ final class ContributedGate {
     }
 
     return $valid;
-  }
-
-  public function name(): string {
-    return GateSettings::MODULE_PREFIX . $this->id;
   }
 
   /**
