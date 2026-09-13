@@ -74,12 +74,28 @@ final class InitReport {
   /**
    * A short human-readable summary.
    *
+   * @param list<string> $omit
+   *   Paths the caller has already reported on, left out of the kept list so
+   *   one file is not announced twice in the same transcript. `written` and
+   *   `drifted` are never filtered: the first is a count, and the second is a
+   *   warning nobody else issues.
+   *
    * @return string
    *   One line per outcome that occurred.
    */
-  public function summary(): string {
+  public function summary(array $omit = []): string {
     $lines = [sprintf('wrote %d file(s)', count($this->written))];
     foreach ($this->kept as $path) {
+      if (in_array($path, $omit, TRUE)) {
+        // Kept, and somebody else already said so. droost's own installer
+        // writes droost.workflow.yml before the pack runs — a lever file
+        // shaped for that site, which the pack then declines to overwrite —
+        // and reports it on its own line. Printing "kept your existing
+        // droost.workflow.yml" under "droost.workflow.yml ... written" is two
+        // true statements that read as a contradiction, in the one transcript
+        // an operator uses to learn what the install did.
+        continue;
+      }
       $lines[] = sprintf('kept your existing %s', $path);
     }
     foreach ($this->drifted as $path) {
