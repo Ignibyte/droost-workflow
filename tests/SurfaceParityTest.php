@@ -93,6 +93,24 @@ class SurfaceParityTest extends WorkflowTestCase {
 
     $this->assertSame(array_keys($cliGates), array_keys($liveGates));
 
+    // The loop below is the whole test, and `[] === []` passes — so with
+    // `byGate()` returning nothing this stayed green about nothing, at a cost
+    // of 37 assertions and zero failures. "The surfaces agree" is a sentence
+    // two empty arrays satisfy. The neighbouring meta-tests get this right
+    // (PackPortabilityTest asserts >20 files, UsageCompletenessTest >8 verbs);
+    // this one did not.
+    $this->assertNotSame([], $cliGates, 'the CLI surface ran some gates at all');
+    $this->assertArrayHasKey('phpcs', $cliGates, 'including a mandatory one');
+    $this->assertNotSame(
+      [],
+      array_intersect(
+        array_keys($cliGates),
+        ['rendered_check', 'config_clean', 'grounding_check'],
+      ),
+      'and at least one site gate, which is what the two surfaces differ on — '
+      . 'without one in the set, the branch this test exists for is never taken',
+    );
+
     foreach ($cliGates as $name => $cliResult) {
       if (in_array($name, ['rendered_check', 'config_clean', 'grounding_check'], TRUE)) {
         $this->assertSame('skipped-no-site', $cliResult['status']);

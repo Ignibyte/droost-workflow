@@ -982,4 +982,71 @@ class ShellGateExecutorTest extends WorkflowTestCase {
     );
   }
 
+  /**
+   * Exit 16 out of phpcs is a labelled pass, produced here.
+   *
+   * `LabelledPassTest` covers what the store and the report do with one, in
+   * four tests, and builds every fixture by calling
+   * `GateResult::labelledPass()` by hand. Nothing drove `execute()` with the
+   * exit code that is supposed to produce one — consumer thoroughly tested,
+   * producer not at all — so deleting the branch outright left the suite green.
+   *
+   * What that would ship: exit 16 is "No files were checked", and without the
+   * branch it falls through to the ordinary result path, where a project
+   * carrying a phpcs baseline renders it as "passed — 0 new, 0 inherited". A
+   * confident green over a scan of nothing, which is the defect the branch
+   * exists to prevent, restored silently.
+   */
+  public function testPhpcsExitSixteenIsLabelledAsMeasuringNothing(): void {
+    $root = $this->rootWithBinaries(['phpcs']);
+    $executor = new ShellGateExecutor(
+      static fn (array $argv): array => [
+        16,
+        '',
+        'ERROR: You must supply at least one file or directory to process.',
+      ],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('phpcs', TRUE), $root);
+
+    $this->assertSame(GateStatus::Passed, $result->status, 'it does not fail the phase');
+    $this->assertTrue(
+      $result->labelledPass,
+      'and it is flagged as having measured nothing, which is what type_coverage reads',
+    );
+    $this->assertStringContainsString('not a measurement', $result->summary);
+  }
+
+  /**
+   * And it stays a labelled pass when a baseline is configured.
+   *
+   * The branch's own docblock says it must come BEFORE the baseline partition,
+   * because `againstBaseline()` renders exit 16 as "passed — 0 new, 0
+   * inherited" — the most reassuring sentence in the report, about a scan that
+   * read no files. Ordering is not something a reader can check by eye, so it
+   * is asserted.
+   */
+  public function testExitSixteenIsNotPartitionedByTheBaseline(): void {
+    $root = $this->rootWithBinaries(['phpcs']);
+    mkdir($root . '/droost/baseline', 0775, TRUE);
+    file_put_contents(
+      $root . '/droost/baseline/phpcs.json',
+      (string) json_encode(['findings' => [], 'measured_at' => '2026-09-13T00:00:00+00:00']),
+    );
+    $executor = new ShellGateExecutor(
+      static fn (array $argv): array => [16, '', 'ERROR: You must supply at least one file'],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('phpcs', TRUE), $root);
+
+    $this->assertTrue($result->labelledPass);
+    $this->assertStringNotContainsString(
+      'inherited',
+      $result->summary,
+      'a scan of nothing is never partitioned into new and inherited',
+    );
+  }
+
 }

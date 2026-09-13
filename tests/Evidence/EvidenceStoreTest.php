@@ -442,4 +442,233 @@ final class EvidenceStoreTest extends TestCase {
     $this->assertSame(['snyk'], $store->unmeasurableGates('r2'));
   }
 
+  /**
+   * Only a state that looked at something counts as having measured.
+   *
+   * This feeds `type_coverage`, the one BLOCKING check derived from the idea,
+   * and it is the looser of two implementations of one question — the shape
+   * `migrateToV3`'s docblock was written about. The column filter is
+   * `measured IS NULL OR measured = 1`, and a gate turned off by the level or
+   * skipped for want of a site records `measured` as NULL, so the STATE filter
+   * is the only thing excluding them. Relaxing it made `measuredGates()` return
+   * a gate the operator had switched off as one that had measured.
+   *
+   * Driven from `CheckState::cases()` so a new state cannot be forgotten: the
+   * enum decides, and this asserts the enum is what is being asked.
+   */
+  public function testOnlyStatesThatLookedAtSomethingCountAsMeasured(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
+    $expected = [];
+    foreach (CheckState::cases() as $state) {
+      $name = 'gate_' . $state->value;
+      $store->record('r1', 'code', new CheckRecord(
+        kind: 'gate',
+        name: $name,
+        state: $state,
+        fault: $state === CheckState::Blocked ? Fault::Agent : Fault::None,
+        summary: 'x',
+        exitCode: $state === CheckState::Blocked ? 1 : 0,
+      ));
+      if ($state->measured()) {
+        $expected[] = $name;
+      }
+    }
+
+    $measured = $store->measuredGates('r1');
+    sort($measured);
+    sort($expected);
+
+    $this->assertSame($expected, $measured);
+    $this->assertNotContains(
+      'gate_not_applicable',
+      $measured,
+      'a gate the LEVEL turned off has not measured anything',
+    );
+    $this->assertNotContains(
+      'gate_skipped',
+      $measured,
+      'nor has one the surface could not run',
+    );
+  }
+
+  /**
+   * The green expires when a LATER attempt is not green.
+   *
+   * `stillGreen()` reads the newest attempt, and reading the oldest instead
+   * left the suite silent: a gate that passed on attempt 1 and blocked on
+   * attempt 2 still read as green about the current code, which is the EXPIRED
+   * column in the evaluation saying the opposite of the record. `unresolved()`
+   * is pinned on the same ordering; this never was.
+   */
+  public function testStillGreenReadsTheLatestAttemptNotTheFirst(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
+    $hash = str_repeat('a', 32);
+
+    $store->record('r1', 'code', new CheckRecord(
+      kind: 'gate', name: 'phpstan', state: CheckState::Satisfied,
+      summary: 'clean', subjectHash: $hash, exitCode: 0, measured: TRUE,
+    ));
+    $this->assertTrue($store->stillGreen('r1', 'code', 'phpstan', $hash), 'green on the first attempt');
+
+    $store->record('r1', 'code', new CheckRecord(
+      kind: 'gate', name: 'phpstan', state: CheckState::Blocked, fault: Fault::Agent,
+      summary: '3 errors', subjectHash: $hash, exitCode: 1, measured: TRUE,
+    ));
+
+    $this->assertFalse(
+      $store->stillGreen('r1', 'code', 'phpstan', $hash),
+      'and not green once a later attempt found something',
+    );
+  }
+
+  /**
+   * A fact key cannot carry SQL into the column list.
+   *
+   * `upsertRun()` interpolates column names — `$sets[] = $column . ' = ?'` —
+   * and the allow-list is the only thing between a caller's array key and that
+   * string. It is public on a public class, and the contributed-gate surface
+   * reaches this store, so it is a security control; it had no test.
+   *
+   * The silent-drop half matters too: a caller that typos a key should lose
+   * that fact quietly rather than write a column nobody declared.
+   */
+  public function testUpsertRunRefusesUnknownFactKeys(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'medium', 'enforcement' => 'hard']);
+
+    $store->upsertRun('r1', [
+      "preset = 'forged', enforcement" => 'off',
+      'nonsense' => 'x',
+    ]);
+
+    $pdo = new \PDO('sqlite:' . EvidenceStore::pathFor($this->root));
+    $query = $pdo->query("SELECT preset, enforcement FROM run WHERE run_id = 'r1'");
+    $this->assertNotFalse($query);
+    $row = $query->fetch(\PDO::FETCH_ASSOC);
+    $this->assertIsArray($row);
+
+    $this->assertSame('medium', $row['preset'], 'the forged key wrote nothing');
+    $this->assertSame('hard', $row['enforcement'], 'including the column it tried to reach through');
+  }
+
+  /**
+   * An upgraded pre-v5 store does not cry forgery over its honest legacy rows.
+   *
+   * The v5 watermark records which rows predate digests, and three defences now
+   * rest on it — a watermark cannot exceed MAX(id), an unmarked store may not
+   * claim one, and a head with no digests is an erasure. All three are built on
+   * the backfill being right, and the backfill itself had no test: removing it
+   * leaves `chained_from` NULL, and `integrity()` then names row 1 of a store
+   * nobody touched.
+   *
+   * Built by winding a real store back to v4 rather than by hand-rolling the
+   * schema, so what is tested is the rung as it actually runs.
+   */
+  public function testUpgradingPreV5StoreLeavesItVerifiable(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
+    foreach (['phpcs', 'phpstan'] as $gate) {
+      $store->record('r1', 'code', new CheckRecord(
+        kind: 'gate', name: $gate, state: CheckState::Satisfied,
+        summary: 'ok', exitCode: 0,
+      ));
+    }
+    unset($store);
+
+    // Wind it back: digests blanked, head cleared, schema stamped v4. That is
+    // exactly the shape a store written before v5 has.
+    $pdo = new \PDO('sqlite:' . EvidenceStore::pathFor($this->root));
+    $pdo->exec("UPDATE check_result SET row_digest = ''");
+    $pdo->exec("UPDATE run SET chain_head = '', chained_from = NULL");
+    $pdo->exec('PRAGMA application_id = 0');
+    $pdo->exec('PRAGMA user_version = 4');
+    unset($pdo);
+
+    $upgraded = new EvidenceStore($this->root);
+
+    $this->assertNull(
+      $upgraded->integrity('r1'),
+      'an honest legacy store verifies after the upgrade',
+    );
+
+    // And it keeps verifying as droost carries on writing into it.
+    $upgraded->record('r1', 'test', new CheckRecord(
+      kind: 'gate', name: 'phpunit', state: CheckState::Satisfied,
+      summary: 'ok', exitCode: 0,
+    ));
+
+    $this->assertNull($upgraded->integrity('r1'), 'and after the next verdict');
+  }
+
+  /**
+   * Re-recording a seeker round is all-or-nothing.
+   *
+   * It is a DELETE followed by inserts, and a crash between them leaves the
+   * round with its previous findings erased and its new ones unwritten — which
+   * reads as a CLEAN INSPECTION. That is the failure this table exists to stop,
+   * and the bill is in `RunState`'s own docblock: across four rounds, 6, 25, 12
+   * and 20 findings were caught and recorded as 0, 0, 6 and 2.
+   *
+   * Two halves, because only one of them is observable. That the write
+   * PARTICIPATES in a caller's transaction rather than committing on its own is
+   * a behaviour, and is driven here: the outer rollback has to take it with it.
+   * That the DELETE and the inserts land together when NOTHING else is in
+   * flight needs a crash in a window microseconds wide, which no reliable test
+   * can hit — so it is pinned structurally, and this comment says so rather
+   * than letting a reader think the assertion below is stronger than it is.
+   */
+  public function testReRecordingSeekerRoundIsOneTransaction(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
+    $finding = static fn (string $ref): array => [
+      // The insert reads `id`, not `ref` — a fixture using the wrong key
+      // writes an empty column and asserts nothing about the real one.
+      'id' => $ref,
+      'severity' => 'CRITICAL',
+      'location' => 'a.php:1',
+      'finding' => 'something real',
+      'status' => 'open',
+    ];
+
+    $store->recordSeekerFindings('r1', 'code', 1, [$finding('F1'), $finding('F2')]);
+    $this->assertCount(2, $store->seekerFindings('r1'));
+
+    $store->recordSeekerFindings('r1', 'code', 1, [$finding('F1')]);
+    $this->assertCount(1, $store->seekerFindings('r1'), 'the round is replaced, not appended to');
+
+    // Inside a caller's transaction it must not commit on its own, so rolling
+    // the caller back takes the re-record with it. This is the half of the
+    // ownership logic a test can actually drive.
+    $connection = new \ReflectionMethod(EvidenceStore::class, 'connection');
+    $pdo = $connection->invoke($store);
+    $this->assertInstanceOf(\PDO::class, $pdo);
+    $pdo->exec('BEGIN IMMEDIATE');
+    $store->recordSeekerFindings('r1', 'code', 1, [
+      $finding('F9'), $finding('F8'), $finding('F7'),
+    ]);
+    $pdo->exec('ROLLBACK');
+
+    $rows = $store->seekerFindings('r1');
+    $this->assertCount(
+      1,
+      $rows,
+      'the re-record was undone with the transaction it was part of, rather '
+      . 'than having committed itself and left the rollback with nothing to undo',
+    );
+
+    $body = (string) file_get_contents(
+      dirname(__DIR__, 2) . '/src/Evidence/EvidenceStore.php',
+    );
+    $body = substr($body, (int) strpos($body, 'function recordSeekerFindings'));
+    $body = substr($body, 0, (int) strpos($body, "\n  }\n"));
+    $this->assertStringContainsString(
+      'BEGIN IMMEDIATE',
+      $body,
+      'and when it owns the transaction, it opens one — a structural pin on '
+      . 'the crash window, which no timing-based test can reach',
+    );
+  }
+
 }
