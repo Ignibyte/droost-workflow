@@ -290,7 +290,8 @@ final class ContributedCheckIntegrationTest extends WorkflowTestCase {
     }
     $this->assertIsArray($found, 'the gap is on the record');
     $this->assertSame('skipped', $found['state']);
-    $this->assertStringContainsString('cannot ask', (string) $found['summary']);
+    $this->assertIsString($found['summary']);
+    $this->assertStringContainsString('cannot ask', $found['summary']);
   }
 
   /**
