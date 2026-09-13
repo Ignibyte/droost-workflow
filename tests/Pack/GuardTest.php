@@ -1354,6 +1354,65 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * The shell that has moved still reaches the files it moved to.
+   *
+   * The path list was substring-matched against the raw command, which missed
+   * the obvious move:
+   *
+   *     cd droost/droost-workflow && echo '{"reason":…}' > bypass.json
+   *
+   * Neither half contains a protected path as written. The grant lands, and
+   * custom-code edits refused a moment earlier are then permitted — one forged
+   * operator signature, two ordinary-looking commands. A shell's idea of where
+   * it is changes what a bare filename means, so a guard that does not follow
+   * `cd` is reading a different command from the one that runs.
+   */
+  public function testMovedShellStillReachesProtectedFiles(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    foreach ([
+      'cd droost/droost-workflow && echo "{}" > bypass.json',
+      'cd droost/droost-workflow && echo "{}" > run.json',
+      'cd droost && echo x > droost-workflow/run.json',
+      'echo "{}" > droost/droost-workflow/bypass.json',
+      'cat droost/./droost-workflow/bypass.json',
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(2, $code, $command . ' reaches an enforcement file');
+    }
+  }
+
+  /**
+   * But a shell that has moved somewhere ordinary is left alone.
+   *
+   * Following `cd` must not make every relative filename suspicious. The state
+   * directory is where the plan phase writes its spec, so moving into it and
+   * working is normal.
+   */
+  public function testMovedShellDoingOrdinaryWorkIsAllowed(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    mkdir($root . '/src', 0775, TRUE);
+    foreach ([
+      'cd src && ls',
+      'cd src && echo x > Foo.php',
+      'cd droost/droost-workflow && ls',
+      'cd droost/droost-workflow && cat spec-thing.md',
+      'echo hi > /tmp/somewhere-else.txt',
+      'npm ci',
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(0, $code, $command . ' is ordinary work');
+    }
+  }
+
+  /**
    * Executes the packed guard exactly as Claude Code would.
    *
    * @param string $root

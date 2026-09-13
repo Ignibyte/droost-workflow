@@ -1,0 +1,198 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Droost\Workflow\Tests\Pack;
+
+use Droost\Workflow\State\RunStateStore;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\TestCase;
+
+/**
+ * The guard and the engine agree about which directory holds the run.
+ *
+ * The guard carries no autoloader by design, so it INLINES the rule that
+ * `RunStateStore::resolveStateDir()` implements, and a comment at the top of
+ * the guard promised this test compared the two. The test did not exist. The
+ * comment had been true of an intention and never of the repository.
+ *
+ * That mattered within hours: a fix changed the rule — ask where the RECORD is
+ * before asking which directory exists — and updated the guard's copy, the
+ * engine's copy, and NOT the third copy inside `require_run_guard()`. On a
+ * legacy project one `mkdir -p droost/droost-workflow` then pointed that copy
+ * at an empty directory, and the operator's recorded bypass stopped being
+ * honoured: the wall turned back on over a decision a human had made.
+ *
+ * A disagreement here is not cosmetic. The guard decides whether to refuse; the
+ * engine decides what the run IS. Two answers means enforcing one run's rules
+ * against another run's record.
+ *
+ * The guard's answer is observed rather than read: a run record is placed in
+ * one directory and the stop hook is asked whether a turn may end. It refuses
+ * only if it found that record, which is the resolution, from outside.
+ */
+final class PackGuardParityTest extends TestCase {
+
+  /**
+   * A scratch project root.
+   */
+  private string $root;
+
+  /**
+   * {@inheritdoc}
+   */
+  protected function setUp(): void {
+    $this->root = sys_get_temp_dir() . '/droost-parity-' . bin2hex(random_bytes(6));
+    mkdir($this->root, 0775, TRUE);
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  protected function tearDown(): void {
+    if (is_dir($this->root)) {
+      exec('rm -rf ' . escapeshellarg($this->root));
+    }
+  }
+
+  /**
+   * Every shape a project's state directories can be in.
+   *
+   * @return array<string, array{list<string>, string|null, string}>
+   *   Directories to create, where the run record goes, the expected answer.
+   */
+  public static function shapes(): array {
+    $legacy = '.droost-workflow';
+    $visible = 'droost/droost-workflow';
+
+    return [
+      'only the legacy directory, with a run' => [[$legacy], $legacy, $legacy],
+      'only the legacy directory, no run' => [[$legacy], NULL, $legacy],
+      'only the visible directory, with a run' => [[$visible], $visible, $visible],
+      'only the visible directory, no run' => [[$visible], NULL, $visible],
+      // The shape that broke it: an empty visible directory beside a legacy one
+      // that holds the actual record.
+      'both, the record in the legacy one' => [[$legacy, $visible], $legacy, $legacy],
+      'both, the record in the visible one' => [[$legacy, $visible], $visible, $visible],
+      'both, no record anywhere' => [[$legacy, $visible], NULL, $visible],
+      'neither' => [[], NULL, $visible],
+    ];
+  }
+
+  /**
+   * The engine resolves what the shape says it should.
+   *
+   * @param list<string> $directories
+   *   Directories to create.
+   * @param string|null $record
+   *   Where run.json goes, or NULL for none.
+   * @param string $expected
+   *   The directory both must choose.
+   */
+  #[DataProvider('shapes')]
+  public function testTheEngineResolvesTheExpectedDirectory(
+    array $directories,
+    ?string $record,
+    string $expected,
+  ): void {
+    $this->build($directories, $record);
+
+    $this->assertSame($expected, RunStateStore::resolveStateDir($this->root));
+  }
+
+  /**
+   * And the guard resolves the same one, observed from outside.
+   *
+   * @param list<string> $directories
+   *   Directories to create.
+   * @param string|null $record
+   *   Where run.json goes, or NULL for none.
+   * @param string $expected
+   *   The directory both must choose.
+   */
+  #[DataProvider('shapes')]
+  public function testTheGuardResolvesTheSameDirectory(
+    array $directories,
+    ?string $record,
+    string $expected,
+  ): void {
+    $this->build($directories, $record);
+
+    // The stop hook refuses only when it finds an ACTIVE run — so it refuses
+    // exactly when it resolved to the directory holding the record.
+    $code = $this->stop();
+
+    if ($record === NULL) {
+      $this->assertSame(0, $code, 'no record anywhere, so nothing to hold');
+
+      return;
+    }
+    $this->assertSame(
+      $record === $expected ? 2 : 0,
+      $code,
+      sprintf(
+        'the guard must read the record in %s, which is what the engine '
+        . 'resolves to (%s)',
+        $record,
+        $expected,
+      ),
+    );
+  }
+
+  /**
+   * Creates the project shape.
+   *
+   * @param list<string> $directories
+   *   Directories to create.
+   * @param string|null $record
+   *   Where run.json goes, or NULL for none.
+   */
+  private function build(array $directories, ?string $record): void {
+    foreach ($directories as $directory) {
+      mkdir($this->root . '/' . $directory, 0775, TRUE);
+    }
+    if ($record !== NULL) {
+      file_put_contents($this->root . '/' . $record . '/run.json', (string) json_encode([
+        'run_id' => 'r1',
+        'current_phase' => 'code',
+        'phases' => ['code' => 'running'],
+        'enforcement' => 'hard',
+      ]));
+    }
+  }
+
+  /**
+   * Runs the guard's stop mode, returning its exit code.
+   *
+   * @return int
+   *   0 allows, 2 blocks. Anything else is a crash and fails here.
+   */
+  private function stop(): int {
+    $script = dirname(__DIR__, 2) . '/pack/hooks/droost-workflow-guard.php';
+    $env = getenv();
+    $env['CLAUDE_PROJECT_DIR'] = $this->root;
+    $process = proc_open(
+      [PHP_BINARY, $script, 'stop'],
+      [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+      $pipes,
+      $this->root,
+      $env,
+    );
+    $this->assertIsResource($process);
+    fwrite($pipes[0], (string) json_encode(['tool_name' => 'Stop', 'tool_input' => []]));
+    fclose($pipes[0]);
+    stream_get_contents($pipes[1]);
+    $stderr = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $code = proc_close($process);
+    $this->assertContains(
+      $code,
+      [0, 2],
+      sprintf("the guard crashed (exit %d):\n%s", $code, $stderr),
+    );
+
+    return $code;
+  }
+
+}

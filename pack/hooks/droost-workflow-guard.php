@@ -136,7 +136,7 @@ if (!is_file($stateFile)) {
   // there is one moment governance gets skipped entirely: a code edit with no
   // run at all, the agent quietly building outside the pipeline. require_run
   // guards exactly that, and ONLY that (pre-tool-use, custom code paths).
-  require_run_guard($root, $mode, $stdin);
+  require_run_guard($root, $mode, $stdin, $stateDir);
   exit(0);
 }
 $document = json_decode((string) file_get_contents($stateFile), TRUE);
@@ -161,7 +161,7 @@ if (!is_array($document)) {
     ));
     exit(2);
   }
-  require_run_guard($root, $mode, $stdin);
+  require_run_guard($root, $mode, $stdin, $stateDir);
   exit(0);
 }
 
@@ -170,20 +170,20 @@ if (!is_string($phase) || $phase === '') {
   // A run with no current phase has ended; the record is history, not law —
   // and history does not stand the wall down. The finished ticket's run.json
   // sits here until reset, which must not leave the NEXT ticket ungoverned.
-  require_run_guard($root, $mode, $stdin);
+  require_run_guard($root, $mode, $stdin, $stateDir);
   exit(0);
 }
 $phases = is_array($document['phases'] ?? NULL) ? $document['phases'] : [];
 $phaseStatus = is_string($phases[$phase] ?? NULL) ? $phases[$phase] : '';
 if ($phase === 'complete' && $phaseStatus === 'passed') {
-  require_run_guard($root, $mode, $stdin);
+  require_run_guard($root, $mode, $stdin, $stateDir);
   exit(0);
 }
 if ($phaseStatus === 'failed') {
   // A failed run is a legitimate outcome, already recorded. Holding the
   // agent hostage to a phase it cannot pass would punish the honesty — but
   // an ended run does not license ungoverned building either.
-  require_run_guard($root, $mode, $stdin);
+  require_run_guard($root, $mode, $stdin, $stateDir);
   exit(0);
 }
 
@@ -765,28 +765,40 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
   }
 
   // The enforcement paths, reachable through a shell exactly as through Write.
-  foreach ([
-    '.claude/hooks/droost-workflow-guard.php',
-    '.claude/settings.json',
-    '.claude/settings.local.json',
-    'droost/droost-workflow/run.json',
-    '.droost-workflow/run.json',
-    'droost/droost-workflow/bypass.json',
-    '.droost-workflow/bypass.json',
-    'droost.workflow.yml',
-    '.claude/skills/',
-    '.claude/agents/',
-  ] as $guarded) {
-    if (!str_contains($command, $guarded)) {
+  //
+  // Asked of the OPERANDS, and relative to wherever the command line has `cd`'d
+  // to. Substring-matching the raw line missed the obvious move:
+  //
+  //     cd droost/droost-workflow && echo '{"reason":…}' > bypass.json
+  //
+  // Neither half contains a protected path as written, the grant lands, and
+  // custom-code edits that were refused a moment earlier are permitted. A
+  // shell's idea of where it is changes what a bare filename means, and a
+  // guard that does not follow `cd` is reading a different command from the one
+  // that runs.
+  $cwd = $root;
+  foreach (operator_commands_invocations($command) as $tokens) {
+    // `cd X` moves the floor for everything after it. `cd` with no argument,
+    // or to somewhere unreadable, gives up on tracking rather than guessing.
+    if (($tokens[0] ?? '') === 'cd') {
+      $target = $tokens[1] ?? '';
+      $moved = $target === '' ? FALSE : realpath(
+        str_starts_with($target, '/') ? $target : $cwd . '/' . $target,
+      );
+      $cwd = $moved === FALSE ? $root : $moved;
       continue;
     }
-    // A directory prefix needs a filename to test as a path; an exact file
-    // must be passed exactly, or it stops matching its own rule.
-    $probe = str_ends_with($guarded, '/') ? $guarded . 'x' : $guarded;
-    $refusal = enforcement_refusal($probe, $root, $stateDir);
-    if ($refusal !== '') {
-      fwrite(STDERR, sprintf('%s (Refused: %s)', $refusal, trim($command)));
-      exit(2);
+    foreach ($tokens as $operand) {
+      if ($operand === '' || str_starts_with($operand, '-')) {
+        continue;
+      }
+      // Resolved against the tracked cwd, then judged exactly as a Write is.
+      $absolute = str_starts_with($operand, '/') ? $operand : $cwd . '/' . $operand;
+      $refusal = enforcement_refusal($absolute, $root, $stateDir);
+      if ($refusal !== '') {
+        fwrite(STDERR, sprintf('%s (Refused: %s)', $refusal, trim($command)));
+        exit(2);
+      }
     }
   }
 
@@ -988,7 +1000,17 @@ function resolved_relative(string $file, string $root): string {
     $head = $parent;
   }
 
-  return '';
+  // Out of budget. Returning '' would say "not inside the project", which the
+  // caller reads as UNPROTECTED — a fail-open on the one input designed to
+  // exhaust it. A path this deep is not something ordinary work produces, so
+  // naming it as the guard script is the safe answer: the caller refuses, and
+  // whoever genuinely needed a sixty-level relative path can say so.
+  //
+  // In practice `enforcement_refusal()` also checks the LITERAL normalised
+  // path, which collapses `a/../` pairs lexically and catches these anyway —
+  // verified to depth 60. This is the belt to that brace, because the double
+  // check is one refactor away from being a single one.
+  return '.claude/hooks/droost-workflow-guard.php';
 }
 
 /**
@@ -1233,7 +1255,7 @@ function baseline_dir_guard(string $stdin, string $root, string $stateDir): void
  * @param string $stdin
  *   The hook payload, read once by the caller.
  */
-function require_run_guard(string $root, string $mode, string $stdin): void {
+function require_run_guard(string $root, string $mode, string $stdin, string $stateDir): void {
   if ($mode !== 'pre-tool-use') {
     return;
   }
@@ -1270,11 +1292,14 @@ function require_run_guard(string $root, string $mode, string $stdin): void {
   // narrating every edit. Only the operator's command writes reason and
   // granted_at — a hand-rolled or corrupt marker is not a grant.
   // Resolve the state dir the same way the engine does — the visible
-  // droost/droost-workflow, or the legacy hidden dir when only that exists.
-  $stateDir = (is_dir($root . '/.droost-workflow')
-    && !is_dir($root . '/droost/droost-workflow'))
-    ? '.droost-workflow'
-    : 'droost/droost-workflow';
+  // THE RESOLVED state directory, handed in. This recomputed it by which
+  // directory EXISTS — the rule the guard's own resolution stopped using, and
+  // which fix #4 updated in one place and not this one. So on a legacy project
+  // a single `mkdir -p droost/droost-workflow` pointed this at an empty
+  // directory and the operator's recorded grant in `.droost-workflow/` stopped
+  // being honoured: the wall turned back ON over a decision a human had made
+  // and the record still held. Refusing work somebody authorised is the
+  // failure that gets a guard switched off.
   $bypass = $root . '/' . $stateDir . '/bypass.json';
   $grant = is_file($bypass)
     ? json_decode((string) file_get_contents($bypass), TRUE)
