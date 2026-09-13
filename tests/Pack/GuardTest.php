@@ -1256,6 +1256,104 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * The quoted value still arms a write gate, and is still refused.
+   *
+   * `drush droost:gate allow_entity_write "on"` armed one. The value was
+   * matched as a raw word and `"on"` is not `on` — the shell hands the command
+   * `[droost:gate] [allow_entity_write] [on]` either way.
+   */
+  public function testQuotedValueHidesNoArming(): void {
+    $root = $this->makeRoot();
+    foreach ([
+      'drush droost:gate allow_entity_write "on"',
+      "drush droost:gate allow_entity_write 'on'",
+      'drush droost:gate allow_entity_write o"n"',
+      'drush config:set droost.settings allow_eval "true"',
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(2, $code, $command . ' arms a write gate');
+    }
+  }
+
+  /**
+   * The verb split by a quote is the same verb.
+   *
+   * `drush "droost:workflow:byp"ass` is `droost:workflow:bypass` to the shell
+   * and was nothing at all to a regex — which defeated ALL FIVE refusals with
+   * one pair of quotes. Quoting splits a word to a pattern and joins it to the
+   * shell, and only one of those is what actually runs.
+   */
+  public function testVerbSplitByQuotesIsStillTheVerb(): void {
+    $root = $this->makeRoot();
+    foreach ([
+      'drush "droost:workflow:byp"ass "reason"',
+      'drush droost:workflow:gate-"waive" phpcs',
+      'drush droost:workflow:eff"ort" max',
+      "drush 'droost:gate' allow_db_write on",
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(2, $code, $command . ' is the operator\'s command');
+    }
+  }
+
+  /**
+   * The exemption must belong to the command it exempts.
+   *
+   * `bypass "hotfix"; echo --off` read its `--off` out of the `echo` — a
+   * different command entirely — and granted the bypass. A flag is an argument
+   * of one invocation, not a word on a line.
+   */
+  public function testExemptionFromAnotherCommandDoesNotCount(): void {
+    $root = $this->makeRoot();
+    foreach ([
+      'drush droost:workflow:bypass "hotfix"; echo --off',
+      'drush droost:workflow:baseline --refresh; echo --status',
+      'drush droost:workflow:effort max && echo --preview',
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(2, $code, $command . ' has no exemption of its own');
+    }
+  }
+
+  /**
+   * And the exemption in the SAME command still counts, nested or not.
+   *
+   * The half that keeps the guard usable: a real `--off`, `--status`,
+   * `--measure` or `--preview` is the documented way out, and refusing those is
+   * how a guard gets switched off.
+   */
+  public function testTheCommandsOwnExemptionStillCounts(): void {
+    $root = $this->makeRoot();
+    foreach ([
+      'drush droost:workflow:bypass --off',
+      'drush droost:workflow:baseline --status',
+      'drush droost:workflow:baseline --measure',
+      'drush droost:workflow:effort high --preview',
+      'drush droost:workflow:effort',
+      'drush droost:gate allow_entity_write off',
+      'drush droost:gate allow_entity_write "off"',
+      'ddev exec "drush droost:workflow:bypass --off"',
+      "bash -c 'drush droost:workflow:baseline --measure'",
+      'drush config:set other.settings allow_eval true',
+    ] as $command) {
+      [$code] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
+      $this->assertSame(0, $code, $command . ' reads, tightens, or is not droost\'s');
+    }
+  }
+
+  /**
    * Executes the packed guard exactly as Claude Code would.
    *
    * @param string $root

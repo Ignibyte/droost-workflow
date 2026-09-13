@@ -316,166 +316,6 @@ exit(0);
  * @return string
  *   The command with data-only heredoc bodies removed.
  */
-/**
- * A nested command line, unwrapped from the quotes that carry it.
- *
- * `ddev exec "drush droost:workflow:bypass --off"` is a real invocation and
- * this project runs drush through ddev. The verb is found in the raw command,
- * but the exemption test drops quoted spans — so the `--off` that makes it the
- * SAFE form vanished with them, and the operator standing the wall back down
- * was refused. So were the agent's sanctioned grounding commands, `--status`,
- * `--measure` and `--preview`, in every containerised or remote form. A guard
- * that refuses the documented way out is worse than one hole: it is the reason
- * somebody turns the guard off.
- *
- * Only a span that CARRIES a verb is unwrapped, so an ordinary quoted argument
- * is still dropped by the flag test — which is what closes the hole above it.
- *
- * @param string $command
- *   The command, heredoc bodies already dropped.
- *
- * @return string
- *   The innermost command line carrying an operator verb, else the input.
- */
-function operator_commands_unwrap(string $command): string {
-  // Local, not a top-level `const`. A function declaration is hoisted and a
-  // constant is NOT, and this file does its work near the top and exits long
-  // before a `const` further down would run — so the constant did not exist
-  // when this was called, every operator-command check died with an uncaught
-  // Error, and the hook exited 255. A host reads that as "not a block".
-  //
-  // The lesson is in the test helper as much as here: a probe that asks "is the
-  // exit code 2?" reads a CRASH as permission. Exit 255 is now a failure in
-  // GuardTest, not a pass.
-  $verbs = '/droost:workflow:(gate-waive|baseline|bypass|effort)\b'
-    . '|(?<![\w-])(dwfgw|dwfbl|dwfby|dwfe)\b|droost-workflow\s+baseline\b'
-    . '|(?:droost:gate|(?<![\w-])dgate)\b/';
-  // Bounded: three levels covers `ddev exec "bash -c '…'"` and stops a
-  // pathological string from looping.
-  for ($depth = 0; $depth < 3; $depth++) {
-    if (preg_match_all('/"([^"]*)"|\'([^\']*)\'/', $command, $spans, PREG_SET_ORDER) === 0) {
-      return $command;
-    }
-    $next = NULL;
-    foreach ($spans as $span) {
-      $inner = $span[2] ?? '';
-      if ($inner === '') {
-        $inner = $span[1] ?? '';
-      }
-      if ($inner !== '' && preg_match($verbs, $inner) === 1) {
-        $next = $inner;
-        break;
-      }
-    }
-    if ($next === NULL) {
-      return $command;
-    }
-    $command = $next;
-  }
-
-  return $command;
-}
-
-/**
- * The part of a command in which a bare `--flag` is really a flag.
- *
- * The read-only exemptions below — `--status`, `--measure`, `--preview`,
- * `--off` — were matched with lookaheads over the whole command string, which
- * asks "does this word appear anywhere on the line". The shell asks a narrower
- * question, and the gap between the two was four characters:
- *
- *     drush droost:workflow:bypass "hotfix" # --off
- *
- * The shell discards everything after the `#`; the lookahead did not, read the
- * exemption, and permitted the one command that stands `require_run` down
- * permanently. The same trick worked on `baseline --refresh # --status` and
- * `effort low # --preview`. No obfuscation, nothing in the record.
- *
- * Quoted text is dropped for the same reason and it is not hypothetical: a
- * bypass takes a REASON, and `bypass "needed --off for the hotfix"` is an
- * ordinary sentence that contained its own exemption.
- *
- * Verb detection keeps the quotes — `drush "droost:workflow:bypass"` is a real
- * invocation — so only the flag question uses this narrower text.
- *
- * @param string $command
- *   The command, heredoc bodies already dropped.
- *
- * @return string
- *   The command with comments and quoted spans removed.
- */
-function operator_commands_flag_text(string $command): string {
-  $out = '';
-  $length = strlen($command);
-  $quote = '';
-  for ($i = 0; $i < $length; $i++) {
-    $char = $command[$i];
-    if ($quote !== '') {
-      // A backslash escapes the next byte inside double quotes only, which is
-      // the shell's rule; inside single quotes nothing escapes.
-      if ($quote === '"' && $char === '\\' && $i + 1 < $length) {
-        $i++;
-        continue;
-      }
-      if ($char === $quote) {
-        $quote = '';
-      }
-      continue;
-    }
-    if ($char === '\'' || $char === '"') {
-      $quote = $char;
-      // A PLACEHOLDER, not a space, and the difference granted a bypass. A
-      // quote JOINS adjacent words in the shell — `bypass "urgent"--off` is one
-      // argument, the reason `urgent--off`, with no `--off` flag anywhere. A
-      // space here split it into two, so the exemption test saw a bare `--off`
-      // and allowed the grant. The byte only has to be non-whitespace: the
-      // tests below ask for a word boundary, and a quoted span is not one.
-      $out .= "\x00";
-      continue;
-    }
-    if ($char === '\\' && $i + 1 < $length) {
-      // Same reasoning: `urgent\ --off` is ONE argument in the shell, because
-      // the backslash escapes the space.
-      $i++;
-      $out .= "\x00";
-      continue;
-    }
-    if ($char === '#' && ($out === '' || preg_match('/\s$/', $out) === 1)) {
-      // A comment runs to the end of its LINE, not of the command: a second
-      // line after it is code again.
-      $newline = strcspn($command, "\r\n", $i);
-      $i += $newline - 1;
-      $out .= ' ';
-      continue;
-    }
-    $out .= $char;
-  }
-
-  return $out;
-}
-
-/**
- * Whether a flag is really present as an argument.
- *
- * @param string $command
- *   The command, heredoc bodies already dropped.
- * @param list<string> $flags
- *   The flags to look for, with their leading dashes.
- *
- * @return bool
- *   TRUE when any of them appears outside quotes and outside a comment.
- */
-function operator_commands_has_flag(string $command, array $flags): bool {
-  $text = operator_commands_flag_text($command);
-  foreach ($flags as $flag) {
-    if (preg_match('/(?:^|\s)' . preg_quote($flag, '/') . '(?:=|\s|$)/', $text) === 1) {
-      return TRUE;
-    }
-  }
-
-  return FALSE;
-}
-
 function operator_commands_scan_text(string $command): string {
   $interpreter = '/(?:^|[|;&(`]|\$\()\s*(?:sudo\s+(?:-\S+\s+)*)?(?:env\s+(?:\S+=\S*\s+)*)?'
     . '(?:sh|bash|zsh|dash|ksh|fish|eval|source|\.|php|python3?|perl|node|ruby|expect|tmux|ssh|docker'
@@ -530,66 +370,283 @@ function operator_commands_guard(string $stdin): void {
     return;
   }
   $command = operator_commands_scan_text($command);
-  // `ddev exec "drush …"`, `bash -c '…'`, `ssh host "…"`: the command line that
-  // matters is the one inside the quotes, and it must be judged as a command
-  // line rather than as an argument.
-  $command = operator_commands_unwrap($command);
-  if (preg_match('/droost:workflow:gate-waive\b|(?<![\w-])dwfgw\b/', $command) === 1) {
-    $which = 'gate-waive';
-  }
-  elseif (preg_match('/(?:droost:workflow:baseline|(?<![\w-])dwfbl|droost-workflow\s+baseline)\b/', $command) === 1
-    && !operator_commands_has_flag($command, ['--status', '--measure'])) {
-    // Writing or refreshing the baseline decides what counts as inherited
-    // debt for every later run. The bill (--measure) and the record
-    // (--status) are read-only and exactly how an agent grounds a proposal
-    // to baseline; the write is the operator's.
-    //
-    // The exemption is asked of the ARGUMENTS now, not of the line. As a
-    // lookahead it also read `# --status` and `"… --status …"`, either of
-    // which the shell discards or passes as text.
-    $which = 'baseline';
-  }
-  elseif (preg_match('/droost:workflow:bypass\b|(?<![\w-])dwfby\b/', $command) === 1) {
-    if (operator_commands_has_flag($command, ['--off'])) {
-      return;
+  // Per INVOCATION, from TOKENS. Asking the raw line three different questions
+  // let each answer come from a different command: `bypass "hotfix"; echo
+  // --off` read its exemption out of the `echo`, `"droost:workflow:byp"ass`
+  // defeated every verb because quoting splits a word to a regex and joins it
+  // to the shell, and `droost:gate allow_entity_write "on"` armed a write gate
+  // because `"on"` is not `on`.
+  foreach (operator_commands_invocations($command) as $tokens) {
+    $line = implode(' ', $tokens);
+    $which = NULL;
+    if (preg_match('/droost:workflow:gate-waive\b|(?<![\w-])dwfgw\b/', $line) === 1) {
+      $which = 'gate-waive';
     }
-    $which = 'bypass';
+    elseif (preg_match('/(?:droost:workflow:baseline|(?<![\w-])dwfbl|droost-workflow\s+baseline)\b/', $line) === 1
+      && !operator_commands_flagged($tokens, ['--status', '--measure'])) {
+      // Writing or refreshing the baseline decides what counts as inherited
+      // debt for every later run. The bill (--measure) and the record
+      // (--status) are read-only and exactly how an agent grounds a proposal
+      // to baseline; the write is the operator's.
+      $which = 'baseline';
+    }
+    elseif (preg_match('/droost:workflow:bypass\b|(?<![\w-])dwfby\b/', $line) === 1
+      && !operator_commands_flagged($tokens, ['--off'])) {
+      $which = 'bypass';
+    }
+    elseif (preg_match('/(?:droost:workflow:effort|(?<![\w-])dwfe)\b/', $line) === 1
+      && !operator_commands_flagged($tokens, ['--preview'])
+      && array_intersect($tokens, ['custom', 'low', 'medium', 'high', 'xhigh', 'max', 'factory', 'light']) !== []) {
+      // Moving the dial is the operator's act whichever way it goes — down is
+      // a loosening, and either way it is a lever change the file records.
+      // Only a command that NAMES a level and would WRITE is refused: a bare
+      // `effort` reports the current level, and `effort <level> --preview`
+      // shows the bill without writing — both are anyone's to ask, and the
+      // preview is exactly how an agent should ground a level it proposes.
+      $which = 'effort';
+    }
+    elseif (operator_commands_arms_write_gate($tokens)) {
+      // ARMING a write gate is the operator's act too (round 25, R25-F2: the
+      // subject asked for allow_entity_write rather than arming it — this makes
+      // asking the only path). Disarming is a tightening and is not matched.
+      $which = 'gate (arming a write gate)';
+    }
+    if ($which === NULL) {
+      continue;
+    }
+    $name = str_starts_with($which, 'gate (') ? 'droost:gate' : 'droost:workflow:' . $which;
+    fwrite(STDERR, sprintf(
+      '%1$s is the OPERATOR\'s command — an agent may propose it, never run it. '
+      . 'Show the operator the exact command with your reason and ask them to '
+      . 'run it in THEIR terminal (in Claude Code: `! drush %1$s …`), then '
+      . 'continue once they say it is done. The record must carry a human\'s '
+      . 'decision, not yours.%2$s',
+      $name,
+      str_starts_with($which, 'gate (') ? ' (Disarming a gate — `off` — needs no operator; only arming does.)' : '',
+    ));
+    exit(2);
   }
-  elseif (preg_match('/(?:droost:workflow:effort|(?<![\w-])dwfe)\b(?=.*\s(?:custom|low|medium|high|xhigh|max|factory|light)\b)/', $command) === 1
-    && !operator_commands_has_flag($command, ['--preview'])) {
-    // Moving the dial is the operator's act whichever way it goes — down is
-    // a loosening, and either way it is a lever change the file records.
-    // Only a command that NAMES a level and would WRITE is refused: a bare
-    // `effort` reports the current level, and `effort <level> --preview`
-    // shows the bill without writing — both are anyone's to ask, and the
-    // preview is exactly how an agent should ground a level it proposes.
-    $which = 'effort';
-  }
-  elseif (preg_match('/(?:droost:gate|(?<![\w-])dgate)\s+(?:-\S+\s+)*allow_\w+\s+(?:-\S+\s+)*(?:on|true|1|yes|arm|armed)\b/i', $command) === 1
-    || preg_match('/(?:config:set|config-set|cset)\b[^\n;&|]*\bdroost\.settings\s+allow_\w+\s+(?:on|true|1|yes)\b/i', $command) === 1) {
-    // `(?:-\S+\s+)*` because the flag does not have to be the next word:
-    // `drush droost:gate --yes allow_entity_write on` armed a write gate, and
-    // `--yes` is the first thing anyone adds to a drush command they expect to
-    // prompt.
-    // ARMING a write gate is the operator's act too (round 25, R25-F2: the
-    // subject asked for allow_entity_write rather than arming it — this makes
-    // asking the only path). Disarming is a tightening and is not matched.
-    $which = 'gate (arming a write gate)';
-  }
-  else {
-    return;
-  }
-  $name = str_starts_with($which, 'gate (') ? 'droost:gate' : 'droost:workflow:' . $which;
-  fwrite(STDERR, sprintf(
-    '%1$s is the OPERATOR\'s command — an agent may propose it, never run it. '
-    . 'Show the operator the exact command with your reason and ask them to '
-    . 'run it in THEIR terminal (in Claude Code: `! drush %1$s …`), then '
-    . 'continue once they say it is done. The record must carry a human\'s '
-    . 'decision, not yours.%2$s',
-    $name,
-    str_starts_with($which, 'gate (') ? ' (Disarming a gate — `off` — needs no operator; only arming does.)' : '',
+}
+
+/**
+ * Whether an argument list arms a droost write gate.
+ *
+ * Both spellings: `droost:gate allow_x on` and `config:set droost.settings
+ * allow_x true`. Read from tokens, because the value arrived quoted — `"on"` —
+ * and a raw-string match let a write gate be armed. Flags may sit anywhere;
+ * only the ORDER of the gate name and its value matters.
+ *
+ * @param list<string> $tokens
+ *   The argument list.
+ *
+ * @return bool
+ *   TRUE when this command arms one.
+ */
+function operator_commands_arms_write_gate(array $tokens): bool {
+  $arming = ['on', 'true', '1', 'yes', 'arm', 'armed'];
+  $words = array_values(array_filter(
+    $tokens,
+    static fn (string $token): bool => !str_starts_with($token, '-'),
   ));
-  exit(2);
+  $verb = NULL;
+  foreach ($words as $index => $word) {
+    $lower = strtolower($word);
+    if ($lower === 'droost:gate' || $lower === 'dgate') {
+      $verb = $index;
+      break;
+    }
+    if (in_array($lower, ['config:set', 'config-set', 'cset'], TRUE)) {
+      // The settings object has to be named for this to be droost's gate.
+      $verb = isset($words[$index + 1]) && strtolower($words[$index + 1]) === 'droost.settings'
+        ? $index + 1
+        : NULL;
+      if ($verb !== NULL) {
+        break;
+      }
+    }
+  }
+  if ($verb === NULL) {
+    return FALSE;
+  }
+  $flag = $words[$verb + 1] ?? '';
+  $value = $words[$verb + 2] ?? '';
+
+  return preg_match('/^allow_\w+$/i', $flag) === 1
+    && in_array(strtolower($value), $arming, TRUE);
+}
+
+/**
+ * Every command on the line, as the argument list the shell would build.
+ *
+ * One tokeniser, because three ad-hoc scanners over the raw string each missed
+ * a different thing and each fix reopened another's hole:
+ *
+ *   * `droost:gate allow_entity_write "on"` armed a write gate — the value was
+ *     matched as a raw word and `"on"` is not `on`;
+ *   * `drush "droost:workflow:byp"ass` defeated every verb, because quoting
+ *     splits a word to a regex and JOINS it to the shell;
+ *   * `bypass "hotfix"; echo --off` read the `--off` from a different command
+ *     entirely and treated it as this one's exemption.
+ *
+ * All three are the same mistake: reading a command line as text. A token is
+ * what a verb, a flag and a path all really are, so everything downstream asks
+ * about tokens.
+ *
+ * Quotes are REMOVED and what they surround stays attached to its neighbours,
+ * which is exactly the shell's rule and the one a placeholder-based approach
+ * kept getting backwards. `>` and `<` separate words but not commands, so a
+ * redirection target is an ordinary operand. A token that itself contains a
+ * command line — `ddev exec "drush …"`, `bash -c '…'` — is recursed into, so a
+ * containerised invocation is judged as the invocation it is.
+ *
+ * @param string $command
+ *   The command, heredoc bodies already dropped.
+ * @param int $depth
+ *   Recursion guard.
+ *
+ * @return list<list<string>>
+ *   One argument list per command.
+ */
+function operator_commands_invocations(string $command, int $depth = 0): array {
+  $invocations = [];
+  $tokens = [];
+  $current = '';
+  $started = FALSE;
+  $quote = '';
+  $length = strlen($command);
+
+  $endToken = static function () use (&$tokens, &$current, &$started): void {
+    if ($started) {
+      $tokens[] = $current;
+    }
+    $current = '';
+    $started = FALSE;
+  };
+  $endCommand = static function () use (&$invocations, &$tokens, $endToken): void {
+    $endToken();
+    if ($tokens !== []) {
+      $invocations[] = $tokens;
+    }
+    $tokens = [];
+  };
+
+  for ($i = 0; $i < $length; $i++) {
+    $char = $command[$i];
+    if ($quote !== '') {
+      if ($char === '\\' && $quote === '"' && $i + 1 < $length) {
+        $current .= $command[++$i];
+        continue;
+      }
+      if ($char === $quote) {
+        $quote = '';
+        continue;
+      }
+      $current .= $char;
+      continue;
+    }
+    if ($char === '\'' || $char === '"') {
+      // A quote starts a token even when what it surrounds is empty, so `""`
+      // is an argument rather than nothing.
+      $quote = $char;
+      $started = TRUE;
+      continue;
+    }
+    if ($char === '\\' && $i + 1 < $length) {
+      $current .= $command[++$i];
+      $started = TRUE;
+      continue;
+    }
+    if ($char === '#' && !$started) {
+      // A comment, to the end of its LINE. The next line is code again.
+      $i += strcspn($command, "\r\n", $i) - 1;
+      continue;
+    }
+    if ($char === ';' || $char === "\n" || $char === "\r") {
+      $endCommand();
+      continue;
+    }
+    if (($char === '&' || $char === '|') && $i + 1 < $length && $command[$i + 1] === $char) {
+      $endCommand();
+      $i++;
+      continue;
+    }
+    if ($char === '&' || $char === '|') {
+      $endCommand();
+      continue;
+    }
+    if ($char === '>' || $char === '<') {
+      // A redirection separates words, not commands: its target is an operand
+      // and has to be seen as one.
+      $endToken();
+      continue;
+    }
+    if (preg_match('/\s/', $char) === 1) {
+      $endToken();
+      continue;
+    }
+    $current .= $char;
+    $started = TRUE;
+  }
+  $endCommand();
+
+  if ($depth >= 3) {
+    return $invocations;
+  }
+
+  // A token carrying a whole command line is one: `ddev exec "drush …"`.
+  $verbs = '/droost:workflow:(gate-waive|baseline|bypass|effort)\b'
+    . '|(?<![\w-])(dwfgw|dwfbl|dwfby|dwfe)\b|droost-workflow\s+baseline\b'
+    . '|(?:droost:gate|(?<![\w-])dgate)\b/';
+  $resolved = [];
+  foreach ($invocations as $tokens) {
+    $kept = [];
+    $inners = [];
+    foreach ($tokens as $token) {
+      if (preg_match('/\s/', $token) === 1 && preg_match($verbs, $token) === 1) {
+        // The nested line REPLACES the argument that carried it. Keeping both
+        // meant the outer invocation still held the verb — as one long token,
+        // where its `--off` is not an argument — so `ddev exec "drush …
+        // --off"` was refused by the outer while the inner would have allowed
+        // it. The command that runs is the inner one; the outer is `ddev exec`.
+        foreach (operator_commands_invocations($token, $depth + 1) as $inner) {
+          $inners[] = $inner;
+        }
+        continue;
+      }
+      $kept[] = $token;
+    }
+    if ($kept !== []) {
+      $resolved[] = $kept;
+    }
+    foreach ($inners as $inner) {
+      $resolved[] = $inner;
+    }
+  }
+
+  return $resolved;
+}
+
+/**
+ * Whether an argument list carries a flag, as its own argument.
+ *
+ * @param list<string> $tokens
+ *   The argument list.
+ * @param list<string> $flags
+ *   The flags, with their dashes.
+ *
+ * @return bool
+ *   TRUE when one of them is present.
+ */
+function operator_commands_flagged(array $tokens, array $flags): bool {
+  foreach ($tokens as $token) {
+    foreach ($flags as $flag) {
+      if ($token === $flag || str_starts_with($token, $flag . '=')) {
+        return TRUE;
+      }
+    }
+  }
+
+  return FALSE;
 }
 
 /**
