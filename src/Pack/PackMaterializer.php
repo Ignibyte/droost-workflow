@@ -324,11 +324,23 @@ final class PackMaterializer {
     // preserved legacy history) one `git add -A` away from being committed.
     // The legacy line stays where it is; the visible one is appended.
     $stateDir = RunStateStore::resolveStateDir($root);
-    $already = [$stateDir, $stateDir . '/', '/' . $stateDir, '/' . $stateDir . '/'];
-    foreach (explode("\n", $existing) as $line) {
-      if (in_array(trim($line), $already, TRUE)) {
-        return $report->withKept($relative);
+    // EVERY missing line, not just the state directory. This returned as soon
+    // as it found the state dir — so on a project that had already run `init`,
+    // a re-init added nothing, and the cache lines below never reached the
+    // repositories that needed them most: the ones that have already run and
+    // already have phpunit's cache sitting in their diff. `init` is documented
+    // as safe and CONVERGING, and it was converging on whatever the first run
+    // happened to write.
+    $lines = array_map(static fn (string $line): string => trim($line), explode("\n", $existing));
+    $wanted = [];
+    foreach (self::gitignoreEntries($stateDir) as $entry) {
+      $spellings = [$entry, rtrim($entry, '/'), '/' . $entry, '/' . rtrim($entry, '/')];
+      if (array_intersect($spellings, $lines) === []) {
+        $wanted[] = $entry;
       }
+    }
+    if ($wanted === []) {
+      return $report->withKept($relative);
     }
 
     // The gates' own caches too. phpunit writes `.phpunit.result.cache` on
@@ -337,14 +349,8 @@ final class PackMaterializer {
     // waiver, on the SECOND ticket in a repo. The product wrote the file; the
     // agent paid for it. `NEVER_CREEP` stops it blocking a run; this stops it
     // reaching a review at all.
-    $addition = "# Droost workflow run state and specs (droost/workflow init).\n"
-      . $stateDir . "/\n"
-      . ".phpunit.result.cache\n"
-      . ".phpunit.cache/\n"
-      . ".phpcs-cache\n"
-      . ".php-cs-fixer.cache\n"
-      . ".eslintcache\n"
-      . ".stylelintcache\n";
+    $addition = "# Droost workflow run state, specs and gate caches (droost/workflow init).\n"
+      . implode("\n", $wanted) . "\n";
     $contents = $existing === ''
       ? $addition
       : rtrim($existing, "\n") . "\n\n" . $addition;
@@ -352,6 +358,33 @@ final class PackMaterializer {
       throw PackError::unwritable($relative, 'the write did not complete');
     }
     return $report->withWritten($relative);
+  }
+
+  /**
+   * The lines `init` keeps in .gitignore.
+   *
+   * The state directory, and the caches the GATES write. phpunit drops
+   * `.phpunit.result.cache` on every run; without a line here it lands in the
+   * diff, where the declaration audit charged it to the agent as undeclared
+   * scope — `Fault::Agent`, "There is no waiver for it" — on the second ticket
+   * in a repo. The product wrote the file and the agent paid for it.
+   *
+   * @param string $stateDir
+   *   The resolved state directory.
+   *
+   * @return list<string>
+   *   The entries, in the order they are written.
+   */
+  private static function gitignoreEntries(string $stateDir): array {
+    return [
+      $stateDir . '/',
+      '.phpunit.result.cache',
+      '.phpunit.cache/',
+      '.phpcs-cache',
+      '.php-cs-fixer.cache',
+      '.eslintcache',
+      '.stylelintcache',
+    ];
   }
 
   /**

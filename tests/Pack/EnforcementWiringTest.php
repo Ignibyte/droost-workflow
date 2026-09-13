@@ -247,18 +247,38 @@ final class EnforcementWiringTest extends WorkflowTestCase {
     $this->assertStringContainsString("vendor/\n", $contents);
     $this->assertStringContainsString("droost/droost-workflow/\n", $contents);
 
-    $second = $materializer->init($root);
-    $this->assertContains('.gitignore', $second->kept);
+    // The gates' own caches are here too: phpunit writes
+    // `.phpunit.result.cache` on every run, and without a line for it the file
+    // lands in the diff, where the declaration audit charged it to the agent as
+    // undeclared scope with no waiver. A walk found it as the wall between a
+    // completed ticket and the next one.
+    $this->assertStringContainsString(".phpunit.result.cache\n", $contents);
 
-    // A repo that already ignores it — in any spelling — is left alone.
+    $second = $materializer->init($root);
+    $this->assertContains('.gitignore', $second->kept, 'a no-op re-init changes nothing');
+
+    // A repo that already ignores the STATE DIR keeps its own spelling — and
+    // still gets the lines it is missing. This used to return on the first
+    // match, so a project that had already run `init` got nothing on a re-run:
+    // the cache lines never reached the repositories that needed them most,
+    // the ones already carrying phpunit's cache in their diff. `init` is
+    // documented as converging, and it was converging on whatever the first run
+    // happened to write.
     $spelled = $this->makeRoot();
     file_put_contents($spelled . '/.gitignore', "/droost/droost-workflow\n");
     $report = (new PackMaterializer())->init($spelled);
-    $this->assertContains('.gitignore', $report->kept);
+    $this->assertContains('.gitignore', $report->written);
+    $after = (string) file_get_contents($spelled . '/.gitignore');
+    $this->assertStringContainsString("/droost/droost-workflow\n", $after, 'their spelling survives');
     $this->assertSame(
-      "/droost/droost-workflow\n",
-      file_get_contents($spelled . '/.gitignore'),
+      1,
+      substr_count($after, 'droost/droost-workflow'),
+      'and is not duplicated in ours',
     );
+    $this->assertStringContainsString(".phpunit.result.cache\n", $after);
+
+    // And THAT is now stable: a second pass over it adds nothing.
+    $this->assertContains('.gitignore', (new PackMaterializer())->init($spelled)->kept);
   }
 
   /**
@@ -279,13 +299,26 @@ final class EnforcementWiringTest extends WorkflowTestCase {
     $this->assertStringContainsString(".droost-workflow/\n", $contents, 'the legacy line is left where it is');
     $this->assertStringContainsString("droost/droost-workflow/\n", $contents, 'the visible dir is appended');
 
-    // A project still ON the legacy dir is covered by the legacy line.
+    // A project still ON the legacy dir is covered by the legacy line — that
+    // line is not re-added, and the gate caches are, because they are missing
+    // whichever state directory the project uses.
     $legacy = $this->makeRoot();
     mkdir($legacy . '/.droost-workflow');
     file_put_contents($legacy . '/.gitignore', ".droost-workflow/\n");
     $report = (new PackMaterializer())->init($legacy);
-    $this->assertContains('.gitignore', $report->kept);
-    $this->assertSame(".droost-workflow/\n", file_get_contents($legacy . '/.gitignore'));
+    $this->assertContains('.gitignore', $report->written);
+    $onLegacy = (string) file_get_contents($legacy . '/.gitignore');
+    $this->assertSame(
+      1,
+      substr_count($onLegacy, '.droost-workflow'),
+      'the legacy line is not duplicated',
+    );
+    $this->assertStringNotContainsString(
+      "droost/droost-workflow/\n",
+      $onLegacy,
+      'and the visible dir is not added to a project that does not use it',
+    );
+    $this->assertStringContainsString(".phpunit.result.cache\n", $onLegacy);
   }
 
 }

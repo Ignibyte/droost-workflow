@@ -409,7 +409,16 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function answer(string $projectRoot, array $argv): int {
-    $text = trim(implode(' ', array_slice($argv, 1)));
+    // `--project=…` is consumed by dispatch() for every verb, and this one
+    // joined the whole tail into the answer — so a run answered with
+    // `answer "stop here" --project=/path` recorded
+    // `stop here --project=/private/tmp/…` as what the human said. The record
+    // of a human's decision is the one string in a run that has to be theirs.
+    $words = array_values(array_filter(
+      array_slice($argv, 1),
+      static fn (string $word): bool => !str_starts_with($word, '--project='),
+    ));
+    $text = trim(implode(' ', $words));
     if ($text === '') {
       $this->fail('answer needs the answer: droost-workflow answer "yes"');
       return self::EXIT_USAGE;

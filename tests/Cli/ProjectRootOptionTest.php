@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Droost\Workflow\Tests\Cli;
 
 use Droost\Workflow\Cli\ArgvDispatcher;
+use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\State\RunState;
+use Droost\Workflow\State\RunStateStore;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -281,6 +284,53 @@ final class ProjectRootOptionTest extends TestCase {
 
     $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code, 'the named path is judged, not a found one');
     $this->assertStringContainsString('Not a directory', $printed);
+  }
+
+  /**
+   * The --project flag does not become part of what the human said.
+   *
+   * Every verb's `--project=…` is consumed by `dispatch()`, and `answer` joined
+   * the whole remaining tail into the answer text — so
+   * `answer "stop here" --project=/path` recorded
+   * `stop here --project=/private/tmp/…` as the human's words. A walk found it
+   * sitting in `qa_history`.
+   *
+   * The record of a person's decision is the one string in a run that has to be
+   * exactly theirs; it is quoted back to them in the evaluation and, for the
+   * stuck question, it is what ends the run.
+   */
+  public function testTheProjectFlagIsNotPartOfTheAnswer(): void {
+    exec('git -C ' . escapeshellarg($this->root) . ' init -q 2>/dev/null');
+    exec('git -C ' . escapeshellarg($this->root) . ' commit -q --allow-empty -m i 2>/dev/null');
+    // Built from the real value object rather than hand-rolled: a run.json the
+    // store refuses to load would make this test pass for the wrong reason.
+    $config = WorkflowConfig::fromArray(['preset' => 'medium', 'mode' => 'interactive'], 'test');
+    $paused = RunState::begin('run-1', '2026-09-13T00:00:00+00:00', $config)
+      ->awaiting([
+        'phase' => 'code',
+        'question' => 'Shall I advance?',
+        'gate_summary' => 'all gates passed',
+        'asked_at' => '2026-09-13T00:00:00+00:00',
+        'headline' => '',
+        'detail' => [],
+        'options' => [],
+        'kind' => 'conversation',
+      ]);
+    (new RunStateStore($this->root))->save($paused);
+
+    $this->dispatch(['answer', 'yes please', '--project=' . $this->root], $this->root);
+
+    $state = json_decode(
+      (string) file_get_contents($this->root . '/droost/droost-workflow/run.json'),
+      TRUE,
+    );
+    $this->assertIsArray($state);
+    $history = $state['qa_history'] ?? [];
+    $this->assertIsArray($history);
+    $this->assertNotSame([], $history, 'the exchange was recorded');
+    $first = $history[0] ?? NULL;
+    $this->assertIsArray($first);
+    $this->assertSame('yes please', $first['answer'] ?? '', 'exactly what the human typed');
   }
 
 }
