@@ -467,7 +467,8 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
  *
  * DURING AN ACTIVE RUN: the lever file and the skill briefs. Setting a project
  * up is legitimate work and an agent may be asked to do it — but changing the
- * rules you are currently being judged by is not the same act. `droost.workflow.yml`
+ * rules you are currently being judged by is not the same act.
+ * `droost.workflow.yml`
  * is where the effort dial lives, and moving the dial is documented throughout
  * as the operator's decision; the briefs are the instructions the run is being
  * held to. Before a run, both are ordinary files.
