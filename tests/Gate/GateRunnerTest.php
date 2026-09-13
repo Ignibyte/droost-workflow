@@ -105,12 +105,13 @@ class GateRunnerTest extends WorkflowTestCase {
   /**
    * Complete re-runs the full resolved set — the terminal safety net.
    *
-   * Note that wiki_fresh is absent from the SHELL executor's list: it is a site
-   * gate: it runs `drush droost:wiki:status`, and with no booted site that
-   * records `skipped-no-site` through the driver instead. It used not to, and
-   * the consequence was that no standalone run could reach the end of the
-   * complete phase at the levers `init` writes — `error-tool-missing` blocks
-   * where `skipped-no-site` does not.
+   * Note that wiki_fresh IS in the shell executor's list. It asks a site, via
+   * `drush droost:wiki:status`, but through a subprocess as phpcs does —
+   * `SITE_GATES` is about gates needing a booted kernel in-process, and those
+   * are dispatched to the site driver, which implements exactly three. Moving
+   * wiki_fresh there made it `toolMissing` on a real site instead of on a
+   * checkout: the same wall, on the surface a real run uses. What its absence
+   * means is answered in the executor, where the binary is looked for.
    */
   public function testCompleteRunsTheFullResolvedSet(): void {
     $executor = $this->recordingExecutor();
@@ -122,22 +123,17 @@ class GateRunnerTest extends WorkflowTestCase {
     $this->assertSame(
       [
         'phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier',
-        'phpunit', 'mutation', 'playwright', 'coverage',
+        'phpunit', 'mutation', 'playwright', 'coverage', 'wiki_fresh',
       ],
       $executor->ran,
       'every non-site gate must execute at complete',
     );
-    // Thirteen results: the nine shell gates above plus four site gates —
-    // rendered_check, config_clean, grounding_check and wiki_fresh — all
-    // skipped under NullSiteDriver.
-    //
-    // wiki_fresh used to run through the shell, on the reasoning that drush is
-    // a binary like any other. It is not: it asks the SITE, and with no site it
-    // reported `error-tool-missing`, which BLOCKS where `skipped-no-site` does
-    // not — so the complete phase of every standalone run was unpassable at the
-    // levers `init` writes.
+    // Thirteen results: the ten shell gates above plus the three site gates,
+    // which are the ones NullSiteDriver skips. wiki_fresh is a shell gate and
+    // its own skip comes from the executor finding no drush — see
+    // ShellGateExecutorTest — so the fake executor here runs it like any other.
     $this->assertCount(13, $report->results);
-    $this->assertCount(4, $report->skipped());
+    $this->assertCount(3, $report->skipped());
   }
 
   /**

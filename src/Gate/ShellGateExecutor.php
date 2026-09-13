@@ -103,6 +103,20 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   private const VENDORED_IGNORE = '*/node_modules/*,*/vendor/*';
 
   /**
+   * Shell gates whose tool being absent means "no site", not "broken setup".
+   *
+   * `GateRunner::SITE_GATES` is about gates that need a booted kernel
+   * IN-PROCESS, and it dispatches them to the site driver. This is the other
+   * kind: an ordinary shell command that happens to ask a site. No drush on a
+   * bare checkout is not a misconfigured environment — it is the same absence
+   * `rendered_check` reports, and it must give the same answer, because
+   * `skipped-no-site` lets a phase advance and `error-tool-missing` does not.
+   *
+   * @var list<string>
+   */
+  private const array SITE_SHELL_GATES = ['wiki_fresh'];
+
+  /**
    * Constructs a ShellGateExecutor.
    *
    * @param callable(list<string>, string, int): array{int, string, string} $runner
@@ -322,6 +336,23 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     $invocation = implode(' ', $argv);
 
     if (!is_file($root . '/' . $binary)) {
+      // A gate whose tool IS a site, asked on a checkout that has none.
+      // `wiki_fresh` runs `drush droost:wiki:status`, so no drush here means no
+      // site to ask — which is the same answer `rendered_check` gives, and it
+      // must not be a different one. As `toolMissing` it BLOCKED, at complete,
+      // which is the last phase; levers freeze at begin so turning it off then
+      // does not help; and the only way out was `reset --force` and redoing
+      // three phases. No standalone run could finish at the levers `init`
+      // itself writes.
+      //
+      // The first attempt at this moved the gate into `GateRunner::SITE_GATES`,
+      // which dispatches to the site driver — and `DrupalSiteDriver` names
+      // three gates, so on a real site it became `toolMissing` there instead.
+      // Same wall, worse surface. The question belongs here, where the binary
+      // is looked for.
+      if (in_array($gate->name, self::SITE_SHELL_GATES, TRUE)) {
+        return GateResult::skippedNoSite($gate->name);
+      }
       // A missing tool outranks an empty scope: the environment being broken
       // is true whether or not there is anything to analyse yet.
       return GateResult::toolMissing($gate->name, $invocation);

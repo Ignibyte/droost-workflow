@@ -45,24 +45,26 @@ final class GateRunner {
    * distinction this package cannot make yet, and recorded rather than guessed
    * at.
    *
-   * wiki_fresh IS here, and its absence made the standalone surface unable to
-   * finish a run at the levers `init` itself writes. It shells out to `drush
-   * droost:wiki:status`, so with no site it records `error-tool-missing` — and
-   * that BLOCKS where `skipped-no-site` does not. It runs at complete, so a
-   * walk found it at the last step with everything else green, and the levers
-   * are frozen at begin, so turning it off then does not help: the only way out
-   * was `reset --force` and redoing three phases. "The same run, the same
-   * levers, the same report on both surfaces" was false at the final phase, for
-   * every standalone run, out of the box.
+   * wiki_fresh is NOT here, and putting it here was a mistake worth recording.
+   * It genuinely needs a site — it asks one, through `drush
+   * droost:wiki:status` — so the classification looks right, and moving it here
+   * did fix the standalone surface. But every gate in this list is dispatched
+   * to the SITE DRIVER, and `DrupalSiteDriver::supports()` names three gates.
+   * A site gate the driver does not implement is `toolMissing` by design (a
+   * misconfiguration, not an environmental skip), which BLOCKS — so the fix
+   * moved the unpassable phase from the standalone surface onto the Drupal one,
+   * which is the surface a real run uses. Strictly worse, and with a more
+   * confusing message.
+   *
+   * The list is about HOW a gate runs, not about what it needs: these three
+   * need a booted kernel in-process. wiki_fresh is a shell command like phpcs,
+   * and its real problem was never the classification — it was that a missing
+   * drush read as a broken environment. That is answered where it happens, in
+   * ShellGateExecutor.
    *
    * @var list<string>
    */
-  public const SITE_GATES = [
-    'rendered_check',
-    'config_clean',
-    'grounding_check',
-    'wiki_fresh',
-  ];
+  public const SITE_GATES = ['rendered_check', 'config_clean', 'grounding_check'];
 
   /**
    * Constructs a GateRunner.

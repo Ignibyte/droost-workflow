@@ -7,6 +7,7 @@ namespace Droost\Workflow\Tests\Gate;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Gate\GateResult;
+use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\ShellGateExecutor;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -1046,6 +1047,71 @@ class ShellGateExecutorTest extends WorkflowTestCase {
       'inherited',
       $result->summary,
       'a scan of nothing is never partitioned into new and inherited',
+    );
+  }
+
+  /**
+   * No drush means no site to ask, not a broken environment.
+   *
+   * `wiki_fresh` runs `drush droost:wiki:status`. On a checkout with no drush
+   * it reported `error-tool-missing`, which BLOCKS — at `complete`, the last
+   * phase, with levers frozen since `begin` so turning it off no longer helps.
+   * The only way out was `reset --force` and redoing three phases, so no
+   * standalone run could finish at the levers `init` itself writes.
+   *
+   * The first fix moved the gate into `GateRunner::SITE_GATES`, which
+   * dispatches to the site driver — and `DrupalSiteDriver::supports()` names
+   * three gates, so on a REAL site it became `toolMissing` there instead. The
+   * same wall, moved onto the surface a real run uses. Both halves are asserted
+   * here so neither can come back.
+   */
+  public function testWikiFreshSkipsWithoutDrushAndRunsWithIt(): void {
+    $bare = $this->makeRoot();
+    $executor = new ShellGateExecutor(
+      static fn (array $argv): array => [0, '', ''],
+      static fn (): int => 0,
+    );
+
+    $absent = $executor->execute(new GateSettings('wiki_fresh', TRUE), $bare);
+    $this->assertSame(GateStatus::SkippedNoSite, $absent->status);
+    $this->assertFalse(
+      $absent->status->blocksAdvance(),
+      'a checkout with no site must still be able to finish a run',
+    );
+
+    // And where drush IS present the gate really runs, rather than having been
+    // quietly switched off by the fix for the case above.
+    $withDrush = $this->rootWithBinaries(['drush']);
+    $spawned = NULL;
+    $running = new ShellGateExecutor(
+      function (array $argv) use (&$spawned): array {
+        $spawned = $argv;
+        return [0, '', ''];
+      },
+      static fn (): int => 0,
+    );
+
+    $present = $running->execute(new GateSettings('wiki_fresh', TRUE), $withDrush);
+
+    $this->assertSame(GateStatus::Passed, $present->status);
+    $this->assertIsArray($spawned, 'it spawned something');
+    $this->assertStringContainsString('drush', (string) ($spawned[0] ?? ''));
+    $this->assertContains('droost:wiki:status', $spawned);
+  }
+
+  /**
+   * And the site driver is not asked for it, because it cannot answer.
+   *
+   * `GateRunner::SITE_GATES` is dispatched to the driver, and a site gate the
+   * driver does not implement is `toolMissing` by design. Naming wiki_fresh
+   * there put it in exactly that hole on every real site.
+   */
+  public function testWikiFreshIsNotDispatchedToTheSiteDriver(): void {
+    $this->assertNotContains(
+      'wiki_fresh',
+      GateRunner::SITE_GATES,
+      'SITE_GATES is about a booted kernel in-process, and the Drupal driver '
+      . 'implements exactly the three gates named there',
     );
   }
 
