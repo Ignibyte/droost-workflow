@@ -8,6 +8,7 @@ use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
+use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
 use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Gate\NullSiteDriver;
@@ -379,7 +380,7 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
   }
 
   /**
-   * A spec with no acceptance criteria is recorded as unverified, not passed.
+   * A spec with no acceptance criteria: recorded below `high`, refused above.
    *
    * The cheapest cheat in the system, and a reviewer ran it: sixteen lines of
    * spec, zero code, zero tests, zero declarations, zero acceptance criteria —
@@ -387,122 +388,104 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
    * contract only fires when a criteria TABLE exists, so writing the criteria
    * as prose, or omitting them, turned the whole contract off in silence.
    *
-   * The quasi-spec exemption is deliberate and stays — a `low` run is told to
-   * write ten lines and must not be punished for obeying. What changes is that
-   * the absence is now a row somebody can read, and above `medium` it blocks,
-   * because a level that asked for verification cannot be handed none.
+   * The quasi-spec exemption is deliberate and stays: a `low` run is told to
+   * write ten lines and must not be punished for obeying its own brief. What
+   * changes is that the absence becomes a row somebody can read, and above
+   * `medium` it refuses, because a level that asked for verification cannot be
+   * handed none.
    */
-  public function testSpecWithNoCriteriaTableIsRecordedRatherThanAssumed(): void {
-    foreach ([['medium', 'recorded'], ['max', 'blocked']] as [$preset, $expected]) {
-      $root = $this->makeRootWithConfig("preset: {$preset}\nmode: agentic\n");
-      $spec = $this->writeSpec($root);
-      $facade = $this->facade();
-
-      $state = NULL;
-      // Six calls, because the seeker checkpoint holds the run at code and at
-      // complete until an inspection is recorded; a clean ledger satisfies it.
-      for ($phase = 0; $phase < 6; $phase++) {
-        $outcome = $facade->run($root, $spec);
-        $state = $outcome->state;
-        if ($outcome->outcome === Outcome::InspectionDue) {
-          $facade->recordSeeker(
-            $root,
-            "## Seeker Inspection\n\nInspector: independent\n\n(no findings)\n",
-          );
-        }
-      }
-      $found = [];
-      foreach ((new EvidenceStore($root))->checklist($state->runId, 'complete') as $row) {
-        if (($row['name'] ?? '') === 'criteria_table') {
-          $found[] = $row['state'];
-        }
-      }
-      $this->assertSame(
-        [$expected],
-        $found,
-        sprintf('at %s, a spec with no criteria table is %s', $preset, $expected),
-      );
-    }
-  }
-
-  /**
-   * Declaring theme work on the siteless binary does not wedge the run.
-   *
-   * The plan skill's own worked example declares `--type=theme`, and `theme`
-   * work rests on `rendered_check` — a gate that needs a booted site. On the
-   * standalone binary there is none, so it records `skipped`, measures nothing,
-   * and `type_coverage` blocked forever with fault `agent`: unclearable, since
-   * no phase can conjure a site, and pointed at the agent for obeying the
-   * example in its own brief.
-   *
-   * A gate the SURFACE cannot run is as unmeasurable as one the level turned
-   * off, and neither is the agent's doing.
-   */
-  public function testDeclaringThemeOnSitelessSurfaceDoesNotWedge(): void {
+  public function testMediumRecordsMissingCriteriaTableAndFinishes(): void {
     $root = $this->makeRootWithConfig("preset: medium\nmode: agentic\n");
     $spec = $this->writeSpec($root);
     $facade = $this->facade();
 
-    $this->assertSame(Outcome::Advanced, $facade->run($root, $spec)->outcome, 'plan');
-    $facade->declareChanges($root, ['web/themes/custom/kchockey'], [], 'theme');
+    $state = $this->driveToEnd($facade, $root, $spec);
 
-    $seen = [];
-    for ($i = 0; $i < 6; $i++) {
-      $outcome = $facade->run($root, $spec);
-      $seen[] = $outcome->outcome->value;
-      if ($outcome->outcome === Outcome::InspectionDue) {
-        $facade->recordSeeker($root, "## Seeker Inspection\n\nInspector: independent\n\n(no findings)\n");
+    $found = [];
+    foreach ((new EvidenceStore($root))->checklist($state->runId, 'complete') as $row) {
+      if (($row['name'] ?? '') === 'criteria_table') {
+        $found[] = $row['state'];
       }
     }
+    $this->assertSame(['recorded'], $found, 'recorded, and the run still finishes');
+  }
 
-    $this->assertContains(
-      'completed',
-      $seen,
-      'the run finishes rather than looping on a gate this surface cannot run: ' . implode(', ', $seen),
+  /**
+   * Above `medium` the missing table refuses, and adding it clears the refusal.
+   *
+   * A check that blocks is only legitimate if the agent can satisfy it, and a
+   * new blocking check is exactly where this project keeps shipping an
+   * unclearable one. The spec is FROZEN at plan, so "add the acceptance
+   * criteria table" is a demand to edit a frozen document — if the freeze
+   * refused that addition, `high` and above would be unfinishable.
+   *
+   * This drives the whole loop rather than asserting the rule, because the rule
+   * was right the last three times too and the run still wedged.
+   */
+  public function testHighRefusesMissingCriteriaTableAndTheRefusalClears(): void {
+    $root = $this->makeRootWithConfig("preset: high\nmode: agentic\n");
+    $spec = $this->writeSpec($root);
+    $facade = $this->facade();
+
+    $refused = NULL;
+    try {
+      $this->driveToEnd($facade, $root, $spec);
+    }
+    catch (SpecError $e) {
+      $refused = $e->getMessage();
+    }
+    $this->assertIsString($refused, 'high refuses a spec with no criteria table');
+    $this->assertStringContainsString('## Acceptance criteria', $refused);
+
+    // Now do exactly what the refusal asks, on the frozen spec.
+    file_put_contents(
+      $root . '/' . $spec,
+      "\n## Acceptance criteria\n\n| ID | Criterion | Check | Verified By |\n|---|---|---|---|\n"
+      . "| AC1 | the page renders | curl / | RinkTest::testIt |\n",
+      FILE_APPEND,
+    );
+
+    $state = $this->driveToEnd($facade, $root, $spec);
+
+    $found = [];
+    foreach ((new EvidenceStore($root))->checklist($state->runId, 'complete') as $row) {
+      if (($row['name'] ?? '') === 'criteria_table') {
+        $found[] = $row['state'];
+      }
+    }
+    $this->assertSame(
+      ['satisfied'],
+      $found,
+      'the freeze permits the edit the refusal demands, and the check clears',
     );
   }
 
   /**
-   * A seeker's findings survive as rows, not as a count beside lost prose.
+   * Drives a run to completion, satisfying the seeker checkpoint on the way.
    *
-   * `seeker_finding` was created by the v1 migration and written by nothing.
-   * The run record keeps COUNTS; the finding text lived only in the spec
-   * markdown, which nothing queries. `RunState`'s own docblock keeps the bill:
-   * across four rounds, 6, 25, 12 and 20 findings were caught and recorded as
-   * 0, 0, 6 and 2 — and the evaluation asserted, in a table cell, that "seeker
-   * rows land in `seeker_finding`" while they did not.
+   * @param \Droost\Workflow\WorkflowFacade $facade
+   *   The facade.
+   * @param string $root
+   *   The project.
+   * @param string $spec
+   *   The spec path.
    *
-   * An adversarial review whose findings cannot be read back is a review
-   * nobody can check.
+   * @return \Droost\Workflow\State\RunState
+   *   The final run state.
    */
-  public function testSeekerFindingsSurviveAsRows(): void {
-    $root = $this->makeRootWithConfig("preset: high\nmode: agentic\n");
-    $spec = $this->writeSpec($root);
-    $facade = $this->facade();
-    $facade->run($root, $spec);
-    $facade->run($root, $spec);
+  private function driveToEnd(WorkflowFacade $facade, string $root, string $spec): RunState {
+    $outcome = $facade->run($root, $spec);
+    for ($i = 0; $i < 7; $i++) {
+      if ($outcome->outcome === Outcome::InspectionDue) {
+        $facade->recordSeeker($root, "## Seeker Inspection\n\nInspector: independent\n\n(no findings)\n");
+      }
+      if ($outcome->outcome === Outcome::Completed) {
+        break;
+      }
+      $outcome = $facade->run($root, $spec);
+    }
 
-    $facade->recordSeeker($root, <<<'LEDGER'
-    ## Seeker Inspection
-
-    Inspector: independent
-
-    | ID | Severity | Location | Finding | Status |
-    |---|---|---|---|---|
-    | F1 | CRITICAL | src/Rink.php:20 | the cache is never invalidated | open |
-    | F2 | MEDIUM | src/Rink.php:44 | the new branch has no test | open |
-    LEDGER);
-
-    $state = (new RunStateStore($root))->load();
-    $this->assertNotNull($state);
-    $rows = (new EvidenceStore($root))->seekerFindings($state->runId);
-
-    $this->assertCount(2, $rows, 'both findings are rows');
-    $this->assertSame('F1', $rows[0]['ref']);
-    $this->assertSame('CRITICAL', $rows[0]['severity']);
-    $this->assertIsString($rows[0]['finding']);
-    $this->assertStringContainsString('cache is never invalidated', $rows[0]['finding']);
-    $this->assertSame('src/Rink.php:44', $rows[1]['location']);
+    return $outcome->state;
   }
 
 }

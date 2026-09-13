@@ -717,7 +717,16 @@ final class WorkflowFacade {
       // a table it was never told to write. But the absence is RECORDED now
       // rather than assumed, so a reader sees "nothing here was verified
       // against a stated criterion" instead of an unbroken column of green.
-      $this->recordCriteriaContract($state, $projectRoot, $criteria !== NULL);
+      if ($this->recordCriteriaContract($state, $projectRoot, $criteria !== NULL)) {
+        throw SpecError::sectionMissing(
+          $specPath,
+          SpecFreeze::CRITERIA,
+          'at this level every claim the run makes is held to a criterion naming '
+          . 'the test that proves it. Write the table — one observable behaviour '
+          . 'per row, with `Verified By` filled — then re-run. Below `high` the '
+          . 'table is optional and its absence is only recorded.',
+        );
+      }
     }
 
     // Every door, the same gates (R31-F3/F5): a run begun on a surface that
@@ -1520,11 +1529,37 @@ final class WorkflowFacade {
    * @param bool $present
    *   Whether a criteria table was found.
    */
-  private function recordCriteriaContract(RunState $state, string $projectRoot, bool $present): void {
-    if ($present) {
-      return;
-    }
+  private function recordCriteriaContract(RunState $state, string $projectRoot, bool $present): bool {
     $demanding = in_array($state->preset, ['high', 'xhigh', 'max', 'factory'], TRUE);
+    if ($present) {
+      // A SATISFIED row, not silence. The store is append-only and the
+      // checklist reads the latest attempt per check, so returning early here
+      // left an earlier `blocked` row standing as the current verdict — which
+      // meant an agent that did exactly what the block asked could never clear
+      // it. A blocking check whose remedy does not work is a deadlock, and
+      // driving the loop is the only thing that finds one: the rule was right
+      // and the run still wedged.
+      try {
+        (new EvidenceStore($projectRoot))->record(
+          $state->runId,
+          Phase::Complete->value,
+          new CheckRecord(
+            'spec',
+            'criteria_table',
+            CheckState::Satisfied,
+            Fault::None,
+            'The spec carries an `## Acceptance criteria` table, so every criterion in it was '
+            . 'held to its `Verified By` cell.',
+          ),
+          $this->now(),
+        );
+      }
+      catch (\Throwable) {
+        // The store is unreachable; the phase's own audit already says so.
+      }
+
+      return FALSE;
+    }
     try {
       (new EvidenceStore($projectRoot))->record(
         $state->runId,
@@ -1548,6 +1583,8 @@ final class WorkflowFacade {
     catch (\Throwable) {
       // The store is unreachable, and the phase's own audit already says so.
     }
+
+    return $demanding;
   }
 
   /**
