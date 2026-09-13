@@ -208,7 +208,7 @@ drush droost:workflow:report | grep -A3 grounding_check
   separately, or a run that cited well and looked up nothing scores as grounded.
 - **Core resolves against the brain, and only the brain.** `droost:search:index`
   runs custom|contrib|themes|wiki; core is a scope nothing indexes by default,
-  so `droost_search_symbol` holds no `node`, `views` or `field` symbols at all.
+  so the symbol-graph table holds no `node`, `views` or `field` symbols at all.
   If a round reports core citations resolving against the symbol graph, the
   probe is wrong, not the finding.
 
