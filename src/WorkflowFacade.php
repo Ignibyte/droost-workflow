@@ -802,10 +802,22 @@ final class WorkflowFacade {
     // phrasing everywhere it is rendered.
     $phase = $answered->currentPhase;
     if ($phase !== NULL) {
+      // INTERACTIVE MODE ADVANCES HERE, NOT THROUGH run(). Both new contracts
+      // hung off run()'s non-paused path, so an interactive run froze no spec
+      // and audited no declaration: measured, spec_hash NULL, zero declaration
+      // rows, and a criterion rewritten mid-run went unnoticed while the same
+      // rewrite under agentic mode was refused. A discipline that switches
+      // itself off in one of the two supported modes is not a discipline.
+      if ($phase === Phase::Code || $phase === Phase::Test) {
+        $this->auditDeclarationsFor($answered, $phase, $projectRoot);
+      }
       $next = $this->nextPhase($answered, $phase);
       $answered = $next === NULL
         ? $answered->complete()
         : $answered->advanceTo($next);
+      if ($phase === Phase::Plan && $answered->specPath !== NULL) {
+        $this->freezeSpec($projectRoot, $answered->specPath, $answered->runId, $this->now());
+      }
     }
     $store->save($answered);
     if ($phase !== NULL) {
@@ -1020,7 +1032,7 @@ final class WorkflowFacade {
     $tests = self::cleanList($tests);
     $workType = NULL;
     if ($type !== NULL && $type !== '') {
-      $workType = WorkType::tryFrom($type);
+      $workType = WorkType::parse($type);
       if ($workType === NULL) {
         throw new \InvalidArgumentException(sprintf(
           'Unknown work type "%s". Use one of: %s.',
@@ -1245,13 +1257,39 @@ final class WorkflowFacade {
     if (!in_array($phase, [Phase::Code, Phase::Test], TRUE) || $outcome->outcome !== Outcome::Advanced) {
       return $outcome;
     }
-    $state = $outcome->state;
+
+    return $this->auditDeclarationsFor($outcome->state, $phase, $projectRoot)
+      ? new RunOutcome(Outcome::Failed, $outcome->state, $outcome->report)
+      : $outcome;
+  }
+
+  /**
+   * Adjudicates and records this phase's declaration checks.
+   *
+   * Split out so the INTERACTIVE path can call it. Interactive runs advance
+   * through answer() rather than run(), and hanging the audit off run()'s
+   * outcome meant it never fired there at all — measured on a real interactive
+   * run: no spec frozen, no declaration rows, and a criterion rewritten mid-run
+   * went unnoticed. A discipline that switches itself off in one of the two
+   * supported modes is not a discipline.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase that just ran.
+   * @param string $projectRoot
+   *   The repository root.
+   *
+   * @return bool
+   *   TRUE when something the audit found blocks the phase.
+   */
+  private function auditDeclarationsFor(RunState $state, Phase $phase, string $projectRoot): bool {
     try {
       $store = new EvidenceStore($projectRoot);
       $files = $store->declared($state->runId, 'file');
       $tests = $store->declared($state->runId, 'test');
       if ($files === [] && $tests === [] && $store->workType($state->runId) === NULL) {
-        return $outcome;
+        return FALSE;
       }
       $audit = new DeclarationAudit(
         $files,
@@ -1269,12 +1307,10 @@ final class WorkflowFacade {
     }
     catch (\Throwable $e) {
       // An audit that cannot read its own record must not fail a green phase.
-      return $outcome;
+      return FALSE;
     }
 
-    return $blocked
-      ? new RunOutcome(Outcome::Failed, $state, $outcome->report)
-      : $outcome;
+    return $blocked;
   }
 
   /**

@@ -83,7 +83,7 @@ final class WorkTypeTest extends TestCase {
     $check = $this->check($audit, 'work_type');
     $this->assertSame(CheckState::Blocked, $check?->state);
     $this->assertSame(Fault::Agent, $check?->fault);
-    $this->assertStringContainsString('not that kind of work', (string) $check?->summary);
+    $this->assertStringContainsString('contradict it', (string) $check?->summary);
   }
 
   /**
@@ -186,7 +186,9 @@ final class WorkTypeTest extends TestCase {
   public function testEveryTypeIsFullyDescribed(): void {
     foreach (WorkType::cases() as $type) {
       $this->assertNotSame('', $type->label(), $type->value . ' has a label');
-      $this->assertNotSame([], $type->expects(), $type->value . ' says what it expects');
+      // contradictions() may legitimately be empty: a broad type cannot be
+      // contradicted, and pretending otherwise is what punished honesty.
+      $this->assertIsArray($type->contradictions(), $type->value . ' answers what contradicts it');
     }
     $this->assertSame(
       ['code', 'content_model', 'theme', 'content', 'docs', 'mixed'],

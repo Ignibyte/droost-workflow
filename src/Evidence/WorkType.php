@@ -79,52 +79,86 @@ enum WorkType: string {
   }
 
   /**
-   * File shapes this kind of work is expected to produce.
+   * File shapes that CONTRADICT this kind of work.
    *
-   * Used to audit the declaration, never to restrict what may be written: the
-   * question is whether the declaration was HONEST, not whether the agent
-   * stayed inside a sandbox.
+   * Inverted from what it was, because the other way round does not survive
+   * contact with Drupal. An allow-list of "what code work looks like" has to
+   * enumerate .php, .module, .info.yml, .routing.yml, .permissions.yml,
+   * .services.yml, .libraries.yml, twig, css, js and tests — the first cut
+   * listed four, so declaring `code` over an ordinary module blocked the run on
+   * its own .info.yml. An agent punished for declaring honestly learns to
+   * declare nothing, which is exactly what was measured: the shortest path
+   * through a run was the one that declared neither a type nor a test.
+   *
+   * So the question is narrower and answerable: is there anything here the
+   * declaration cannot be true ALONGSIDE? For most types, nothing — `code`,
+   * `theme` and `mixed` are broad by nature and their value is `mustMeasure()`,
+   * not a file census. Only a narrow claim can be contradicted, and only by
+   * something unmistakable.
    *
    * @return list<string>
-   *   Regular expressions matched against project-relative paths.
+   *   Regular expressions that, if matched, make the declaration false.
    */
-  public function expects(): array {
+  public function contradictions(): array {
     return match ($this) {
-      self::Code => ['#\.(php|module|inc|install|profile|theme)$#'],
-      self::ContentModel => ['#(^|/)config/.*\.yml$#', '#\.(yml|yaml)$#'],
-      self::Theme => ['#\.(twig|css|scss|js|yml)$#', '#(^|/)themes/#'],
-      self::Content => ['#\.(yml|json|php)$#'],
-      self::Docs => ['#\.(md|txt|rst)$#'],
-      self::Mixed => ['#.#'],
+      // "Nothing here executes" is a strong claim and an easy one to check.
+      self::Docs => ['#\\.(php|module|inc|install|profile|theme|engine|js|twig)$#'],
+      // A bundle and some fields are configuration. Substantial PHP under a
+      // custom module is a different ticket wearing this one's label — a
+      // .theme or an .info.yml alongside is the obvious thing, not a lie.
+      self::ContentModel, self::Content => ['#(^|/)modules/custom/.*\\.php$#'],
+      // Broad by nature: nothing contradicts them, and pretending otherwise
+      // teaches agents to declare `mixed` for everything, which is the same as
+      // declaring nothing.
+      self::Code, self::Theme, self::Mixed => [],
     };
   }
 
   /**
-   * The changed files this type does not account for.
+   * The changed files that make this declaration false.
    *
-   * A declaration is false when the work is substantially NOT what was
-   * declared. One stray file is not a lie — a content-model ticket that also
-   * touches a .theme file to register its display is doing the obvious thing —
-   * so the caller decides what proportion is too much, and this only reports.
+   * A declaration is false when the diff holds work the type cannot be true
+   * alongside — not merely work the type did not predict. One stray file is
+   * never a lie, and a type with no contradictions can never tell one.
    *
    * @param list<string> $changed
-   *   Project-relative changed paths.
+   *   Project-relative changed paths, already filtered of the run's own record.
    *
    * @return list<string>
-   *   The paths this type would not expect.
+   *   The paths that contradict the declaration.
    */
-  public function unexpected(array $changed): array {
-    $patterns = $this->expects();
+  public function contradictedBy(array $changed): array {
+    $patterns = $this->contradictions();
+    if ($patterns === []) {
+      return [];
+    }
 
     return array_values(array_filter($changed, static function (string $file) use ($patterns): bool {
       foreach ($patterns as $pattern) {
         if (preg_match($pattern, $file) === 1) {
-          return FALSE;
+          return TRUE;
         }
       }
 
-      return TRUE;
+      return FALSE;
     }));
+  }
+
+  /**
+   * A type from a user-supplied name, hyphens and case forgiven.
+   *
+   * A hyphen and an underscore are the same word to everybody except a backed
+   * enum, and `--type=content-model` throwing is a papercut that teaches an
+   * agent to stop passing the flag at all.
+   *
+   * @param string $value
+   *   What was typed.
+   *
+   * @return self|null
+   *   The type, or NULL when it names none.
+   */
+  public static function parse(string $value): ?self {
+    return self::tryFrom(str_replace('-', '_', strtolower(trim($value))));
   }
 
   /**

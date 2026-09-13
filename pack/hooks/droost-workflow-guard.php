@@ -134,8 +134,23 @@ $warnOnce = static function (string $message) use ($root, $stateDir, $mode, $pha
   if (is_file($marker)) {
     return;
   }
+  // Encode BEFORE burning the marker, and never emit nothing.
+  //
+  // json_encode returns FALSE on malformed UTF-8, and this message carries a
+  // gate summary built from the tool's own bytes — so one stray 0xC3 out of
+  // phpstan produced an empty echo. The marker had already been touched, so the
+  // nudge was gone for that phase permanently: the operator was told nothing,
+  // twice, and soft mode's entire purpose is the message.
+  $json = json_encode(['systemMessage' => $message], JSON_INVALID_UTF8_SUBSTITUTE);
+  if ($json === FALSE) {
+    $clean = preg_replace('/[^\x20-\x7E]/', '', $message);
+    $json = json_encode(['systemMessage' => is_string($clean) ? $clean : 'droost-workflow: a check is unresolved.']);
+  }
+  if ($json === FALSE) {
+    return;
+  }
   @touch($marker);
-  echo json_encode(['systemMessage' => $message]);
+  echo $json;
 };
 
 $payload = json_decode($stdin, TRUE);
@@ -362,8 +377,29 @@ function baseline_dir_guard(string $stdin): void {
   if ($file === '') {
     return;
   }
-  if (preg_match('#(^|/)droost/baseline(/|$)#', $file) !== 1) {
+  // The evidence store belongs here for the same reason the baseline does: it
+  // is the run's own record, and a record the subject can edit is not evidence.
+  // EvidenceStore's docblock says "rows droost wrote and the agent cannot", and
+  // EvaluationReport tells its reader run.json is untrustworthy BECAUSE the
+  // agent can write it and the store is different. Both were false as shipped:
+  // in plan the store was allowed by the state-dir exemption, and in every
+  // other phase pre-tool-use returned before any file check ran.
+  $isStore = preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/evidence\.sqlite(-wal|-shm)?$#', $file) === 1;
+  if (preg_match('#(^|/)droost/baseline(/|$)#', $file) !== 1 && !$isStore) {
     return;
+  }
+  if ($isStore) {
+    fwrite(STDERR, sprintf(
+      'The evidence store is the run\'s own record of what droost measured — '
+      . 'gate verdicts, which citations resolved, which tools were called. It is '
+      . 'written by droost and never by hand, and a record its subject can edit '
+      . 'proves nothing about its subject. If a verdict in it is wrong, fix the '
+      . 'thing it measured and let the gate run again; if the store itself is '
+      . 'broken, the OPERATOR clears it with: drush droost:workflow:reset --force '
+      . '(Refused: %s)',
+      $file,
+    ));
+    exit(2);
   }
   fwrite(STDERR, sprintf(
     'droost/baseline/ is the OPERATOR\'s adoption record — it is written by '
@@ -517,6 +553,11 @@ function unresolved_checks(string $root, string $stateDir, mixed $runId, string 
     $pdo = new PDO('sqlite:file:' . rawurlencode($path) . '?mode=ro', NULL, NULL, [
       PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
       PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+      // A query that never returns cannot be caught: `catch (Throwable)` does
+      // not fire on a hang. A store whose check_result is a view over an
+      // unbounded recursive CTE held this hook open indefinitely, and a hook
+      // that never returns is an agent that can never end a turn.
+      PDO::ATTR_TIMEOUT => 2,
     ]);
     $statement = $pdo->prepare(
       'SELECT c.name, c.fault, c.summary, c.remedy
@@ -526,7 +567,8 @@ function unresolved_checks(string $root, string $stateDir, mixed $runId, string 
                 GROUP BY kind, name) latest
            ON c.kind = latest.kind AND c.name = latest.name AND c.attempt = latest.attempt
         WHERE c.run_id = ? AND c.phase = ? AND c.state IN (\'blocked\', \'pending\')
-        ORDER BY c.name'
+        ORDER BY c.name
+        LIMIT 100'
     );
     $statement->execute([$runId, $phase, $runId, $phase]);
     $rows = $statement->fetchAll();

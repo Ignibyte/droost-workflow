@@ -242,6 +242,47 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
   }
 
   /**
+   * Interactive mode freezes the spec and audits declarations too.
+   *
+   * Both contracts hung off run()'s non-paused outcome, and an interactive run
+   * advances through answer() instead — so neither fired. Measured before the
+   * fix: spec_hash NULL, zero declaration rows, and a criterion rewritten
+   * mid-run went unnoticed while the SAME rewrite under agentic mode was
+   * refused. A discipline that switches itself off in one of the two supported
+   * modes is not a discipline, and a mode-shaped hole is invisible to every
+   * test that only drives the other one.
+   */
+  public function testInteractiveModeFreezesAndAudits(): void {
+    $root = $this->makeRootWithConfig("mode: interactive\npreset: low\nenforcement: soft\n");
+    $spec = 'droost/droost-workflow/spec-integration.md';
+    @mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    file_put_contents($root . '/' . $spec, $this->planExitSpec());
+
+    $facade = $this->facade();
+    $this->assertSame(Outcome::Paused, $facade->run($root, $spec)->outcome, 'interactive pauses');
+    $facade->answer($root, 'yes');
+
+    $store = new EvidenceStore($root);
+    $row = $store->connection()->query('SELECT spec_hash FROM run')->fetch();
+    $this->assertIsString($row['spec_hash'] ?? NULL, 'the spec is frozen on the interactive path');
+
+    $facade->declareChanges($root, ['src'], [], 'code');
+    $this->appendRows($root, $spec, [
+      '| code | custom | named already? | nothing | `none: thing` |',
+      '| code | contrib | the API? | ViewsData | `Drupal\views\ViewsData` |',
+      '| code | core | the constructor? | NodeType | `Drupal\node\Entity\NodeType` |',
+    ]);
+    $facade->run($root, $spec);
+    $facade->answer($root, 'yes');
+
+    $this->assertGreaterThan(
+      0,
+      (int) $store->connection()->query("SELECT COUNT(*) FROM check_result WHERE kind='declaration'")->fetchColumn(),
+      'declarations are audited on the interactive path',
+    );
+  }
+
+  /**
    * The facade under test.
    *
    * @return \Droost\Workflow\WorkflowFacade

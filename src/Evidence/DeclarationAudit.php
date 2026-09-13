@@ -176,12 +176,17 @@ final class DeclarationAudit {
       );
     }
     if ($this->workType !== NULL && $scopeIsDue) {
-      $unexpected = $this->workType->unexpected($this->changedFiles);
-      // A proportion, not a count. One stray file is not a false declaration —
-      // a content-model ticket that also touches a .theme to register its
-      // display is doing the obvious thing. A run where MOST of the diff is
-      // not the kind of work declared is a different statement.
-      $total = max(count($this->changedFiles), 1);
+      // Exempt paths filtered FIRST. Without it the audit was blocked by the
+      // database recording the block: evidence.sqlite, its -wal and -shm, and
+      // run.json counted as "not that kind of work" and outvoted the diff.
+      $subject = array_values(array_filter(
+        $this->changedFiles,
+        static fn (string $file): bool => !self::exempt($file),
+      ));
+      $unexpected = $this->workType->contradictedBy($subject);
+      // Contradiction, not a census — and still proportional, because one file
+      // that happens to match is not the shape of a false declaration.
+      $total = max(count($subject), 1);
       $adrift = count($unexpected) / $total > 0.5 && count($unexpected) > 1;
       $checks[] = new CheckRecord(
         'declaration',
@@ -190,16 +195,15 @@ final class DeclarationAudit {
         $adrift ? Fault::Agent : Fault::None,
         $adrift
           ? sprintf(
-            'declared "%s" (%s), but %d of %d changed file(s) are not that kind of work: %s. '
+            'declared "%s" (%s), but %d of %d changed file(s) contradict it: %s. '
             . 'The type decides which gates must have measured, so declaring one and building '
-            . 'another means the wrong things were checked. Re-declare, or say in the spec why '
-            . 'this really is %s work.',
+            . 'another means the wrong things were checked. Re-declare with the type this '
+            . 'really is.',
             $this->workType->value,
             $this->workType->label(),
             count($unexpected),
-            count($this->changedFiles),
+            count($subject),
             implode(', ', array_slice($unexpected, 0, 5)),
-            $this->workType->value,
           )
           : sprintf('declared "%s" (%s); the diff matches', $this->workType->value, $this->workType->label()),
       );
