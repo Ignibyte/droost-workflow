@@ -47,6 +47,16 @@ final class PendingQuestion {
    *   The answers worth offering, most-likely first. A structured-question
    *   surface renders them as choices; a plain prompt prints them. Empty
    *   means the question is open-ended.
+   * @param string $kind
+   *   What kind of question this is, which decides whether the ANSWER does
+   *   anything beyond being recorded.
+   *
+   *   For a conversation hold, answering IS the act: the human's consent to
+   *   advance is the whole point, so recording it and carrying on is right.
+   *   The stuck question is different — it offers "stop here — this is stuck
+   *   and I will look at it", and that was inert. `answer()` recorded the text
+   *   and the run advanced; "stop here" and "banana" produced the same result,
+   *   which makes the question theatre and the wall it sits behind pointless.
    */
   public function __construct(
     public readonly Phase $phase,
@@ -56,7 +66,18 @@ final class PendingQuestion {
     public readonly string $headline = '',
     public readonly array $detail = [],
     public readonly array $options = [],
+    public readonly string $kind = self::KIND_CONVERSATION,
   ) {}
+
+  /**
+   * An ordinary phase hold: answering is consent to carry on.
+   */
+  public const string KIND_CONVERSATION = 'conversation';
+
+  /**
+   * The block ceiling: one of the answers ENDS the run.
+   */
+  public const string KIND_STUCK = 'stuck';
 
   /**
    * This question as the data stored in run state.
@@ -73,7 +94,38 @@ final class PendingQuestion {
       'headline' => $this->headline,
       'detail' => $this->detail,
       'options' => $this->options,
+      'kind' => $this->kind,
     ];
+  }
+
+  /**
+   * Whether an answer means "stop — this run is not going to get there".
+   *
+   * Matched on the leading word rather than on the whole option, because a
+   * human answering a prompt types "stop", a structured surface sends the
+   * option back verbatim, and neither should have to match the other exactly.
+   * Anything else is "keep going", which is the safe reading: a run that ends
+   * because somebody phrased their answer unusually is worse than one that
+   * carries on and asks again at the next ceiling.
+   *
+   * @param string $answer
+   *   What the human said.
+   *
+   * @return bool
+   *   TRUE when this question is one that can be stopped, and was.
+   */
+  public function answerEndsTheRun(string $answer): bool {
+    if ($this->kind !== self::KIND_STUCK) {
+      return FALSE;
+    }
+    $said = strtolower(trim($answer));
+
+    return $said === 'stop'
+      || str_starts_with($said, 'stop ')
+      || str_starts_with($said, 'stop,')
+      || str_starts_with($said, 'stop-')
+      || str_starts_with($said, 'stop here')
+      || str_starts_with($said, 'abandon');
   }
 
   /**
@@ -102,6 +154,7 @@ final class PendingQuestion {
       $node->optionalString('headline', '') ?? '',
       $node->optionalStringList('detail', []),
       $node->optionalStringList('options', []),
+      $node->optionalString('kind', self::KIND_CONVERSATION) ?: self::KIND_CONVERSATION,
     );
   }
 

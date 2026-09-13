@@ -265,6 +265,7 @@ final class ModeEngine {
         'keep going — the work is progressing and I expect it to clear',
         'stop here — this is stuck and I will look at it',
       ],
+      PendingQuestion::KIND_STUCK,
     );
   }
 
@@ -348,7 +349,22 @@ final class ModeEngine {
         'This run is not waiting for an answer.',
       );
     }
-    return $state->answered($answer, $now);
+    $asked = PendingQuestion::fromArray($state->awaiting);
+    $answered = $state->answered($answer, $now);
+    // Most answers do nothing beyond being recorded, and that is right: for a
+    // conversation hold the human's consent to advance IS the act.
+    //
+    // The stuck question is not one of those. It offers "stop here — this is
+    // stuck and I will look at it", and nothing read the reply: a walk answered
+    // "stop here" and then "banana", and both printed `answered — now at code`
+    // and carried on. A question whose answer changes nothing is theatre, and
+    // it sits behind the one wall that exists because the run cannot tell a
+    // slow correction cycle from a wedge.
+    if ($asked !== NULL && $asked->answerEndsTheRun($answer)) {
+      return $answered->withPhaseStatus($asked->phase, PhaseStatus::Failed);
+    }
+
+    return $answered;
   }
 
   /**

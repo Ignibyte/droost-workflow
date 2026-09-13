@@ -17,8 +17,10 @@ use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\ModeEngine;
+use Droost\Workflow\Mode\PendingQuestion;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
+use Droost\Workflow\State\PhaseStatus;
 use Droost\Workflow\State\RunState;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -272,6 +274,98 @@ final class BlockCeilingTest extends TestCase {
 
     $this->assertNull(
       $engine->stuckOutcome($state, Phase::Code, $this->root, NULL, '2026-09-13T01:00:00+00:00'),
+    );
+  }
+
+  /**
+   * Answering "stop here" stops the run. It used not to.
+   *
+   * The ceiling's whole product is the question, and the question offers two
+   * answers. Nothing read the reply: a walk answered "stop here" and then
+   * "banana", and both printed `answered — now at code` and carried on. A
+   * question whose answer changes nothing is theatre, and it sits behind the
+   * one wall that exists because the engine cannot tell a slow correction cycle
+   * from a wedge — only the person watching can, and this is where they say so.
+   */
+  #[DataProvider('modes')]
+  public function testAnsweringStopEndsTheRun(string $mode): void {
+    [$engine, $state] = $this->engineFor($mode);
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('run-1', ['preset' => 'medium']);
+    $this->block($store, 60);
+
+    $paused = $engine->stuckOutcome($state, Phase::Code, $this->root, NULL, '2026-09-13T01:00:00+00:00');
+    $this->assertNotNull($paused);
+
+    $stopped = $engine->answer($paused->state, 'stop here — this is stuck and I will look at it', '2026-09-13T02:00:00+00:00');
+
+    $this->assertSame(
+      PhaseStatus::Failed,
+      $stopped->phases['code'] ?? NULL,
+      'the phase ends, rather than the answer being filed away',
+    );
+  }
+
+  /**
+   * But answering "keep going" does not.
+   *
+   * The other half matters as much: an answer that ends a run somebody meant to
+   * continue is worse than one that is ignored.
+   *
+   * @param string $mode
+   *   The run mode.
+   */
+  #[DataProvider('modes')]
+  public function testAnsweringKeepGoingContinues(string $mode): void {
+    [$engine, $state] = $this->engineFor($mode);
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('run-1', ['preset' => 'medium']);
+    $this->block($store, 60);
+
+    $paused = $engine->stuckOutcome($state, Phase::Code, $this->root, NULL, '2026-09-13T01:00:00+00:00');
+    $this->assertNotNull($paused);
+
+    foreach ([
+      'keep going — the work is progressing and I expect it to clear',
+      'banana',
+      '',
+    ] as $answer) {
+      $carried = $engine->answer($paused->state, $answer, '2026-09-13T02:00:00+00:00');
+      $this->assertNotSame(
+        PhaseStatus::Failed,
+        $carried->phases['code'] ?? NULL,
+        sprintf('"%s" is not a stop', $answer),
+      );
+      $this->assertNull($carried->awaiting, 'and the question is answered either way');
+    }
+  }
+
+  /**
+   * And an ordinary conversation hold is never ended by its answer.
+   *
+   * Those questions ASK for consent to advance, so answering one is the act.
+   * Reading "stop" out of a phase-advance reply would end runs that were
+   * going fine.
+   *
+   * @param string $mode
+   *   The run mode.
+   */
+  #[DataProvider('modes')]
+  public function testConversationAnswersNeverEndTheRun(string $mode): void {
+    [$engine, $state] = $this->engineFor($mode);
+    $question = new PendingQuestion(
+      Phase::Code,
+      'Shall I advance?',
+      'all gates passed',
+      '2026-09-13T01:00:00+00:00',
+    );
+    $waiting = $state->awaiting($question->toArray());
+
+    $answered = $engine->answer($waiting, 'stop here', '2026-09-13T02:00:00+00:00');
+
+    $this->assertNotSame(
+      PhaseStatus::Failed,
+      $answered->phases['code'] ?? NULL,
     );
   }
 
