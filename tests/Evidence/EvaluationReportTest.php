@@ -809,4 +809,92 @@ final class EvaluationReportTest extends TestCase {
     $this->assertStringContainsString('`test, complete`', $row, 'and the phases read in the order they happened');
   }
 
+  /**
+   * The expiry column tells three different things apart.
+   *
+   * A reviewer found it collapsing them, each collapse producing a confident
+   * false sentence in the document people read INSTEAD of the run:
+   *
+   *   * every `recorded` gate printed `**EXPIRED**` over untouched code,
+   *     forever, because `stillGreen()` tested for `Satisfied` alone while the
+   *     column admitted `recorded` too. Every contributed `mode: report` gate —
+   *     droost_snyk and its kin — would have read EXPIRED in every report ever
+   *     rendered, under prose asserting the code had moved;
+   *   * a green whose subject was DELETED read `unknown`, the quietest possible
+   *     answer for the loudest possible expiry, under a note blaming levers
+   *     that carry no paths — which was the opposite of what happened.
+   *
+   * Three states, three causes, and the difference between them is the only
+   * thing that makes the column worth printing.
+   */
+  public function testExpiryTellsRecordedFromSatisfiedAndGoneFromUnconfigured(): void {
+    mkdir($this->root . '/subject', 0775, TRUE);
+    file_put_contents($this->root . '/subject/a.php', "<?php // one\n");
+    $hash = SubjectHasher::hash($this->root, ['subject']);
+    $this->assertIsString($hash);
+
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
+    // A reporting gate: measured, non-blocking, fingerprinted.
+    $store->record('r1', 'test', new CheckRecord(
+      'gate', 'snyk', CheckState::Recorded, Fault::None, '2 issues, mode: report',
+      NULL, $hash, 1, 'snyk', NULL, 900,
+    ));
+    // An ordinary green over the same subject.
+    $store->record('r1', 'test', new CheckRecord(
+      'gate', 'phpcs', CheckState::Satisfied, Fault::None, 'clean', NULL, $hash, 0, 'phpcs', NULL, 800,
+    ));
+    // And one with no fingerprint at all.
+    $store->record('r1', 'test', new CheckRecord(
+      'gate', 'phpunit', CheckState::Satisfied, Fault::None, '14 tests', NULL, NULL, 0, 'phpunit', NULL, 900,
+    ));
+
+    $report = new EvaluationReport($store);
+    $unchanged = ['snyk' => $hash, 'phpcs' => $hash];
+
+    $this->assertSame('yes', $this->expiryOf($report->render('r1', $unchanged), 'snyk'),
+      'a reporting gate over untouched code has NOT expired');
+    $this->assertSame('yes', $this->expiryOf($report->render('r1', $unchanged), 'phpcs'));
+    $this->assertSame('unknown', $this->expiryOf($report->render('r1', $unchanged), 'phpunit'),
+      'a gate with no path set is unknown, never unchanged');
+
+    // Move the code: both fingerprinted gates expire, whatever their state.
+    file_put_contents($this->root . '/subject/a.php', "<?php // two\n");
+    $moved = SubjectHasher::hash($this->root, ['subject']);
+    $this->assertIsString($moved);
+    $after = $report->render('r1', ['snyk' => $moved, 'phpcs' => $moved]);
+    $this->assertSame('**EXPIRED**', $this->expiryOf($after, 'snyk'));
+    $this->assertSame('**EXPIRED**', $this->expiryOf($after, 'phpcs'));
+
+    // Delete it: a configured subject that resolves to nothing is gone, and
+    // says so — NULL in the map, not absent from it.
+    exec('rm -rf ' . escapeshellarg($this->root . '/subject'));
+    $gone = $report->render('r1', ['snyk' => NULL, 'phpcs' => NULL]);
+    $this->assertSame('**EXPIRED** (subject gone)', $this->expiryOf($gone, 'phpcs'));
+    $this->assertSame('unknown', $this->expiryOf($gone, 'phpunit'),
+      'and the gate that never had a subject is still merely unknown');
+  }
+
+  /**
+   * The `Still true?` cell for one gate.
+   *
+   * @param string $report
+   *   The rendered evaluation.
+   * @param string $gate
+   *   The gate name.
+   *
+   * @return string
+   *   The cell.
+   */
+  private function expiryOf(string $report, string $gate): string {
+    foreach (explode("\n", $report) as $line) {
+      $cells = array_map(trim(...), explode('|', $line));
+      if (count($cells) === 11 && $cells[1] === '`' . $gate . '`') {
+        return $cells[9];
+      }
+    }
+
+    return '(no row for ' . $gate . ')';
+  }
+
 }

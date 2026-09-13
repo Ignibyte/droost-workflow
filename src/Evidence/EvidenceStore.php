@@ -670,7 +670,16 @@ final class EvidenceStore {
       return FALSE;
     }
 
-    return self::text($row, 'state') === CheckState::Satisfied->value
+    // Any MEASURED state, not just `satisfied`. The question is whether the
+    // verdict still describes the code, and a `recorded` verdict — a
+    // contributed gate in `mode: report` — describes it exactly as much as a
+    // satisfied one does. Testing for Satisfied alone meant every reporting
+    // gate came back FALSE whatever the fingerprint said, so the report printed
+    // `**EXPIRED**` over untouched code, under prose asserting the code moved.
+    $state = CheckState::tryFrom(self::text($row, 'state'));
+
+    return $state !== NULL
+      && $state->measured()
       && is_string($row['subject_hash'] ?? NULL)
       && hash_equals((string) $row['subject_hash'], $subjectHash);
   }

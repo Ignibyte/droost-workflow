@@ -143,7 +143,7 @@ final class EvaluationReport {
   /**
    * Fingerprints of what each gate would examine now, from the last render().
    *
-   * @var array<string, string>
+   * @var array<string, string|null>
    */
   private array $currentSubjects = [];
 
@@ -169,9 +169,19 @@ final class EvaluationReport {
     if ($state !== 'satisfied' && $state !== 'recorded') {
       return self::NOT_RECORDED;
     }
-    $current = $this->currentSubjects[$name] ?? NULL;
-    if ($current === NULL || self::text($row, 'subject_hash') === NULL) {
+    $stored = self::text($row, 'subject_hash');
+    if ($stored === NULL || !array_key_exists($name, $this->currentSubjects)) {
+      // Nothing to compare: the gate has no path set, or the row predates
+      // fingerprinting. Not "unchanged" — genuinely unknown.
       return 'unknown';
+    }
+    $current = $this->currentSubjects[$name];
+    if ($current === NULL) {
+      // It HAD a subject when the verdict was recorded and has none now: the
+      // code the gate passed over is gone. That is the most complete form of
+      // "the code moved", and it read `unknown` under a note blaming levers
+      // that carry no paths — the opposite of what happened.
+      return '**EXPIRED** (subject gone)';
     }
 
     return $this->store->stillGreen($runId, self::text($row, 'phase') ?? '', $name, $current)
@@ -184,7 +194,7 @@ final class EvaluationReport {
    *
    * @param string $runId
    *   The run.
-   * @param array<string, string> $currentSubjects
+   * @param array<string, string|null> $currentSubjects
    *   Gate name to a fingerprint of what that gate WOULD examine as the tree
    *   stands now. Supplying it is what makes a stored green expire: a verdict
    *   alone is a sticker, and only the comparison says whether it still
@@ -264,7 +274,10 @@ final class EvaluationReport {
       . "> phase changes what §1 prints. A reviewer edited `medium`/`soft` to\n"
       . "> `max`/`hard`, ran one phase, and §1 said `max` and `hard` while the\n"
       . "> frozen medium gate set was what actually ran. Those rows are marked\n"
-      . "> `reported` below. Everything marked `measured` was collected.\n";
+      . "> `reported` below, and the two digests are marked with what they\n"
+      . "> actually cover: droost computes them, over the file `run.json` names,\n"
+      . "> and only across the `## Tooling plan` section. The gate set in §3 and\n"
+      . "> §4 is the check on all of it.\n";
 
     if ($run === [] && $checks === []) {
       $out .= "\n> **This run has no rows.** The store holds neither a `run`\n"
@@ -303,10 +316,23 @@ final class EvaluationReport {
       ['Enforcement (requested)', self::code(self::text($run, 'enforcement')), 'reported'],
       ['Base commit', self::code(self::text($run, 'base_commit')), 'reported'],
       ['Spec', self::code(self::text($run, 'spec_path')), 'reported'],
-      // Droost read the spec and hashed it itself, so an edited run.json
-      // cannot move these two.
-      ['Spec hash', self::code(self::text($run, 'spec_hash')), 'measured'],
-      ['Spec frozen at', self::code(self::text($run, 'spec_frozen_at')), 'measured'],
+      // NOT `measured`, and not "Spec hash" either — both were wrong, and a
+      // reviewer proved both by running them. droost does the hashing, but over
+      // whatever file `run.json` names, so pointing a run at a decoy moves the
+      // digest and it stays perfectly honest about the decoy. And the digest
+      // covers ONLY the `## Tooling plan` section: two specs differing in
+      // title, grounding table and headings hash identically. A reader seeing
+      // "Spec hash: measured" concludes the document is pinned. One section is.
+      [
+        'Tooling-plan hash',
+        self::code(self::text($run, 'spec_hash')),
+        'hashed by droost, over the file run.json names',
+      ],
+      [
+        'Spec frozen at',
+        self::code(self::text($run, 'spec_frozen_at')),
+        'hashed by droost, over the file run.json names',
+      ],
       [
         'Ticket / request',
         $ticket === [] ? self::NOT_RECORDED : self::code(implode(', ', $ticket)),
@@ -323,8 +349,14 @@ final class EvaluationReport {
       . "\nWhat §1 cannot say, and why:\n\n"
       . "- **`reported` means the value reached the store THROUGH `run.json`.**\n"
       . "  droost recorded it faithfully; it did not verify it. An agent that\n"
-      . "  edits that file before a phase changes these five rows, and the gate\n"
-      . "  set that actually ran — §3 and §4 — is the check on them.\n"
+      . "  edits that file before a phase changes these rows, and the gate set\n"
+      . "  that actually ran — §3 and §4 — is the check on them.\n"
+      . "- **The tooling-plan hash is not a hash of the spec.** It covers the\n"
+      . "  `## Tooling plan` section and nothing else, so two specs differing in\n"
+      . "  title, grounding and criteria share a digest. The freeze does NOT\n"
+      . "  rest on it — it compares the recorded TEXT row by row, because \"every\n"
+      . "  row that was there is still there\" is not a question a hash can\n"
+      . "  answer. Read the digest as a tripwire, never as a seal.\n"
       . "- **Subject, driver and elapsed** are facts about the harness that ran\n"
       . "  the round, not about the run. Nothing writes them to the store, so\n"
       . "  they are captured by hand from the template's §2.\n"
@@ -612,10 +644,10 @@ final class EvaluationReport {
     $expired = 0;
     foreach ($rows as $row) {
       $cell = $row[array_key_last($row)] ?? '';
-      if ($cell === 'yes' || $cell === '**EXPIRED**') {
+      if ($cell === 'yes' || str_starts_with($cell, '**EXPIRED**')) {
         $checkable++;
       }
-      if ($cell === '**EXPIRED**') {
+      if (str_starts_with($cell, '**EXPIRED**')) {
         $expired++;
       }
     }

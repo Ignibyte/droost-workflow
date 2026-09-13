@@ -1293,8 +1293,10 @@ final class WorkflowFacade {
    * @param string $projectRoot
    *   The repository.
    *
-   * @return array<string, string>
-   *   Gate name to current fingerprint, omitting gates that have none.
+   * @return array<string, string|null>
+   *   Gate name to current fingerprint. A gate with no `paths` lever is absent;
+   *   a gate whose paths now resolve to nothing maps to NULL, which is not the
+   *   same answer and must not render as the same one.
    */
   private function currentSubjects(string $projectRoot): array {
     $state = (new RunStateStore($projectRoot))->load();
@@ -1306,10 +1308,17 @@ final class WorkflowFacade {
       if (!is_string($gate) || !is_array($levers)) {
         continue;
       }
-      $hash = SubjectHasher::hash($projectRoot, SubjectHasher::fromLever($levers['paths'] ?? NULL));
-      if ($hash !== NULL) {
-        $subjects[$gate] = $hash;
+      $paths = SubjectHasher::fromLever($levers['paths'] ?? NULL);
+      if ($paths === []) {
+        // No `paths` lever at all: this gate has no subject to fingerprint and
+        // never had one. ABSENT from the map, which reads as unknown.
+        continue;
       }
+      // Present, possibly NULL. NULL means the gate HAS a path set and it now
+      // resolves to nothing — the subject was deleted. That is the loudest
+      // possible expiry, and it used to read `unknown` under a note blaming
+      // levers that carry no paths, which was the opposite of what happened.
+      $subjects[$gate] = SubjectHasher::hash($projectRoot, $paths);
     }
 
     return $subjects;
