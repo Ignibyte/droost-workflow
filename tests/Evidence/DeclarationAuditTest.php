@@ -236,7 +236,7 @@ final class DeclarationAuditTest extends TestCase {
    * Asserted as a property, because the next contributed check will read the
    * next kind: every kind any check reads must be writable through the facade.
    */
-  public function testEveryDeclarationKindACheckReadsIsWritable(): void {
+  public function testEveryDeclarationKindReadByCheckIsWritable(): void {
     $root = sys_get_temp_dir() . '/droost-kinds-' . bin2hex(random_bytes(6));
     mkdir($root . '/droost/droost-workflow', 0775, TRUE);
 
