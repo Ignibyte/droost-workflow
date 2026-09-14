@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Evidence;
 
+use Droost\Workflow\Evidence\EvaluationReport;
 use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Evidence\CheckRecord;
 use Droost\Workflow\Evidence\CheckState;
@@ -433,6 +434,43 @@ final class DeclarationAuditTest extends TestCase {
       $undeclared,
       'the tools droost trusts are the agent\'s to install, never to write',
     );
+  }
+
+  /**
+   * Where a recorded check lands, asserted rather than claimed.
+   *
+   * The docblock said `mandatory_measured` reaches "the evaluation and the stop
+   * hook's checklist". The second half was false: that query is `state IN
+   * ('blocked','pending')` and a recorded check is neither — by design, since
+   * the stop hook holds a turn on unresolved WORK. I wrote the claim; nothing
+   * checked it.
+   *
+   * So the reach is pinned. If a future change makes a recorded check block,
+   * or drops it from the report, this says so.
+   */
+  public function testRecordedChecksReachTheEvaluationNotTheStopHook(): void {
+    $root = sys_get_temp_dir() . '/reach-' . bin2hex(random_bytes(6));
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    $store = new EvidenceStore($root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
+    $record = DeclarationAudit::mandatoryMeasured(['phpunit'], [], 'test');
+    $this->assertNotNull($record);
+    $store->record('r1', 'test', $record);
+
+    $report = (new EvaluationReport($store))->render('r1');
+    $this->assertStringContainsString('mandatory_measured', $report, 'a reader sees it');
+    $this->assertStringContainsString('measured nothing this run', $report, 'with its own words');
+
+    $this->assertSame(
+      [],
+      array_values(array_filter(
+        $store->unresolved('r1', 'test'),
+        static fn (array $row): bool => $row['name'] === 'mandatory_measured',
+      )),
+      'and it does not hold the turn, which is what recorded means',
+    );
+
+    exec('rm -rf ' . escapeshellarg($root));
   }
 
 }

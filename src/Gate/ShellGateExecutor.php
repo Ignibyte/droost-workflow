@@ -463,8 +463,9 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     //
     // So it is neither: a gate pointed at nothing has not measured, and says so
     // and names the lever that points it, and the declaration audit records a
-    // `mandatory_measured` row so the evaluation and the stop hook's checklist
-    // both carry it.
+    // `mandatory_measured` row that the EVALUATION carries. Not the stop
+    // hook's checklist — that lists what blocks, and this deliberately does
+    // not.
     //
     // RECORDED, not blocked — and I wrote "type_coverage then holds the run"
     // here, which was wrong twice over: that check only exists when a work TYPE

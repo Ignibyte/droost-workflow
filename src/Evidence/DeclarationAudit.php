@@ -399,10 +399,18 @@ final class DeclarationAudit {
    *
    * RECORDED, not blocked. The remedy is a lever — `gates.phpstan.paths` — and
    * levers freeze at `begin`, so a block here could not be cleared from inside
-   * the run it stopped; this project has shipped that deadlock twice. A
-   * recorded check reaches the evaluation and the report. The cost is real and
-   * stated rather than hidden: the phase advances over a mandatory gate that
-   * measured nothing.
+   * the run it stopped; this project has shipped that deadlock twice.
+   *
+   * WHERE IT ACTUALLY LANDS, because an earlier version of this sentence
+   * claimed more: the EVALUATION, rendered with its own text, and a queryable
+   * row in the store. NOT the stop hook's checklist — that query is `state IN
+   * ('blocked','pending')` and a recorded check is neither, by design, since
+   * the stop hook holds a turn on unresolved WORK. The agent is not told at
+   * stop time; the human reading the evaluation is.
+   *
+   * The cost is real and stated rather than hidden: a phase advances over a
+   * mandatory gate that measured nothing, and the only thing between that and
+   * a reader is a document somebody has to open.
    *
    * @param list<string> $measuredGates
    *   Gates that measured something this run.
