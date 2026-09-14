@@ -8,7 +8,7 @@ use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\SiteDriverInterface;
-use Droost\Workflow\Gate\SiteGateRemedy;
+use Droost\Workflow\Gate\GateRemedy;
 
 /**
  * Renders the site's routes in a FRESH process, not the one running the gates.
@@ -80,7 +80,7 @@ final class FreshProcessSiteDriver implements SiteDriverInterface {
       return GateResult::toolMissing(
         $gate->name,
         sprintf('%s (this driver only runs rendered_check)', $gate->name),
-        SiteGateRemedy::wrongDriver($gate->name),
+        GateRemedy::wrongDriver($gate->name),
       );
     }
     $root = rtrim($projectRoot, '/');
@@ -95,7 +95,7 @@ final class FreshProcessSiteDriver implements SiteDriverInterface {
       return GateResult::toolMissing(
         'rendered_check',
         $invocation,
-        SiteGateRemedy::drush($this->drush),
+        GateRemedy::drush($this->drush),
       );
     }
 
@@ -109,7 +109,7 @@ final class FreshProcessSiteDriver implements SiteDriverInterface {
       return GateResult::toolMissing(
         'rendered_check',
         $invocation,
-        SiteGateRemedy::drush($this->drush),
+        GateRemedy::drush($this->drush),
       );
     }
     $answer = self::decode($stdout);

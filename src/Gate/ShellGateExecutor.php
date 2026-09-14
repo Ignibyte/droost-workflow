@@ -528,8 +528,10 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     // RECORDED, not blocked — and I wrote "type_coverage then holds the run"
     // here, which was wrong twice over: that check only exists when a work TYPE
     // was declared, so an agent declaring nothing got no check at all; and the
-    // remedy is a lever, which freezes at begin, so a block could not be
-    // cleared from inside the run it stopped.
+    // remedy is a lever, which only the OPERATOR may move, so a block could
+    // not be cleared from inside the run it stopped by the agent standing in
+    // it. (`paths` itself is not frozen — GateRunner re-reads tuning at gate
+    // time. The person allowed to edit it is what the agent cannot reach.)
     if ($gate->name === 'phpstan'
       && $exit !== 0
       && preg_match('/At least one path must be specified/i', $stdout . $stderr) === 1) {
@@ -538,8 +540,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         $exit,
         $elapsed,
         'phpstan was given no path to analyse — a labeled pass, not a '
-        . 'measurement. Point it with `gates.phpstan.paths` in '
-        . 'droost.workflow.yml, or add a phpstan.neon naming its own paths.',
+        . 'measurement. ' . GateRemedy::measuredNothing('phpstan'),
         $invocation,
       );
     }

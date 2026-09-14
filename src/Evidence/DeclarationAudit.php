@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Droost\Workflow\Evidence;
 
 use Droost\Workflow\Config\PhaseGateMap;
+use Droost\Workflow\Gate\GateRemedy;
 
 /**
  * What the agent said it would change, against what it actually changed.
@@ -368,8 +369,9 @@ final class DeclarationAudit {
       // gates at TEST, and phpcs and phpstan do not run at test — so a phpcs
       // whose `paths` lever pointed at nothing blocked the run one phase after
       // the last moment anything could change the answer. Nothing inside test
-      // can make a code-phase gate measure, the lever is frozen for the run and
-      // the guard refuses it anyway, the mandatory trio carries no waiver, and
+      // can make a code-phase gate measure, the phase that would read a
+      // re-pointed lever is behind it, the guard refuses the edit anyway, the
+      // mandatory trio carries no waiver, and
       // a Blocked outcome spends no budget — so the run could not end, could
       // not advance, and could not be fixed. Two reviewers reached it
       // independently; one drove 56 identical invocations to be sure.
@@ -437,12 +439,9 @@ final class DeclarationAudit {
               implode(', ', $missed),
             ),
           $missed === [] ? NULL : sprintf(
-            'Point the gate at the code: set gates.%1$s.paths in droost.workflow.yml (or give '
-            . '%1$s its own config file), then re-run this phase. If the declared work type is '
-            . 'wrong for this diff, `droost-workflow declare-changes --type=<type>` is the other '
-            . 'answer. Levers are frozen per run, so an operator editing them now is editing the '
-            . 'next run — ask them to clear this one with `reset --force` after.',
-            $missed[0],
+            '%s If the declared work type is wrong for this diff, '
+            . '`droost-workflow declare-changes --type=<type>` is the other answer.',
+            GateRemedy::measuredNothing($missed[0]),
           ),
         );
       }
@@ -497,9 +496,12 @@ final class DeclarationAudit {
    * phpcs actually look at anything" is a question about the GATES, and the
    * answer does not depend on what anybody promised.
    *
-   * RECORDED, not blocked. The remedy is a lever — `gates.phpstan.paths` — and
-   * levers freeze at `begin`, so a block here could not be cleared from inside
-   * the run it stopped; this project has shipped that deadlock twice.
+   * RECORDED, not blocked. The remedy is a lever, and a lever is the
+   * OPERATOR's to move — an agent that cannot reach one cannot clear a block
+   * that names one, and this project has shipped that deadlock twice. (The
+   * lever itself is not frozen: `paths` is tuning, and `GateRunner` re-reads
+   * tuning at gate time. What is out of reach is the person allowed to edit
+   * it, and the phase that already ran.)
    *
    * WHERE IT ACTUALLY LANDS, because an earlier version of this sentence
    * claimed more: the EVALUATION, rendered with its own text, and a queryable
@@ -569,11 +571,9 @@ final class DeclarationAudit {
       Fault::None,
       sprintf(
         '%s ran and measured nothing this run. A gate that analysed an empty path set has '
-        . 'not checked anything, whatever colour it reported — point it with gates.%s.paths '
-        . 'in droost.workflow.yml, or give the tool its own config. The levers for THIS run '
-        . 'were frozen when it began, so this is the next run\'s to fix.',
+        . 'not checked anything, whatever colour it reported. %s',
         implode(', ', $hollow),
-        $hollow[0],
+        GateRemedy::measuredNothing($hollow[0]),
       ),
     );
   }
