@@ -712,6 +712,7 @@ final class ModeEngine {
 
     $store = new EvidenceStore($projectRoot);
     $advance = TRUE;
+    $emitted = [];
     foreach ($records as $record) {
       try {
         $store->record($state->runId, $phase->value, $record);
@@ -720,9 +721,20 @@ final class ModeEngine {
         // Recording is never allowed to fail a phase; the verdict below still
         // holds, so a check that blocks still blocks even if the row is lost.
       }
+      $emitted[] = $record->name;
       if ($record->state->blocksAdvance()) {
         $advance = FALSE;
       }
+    }
+    // Same rule as the declaration audit: a check this pass no longer emits —
+    // a module uninstalled, a provider that no longer applies to this run —
+    // keeps its last blocked row as the record's current verdict otherwise,
+    // and nothing can clear a check that is not being asked.
+    try {
+      $store->retireUnemitted($state->runId, $phase->value, 'check', $emitted);
+    }
+    catch (\Throwable) {
+      // As above: the verdict this pass computed still holds.
     }
 
     return $advance;

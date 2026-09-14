@@ -318,4 +318,50 @@ final class ContributedCheckIntegrationTest extends WorkflowTestCase {
     }
   }
 
+  /**
+   * A provider that stops answering does not leave its block standing.
+   *
+   * The same rule the declaration audit needed, on the other adjudicator. A
+   * contributed check that stops being emitted — its module uninstalled, its
+   * provider deciding the run no longer applies — kept its last `blocked` row
+   * as the record's current verdict, and nothing can clear a check nobody
+   * asks. The engine would then advance while the store said blocked, and the
+   * stop hook would refuse on a row no fresh check could answer.
+   *
+   * `CheckProviderBase`'s own contract makes this reachable by design: "NULL
+   * when it does not apply. A Jira check on a site with no Jira records
+   * nothing."
+   */
+  public function testProvidersThatStopAnsweringLeaveNoBlockStanding(): void {
+    $root = $this->makeRoot();
+    $spec = $this->writeSpec($root);
+    $calls = [];
+
+    $held = $this->facade($this->adjudicator([
+      new CheckRecord(
+        'check', 'jira_transitioned', CheckState::Blocked, Fault::Environment,
+        'EMT-354 is still In Progress',
+        'drush droost:jira:transition EMT-354 "In Review"',
+      ),
+    ], $calls))->run($root, $spec);
+    $this->assertSame(Outcome::Blocked, $held->outcome, 'the provider holds the phase');
+
+    $store = new EvidenceStore($root);
+    $this->assertCount(
+      1,
+      $store->unresolved($held->state->runId, 'plan'),
+      'and the record says which check',
+    );
+
+    // The provider now answers for nothing — the module is gone, or the run
+    // stopped applying to it.
+    $this->facade($this->adjudicator([], $calls))->run($root, $spec);
+
+    $this->assertSame(
+      [],
+      (new EvidenceStore($root))->unresolved($held->state->runId, 'plan'),
+      'a check nobody asks holds nothing, and the record agrees with the engine',
+    );
+  }
+
 }

@@ -834,6 +834,89 @@ final class EvidenceStore {
   }
 
   /**
+   * Retires the checks an adjudication pass no longer emits.
+   *
+   * A CHECK THAT STOPS BEING ASKED KEPT ITS LAST ANSWER FOR EVER.
+   * `checklist()` returns the newest row PER NAME, and the audit decides
+   * whether to advance from its own fresh result — so when a check stopped
+   * being emitted, its last `blocked` row stood as the current verdict with
+   * nothing able to replace it. A reviewer reached it by following a remedy's
+   * own advice:
+   *
+   *   1. phpcs pointed at an empty directory -> type_coverage blocked
+   *   2. `declare-changes --type=docs` (the remedy's second answer) — Docs
+   *      rests on no gates, so the audit emits no type_coverage row at all
+   *   3. `run` -> advances, blocked: []
+   *   4. the stop hook, same moment -> exit 2, "type_coverage [environment]"
+   *
+   * The engine and the record disagreed permanently. Worse at PLAN and
+   * COMPLETE, where `answer()` reads the STORE: a stale row there refuses to
+   * advance an interactive run for ever, and no fresh check can clear it
+   * because the check is no longer asked. `reset --force` was the only exit.
+   *
+   * SUPERSEDED, NOT HIDDEN. Filtering old rows out of `checklist()` would
+   * lose a real blocked verdict that a later pass simply did not re-examine,
+   * and attempt numbers are per-name so they cannot be compared across
+   * checks. Writing what this pass concluded keeps the trail — the record
+   * shows blocked, then not-applicable with the reason — which is the whole
+   * point of an append-only record.
+   *
+   * The codebase already knew this shape: `recordCriteriaContract()` writes a
+   * satisfied row specifically to avoid it, noting that "a blocking check
+   * whose remedy does not work is a deadlock". That was one check; this is
+   * the mechanism.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $phase
+   *   The phase just adjudicated.
+   * @param string $kind
+   *   The kind of check this pass speaks for; rows of other kinds are left
+   *   alone, because this pass says nothing about them.
+   * @param list<string> $emitted
+   *   The names this pass produced.
+   * @param string|null $now
+   *   The timestamp.
+   */
+  public function retireUnemitted(
+    string $runId,
+    string $phase,
+    string $kind,
+    array $emitted,
+    ?string $now = NULL,
+  ): void {
+    foreach ($this->checklist($runId, $phase) as $row) {
+      if (self::text($row, 'kind') !== $kind) {
+        continue;
+      }
+      $name = self::text($row, 'name');
+      if ($name === '' || in_array($name, $emitted, TRUE)) {
+        continue;
+      }
+      $state = CheckState::tryFrom(self::text($row, 'state'));
+      if ($state === NULL || !$state->blocksAdvance()) {
+        continue;
+      }
+      // The ROW's kind, so the retirement SUPERSEDES it — `checklist()` keys
+      // on kind and name together, so writing the pass's kind instead would
+      // leave the original row standing beside a new one that answers for
+      // nothing.
+      $this->record($runId, $phase, new CheckRecord(
+        self::text($row, 'kind'),
+        $name,
+        CheckState::NotApplicable,
+        Fault::None,
+        sprintf(
+          'no longer asked: the run\'s declarations changed and this check '
+          . 'does not apply to what it now declares. Its earlier verdict (%s) '
+          . 'stands in the record and is superseded here.',
+          $state->value,
+        ),
+      ), $now);
+    }
+  }
+
+  /**
    * The unresolved non-gate checks, shaped for an agent to act on.
    *
    * WHY A RUN IS BLOCKED IS NOT OPTIONAL. `RunOutcome`'s docblock records what

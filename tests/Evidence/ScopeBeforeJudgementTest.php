@@ -43,17 +43,41 @@ final class ScopeBeforeJudgementTest extends WorkflowTestCase {
    *
    * @param list<string> $changed
    *   The files version control reports as changed.
+   * @param bool $hollow
+   *   Whether every gate reports a LABELLED PASS — it ran and examined
+   *   nothing, which is what a `paths` lever pointing at an empty
+   *   directory produces, and what makes `type_coverage` block on gates
+   *   that passed.
    *
    * @return \Droost\Workflow\WorkflowFacade
    *   The facade.
    */
-  private function facadeSeeing(array $changed): WorkflowFacade {
-    $executor = new class() implements GateExecutorInterface {
+  private function facadeSeeing(array $changed, bool $hollow = FALSE): WorkflowFacade {
+    $executor = new class($hollow) implements GateExecutorInterface {
+
+      /**
+       * @param bool $hollow
+       *   Whether every gate reports a labelled pass — it ran and examined
+       *   nothing — which is what a `paths` lever pointing at an empty
+       *   directory produces, and what makes `type_coverage` block on gates
+       *   that passed.
+       */
+      public function __construct(private readonly bool $hollow) {}
 
       /**
        * {@inheritdoc}
        */
       public function execute(GateSettings $gate, string $projectRoot): GateResult {
+        if ($this->hollow) {
+          return GateResult::labelledPass(
+            $gate->name,
+            0,
+            1,
+            $gate->name . ' found nothing to analyse — a labeled pass',
+            $gate->name,
+          );
+        }
+
         return GateResult::ran($gate->name, GateStatus::Passed, 0, 1, $gate->name . ' passed', [], $gate->name);
       }
 
@@ -293,6 +317,49 @@ final class ScopeBeforeJudgementTest extends WorkflowTestCase {
     $this->assertTrue(
       !file_exists($wal) || filesize($wal) === 0,
       'a copy of the file after a run is the record',
+    );
+  }
+
+  /**
+   * A run whose declaration changes does not carry the old block for ever.
+   *
+   * The wiring for `EvidenceStore::retireUnemitted()`, driven through the
+   * facade — because the defect was that the real path never called it.
+   *
+   * A check that stops being emitted keeps its last `blocked` row as the
+   * record's current verdict, and nothing can clear a check nobody asks. The
+   * engine then advances while the store says blocked, the stop hook refuses
+   * on a row that no fresh check can answer, and at plan and complete — where
+   * `answer()` decides from the STORE — the run cannot advance at all.
+   */
+  public function testChangedDeclarationsRetireTheChecksTheyDrop(): void {
+    [$root, $spec] = $this->project();
+    // `code` work rests on phpcs, phpstan and phpunit. Every gate here
+    // reports a LABELLED PASS — it ran and examined nothing, which is what a
+    // `paths` lever pointing at an empty directory produces — so
+    // type_coverage blocks on gates that passed.
+    $facade = $this->facadeSeeing(['src/Declared.php'], TRUE);
+    $this->assertSame(Outcome::Advanced, $facade->run($root, $spec)->outcome, 'plan ends');
+    $facade->declareChanges($root, ['src/Declared.php'], [], 'code');
+    $blocked = $facade->run($root, $spec);
+    $this->assertSame(Outcome::Blocked, $blocked->outcome, 'the hollow gates block the phase');
+
+    $store = new EvidenceStore($root);
+    $this->assertNotSame(
+      [],
+      $store->unresolved($blocked->state->runId, 'code'),
+      'and the record says so',
+    );
+
+    // The declaration changes to one that rests on no gates, so the audit
+    // stops emitting that check entirely.
+    $facade->declareChanges($root, ['src/Declared.php'], [], 'docs');
+    $after = $facade->run($root, $spec);
+
+    $this->assertSame(
+      [],
+      (new EvidenceStore($root))->unresolved($after->state->runId, 'code'),
+      'the record agrees with the engine: a check nobody asks holds nothing',
     );
   }
 

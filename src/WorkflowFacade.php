@@ -1848,10 +1848,21 @@ final class WorkflowFacade {
         $projectRoot,
       );
       $blocked = FALSE;
+      $emitted = [];
       foreach ($audit->checks($phase->value) as $check) {
         $store->record($state->runId, $phase->value, $check, $this->now());
+        $emitted[] = $check->name;
         $blocked = $blocked || $check->state->blocksAdvance();
       }
+      // A check this pass no longer asks is retired rather than left standing.
+      // The audit decides from its own fresh result, so a check that stopped
+      // being emitted kept its last blocked row as the record's current
+      // verdict — the engine advancing while the store said blocked, and the
+      // stop hook refusing on a row nothing could clear.
+      if ($hollow !== NULL) {
+        $emitted[] = $hollow->name;
+      }
+      $store->retireUnemitted($state->runId, $phase->value, 'declaration', $emitted, $this->now());
     }
     catch (\Throwable $e) {
       // An audit that cannot read its own record must not fail a green phase —
