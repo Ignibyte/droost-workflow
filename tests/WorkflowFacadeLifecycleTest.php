@@ -7,6 +7,10 @@ namespace Droost\Workflow\Tests;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Evidence\CheckRecord;
+use Droost\Workflow\Evidence\CheckState;
+use Droost\Workflow\Evidence\EvidenceStore;
+use Droost\Workflow\Evidence\Fault;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
@@ -183,6 +187,130 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
       $this->assertStringContainsString('NOT adopted', $error->getMessage());
       $this->assertStringContainsString('reset', $error->getMessage(), 'and it names the way forward');
     }
+  }
+
+  /**
+   * An answer does not advance a phase whose checks are still blocked.
+   *
+   * `answer` re-audited Code and Test and fell straight through to
+   * `advanceTo()`/`complete()` everywhere else. A reviewer drove sixty blocked
+   * rows at `complete`, answered the block ceiling's question with "keep
+   * going", and got:
+   *
+   *     answered — the run completed
+   *     {'plan':'passed','code':'passed','test':'passed','complete':'passed'}
+   *     rows left: complete | contributed_checks | blocked | environment | 60
+   *
+   * Sixty unresolved blocks and every phase reported passed. The ceiling
+   * exists so a human can say "I have seen this, carry on" — it was laundering
+   * the blocks into a green rather than surfacing them. Same at `plan`.
+   *
+   * An answer is a person's words. It cannot change what a check found, and a
+   * phase that advances on one is reporting a verification nobody performed.
+   */
+  public function testAnswersDoNotAdvancePastBlockedChecks(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: pair\n");
+    $executor = $this->allGatesPass();
+    $facade = $this->facade($executor);
+    $facade->run($root);
+
+    $store = new RunStateStore($root);
+    $state = $store->load();
+    $this->assertNotNull($state, 'the run started and paused for its question');
+    $this->assertNotNull($state->awaiting);
+    $phase = $state->currentPhase;
+    $this->assertNotNull($phase);
+
+    // A blocked check this phase's audit does not speak for — the shape the
+    // reviewer reached with a contributed plugin that threw.
+    (new EvidenceStore($root))->record($state->runId, $phase->value, new CheckRecord(
+      'check',
+      'contributed_checks',
+      CheckState::Blocked,
+      Fault::Environment,
+      'the provider threw',
+      'reinstall or remove the module that contributes it',
+    ), '2026-09-14T00:00:00+00:00');
+
+    $answered = $facade->answer($root, 'keep going');
+
+    $this->assertSame(
+      $phase,
+      $answered->currentPhase,
+      'the phase does not advance while a check is still blocked',
+    );
+    $this->assertNotSame(
+      PhaseStatus::Passed,
+      $answered->statusOf($phase),
+      'and it is certainly not marked passed',
+    );
+  }
+
+  /**
+   * A stuck question cannot be answered by changing the subject.
+   *
+   * Two ways past the block ceiling were open to the agent, and both left the
+   * blocks unresolved:
+   *
+   *   * `answer "keep going"` re-audited only Code and Test, and fell straight
+   *     through to `advanceTo()`/`complete()` at every other phase. A reviewer
+   *     drove sixty blocked rows at `complete`, answered, and got "the run
+   *     completed" with all four phases marked passed and the sixty rows still
+   *     there. Same at `plan`.
+   *   * `swap agentic` called `released()` regardless of the question's kind,
+   *     so the pause cleared, the counter reset, and nothing anywhere recorded
+   *     that a question had been asked. `run` x60 -> `swap` -> repeat, for
+   *     ever, with no human involved. `swap` is not an operator-only verb.
+   *
+   * The ceiling exists so a human can say "I have seen this, carry on". It was
+   * laundering unresolved blocks into a green instead of surfacing them.
+   *
+   * What a human can still do is end the run: `answer "stop here"` fails the
+   * phase and records who stopped it. That is a decision; dismissing the
+   * question is not.
+   */
+  public function testTheStuckQuestionCannotBeAnsweredByChangingTheSubject(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: pair\n");
+    $executor = $this->allGatesPass();
+    $facade = $this->facade($executor);
+    $facade->run($root);
+
+    $state = (new RunStateStore($root))->load();
+    $this->assertNotNull($state, 'the run started');
+    $this->assertNotNull($state->awaiting, 'and pair mode is waiting on a question');
+
+    // A swap is refused while a STUCK question stands, and permitted for an
+    // ordinary conversational pause — the distinction the old code ignored.
+    $facade->swap($root, Mode::Agentic);
+    $after = (new RunStateStore($root))->load();
+    $this->assertNotNull($after);
+    $this->assertNull($after->awaiting, 'an ordinary pause is still swappable');
+
+    $stuck = $after->awaiting($this->stuckQuestion());
+    (new RunStateStore($root))->save($stuck);
+    try {
+      $facade->swap($root, Mode::Agentic);
+      $this->fail('swapping mode is not an answer to a stuck question');
+    }
+    catch (\InvalidArgumentException $error) {
+      $this->assertStringContainsString('stuck', $error->getMessage());
+      $this->assertStringContainsString('stop here', $error->getMessage(), 'and it names the way out');
+    }
+  }
+
+  /**
+   * A pending question shaped like the block ceiling's.
+   *
+   * @return array<string, string>
+   *   The awaiting payload.
+   */
+  private function stuckQuestion(): array {
+    return [
+      'kind' => 'stuck',
+      'question' => 'This phase has blocked 60 times. Keep going, or stop here?',
+      'asked_at' => '2026-09-14T00:00:00+00:00',
+      'phase' => 'plan',
+    ];
   }
 
   /**

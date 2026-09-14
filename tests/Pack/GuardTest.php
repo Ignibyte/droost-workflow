@@ -781,6 +781,60 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * A store whose check_result is not a table is not read.
+   *
+   * The stop hook reads the evidence store to name what is unresolved. A
+   * reviewer replaced `check_result` with a view over an unbounded recursive
+   * CTE and the hook NEVER RETURNED — sixty seconds, still running, killed.
+   * `LIMIT 100` does not save it, because the MAX(attempt) subquery has to
+   * drain the view first. An agent whose stop hook never returns cannot end
+   * its turn at all, which is worse than any wrong answer it could give.
+   *
+   * There is no wall-clock cap available: PHP delivers signals between
+   * opcodes, and a blocked `PDOStatement::execute()` is inside SQLite's own
+   * loop, so `pcntl_alarm` does not fire — measured, the hang survived it
+   * unchanged. So the defence is the store's SHAPE, which is exact for the way
+   * in: droost writes `check_result` as a table and nothing else.
+   *
+   * The assertion is the elapsed time, because the defect is a hang and a hang
+   * has no exit code.
+   */
+  public function testStoresWhoseTableWasReplacedAreNotRead(): void {
+    if (!extension_loaded('pdo_sqlite')) {
+      $this->markTestSkipped('pdo_sqlite is what the guard reads the store with');
+    }
+    $root = $this->rootWithRun('code', 'active', 'hard');
+    file_put_contents($root . '/droost/droost-workflow/run.json', (string) json_encode([
+      'run_id' => 'r1',
+      'current_phase' => 'code',
+      'phases' => ['code' => 'active'],
+      'enforcement' => 'hard',
+    ]));
+    $pdo = new \PDO('sqlite:' . $root . '/droost/droost-workflow/evidence.sqlite');
+    $pdo->exec('CREATE TABLE decoy (id INTEGER PRIMARY KEY)');
+    $pdo->exec(
+      "CREATE VIEW check_result AS\n"
+      . "  WITH RECURSIVE forever(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM forever)\n"
+      . "  SELECT n AS id, 'r1' AS run_id, 'code' AS phase, 'check' AS kind,\n"
+      . "         'x' || n AS name, 1 AS attempt, 'blocked' AS state,\n"
+      . "         'agent' AS fault, 's' AS summary, '' AS remedy\n"
+      . '  FROM forever'
+    );
+    unset($pdo);
+
+    $started = microtime(TRUE);
+    [$exit] = $this->guard($root, 'stop', ['hook_event_name' => 'Stop']);
+    $elapsed = microtime(TRUE) - $started;
+
+    $this->assertSame(2, $exit, 'the wall still stands — it never depended on this read');
+    $this->assertLessThan(
+      10.0,
+      $elapsed,
+      'and the hook returns: a stop hook that never returns is a turn that never ends',
+    );
+  }
+
+  /**
    * An unusable CLAUDE_PROJECT_DIR does not stand the wall down.
    *
    * The guard took that variable verbatim. A stale worktree path, a typo or a

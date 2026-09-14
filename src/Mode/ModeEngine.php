@@ -194,7 +194,19 @@ final class ModeEngine {
       // A contributed check or a spec condition, not a gate: nothing was spent
       // and the agent may fix and return. The block ceiling above is what stops
       // that becoming endless.
-      return $stuck ?? new RunOutcome(Outcome::Blocked, $state, $report);
+      //
+      // WITH THE REASON. This returned `blocked: []`, and at PLAN — which runs
+      // no gates, so the report is empty too — the agent got the word `blocked`
+      // and nothing else, three times running against a broken contributed
+      // check. The stop hook does name the rows, because it reads the store; an
+      // agent reading the `run` envelope had no way to learn what was wrong.
+      return $stuck ?? new RunOutcome(
+        Outcome::Blocked,
+        $state,
+        $report,
+        NULL,
+        $this->blockingChecksFor($state, $phase, $projectRoot),
+      );
     }
 
     // The seeker checkpoint. Gates verify rules; the seeker verifies
@@ -443,6 +455,28 @@ final class ModeEngine {
         $to->value,
       ));
     }
+    // A STUCK QUESTION IS NOT A CONVERSATION PAUSE, and `released()` cleared
+    // both alike. So the ceiling's question — the one the engine asks after
+    // sixty blocks because it can see the count and a human can see the run —
+    // was dismissed by `swap agentic`: the pause cleared, the counter reset,
+    // nothing recorded, and `run` x60 -> `swap` -> repeat, for ever, with no
+    // human ever asked and no trace in the record that a question had been
+    // put. `swap` is not in the operator-commands guard either, so it is the
+    // agent's own verb.
+    //
+    // The two ways past a stuck question stay what they were: answer it, or
+    // `answer "stop here"`, both of which are recorded as somebody's decision.
+    $pending = $this->pendingQuestion($state);
+    if ($pending !== NULL && $pending->kind === PendingQuestion::KIND_STUCK) {
+      throw new \InvalidArgumentException(
+        'This run is stuck and waiting on an answer, and swapping mode is not '
+        . 'an answer to it — it would clear the question, reset the counter '
+        . 'and leave nothing in the record saying it was ever asked. Answer '
+        . 'the question, or end the run with `answer "stop here"`, which fails '
+        . 'the phase and records who stopped it.',
+      );
+    }
+
     return $state->withModeOverride($to)->released($now);
   }
 
@@ -732,6 +766,28 @@ final class ModeEngine {
     $this->sink->emit($question);
 
     return new RunOutcome(Outcome::Paused, $state, $report, $question);
+  }
+
+  /**
+   * Why this phase is blocked, for the run envelope.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase.
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return list<array{check: string, fault: string, why: string, remedy: string, guidance: string}>
+   *   The unresolved checks.
+   */
+  private function blockingChecksFor(RunState $state, Phase $phase, string $projectRoot): array {
+    try {
+      return (new EvidenceStore($projectRoot))->blockingChecks($state->runId, $phase->value);
+    }
+    catch (\Throwable) {
+      return [];
+    }
   }
 
 }

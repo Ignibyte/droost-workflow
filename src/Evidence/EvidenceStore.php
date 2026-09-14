@@ -673,6 +673,58 @@ final class EvidenceStore {
   }
 
   /**
+   * The unresolved non-gate checks, shaped for an agent to act on.
+   *
+   * WHY A RUN IS BLOCKED IS NOT OPTIONAL. `RunOutcome`'s docblock records what
+   * it costs to omit: "every gate green and no reason anywhere in the output —
+   * and escaped only by opening the store with a third-party tool. An agent
+   * cannot do that, and loops." That fix reached one of the two places that
+   * return a blocked outcome. The other — the engine's own contributed-check
+   * branch — returned `blocked: []`, and a reviewer drove it: a broken
+   * `#[DroostCheck]` plugin at PLAN, which runs no gates, produced.
+   *
+   *     outcome=blocked  phase=plan  blocked=[]  awaiting=null  attempts=[]
+   *
+   * three times running. The agent gets the word and literally nothing else.
+   *
+   * Lives here rather than in either caller because it is one question about
+   * these rows, and two copies of it is how the first one came to be missed.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $phase
+   *   The phase.
+   *
+   * @return list<array{check: string, fault: string, why: string, remedy: string, guidance: string}>
+   *   One entry per unresolved check, gates excluded — a gate's failure is
+   *   already in the report, with its output.
+   */
+  public function blockingChecks(string $runId, string $phase): array {
+    try {
+      $rows = $this->unresolved($runId, $phase);
+    }
+    catch (\Throwable) {
+      return [];
+    }
+    $blocking = [];
+    foreach ($rows as $row) {
+      if (($row['kind'] ?? '') === 'gate') {
+        continue;
+      }
+      $fault = is_string($row['fault'] ?? NULL) ? $row['fault'] : '';
+      $blocking[] = [
+        'check' => is_string($row['name'] ?? NULL) ? $row['name'] : '',
+        'fault' => $fault,
+        'why' => is_string($row['summary'] ?? NULL) ? $row['summary'] : '',
+        'remedy' => is_string($row['remedy'] ?? NULL) ? $row['remedy'] : '',
+        'guidance' => (Fault::tryFrom($fault) ?? Fault::None)->guidance(),
+      ];
+    }
+
+    return $blocking;
+  }
+
+  /**
    * Whether a satisfied check still describes the code as it stands.
    *
    * A green recorded against a fingerprint is only a green while the

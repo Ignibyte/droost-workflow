@@ -2365,12 +2365,38 @@ function unresolved_checks(string $root, string $stateDir, mixed $runId, string 
     $pdo = new PDO('sqlite:file:' . rawurlencode($path) . '?mode=ro', NULL, NULL, [
       PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
       PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-      // A query that never returns cannot be caught: `catch (Throwable)` does
-      // not fire on a hang. A store whose check_result is a view over an
-      // unbounded recursive CTE held this hook open indefinitely, and a hook
-      // that never returns is an agent that can never end a turn.
+      // Lock contention only. `PDO::ATTR_TIMEOUT` maps to
+      // `sqlite3_busy_timeout`, which caps waiting for a LOCK and not
+      // execution — which is not what the comment here used to claim.
       PDO::ATTR_TIMEOUT => 2,
     ]);
+    // A VIEW IS NOT A RECORD. The real defect the old comment described: a
+    // reviewer replaced `check_result` with a view over an unbounded recursive
+    // CTE, and this hook never returned — sixty seconds, still running, killed.
+    // `LIMIT 100` cannot save it, because the MAX(attempt) subquery has to
+    // drain the view first. An agent whose stop hook never returns cannot end
+    // its turn at all, which is worse than any wrong answer.
+    //
+    // THERE IS NO WALL-CLOCK CAP AVAILABLE HERE, and it is worth saying why
+    // rather than shipping one that looks like a cap and is not. PHP delivers
+    // signals between opcodes; a blocked `PDOStatement::execute()` is inside
+    // SQLite's own loop and never reaches one, so `pcntl_alarm` does not fire
+    // (measured — the hang survived it unchanged). SQLite's own interrupt is
+    // `sqlite3_progress_handler`, which PDO does not expose.
+    //
+    // So the defence is structural instead of temporal, and it is exact for
+    // the way in: droost writes `check_result` as a TABLE and nothing else,
+    // so a `check_result` that is not one is a store somebody has rebuilt.
+    // Fail open, as this whole function does — the wall itself does not
+    // depend on this read.
+    $shape = $pdo->prepare(
+      'SELECT type FROM sqlite_master WHERE name = ? LIMIT 1'
+    );
+    $shape->execute(['check_result']);
+    $kind = $shape->fetchColumn();
+    if ($kind !== 'table') {
+      return [];
+    }
     $statement = $pdo->prepare(
       'SELECT c.name, c.fault, c.summary, c.remedy
          FROM check_result c

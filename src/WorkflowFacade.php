@@ -856,8 +856,29 @@ final class WorkflowFacade {
       // under `agentic` and advanced under `interactive` — leaving a blocked
       // row behind in a run that carried on regardless. Half a discipline is
       // the exact shape the comment above was already written against.
-      if (($phase === Phase::Code || $phase === Phase::Test)
-        && $this->auditDeclarationsFor($answered, $phase, $projectRoot)) {
+      // UNRESOLVED CHECKS HOLD THE PHASE AT EVERY PHASE, not just the two the
+      // declaration audit speaks for. `answer` re-audited Code and Test and
+      // fell straight through to `advanceTo()`/`complete()` everywhere else,
+      // so a reviewer drove sixty blocked rows at `complete`, answered the
+      // ceiling's question with "keep going", and got:
+      //
+      //     answered — the run completed
+      //     plan passed | code passed | test passed | complete passed
+      //     rows left: 60 blocked contributed_checks at complete
+      //
+      // Sixty unresolved blocks, every phase reported passed. The ceiling's
+      // escape is meant to let a human say "I have seen this, carry on" — and
+      // it was laundering the blocks into a green instead of surfacing them.
+      // Same at `plan`.
+      //
+      // A human CAN still end a stuck run: `answer "stop here"` fails the
+      // phase and records `stopped_by_operator`. What they cannot do is
+      // advance past a check that is still blocked, because the answer does
+      // not change what the check found.
+      $unresolved = $phase === Phase::Code || $phase === Phase::Test
+        ? $this->auditDeclarationsFor($answered, $phase, $projectRoot)
+        : self::blockingRows($answered, $phase, $projectRoot) !== [];
+      if ($unresolved) {
         // The phase does not ADVANCE, and it does not FAIL either. Marking it
         // Failed here was terminal and unrecoverable: `run()` then refuses
         // unless `waiversCoverTheFailure()` agrees, and that reads blocking
@@ -978,6 +999,10 @@ final class WorkflowFacade {
    *
    * @throws \Droost\Workflow\State\StateError
    *   When there is no run to swap.
+   * @throws \InvalidArgumentException
+   *   When the target mode is not agentic, or the run is waiting on a STUCK
+   *   question — which a swap would dismiss without answering, clearing the
+   *   pause and resetting the counter with nothing recorded.
    */
   public function swap(string $projectRoot, Mode $to): RunState {
     $store = new RunStateStore($projectRoot);
@@ -1679,27 +1704,11 @@ final class WorkflowFacade {
    */
   private static function blockingRows(RunState $state, Phase $phase, string $projectRoot): array {
     try {
-      $rows = (new EvidenceStore($projectRoot))->unresolved($state->runId, $phase->value);
+      return (new EvidenceStore($projectRoot))->blockingChecks($state->runId, $phase->value);
     }
     catch (\Throwable) {
       return [];
     }
-    $blocking = [];
-    foreach ($rows as $row) {
-      if (($row['kind'] ?? '') === 'gate') {
-        continue;
-      }
-      $fault = is_string($row['fault'] ?? NULL) ? $row['fault'] : '';
-      $blocking[] = [
-        'check' => is_string($row['name'] ?? NULL) ? $row['name'] : '',
-        'fault' => $fault,
-        'why' => is_string($row['summary'] ?? NULL) ? $row['summary'] : '',
-        'remedy' => is_string($row['remedy'] ?? NULL) ? $row['remedy'] : '',
-        'guidance' => (Fault::tryFrom($fault) ?? Fault::None)->guidance(),
-      ];
-    }
-
-    return $blocking;
   }
 
   /**
