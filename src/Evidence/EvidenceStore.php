@@ -1309,6 +1309,17 @@ final class EvidenceStore {
           self::text($finding, 'status'),
         ]);
       }
+      // A CLEAN ROUND LEAVES A ROW. One row per finding meant a round that
+      // found nothing wrote nothing, and two readers were wrong about it: the
+      // evidence document could not show that an inspection had cleared the
+      // board, and `openSeekerFindings()`'s round inference stayed pinned to
+      // the last round that found something. The row is droost's own parse
+      // of the ledger — zero findings — not the agent's summary; its status
+      // is `clean`, which no finding ever carries, so the open-findings
+      // reader skips it by the filter it already applies.
+      if ($findings === []) {
+        $insert->execute([$runId, $phase, $round, '—', '', '', 'inspection filed: no findings', 'clean']);
+      }
     }
     catch (\Throwable $e) {
       if ($owns && $pdo->inTransaction()) {

@@ -692,7 +692,13 @@ final class EvaluationReport {
         $verdict,
         $this->stillDescribesTheCode($runId, $latest),
       ];
-      if (count($attempts) > 1) {
+      // ONLY GATES THAT RAN. A gate that is off or has no site here is
+      // recorded once per phase attempt too, so a ticket with one real
+      // phpstan retry listed twenty "Earlier attempts" — nineteen of them
+      // "eslint in code — 4 attempts, ending not applicable" — under a
+      // heading promising "the feedback loop, with what it corrected". The
+      // one row the heading was about was buried at equal weight.
+      if (count($attempts) > 1 && self::anyRan($attempts)) {
         $earlier[] = $this->earlierAttempts($attempts);
       }
     }
@@ -736,7 +742,8 @@ final class EvaluationReport {
       $out .= "\n### Earlier attempts\n\n"
         . "The store is append-only: a retried gate gets a new row rather than\n"
         . "overwriting the one it failed on. This is the feedback loop, with\n"
-        . "what it corrected.\n\n"
+        . "what it corrected. Gates that never ran in any attempt — off, or no\n"
+        . "site to ask — are not retries and are not listed here.\n\n"
         . implode('', $earlier);
     }
 
@@ -746,6 +753,30 @@ final class EvaluationReport {
       . $this->remedies($checks)
       . $this->declarations($runId, $checks)
       . $this->otherChecks($checks);
+  }
+
+  /**
+   * Whether any attempt in a gate's history actually ran the tool.
+   *
+   * A measured state or a block means the tool ran and said something; a
+   * string of `not applicable` rows means it never did, and a retry it never
+   * had is not a correction the feedback loop made.
+   *
+   * @param list<array<array-key, mixed>> $attempts
+   *   One gate's rows in one phase, oldest first.
+   *
+   * @return bool
+   *   TRUE when at least one attempt ran.
+   */
+  private static function anyRan(array $attempts): bool {
+    foreach ($attempts as $attempt) {
+      $state = CheckState::tryFrom((string) (self::text($attempt, 'state') ?? ''));
+      if ($state !== NULL && ($state->measured() || $state === CheckState::Blocked)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
   /**
@@ -1110,34 +1141,65 @@ final class EvaluationReport {
         . "its ledger was never recorded. The seeker rows in §4 say which.\n";
     }
 
+    // ROUNDS ARE ROUNDS AND FINDINGS ARE FINDINGS. Every ledger restates the
+    // whole set, so F1 appears once per round that mentions it — and this
+    // counted ROWS: "4 findings recorded, 2 still open" for two findings
+    // across two rounds, with "still open" counting a row a later round had
+    // already resolved. And a CLEAN round wrote no row at all, so the
+    // inspection that cleared everything was invisible here. Each round now
+    // leaves a row (see EvidenceStore::recordSeekerFindings()), a finding is
+    // counted once, and "open" is the latest round's word about it.
     $table = [];
-    $open = 0;
+    $latest = [];
+    $perRound = [];
+    $clean = [];
     foreach ($rows as $row) {
+      $round = self::number($row, 'round') ?? 0;
       $status = self::text($row, 'status') ?? '';
-      if (stripos($status, 'open') !== FALSE) {
-        $open++;
+      if (strtolower($status) === 'clean') {
+        $clean[$round] = TRUE;
+        $perRound[$round] ??= 0;
+        continue;
       }
+      $perRound[$round] = ($perRound[$round] ?? 0) + 1;
+      // The rows arrive ordered by round, so the last write per finding is
+      // the latest round that mentioned it.
+      $latest[(self::text($row, 'phase') ?? '') . "\0" . (self::text($row, 'ref') ?? '')] = $status;
       $table[] = [
         self::code(self::text($row, 'ref')),
-        self::cell(self::number($row, 'round')),
+        self::cell($round),
         self::escape(strtoupper(self::text($row, 'severity') ?? '')),
         self::code(self::text($row, 'location')),
         self::escape(self::text($row, 'finding') ?? ''),
         self::escape($status),
       ];
     }
+    $open = count(array_filter($latest, static fn (string $status): bool => stripos($status, 'open') !== FALSE));
+    ksort($perRound);
+    $roundLines = [];
+    foreach ($perRound as $round => $count) {
+      $roundLines[] = isset($clean[$round])
+        ? sprintf('- round %d: clean — the inspection found nothing', $round)
+        : sprintf('- round %d: %d finding%s', $round, $count, $count === 1 ? '' : 's');
+    }
 
     return $heading
       . "Written from the ledger droost PARSED, never from the agent's summary\n"
       . "of it — the counts and the rows come from the same place, so they\n"
       . "cannot disagree.\n\n"
-      . self::table(['Ref', 'Round', 'Severity', 'Location', 'Finding', 'Status'], $table)
+      . ($table === []
+        ? "Every recorded inspection was clean; there is no finding to list.\n"
+        : self::table(['Ref', 'Round', 'Severity', 'Location', 'Finding', 'Status'], $table))
+      . "\n**Rounds:**\n\n" . implode("\n", $roundLines) . "\n"
       . sprintf(
-        "\n**%d finding%s recorded, %d still open.** An open finding at the end\n"
-        . "of a run is not a failure of the run — it is the part a reader has to\n"
+        "\n**%d distinct finding%s across %d round%s; %d still open** by the\n"
+        . "latest round that mentioned each. An open finding at the end of a\n"
+        . "run is not a failure of the run — it is the part a reader has to\n"
         . "judge, which is why it is here rather than summarised away.\n",
-        count($table),
-        count($table) === 1 ? '' : 's',
+        count($latest),
+        count($latest) === 1 ? '' : 's',
+        count($perRound),
+        count($perRound) === 1 ? '' : 's',
         $open,
       );
   }

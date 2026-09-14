@@ -274,9 +274,9 @@ final class StaleVerdictTest extends TestCase {
       'the run\'s second round found nothing, and says so',
     );
     $this->assertSame(
-      ['seeker:F1'],
-      array_column($store->openSeekerFindings('r1', 'code'), 'check'),
-      'the row-inferred fallback still answers for the last round that wrote — which is why the run passes the round',
+      [],
+      $store->openSeekerFindings('r1', 'code'),
+      'and the row-inferred fallback agrees, because a clean round now leaves a row of its own',
     );
   }
 

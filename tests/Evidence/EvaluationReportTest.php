@@ -190,6 +190,70 @@ final class EvaluationReportTest extends TestCase {
   }
 
   /**
+   * A gate that never ran has no earlier attempts worth the name.
+   *
+   * Off and no-site gates are recorded once per phase attempt too, so a
+   * ticket with ONE real phpstan retry listed twenty "Earlier attempts" —
+   * nineteen of them "eslint in code — 4 attempts, ending not applicable" —
+   * under a heading promising "the feedback loop, with what it corrected".
+   */
+  public function testEarlierAttemptsSkipGatesThatNeverRan(): void {
+    $store = new EvidenceStore($this->root);
+    foreach ([1, 2, 3, 4] as $attempt) {
+      $store->record('r1', 'code', new CheckRecord(
+        'gate', 'eslint', CheckState::NotApplicable, Fault::None, 'off — by preset, attempt ' . $attempt,
+      ));
+    }
+    $store->record('r1', 'code', new CheckRecord(
+      'gate', 'phpstan', CheckState::Blocked, Fault::Agent, '1 error', NULL, NULL, 1, 'phpstan', NULL, 700,
+    ));
+    $store->record('r1', 'code', new CheckRecord(
+      'gate', 'phpstan', CheckState::Satisfied, Fault::None, 'phpstan passed', NULL, NULL, 0, 'phpstan', NULL, 720,
+    ));
+
+    $report = (new EvaluationReport($store))->render('r1');
+
+    $this->assertStringContainsString('2 attempts, ending satisfied', $report, 'the real retry is listed');
+    $this->assertStringNotContainsString('4 attempts', $report, 'a gate that never ran is not a retry');
+    $this->assertStringNotContainsString('`eslint` in `code` — 4', $report);
+  }
+
+  /**
+   * Rounds are counted as rounds, findings as findings, and clean rounds show.
+   *
+   * Every ledger restates the whole set, so a finding appears once per round
+   * that mentions it — and §4d counted ROWS: "4 findings recorded, 2 still
+   * open" for two findings across two rounds, with "still open" counting a
+   * row a later round had resolved. And a clean round wrote no row, so the
+   * inspection that cleared the board was invisible.
+   */
+  public function testSeekerRoundsAreCountedAsRoundsAndFindingsAsFindings(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'max']);
+    $f1 = ['id' => 'F1', 'severity' => 'MEDIUM', 'location' => 'src/a.php', 'finding' => 'dead branch'];
+    $f2 = ['id' => 'F2', 'severity' => 'LOW', 'location' => 'src/b.php', 'finding' => 'stale comment'];
+    $store->recordSeekerFindings('r1', 'code', 1, [
+      $f1 + ['status' => 'open'],
+      $f2 + ['status' => 'open'],
+    ]);
+    $store->recordSeekerFindings('r1', 'code', 2, [
+      $f1 + ['status' => 'resolved'],
+    ]);
+    $store->recordSeekerFindings('r1', 'complete', 3, []);
+
+    $report = (new EvaluationReport($store))->render('r1');
+
+    $this->assertStringContainsString(
+      '**2 distinct findings across 3 rounds; 1 still open**',
+      $report,
+      'F1 and F2 once each; F1 resolved by its latest round, F2 open by its',
+    );
+    $this->assertStringContainsString('- round 3: clean — the inspection found nothing', $report, 'the clean round is visible');
+    $this->assertStringContainsString('- round 1: 2 findings', $report);
+    $this->assertStringNotContainsString('3 findings recorded', $report, 'rows are not findings');
+  }
+
+  /**
    * An environment block prints its remedy; nothing else may.
    *
    * A remedy printed beside work the agent must simply do reads as a way out of
@@ -1012,7 +1076,7 @@ final class EvaluationReportTest extends TestCase {
     $this->assertStringContainsString('src/Rink.php:44', $report);
     $this->assertStringContainsString('CRITICAL', $report);
     $this->assertStringContainsString(
-      '2 findings recorded, 1 still open',
+      '**2 distinct findings across 1 round; 1 still open**',
       $report,
       'and the count comes from the same rows the table does, so they cannot disagree',
     );
