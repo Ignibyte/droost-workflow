@@ -122,6 +122,177 @@ final class MandatoryGatesMeasureTest extends WorkflowTestCase {
   }
 
   /**
+   * A Drupal site is analysed where its own code is, not where Drupal's is.
+   */
+  public function testTheSitesOwnCodeIsAnalysedNotItsCore(): void {
+    $root = $this->drupalSite();
+
+    $argv = $this->argvFor($root, new GateSettings('phpstan', TRUE, ['level' => 6]));
+
+    $this->assertContains('web/modules/custom', $argv, 'the site\'s modules are its own');
+    $this->assertContains('web/themes/custom', $argv, 'and so are its themes');
+    $this->assertNotContains(
+      'web',
+      $argv,
+      'the docroot itself is never the subject — it carries core and contrib',
+    );
+    foreach ($argv as $one) {
+      $this->assertStringNotContainsString(
+        'contrib',
+        $one,
+        'a contributed module is somebody else\'s code and nobody here can fix it',
+      );
+    }
+  }
+
+  /**
+   * The docroot can BE the project root, and core is still not the subject.
+   */
+  public function testTheDocrootCanBeTheProjectRoot(): void {
+    $root = $this->projectWithTools();
+    foreach (['core/lib', 'modules/custom/acme', 'modules/contrib/token', 'src'] as $dir) {
+      mkdir($root . '/' . $dir, 0755, TRUE);
+    }
+    file_put_contents($root . '/core/lib/Drupal.php', "<?php\n");
+    file_put_contents($root . '/modules/custom/acme/Acme.php', "<?php\n");
+    file_put_contents($root . '/modules/contrib/token/Token.php', "<?php\n");
+    file_put_contents($root . '/src/Helper.php', "<?php\n");
+
+    $argv = $this->argvFor($root, new GateSettings('phpstan', TRUE, ['level' => 6]));
+
+    $this->assertContains('modules/custom', $argv, 'the site\'s own modules');
+    $this->assertContains('src', $argv, 'and anything outside Drupal\'s layout');
+    $this->assertNotContains('core', $argv, 'but not Drupal itself');
+    $this->assertNotContains('modules', $argv, 'and not contrib alongside custom');
+  }
+
+  /**
+   * A docroot holding no custom code measures nothing, rather than core.
+   *
+   * "Given no path to analyse" is already a recorded, honest outcome that
+   * names the lever which points the gate. A confident verdict over 15,000
+   * files nobody here maintains is not.
+   */
+  public function testNoCustomTreesMeasuresNothingRatherThanCore(): void {
+    $root = $this->projectWithTools();
+    mkdir($root . '/web/core/lib', 0755, TRUE);
+    mkdir($root . '/web/modules/contrib/token', 0755, TRUE);
+    file_put_contents($root . '/web/core/lib/Drupal.php', "<?php\n");
+    file_put_contents($root . '/web/modules/contrib/token/Token.php', "<?php\n");
+
+    $this->assertSame(
+      [],
+      array_values(array_filter(
+        $this->argvFor($root, new GateSettings('phpstan', TRUE, ['level' => 6])),
+        static fn (string $one): bool => !str_starts_with($one, '-')
+          && !str_ends_with($one, 'phpstan')
+          && $one !== 'analyse',
+      )),
+      'nothing of the project\'s own is here, and that is said rather than guessed',
+    );
+  }
+
+  /**
+   * A module's own hook file at the root is part of what is analysed.
+   *
+   * Only directories were ever candidates. On a contrib-module checkout —
+   * the repository shape droost itself is — `acme.module` holds every hook
+   * implementation and sits beside `src/`, and it was never handed over.
+   */
+  public function testTheModuleCheckoutsRootFilesAreAnalysed(): void {
+    $root = $this->projectWithTools();
+    mkdir($root . '/src', 0755, TRUE);
+    file_put_contents($root . '/src/Acme.php', "<?php\n");
+    file_put_contents($root . '/acme.module', "<?php\n");
+    file_put_contents($root . '/acme.install', "<?php\n");
+    file_put_contents($root . '/acme.info.yml', "type: module\n");
+    file_put_contents($root . '/README.md', "# acme\n");
+
+    $argv = $this->argvFor($root, new GateSettings('phpstan', TRUE, ['level' => 6]));
+
+    $this->assertContains('acme.module', $argv, 'the hooks are analysed');
+    $this->assertContains('acme.install', $argv, 'and the schema');
+    $this->assertContains('src', $argv, 'alongside the classes');
+    $this->assertNotContains('acme.info.yml', $argv, 'but not YAML');
+    $this->assertNotContains('README.md', $argv, 'and not prose');
+  }
+
+  /**
+   * A site's scaffold files are not the site's code.
+   *
+   * `index.php` and `update.php` at a docroot are Drupal's, so when the
+   * project root IS the docroot they are not candidates the way a module
+   * checkout's own root files are.
+   */
+  public function testTheDocrootsScaffoldIsNotCandidateCode(): void {
+    $root = $this->projectWithTools();
+    mkdir($root . '/core/lib', 0755, TRUE);
+    mkdir($root . '/modules/custom/acme', 0755, TRUE);
+    file_put_contents($root . '/core/lib/Drupal.php', "<?php\n");
+    file_put_contents($root . '/index.php', "<?php\n");
+    file_put_contents($root . '/update.php', "<?php\n");
+    file_put_contents($root . '/modules/custom/acme/acme.module', "<?php\n");
+
+    $argv = $this->argvFor($root, new GateSettings('phpstan', TRUE, ['level' => 6]));
+
+    $this->assertContains('modules/custom', $argv);
+    $this->assertNotContains('index.php', $argv, 'the front controller is Drupal\'s');
+    $this->assertNotContains('update.php', $argv);
+  }
+
+  /**
+   * A directory whose name is an option never reaches the tool's argv.
+   *
+   * An argv array stops SHELL injection and not ARGUMENT injection. A
+   * reviewer made `--generate-baseline=defused.neon` a directory, dropped one
+   * `.php` inside so it was discovered, and the mandatory analyser exited 0
+   * with "[OK] Baseline generated with 1 error" — over a real defect it finds
+   * by hand in under a second.
+   */
+  public function testDirectoryNamesThatAreOptionsNeverReachArgv(): void {
+    $root = $this->projectWithTools();
+    mkdir($root . '/src', 0755, TRUE);
+    mkdir($root . '/--generate-baseline=defused.neon', 0755, TRUE);
+    file_put_contents($root . '/src/Money.php', "<?php\n");
+    file_put_contents($root . '/--generate-baseline=defused.neon/Bait.php', "<?php\n");
+
+    $argv = $this->argvFor($root, new GateSettings('phpstan', TRUE, ['level' => 6]));
+
+    $this->assertContains('src', $argv, 'the real source is still analysed');
+    $this->assertNotContains(
+      '--generate-baseline=defused.neon',
+      $argv,
+      'and a directory cannot hand phpstan a flag that defuses it',
+    );
+  }
+
+  /**
+   * A Drupal site laid out the way composer scaffolds one.
+   *
+   * @return string
+   *   The root.
+   */
+  private function drupalSite(): string {
+    $root = $this->projectWithTools();
+    foreach ([
+      'web/core/lib/Drupal',
+      'web/modules/contrib/token/src',
+      'web/modules/custom/acme/src',
+      'web/themes/custom/acme_theme',
+    ] as $dir) {
+      mkdir($root . '/' . $dir, 0755, TRUE);
+    }
+    // Both: a real docroot has the marker file AND the namespace directory.
+    file_put_contents($root . '/web/core/lib/Drupal.php', "<?php\n");
+    file_put_contents($root . '/web/core/lib/Drupal/Component.php', "<?php\n");
+    file_put_contents($root . '/web/modules/contrib/token/src/Token.php', "<?php\n");
+    file_put_contents($root . '/web/modules/custom/acme/src/Acme.php', "<?php\n");
+    file_put_contents($root . '/web/themes/custom/acme_theme/acme.theme', "<?php\n");
+
+    return $root;
+  }
+
+  /**
    * A project root with the mandatory binaries present.
    *
    * @return string

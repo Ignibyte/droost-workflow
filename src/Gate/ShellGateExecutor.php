@@ -128,6 +128,51 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   ];
 
   /**
+   * A DRUPAL DOCROOT IS NOT THE PROJECT'S CODE — ONLY ITS CUSTOM TREES ARE.
+   *
+   * `notTheProjectsCode()` judges a TOP-LEVEL directory and never descends, so
+   * on the layout every Drupal project uses it saw `web/`, found PHP in it, and
+   * handed the whole tree to phpstan. A reviewer drove it on a site with 84
+   * files under `web/` and got 12 errors, 11 of them in code the project's
+   * owner did not write and cannot fix. On a real site `web/core` alone is
+   * ~15,000 files, and phpstan is mandatory with no waiver on the standalone
+   * surface — so droost's own default failed the analyser on the first run of
+   * every Drupal project, which is its entire audience.
+   *
+   * The boundary is not invented here. `(modules|themes)/custom` is already
+   * what `require_run_guard()` calls build work, what `WorkType` matches a
+   * code declaration against, and what the shipped lever file's own commented
+   * `eslint`/`prettier` examples point at. This is that same line, applied to
+   * the one gate that had its own idea.
+   *
+   * A docroot with NO custom trees yields nothing rather than falling back to
+   * the whole tree: "measured nothing" is already an honest recorded outcome
+   * that names the `paths` lever, and a confident verdict over core is not.
+   */
+  private const DRUPAL_MARKER = 'core/lib/Drupal.php';
+
+  /**
+   * Where a Drupal site's own code lives inside its docroot.
+   */
+  private const DRUPAL_OWN_TREES = ['modules/custom', 'themes/custom', 'profiles/custom'];
+
+  /**
+   * Drupal's own trees, for the layout that has no `web/` wrapper.
+   *
+   * When the project root IS the docroot these are siblings of `src/` in the
+   * top-level scan, so `core` would be handed over directly. They are skipped
+   * there and answered by DRUPAL_OWN_TREES instead.
+   */
+  private const DRUPAL_LAYOUT_DIRS = [
+    'core',
+    'modules',
+    'themes',
+    'profiles',
+    'sites',
+    'libraries',
+  ];
+
+  /**
    * The same exclusion as a phpcs `--ignore` pattern list.
    */
   private const VENDORED_IGNORE = '*/node_modules/*,*/vendor/*,*/.claude/*,'
@@ -1406,9 +1451,10 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         // by hand, and watched the gate say passed.
         //
         // Not `.`: phpstan has no `--ignore`, so the only way to keep
-        // `vendor/`, `node_modules/` and droost's own installed files out of
-        // it is not to hand them over. The project's own top-level source
-        // directories are what is left.
+        // `vendor/`, `node_modules/`, droost's own installed files and — on
+        // a Drupal site — core and contrib out of it is not to hand them
+        // over. The project's own code is what is left: its top-level source
+        // directories and root-level files, or a site's custom trees.
         ...$this->defaultPhpPaths($root, $gate),
       ],
       // The front-end lint trio. Exit code IS the verdict (nonzero = problems),
@@ -1482,8 +1528,8 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   The gate, for its `paths` lever.
    *
    * @return list<string>
-   *   Project-relative directories, or empty when something else names the
-   *   subject or the project has no PHP outside its dependencies.
+   *   Project-relative directories and root-level files, or empty when
+   *   something else names the subject or the project has no PHP of its own.
    */
   private function defaultPhpPaths(string $root, GateSettings $gate): array {
     if (trim((string) ($gate->options['paths'] ?? '')) !== '') {
@@ -1494,22 +1540,104 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         return [];
       }
     }
-    $found = [];
-    foreach ((array) @scandir(rtrim($root, '/')) as $entry) {
+    $base = rtrim($root, '/');
+    $extensions = self::ANALYSABLE[$gate->name] ?? ['php'];
+    $rootIsDocroot = self::isDrupalDocroot($base);
+    $candidates = [];
+    foreach ((array) @scandir($base) as $entry) {
       if (!is_string($entry) || $entry === '.' || $entry === '..' || str_starts_with($entry, '.')) {
         continue;
       }
-      $path = rtrim($root, '/') . '/' . $entry;
+      // Not `str_starts_with($entry, '-')` folded into the line above: a
+      // `-`-leading name is not "hidden", it is an OPTION once it reaches
+      // argv, and it is refused for that reason a few lines down.
+      $path = $base . '/' . $entry;
+      // A module checkout keeps its hooks in `acme.module` and `acme.install`
+      // AT THE ROOT, beside `src/`. Only directories were ever candidates, so
+      // on the repository shape droost itself is, the file holding every hook
+      // implementation was never analysed — and a project whose PHP is all at
+      // the root got no path at all. Not on a docroot: `index.php` and
+      // `update.php` there are Drupal's scaffold, not the project's code.
+      if (is_file($path)) {
+        if (!$rootIsDocroot) {
+          $candidates[] = $entry;
+        }
+        continue;
+      }
       if (!is_dir($path) || self::notTheProjectsCode($path)) {
         continue;
       }
-      if ($this->hasAnalysable($path, self::ANALYSABLE[$gate->name] ?? ['php'])) {
-        $found[] = $entry;
+      if ($rootIsDocroot && in_array($entry, self::DRUPAL_LAYOUT_DIRS, TRUE)) {
+        continue;
+      }
+      $candidates = [...$candidates, ...self::ownCodeIn($path, $entry)];
+    }
+    if ($rootIsDocroot) {
+      $candidates = [...$candidates, ...self::ownCodeIn($base, '')];
+    }
+
+    $found = [];
+    foreach ($candidates as $candidate) {
+      // A directory whose NAME is an option defeats the tool it is handed to.
+      // An argv array stops SHELL injection; it does not stop ARGUMENT
+      // injection, and phpstan reads a `-`-leading path as a flag. A reviewer
+      // made a directory called `--generate-baseline=defused.neon`, put one
+      // `.php` in it so it was discovered, and watched the mandatory analyser
+      // exit 0 with "[OK] Baseline generated with 1 error" over a real defect
+      // it finds by hand in under a second.
+      if (str_starts_with($candidate, '-')) {
+        continue;
+      }
+      if ($this->hasAnalysable($base . '/' . $candidate, $extensions)) {
+        $found[] = $candidate;
       }
     }
     sort($found);
 
     return $found;
+  }
+
+  /**
+   * Whether a directory is a Drupal docroot.
+   *
+   * @param string $directory
+   *   The absolute directory.
+   *
+   * @return bool
+   *   TRUE when Drupal's own code sits underneath it.
+   */
+  private static function isDrupalDocroot(string $directory): bool {
+    return is_file(rtrim($directory, '/') . '/' . self::DRUPAL_MARKER);
+  }
+
+  /**
+   * The project's own code inside one candidate directory.
+   *
+   * Anything that is not a docroot IS the answer — a package's `src`, a
+   * module's `tests`. A docroot is not: handing it over analyses Drupal core
+   * and every contributed module, so the site's own trees stand in for it.
+   *
+   * @param string $absolute
+   *   The directory to look inside.
+   * @param string $relative
+   *   Its path relative to the project root, or '' when it IS the root.
+   *
+   * @return list<string>
+   *   Project-relative directories.
+   */
+  private static function ownCodeIn(string $absolute, string $relative): array {
+    if (!self::isDrupalDocroot($absolute)) {
+      return $relative === '' ? [] : [$relative];
+    }
+    $prefix = $relative === '' ? '' : $relative . '/';
+    $trees = [];
+    foreach (self::DRUPAL_OWN_TREES as $tree) {
+      if (is_dir($absolute . '/' . $tree)) {
+        $trees[] = $prefix . $tree;
+      }
+    }
+
+    return $trees;
   }
 
   /**
