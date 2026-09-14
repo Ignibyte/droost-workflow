@@ -2029,10 +2029,20 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // target, because that is exactly what the flag makes it.
     $operands = [];
     foreach ($tokens as $token) {
-      if (preg_match('/^(--output|--out|--outfile|--write|--dest|--destination|-o|-O|of)=(.+)$/i', $token, $flag) === 1) {
+      if (preg_match('/^(--output|--out|--outfile|--write|--dest|--destination|--report-file|-o|-O|of)=(.+)$/i', $token, $flag) === 1) {
         // `of=` is dd's. It also defeated the `(^|/)` anchor every protected
         // path is written with, so `dd of=.claude/hooks/droost-workflow-guard.php`
         // matched nothing at all and overwrote the guard.
+        //
+        // `--report-file` is phpcs's, and `operator_commands_write_flag()`
+        // gained it as "the one flag function both tiers ask" — but that
+        // function only decides IS-a-write, while splitting the DESTINATION
+        // out of the flag happens here, and this list had not learned it. So
+        // `phpcs --report-file=.claude/hooks/droost-workflow-guard.php` was
+        // marked a write and then its target skipped as "a flag", and the
+        // real phpcs emptied the guard into a report. The two lists are the
+        // drift this series keeps paying for; the value-bearing flags are
+        // named in both now.
         $operands[] = "\x01" . $flag[2];
         continue;
       }
@@ -2126,8 +2136,13 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       if ($refusal !== ''
         && preg_match('#(^|/)(vendor/bin|node_modules/\.bin)/[^/]+$#', $operand) === 1
         && !$target
-        && preg_match('/^(cp|mv|ln|install|tee|dd|truncate|sed|chmod|chown|rm|shred|patch|curl|wget|scp|rsync|unzip|tar)$/', $verb) !== 1) {
+        && preg_match('/^(cp|mv|ln|install|tee|dd|truncate|sed|chmod|chown|rm|rmdir|unlink|shred|patch|curl|wget|scp|rsync|unzip|tar)$/', $verb) !== 1) {
         // Named, not written: running a gate's own tool is what it is for.
+        // `unlink`/`rmdir` join the writers: `unlink vendor/bin/phpcs`
+        // deletes a gate's executable — replacing the verdict — and read as
+        // "named, not written" it was permitted, while `rm vendor/bin/phpcs`
+        // was refused. The destructive-verb list two screens up already had
+        // `unlink`; this one had not.
         continue;
       }
       if ($refusal !== '') {
@@ -2794,17 +2809,37 @@ function enforcement_protected_files(string $root, string $stateDir): array {
   };
   // The trees. Asked of the rule, once per tree: a tree the rule protects is
   // protected all the way down, which is what the rule says.
-  foreach (array_unique([
-    '.claude', 'droost/droost-workflow', '.droost-workflow', 'droost/baseline',
-    trim($stateDir, '/'), 'vendor/bin', 'node_modules/.bin',
-  ]) as $tree) {
+  // A WHOLE TREE, or a file the rule names. `droost/droost-workflow`,
+  // `.droost-workflow`, `droost/baseline` and the state dir ARE enforcement
+  // top to bottom — every file in them is the run's own record or the
+  // baseline, so any one is protected. `.claude`, `vendor/bin` and
+  // `node_modules/.bin` are NOT protected wholesale: only the guard, the
+  // settings and the briefs under `.claude`, only the executables under the
+  // bin dirs. Walking `.claude` whole (the old test: "does this tree ever
+  // fire the wildcard rule") declared every file under it enforcement, so
+  // `find .claude/hooks -name my-hook.sh -delete` was refused while `rm
+  // .claude/hooks/my-hook.sh` was allowed — the find tier over-protecting
+  // where its own message promises it asks the rule `rm` is held to. Each
+  // walked file is now included only when it is in a whole-state tree OR
+  // `enforcement_refusal_for()` names it — which IS that rule.
+  $wholeTrees = array_values(array_filter([
+    'droost/droost-workflow', '.droost-workflow', 'droost/baseline', trim($stateDir, '/'),
+  ], static fn (string $t): bool => $t !== ''));
+  $include = static function (string $relative) use ($wholeTrees, $root, $stateDir): bool {
+    foreach ($wholeTrees as $tree) {
+      if ($relative === $tree || str_starts_with($relative, $tree . '/')) {
+        return TRUE;
+      }
+    }
+    return enforcement_refusal_for($relative, $root, $stateDir) !== '';
+  };
+  foreach (array_unique([...$wholeTrees, '.claude', 'vendor/bin', 'node_modules/.bin']) as $tree) {
     if ($tree === '' || !is_dir($root . '/' . $tree)) {
       continue;
     }
-    if (wildcard_directory_refusal($root . '/' . $tree . '/x', $root, $stateDir) !== '') {
-      $walk($tree, 0);
-    }
+    $walk($tree, 0);
   }
+  $found = array_values(array_filter($found, $include));
   // The standalone files, wherever the rule places them.
   $candidates = ['droost.workflow.yml'];
   foreach (glob($root . '/{web/,docroot/,}sites/*/settings*.php', GLOB_BRACE) ?: [] as $absolute) {

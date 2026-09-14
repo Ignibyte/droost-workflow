@@ -1261,4 +1261,84 @@ final class ShellSurfaceTest extends WorkflowTestCase {
     }
   }
 
+  /**
+   * A find under `.claude` protects what `rm` protects there — no more.
+   *
+   * The find tier enumerated every file under `.claude/` as enforcement
+   * (`.claude` is a files-only entry in the wildcard rule, and the walk read
+   * that as "protect the whole tree"), so `find .claude/hooks -name
+   * my-hook.sh -delete` was refused where `rm .claude/hooks/my-hook.sh` was
+   * allowed — the find tier over-protecting where its own message promises it
+   * asks the rule `rm` is held to. A walked file is protected now only when
+   * `enforcement_refusal_for()` names it or it sits in a whole-state tree.
+   */
+  public function testFindUnderClaudeMatchesRm(): void {
+    $root = $this->lab();
+    mkdir($root . '/.claude/partials', 0755, TRUE);
+    file_put_contents($root . '/.claude/hooks/my-hook.sh', "# mine\n");
+    file_put_contents($root . '/.claude/partials/note.md', "# note\n");
+    foreach ([
+      'find .claude/hooks -name my-hook.sh -delete' => 'rm .claude/hooks/my-hook.sh',
+      'find .claude/partials -name note.md -delete' => 'rm .claude/partials/note.md',
+    ] as $viaFind => $direct) {
+      [$exitFind, , $stderr] = $this->shell($root, $viaFind);
+      [$exitRm] = $this->shell($root, $direct);
+      $this->assertSame($exitRm, $exitFind, $viaFind . ' matches ' . $direct . ': ' . $stderr);
+      $this->assertSame(0, $exitFind, $viaFind . ' is ordinary, as rm is');
+    }
+    // The real protected files under .claude are still refused.
+    foreach ([
+      'find .claude/hooks -name droost-workflow-guard.php -delete',
+      'find .claude -name settings.json -delete',
+      'find droost/droost-workflow -type f -delete',
+      'find vendor/bin -name phpcs -delete',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' still reaches enforcement');
+    }
+  }
+
+  /**
+   * A `--report-file=<path>` flag names a write target, like `--output=`.
+   *
+   * `operator_commands_write_flag()` gained `--report-file` as the one flag
+   * function both tiers ask — but the regex that SPLITS the destination out
+   * of a `flag=value` had not, so `phpcs --report-file=<guard>` was marked a
+   * write and then had its target skipped as "a flag", and phpcs emptied the
+   * guard into a report.
+   */
+  public function testReportFileFlagNamesItsWriteTarget(): void {
+    $root = $this->lab();
+    foreach ([
+      'vendor/bin/phpcs --report-file=.claude/hooks/droost-workflow-guard.php src',
+      'phpcs --report-file=droost/droost-workflow/run.json src',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' writes the guard through the flag');
+    }
+    [$exit, , $stderr] = $this->shell($root, 'vendor/bin/phpcs --report-file=build/phpcs.txt src');
+    $this->assertSame(0, $exit, 'an ordinary report destination is fine: ' . $stderr);
+  }
+
+  /**
+   * Deleting a gate's executable is a write, whichever verb spells it.
+   *
+   * `rm vendor/bin/phpcs` was refused and `unlink vendor/bin/phpcs` allowed:
+   * the "named, not written — running the tool is what it is for" exception
+   * checked a writer list that the destructive-verb list two screens up
+   * already had `unlink` on. Replacing a gate's binary replaces its verdict.
+   */
+  public function testUnlinkDeletesTheGateBinary(): void {
+    $root = $this->lab();
+    foreach (['rm vendor/bin/phpcs', 'unlink vendor/bin/phpcs'] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' replaces a gate\'s verdict');
+    }
+    // Running the tool, and naming it to a runner, stay ordinary.
+    foreach (['vendor/bin/phpcs -q src', 'timeout 30 vendor/bin/phpcs src'] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' runs the gate: ' . $stderr);
+    }
+  }
+
 }
