@@ -119,7 +119,8 @@ class ShellGateExecutorTest extends WorkflowTestCase {
           // project whose code is .module/.theme/.install files gets
           // "No files were checked" — a hard failure on healthy code.
           '--extensions=php,module,install,inc,theme,profile,engine,css,js',
-          '--ignore=*/node_modules/*,*/vendor/*',
+          '--ignore=*/node_modules/*,*/vendor/*,*/.claude/*,'
+          . '*/droost/droost-workflow/*,*/droost/baseline/*,*/.droost-workflow/*',
         ],
       ],
       'phpstan carries a numeric level' => [

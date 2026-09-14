@@ -98,9 +98,40 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   private const VENDORED_DIRS = ['node_modules', 'vendor'];
 
   /**
+   * DROOST'S OWN INSTALLED FILES ARE NOT THE PROJECT'S CODE.
+   *
+   * `init` writes twenty-one files, among them a long procedural hook
+   * that carries no autoloader by design, and comments that run past eighty
+   * columns on purpose. With no `phpcs.xml` in a new repository the gate scans
+   * `.` — so a reviewer ran `init` on a pristine project holding one clean PHP
+   * class and watched the mandatory phpcs gate fail, three attempts, terminal,
+   * on 1 error and 8 warnings in a file droost had just installed:
+   *
+   *   BEFORE init   rc=0
+   *   AFTER  init   .claude/hooks/droost-workflow-guard.php  1 error, 8 warn
+   *
+   * phpcs cannot be turned off, the standalone CLI has no `gate-waive`, and
+   * neither `init`'s output nor the README names a ruleset as a prerequisite.
+   * So a first-time user lost their first run on a repository where they had
+   * written nothing wrong — which is the worst possible first impression and
+   * entirely droost's doing.
+   *
+   * A tool judging the tool's own installed files is a category error however
+   * clean those files are. The run record and the baseline go with them: they
+   * are data droost writes, not code anybody reviews.
+   */
+  private const DROOST_OWN_DIRS = [
+    '.claude',
+    'droost/droost-workflow',
+    'droost/baseline',
+    '.droost-workflow',
+  ];
+
+  /**
    * The same exclusion as a phpcs `--ignore` pattern list.
    */
-  private const VENDORED_IGNORE = '*/node_modules/*,*/vendor/*';
+  private const VENDORED_IGNORE = '*/node_modules/*,*/vendor/*,*/.claude/*,'
+    . '*/droost/droost-workflow/*,*/droost/baseline/*,*/.droost-workflow/*';
 
   /**
    * Shell gates whose tool being absent means "no site", not "broken setup".
@@ -976,7 +1007,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $files = new \RecursiveIteratorIterator(
         new \RecursiveCallbackFilterIterator(
           new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
-          static fn (\SplFileInfo $current): bool => !($current->isDir() && in_array($current->getFilename(), self::VENDORED_DIRS, TRUE)),
+          static fn (\SplFileInfo $current): bool => !($current->isDir() && self::notTheProjectsCode($current->getPathname())),
         ),
       );
     }
@@ -1034,7 +1065,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         $walk = new \RecursiveIteratorIterator(
           new \RecursiveCallbackFilterIterator(
             new \RecursiveDirectoryIterator($abs, \FilesystemIterator::SKIP_DOTS),
-            static fn (\SplFileInfo $current): bool => !($current->isDir() && in_array($current->getFilename(), self::VENDORED_DIRS, TRUE)),
+            static fn (\SplFileInfo $current): bool => !($current->isDir() && self::notTheProjectsCode($current->getPathname())),
           ),
         );
       }
@@ -1350,6 +1381,38 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       'playwright' => [$binary, 'test'],
       default => [$binary],
     };
+  }
+
+  /**
+   * Whether a directory holds something other than the project's own code.
+   *
+   * Vendored trees, and droost's own installed files. The second half matters
+   * to phpstan in particular, which has no `--ignore` flag — so the only way
+   * to keep the pack's 2,000-line procedural hook out of a project's static
+   * analysis is not to hand it over in the first place.
+   *
+   * Matched on the tail of the path rather than the basename alone, because
+   * `droost/droost-workflow` is two segments and `baseline` on its own is a
+   * word a project may legitimately use.
+   *
+   * @param string $directory
+   *   The absolute directory.
+   *
+   * @return bool
+   *   TRUE when the gate should not descend into it.
+   */
+  private static function notTheProjectsCode(string $directory): bool {
+    $path = str_replace('\\', '/', rtrim($directory, '/'));
+    if (in_array(basename($path), self::VENDORED_DIRS, TRUE)) {
+      return TRUE;
+    }
+    foreach (self::DROOST_OWN_DIRS as $own) {
+      if ($path === $own || str_ends_with($path, '/' . $own)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
   /**
