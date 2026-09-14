@@ -743,12 +743,27 @@ final class EvidenceStore {
   public function openSeekerFindings(string $runId, string $phase): array {
     try {
       $statement = $this->connection()->prepare(
+        // THE LATEST ROUND ONLY. Each ledger is a complete restatement —
+        // `recordSeekerFindings()` deletes the round and re-inserts it — and
+        // a later round marking F1 `resolved` adds a NEW row rather than
+        // updating the old one. Querying every round therefore reported a
+        // finding as open for ever once it had ever been open, so an agent
+        // that did the work and filed a clean follow-up was still told F1 was
+        // holding the phase.
+        //
+        // The same stale-verdict shape as `checklist()`'s MAX(attempt), which
+        // is why it takes the same answer: the run's last word about a round
+        // is the only one that can stand for it.
         'SELECT ref, severity, location, finding FROM seeker_finding
           WHERE run_id = ? AND phase = ? AND LOWER(status) = \'open\'
-          ORDER BY round DESC, ref ASC
+            AND round = (
+              SELECT MAX(round) FROM seeker_finding
+               WHERE run_id = ? AND phase = ?
+            )
+          ORDER BY ref ASC
           LIMIT 50'
       );
-      $statement->execute([$runId, $phase]);
+      $statement->execute([$runId, $phase, $runId, $phase]);
       $rows = self::rows($statement);
     }
     catch (\Throwable) {

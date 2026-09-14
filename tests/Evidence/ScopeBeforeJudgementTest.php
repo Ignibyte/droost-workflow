@@ -363,4 +363,50 @@ final class ScopeBeforeJudgementTest extends WorkflowTestCase {
     );
   }
 
+  /**
+   * A finding a later round resolved stops holding the run.
+   *
+   * Each ledger is a complete restatement — `recordSeekerFindings()` deletes
+   * the round and re-inserts it — and a later round marking F1 `resolved`
+   * adds a NEW row rather than updating the old one. Querying every round
+   * therefore reported a finding as open for ever once it had ever been open:
+   * an agent that did the work and filed a clean follow-up was still told F1
+   * was holding the phase, with nothing it could do about it.
+   *
+   * The same stale-verdict shape as `checklist()`'s MAX(attempt), and it takes
+   * the same answer. Flagged by the reviewer who found the original as a
+   * consequence of clearing the seeker verdict per phase — worth one probe
+   * before calling that done, and they were right.
+   */
+  public function testResolvedFindingsStopHoldingTheRun(): void {
+    [$root, $spec] = $this->project();
+    $facade = $this->facadeSeeing(['src/Declared.php']);
+    $this->assertSame(Outcome::Advanced, $facade->run($root, $spec)->outcome, 'plan ends');
+    $facade->declareChanges($root, ['src/Declared.php'], [], 'code');
+    $facade->run($root, $spec);
+
+    // Both MEDIUM: by the seeker protocol an open LOW does not block, so a
+    // LOW here would let the phase advance and the supersession would never
+    // be exercised at all.
+    $rows = "| ID | Severity | Location | Finding | Status |\n|---|---|---|---|---|\n";
+    $facade->recordSeeker($root, "## Seeker Inspection\n\nInspector: independent\n\n" . $rows
+      . "| F1 | MEDIUM | src/Declared.php:42 | the total is computed twice | open |\n"
+      . "| F2 | MEDIUM | src/Declared.php:8 | the bound is off by one | open |\n");
+    $held = $facade->run($root, $spec);
+    $this->assertCount(2, $held->blocked, 'both findings hold the phase');
+
+    // The agent fixes one and files the next round, which restates both.
+    $facade->recordSeeker($root, "## Seeker Inspection\n\nInspector: independent\n\n" . $rows
+      . "| F1 | MEDIUM | src/Declared.php:42 | the total is computed twice | resolved |\n"
+      . "| F2 | MEDIUM | src/Declared.php:8 | the bound is off by one | open |\n");
+    $after = $facade->run($root, $spec);
+
+    $this->assertCount(1, $after->blocked, 'the resolved one stops holding it');
+    $this->assertSame(
+      'seeker:F2',
+      $after->blocked[0]['check'],
+      'and it is the one still open, not the one that was',
+    );
+  }
+
 }
