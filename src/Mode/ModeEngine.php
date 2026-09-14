@@ -218,7 +218,22 @@ final class ModeEngine {
     if (($phase === Phase::Code || $phase === Phase::Complete)
       && $state->seekers
       && ($state->seeker['status'] ?? NULL) !== 'clean') {
-      return new RunOutcome(Outcome::InspectionDue, $state, $report);
+      // WITH THE FINDINGS, when there are any. This returned nothing but the
+      // word: `outcome: "inspection-due"`, `report.advance: true`,
+      // `blocked: []`, `awaiting: null`, and no key naming the open MEDIUM
+      // that was holding the run. A reader could not tell "file an
+      // inspection" from "your inspection found a blocker, resolve F1" — and
+      // read `advance: true`, which is a fact about the GATES, as a fact
+      // about the run.
+      //
+      // The findings were rows in `seeker_finding` the whole time.
+      return new RunOutcome(
+        Outcome::InspectionDue,
+        $state,
+        $report,
+        NULL,
+        $this->openSeekerFindingsFor($state, $phase, $projectRoot),
+      );
     }
 
     if ($this->effectiveMode($state)->holdsForConversation()) {
@@ -784,6 +799,28 @@ final class ModeEngine {
   private function blockingChecksFor(RunState $state, Phase $phase, string $projectRoot): array {
     try {
       return (new EvidenceStore($projectRoot))->blockingChecks($state->runId, $phase->value);
+    }
+    catch (\Throwable) {
+      return [];
+    }
+  }
+
+  /**
+   * The seeker findings still holding this phase.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase.
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return list<array{check: string, fault: string, why: string, remedy: string, guidance: string}>
+   *   The open findings.
+   */
+  private function openSeekerFindingsFor(RunState $state, Phase $phase, string $projectRoot): array {
+    try {
+      return (new EvidenceStore($projectRoot))->openSeekerFindings($state->runId, $phase->value);
     }
     catch (\Throwable) {
       return [];

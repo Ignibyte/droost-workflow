@@ -673,6 +673,62 @@ final class EvidenceStore {
   }
 
   /**
+   * The seeker findings that are still open, shaped like a blocking check.
+   *
+   * THE HOLD SAID NOTHING. With an open MEDIUM filed, `run` returned
+   * `outcome: "inspection-due"`, `report.advance: true`, `blocked: []`,
+   * `awaiting: null` — and no key anywhere naming F1. So a reader could not
+   * tell "file an inspection" from "your inspection found a blocker, resolve
+   * F1", and read `advance: true` on a run that does not advance. The findings
+   * were rows in this table the whole time.
+   *
+   * Shaped like `blockingChecks()` so the envelope's `blocked` list is one
+   * kind of thing: what is unresolved, why, and what to do about it.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $phase
+   *   The phase.
+   *
+   * @return list<array{check: string, fault: string, why: string, remedy: string, guidance: string}>
+   *   One entry per open finding, newest round first.
+   */
+  public function openSeekerFindings(string $runId, string $phase): array {
+    try {
+      $statement = $this->connection()->prepare(
+        'SELECT ref, severity, location, finding FROM seeker_finding
+          WHERE run_id = ? AND phase = ? AND LOWER(status) = \'open\'
+          ORDER BY round DESC, ref ASC
+          LIMIT 50'
+      );
+      $statement->execute([$runId, $phase]);
+      $rows = self::rows($statement);
+    }
+    catch (\Throwable) {
+      return [];
+    }
+    $open = [];
+    foreach ($rows as $row) {
+      $ref = self::text($row, 'ref');
+      $open[] = [
+        'check' => 'seeker:' . ($ref === '' ? '?' : $ref),
+        'fault' => Fault::Agent->value,
+        'why' => trim(sprintf(
+          '%s at %s — %s',
+          strtoupper(self::text($row, 'severity')),
+          self::text($row, 'location'),
+          self::text($row, 'finding'),
+        )),
+        'remedy' => '',
+        'guidance' => 'Fix it, then file a new inspection recording it resolved. '
+        . 'An inspection that still carries an open finding is not a clean one.',
+      ];
+    }
+
+    return $open;
+  }
+
+  /**
    * How many verdicts the legacy amnesty excuses from the chain.
    *
    * THE AMNESTY IS FORGEABLE AND WAS SILENT, which is the combination that

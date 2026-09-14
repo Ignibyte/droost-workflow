@@ -187,4 +187,60 @@ final class ScopeBeforeJudgementTest extends WorkflowTestCase {
     );
   }
 
+  /**
+   * The seeker hold names what is holding it.
+   *
+   * With an open MEDIUM filed, `run` returned:
+   *
+   *     outcome  "inspection-due"
+   *     report.advance  true
+   *     blocked  []
+   *     awaiting null
+   *
+   * and no key anywhere naming the finding. So a reader could not tell "file
+   * an inspection" from "your inspection found a blocker, resolve F1" — and
+   * read `advance: true`, which is a fact about the GATES, as a fact about the
+   * run. The findings were rows in `seeker_finding` the whole time.
+   */
+  public function testTheSeekerHoldNamesWhatIsHoldingIt(): void {
+    [$root, $spec] = $this->project();
+    $facade = $this->facadeSeeing(['src/Declared.php']);
+    $this->assertSame(Outcome::Advanced, $facade->run($root, $spec)->outcome, 'plan ends');
+    $facade->declareChanges($root, ['src/Declared.php'], [], 'code');
+
+    $due = $facade->run($root, $spec);
+    $this->assertSame(Outcome::InspectionDue, $due->outcome, 'the seeker is asked for');
+    $this->assertSame([], $due->blocked, 'and with nothing filed there is nothing to name');
+
+    // An inspection that carries an open MEDIUM.
+    $facade->recordSeeker($root, "## Seeker Inspection\n\nInspector: independent\n\n"
+      . "| ID | Severity | Location | Finding | Status |\n|---|---|---|---|---|\n"
+      . "| F1 | MEDIUM | src/Declared.php:42 | the total is computed twice and the second one wins | open |\n"
+      // A RESOLVED one beside it, so the filter is observable: reporting
+      // everything the seeker ever wrote would hand an agent a list of work
+      // it has already done and call it the reason the run is held.
+      . "| F2 | LOW | src/Declared.php:8 | the docblock says pence and it is pounds | resolved |\n");
+
+    $held = $facade->run($root, $spec);
+
+    $this->assertSame(Outcome::InspectionDue, $held->outcome, 'an open finding still holds it');
+    $this->assertNotSame([], $held->blocked, 'and now the envelope says what');
+    // The rows themselves, not their JSON: `json_encode` escapes a slash, so
+    // asserting against the encoded form tests the encoder.
+    $first = $held->blocked[0];
+    $this->assertSame('seeker:F1', $first['check'], 'named by its reference');
+    $this->assertStringContainsString('MEDIUM', $first['why'], 'with its severity');
+    $this->assertStringContainsString('src/Declared.php:42', $first['why'], 'and where it is');
+    $this->assertStringContainsString(
+      'file a new inspection',
+      $first['guidance'],
+      'and what clears it',
+    );
+    $this->assertCount(
+      1,
+      $held->blocked,
+      'only the OPEN one — a resolved finding is work already done, not a reason',
+    );
+  }
+
 }
