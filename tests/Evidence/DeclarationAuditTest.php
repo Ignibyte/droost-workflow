@@ -599,4 +599,69 @@ final class DeclarationAuditTest extends TestCase {
     exec('rm -rf ' . escapeshellarg($root));
   }
 
+  /**
+   * A summary is a sentence, whatever the size of the diff.
+   *
+   * `work_type` already knew this and cut its list at five. The scope check
+   * imploded the whole list, and a 20,000-file diff — a generated build
+   * directory committed, an `npm install` inside the repo, neither exotic —
+   * gave `declared_files` a 1,080,341-byte summary.
+   *
+   * That is not a cosmetic number. The stop hook writes the summary of every
+   * unresolved check to stderr, so the message telling the agent what to do
+   * became a megabyte of file paths, repeated on every stop attempt until the
+   * block cleared.
+   */
+  public function testSummariesStayReadableOnWideDiffs(): void {
+    $changed = [];
+    for ($i = 0; $i < 20000; $i++) {
+      $changed[] = sprintf('web/modules/custom/acme/src/Generated/Thing%05d.php', $i);
+    }
+
+    $checks = (new DeclarationAudit([], [], $changed, NULL, [], []))->checks('code');
+    $scope = NULL;
+    foreach ($checks as $check) {
+      if ($check->name === 'declared_files') {
+        $scope = $check;
+      }
+    }
+    $this->assertNotNull($scope, 'undeclared changes are still a block');
+
+    $this->assertLessThan(
+      4000,
+      strlen($scope->summary),
+      'a sentence, not the diff',
+    );
+    $this->assertStringContainsString(
+      '20000 path(s) changed without being declared',
+      $scope->summary,
+      'and the count is stated, so truncation hides nothing',
+    );
+    $this->assertStringContainsString(
+      'and 19980 more',
+      $scope->summary,
+      'including how much is not shown',
+    );
+  }
+
+  /**
+   * A list that fits is printed whole, with no "and 0 more".
+   */
+  public function testShortListsAreNotTruncated(): void {
+    $changed = ['web/modules/custom/acme/acme.module', 'web/modules/custom/acme/src/Thing.php'];
+
+    $scope = NULL;
+    foreach ((new DeclarationAudit([], [], $changed, NULL, [], []))->checks('code') as $check) {
+      if ($check->name === 'declared_files') {
+        $scope = $check;
+      }
+    }
+    $this->assertNotNull($scope);
+
+    foreach ($changed as $path) {
+      $this->assertStringContainsString($path, $scope->summary, 'every one of the two is named');
+    }
+    $this->assertStringNotContainsString('more', $scope->summary, 'and nothing is withheld');
+  }
+
 }

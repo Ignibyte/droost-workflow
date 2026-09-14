@@ -183,8 +183,52 @@ abstract class WorkflowTestCase extends TestCase {
     $this->assertIsResource($process);
     fwrite($pipes[0], (string) json_encode($payload));
     fclose($pipes[0]);
-    $stdout = (string) stream_get_contents($pipes[1]);
-    $stderr = (string) stream_get_contents($pipes[2]);
+
+    // BOTH PIPES, INTERLEAVED. Draining stdout to EOF and only then reading
+    // stderr deadlocks the moment the guard writes more to stderr than the
+    // OS pipe buffer holds — 64KB on this platform. The guard blocks in
+    // `fwrite(STDERR, ...)`, this process blocks in `stream_get_contents()`
+    // on stdout, and neither moves again: the suite HANGS rather than failing,
+    // which is the one outcome a test harness must never produce.
+    //
+    // Found by mutating the guard's own summary cap away — a change that
+    // should have failed one assertion and instead wedged phpunit at 0% CPU
+    // until it was killed. The same shape as the recursive-CTE hang this file
+    // already guards against, arriving through the harness instead of the
+    // store. A host that reads the hook's streams in this order hangs the
+    // same way, so the guard's cap is the real fix; this is what makes the
+    // NEXT one visible.
+    stream_set_blocking($pipes[1], FALSE);
+    stream_set_blocking($pipes[2], FALSE);
+    $buffers = ['' , ''];
+    $open = [1 => $pipes[1], 2 => $pipes[2]];
+    while ($open !== []) {
+      $read = array_values($open);
+      $write = NULL;
+      $except = NULL;
+      if (stream_select($read, $write, $except, 10) === FALSE) {
+        break;
+      }
+      if ($read === []) {
+        // Ten seconds with neither stream saying anything: the guard is not
+        // coming back. Kill it and let the exit-code assertion below report a
+        // crash, rather than waiting for a timeout nobody can attribute.
+        proc_terminate($process);
+        break;
+      }
+      foreach ($read as $stream) {
+        $chunk = fread($stream, 65536);
+        $slot = $stream === $pipes[1] ? 0 : 1;
+        if ($chunk === FALSE || $chunk === '') {
+          if (feof($stream)) {
+            unset($open[$slot === 0 ? 1 : 2]);
+          }
+          continue;
+        }
+        $buffers[$slot] .= $chunk;
+      }
+    }
+    [$stdout, $stderr] = $buffers;
     fclose($pipes[1]);
     fclose($pipes[2]);
     $code = proc_close($process);

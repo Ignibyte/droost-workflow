@@ -67,6 +67,23 @@ final class DeclarationAudit {
   private const array TEST_GATES = ['phpunit', 'playwright', 'coverage', 'mutation'];
 
   /**
+   * How many paths a summary names before it stops naming them.
+   *
+   * A summary is a SENTENCE — it goes into the stop hook's block message, the
+   * status document and the evaluation. `work_type` already knew this and cut
+   * its list at five; the scope check did not, and imploded the whole thing.
+   *
+   * Measured on a 20,000-file diff (a generated build directory committed, or
+   * an `npm install` inside the repo — neither exotic): a 1,080,341-byte
+   * `declared_files` summary, every byte of which the stop hook wrote to
+   * stderr, on every stop attempt, until the block cleared. The message that
+   * exists to tell an agent what to do was a megabyte of file paths.
+   *
+   * Enough to act on, and a count so nothing is hidden.
+   */
+  private const int SUMMARY_PATHS = 20;
+
+  /**
    * Where the gates' executables live, which no exemption covers.
    *
    * `ShellGateExecutor::binaryPathFor()` resolves every gate to one of these,
@@ -260,6 +277,22 @@ final class DeclarationAudit {
   }
 
   /**
+   * As many of a path list as a sentence can carry, and how many there were.
+   *
+   * @param list<string> $paths
+   *   The paths.
+   *
+   * @return string
+   *   The list, truncated with a count of what is not shown.
+   */
+  private static function someOf(array $paths): string {
+    $shown = implode(', ', array_slice($paths, 0, self::SUMMARY_PATHS));
+    $rest = count($paths) - self::SUMMARY_PATHS;
+
+    return $rest > 0 ? sprintf('%s, and %d more', $shown, $rest) : $shown;
+  }
+
+  /**
    * The audit as checks, ready for the store.
    *
    * Separate items because they fail for different reasons and a reader needs
@@ -288,11 +321,17 @@ final class DeclarationAudit {
       ? sprintf(
         '%d declared path(s), no undeclared changes%s',
         count($this->declaredFiles),
-        $untouched === [] ? '' : sprintf('; %d declared and not touched: %s', count($untouched), implode(', ', $untouched)),
+        $untouched === [] ? '' : sprintf(
+          '; %d declared and not touched: %s',
+          count($untouched),
+          self::someOf($untouched),
+        ),
       )
       : sprintf(
-        'changed without being declared: %s. Scope found mid-build belongs in the spec first, not in the diff quietly.',
-        implode(', ', $undeclared),
+        '%d path(s) changed without being declared: %s. Scope found mid-build belongs in the '
+        . 'spec first, not in the diff quietly.',
+        count($undeclared),
+        self::someOf($undeclared),
       );
 
     // WHICH PHASES REACH HERE IS DECIDED BY THE CALLER, and this condition has
@@ -358,7 +397,7 @@ final class DeclarationAudit {
             $this->workType->label(),
             count($unexpected),
             count($subject),
-            implode(', ', array_slice($unexpected, 0, 5)),
+            self::someOf($unexpected),
           )
           : sprintf('declared "%s" (%s); the diff matches', $this->workType->value, $this->workType->label()),
       );

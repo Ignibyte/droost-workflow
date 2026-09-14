@@ -1410,6 +1410,47 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * A huge summary in the store does not become a huge block message.
+   *
+   * Bounded at the READ, which is a different guarantee from bounding it at
+   * the write. Every writer in the package caps what it puts in a summary,
+   * and one forgot: a 20,000-file diff — a generated build directory
+   * committed, an `npm install` inside the repo — gave `declared_files` a
+   * 1,080,341-byte summary, and this hook wrote every byte to stderr on every
+   * stop attempt until the block cleared. The message that exists to tell an
+   * agent what to do was a megabyte of file paths.
+   *
+   * That writer is fixed. The cap stays, because "this hook cannot crash" is
+   * the contract of the file: it runs on whatever PHP the editor invokes,
+   * against a store a contributed gate or another release may have written,
+   * and exit 2 blocks, 0 allows, and anything else — memory exhaustion
+   * included — reads to the host as permission.
+   */
+  public function testHugeSummariesDoNotBecomeHugeBlockMessages(): void {
+    if (!extension_loaded('pdo_sqlite')) {
+      $this->markTestSkipped('pdo_sqlite is what the guard reads the store with');
+    }
+    $root = $this->rootWithRun('code', 'active', 'hard');
+    file_put_contents($root . '/droost/droost-workflow/run.json', (string) json_encode([
+      'run_id' => 'r1',
+      'current_phase' => 'code',
+      'phases' => ['code' => 'active'],
+      'enforcement' => 'hard',
+    ]));
+    $this->seedBlockedCheck($root, 'declared_files', str_repeat('web/modules/custom/acme.php, ', 40000));
+
+    [$exit, , $stderr] = $this->guard($root, 'stop', ['stop_hook_active' => FALSE]);
+
+    $this->assertSame(2, $exit, 'it still blocks — the cap is on the words, not the verdict');
+    $this->assertStringContainsString('declared_files', $stderr, 'and still names what is unresolved');
+    $this->assertLessThan(
+      64 * 1024,
+      strlen($stderr),
+      'a block message a reader can read, from a row nothing in this package wrote',
+    );
+  }
+
+  /**
    * Records one blocked gate in a root's evidence store.
    *
    * Written with raw PDO rather than through EvidenceStore, because the guard

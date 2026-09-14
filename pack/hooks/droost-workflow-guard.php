@@ -2896,8 +2896,25 @@ function unresolved_checks(string $root, string $stateDir, mixed $runId, string 
     if ($kind !== 'table') {
       return [];
     }
+    // BOUNDED AT THE READ, not only at the write.
+    //
+    // Every writer in this package caps what it puts in a summary, and one of
+    // them forgot: a 20,000-file diff produced a 1,080,341-byte
+    // `declared_files` row, and this hook wrote every byte of it to stderr on
+    // every stop attempt until the block cleared — the message that exists to
+    // tell an agent what to do, as a megabyte of file paths.
+    //
+    // That writer is fixed. This cap is here anyway, because a hook that
+    // cannot crash is the whole contract of this file: it runs on whatever
+    // PHP an editor invokes, against a store that a contributed gate, an older
+    // release or a future one may have written, and `substr()` in SQLite means
+    // the bytes never enter the process at all. Exit 2 blocks, 0 allows, and
+    // ANYTHING ELSE — including a memory exhaustion — reads to the host as
+    // permission.
     $statement = $pdo->prepare(
-      'SELECT c.name, c.fault, c.summary, c.remedy
+      'SELECT c.name, c.fault,
+              substr(c.summary, 1, 2000) AS summary,
+              substr(c.remedy, 1, 2000) AS remedy
          FROM check_result c
          JOIN (SELECT kind, name, MAX(attempt) AS attempt
                  FROM check_result WHERE run_id = ? AND phase = ?
