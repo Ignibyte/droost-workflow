@@ -82,6 +82,35 @@ final class StateError extends \RuntimeException {
   }
 
   /**
+   * A spec was named at a run that has already finished.
+   *
+   * The spec is not adopted — there is no phase left for it to govern — and
+   * returning "completed" said nothing about the document the caller thought
+   * they had just handed over. Silence is the defect: the caller goes on
+   * believing a new ticket started under a new contract, and a reviewer hit
+   * exactly that on the second of three tickets in one repository.
+   *
+   * @param string $path
+   *   The state file's path, as shown to the operator.
+   * @param string $spec
+   *   The spec that was named.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function runEndedBeforeSpec(string $path, string $spec): self {
+    return new self($path, sprintf(
+      'this run has already finished, so %s was NOT adopted and nothing ran. '
+      . 'A spec governs a run from its plan phase onward, and there is no '
+      . 'phase left here to hold to it. Archive this run first — '
+      . '`droost-workflow reset`, which keeps the record under history/ — '
+      . 'then begin the next ticket with --spec=%s.',
+      $spec,
+      $spec,
+    ));
+  }
+
+  /**
    * A run is still in progress; clearing it must be said out loud.
    *
    * @param string $path

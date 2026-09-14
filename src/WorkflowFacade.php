@@ -604,6 +604,18 @@ final class WorkflowFacade {
 
     $phase = $state->currentPhase;
     if ($phase === NULL) {
+      // Naming a spec at a run that is OVER is not a no-op, it is a mistake
+      // with no feedback. `run --spec=<the next ticket's spec>` returned
+      // `{"outcome":"completed","report":null}` — the spec was never adopted,
+      // nothing ran, and the caller's next move was made believing a new
+      // ticket had started under a new contract. A reviewer hit it on the
+      // second of three tickets.
+      //
+      // The spec resolution above is skipped in this branch (there is no
+      // phase to govern), so this is the only place that can notice.
+      if ($spec !== NULL && $spec !== '') {
+        throw StateError::runEndedBeforeSpec($store->label(), $spec);
+      }
       // The run reached its terminal gate. Re-running does not restart it;
       // saying so is more useful than silently beginning a second run.
       return new RunOutcome(Outcome::Completed, $state);
@@ -1451,7 +1463,20 @@ final class WorkflowFacade {
     // test-shaped gate runs there, so every promised test read as never run and
     // the phase could never pass — while the plan brief instructed the very
     // declaration that caused it.
-    if (!in_array($phase, [Phase::Code, Phase::Test], TRUE) || $outcome->outcome !== Outcome::Advanced) {
+    // InspectionDue as well as Advanced, because SCOPE COMES BEFORE
+    // JUDGEMENT. The seeker checkpoint sits inside the engine and stops the
+    // phase short of Advanced, so the audit — which only ran on Advanced —
+    // happened AFTER the seeker had already reviewed. An agent that touched
+    // files it never declared got a human-grade review of a diff nobody had
+    // checked the shape of, and the seeker's clean verdict was recorded about
+    // it. Then the scope block fired, and the run carried a "clean" inspection
+    // of work that was out of bounds.
+    //
+    // Asking the cheap machine question first is also the kind thing to do: a
+    // scope block costs one `declare-changes`, and a seeker round costs a
+    // review.
+    if (!in_array($phase, [Phase::Code, Phase::Test], TRUE)
+      || !in_array($outcome->outcome, [Outcome::Advanced, Outcome::InspectionDue], TRUE)) {
       return $outcome;
     }
 

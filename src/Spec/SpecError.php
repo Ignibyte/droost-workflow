@@ -46,6 +46,31 @@ final class SpecError extends \RuntimeException {
   }
 
   /**
+   * The only candidate spec is one a finished run was already governed by.
+   *
+   * @param string $path
+   *   The spec, project-relative.
+   * @param string $dir
+   *   The state directory.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function alreadyGoverned(string $path, string $dir): self {
+    return new self(sprintf(
+      '%s is the only spec under %s, and a run that has already finished was '
+      . 'governed by it. Adopting it now would hold this ticket to the last '
+      . 'ticket\'s acceptance criteria without saying so. Either write this '
+      . 'ticket\'s spec (%s/spec-<slug>.md) and begin with --spec=<path>, or, '
+      . 'if you really are re-running that same ticket, say so: --spec=%s.',
+      $path,
+      $dir,
+      $dir,
+      $path,
+    ));
+  }
+
+  /**
    * The declared spec is not a readable file.
    *
    * @param string $path

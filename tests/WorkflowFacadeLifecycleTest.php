@@ -13,6 +13,7 @@ use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
+use Droost\Workflow\Spec\SpecError;
 use Droost\Workflow\State\PhaseStatus;
 use Droost\Workflow\State\RunStateStore;
 use Droost\Workflow\State\StateError;
@@ -128,10 +129,60 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
       'per-run warn-once markers do not outlive the run',
     );
 
-    // The next run starts fresh over the cleared state.
-    $next = $this->facade($executor)->run($root);
-    $this->assertSame(Outcome::Advanced, $next->outcome);
-    $this->assertSame(Phase::Code, $next->state->currentPhase);
+    // And the next bare `run` does NOT quietly inherit this ticket's spec.
+    //
+    // This assertion used to say the opposite — that a bare run after a reset
+    // "starts fresh" — and it was codifying a bug. The reset archives the
+    // record and leaves the spec file where it is, so the state directory
+    // holds exactly one candidate and the resolver adopted it: the FINISHED
+    // ticket's acceptance criteria, governing a new ticket, with nothing said.
+    // A reviewer drove three tickets through one repository and watched the
+    // second inherit the first's contract. At two leftover specs the resolver
+    // already refused and asked; at one there was nothing to ask about.
+    try {
+      $this->facade($executor)->run($root);
+      $this->fail('a finished ticket\'s spec is not adopted in silence');
+    }
+    catch (SpecError $error) {
+      $this->assertStringContainsString('already finished', $error->getMessage());
+      $this->assertStringContainsString('--spec=', $error->getMessage());
+    }
+
+    // Re-running that same ticket is one flag away, and still works.
+    $again = $this->facade($executor)->run($root, spec: 'droost/droost-workflow/spec-test-run.md');
+    $this->assertSame(Outcome::Advanced, $again->outcome);
+    $this->assertSame(Phase::Code, $again->state->currentPhase);
+  }
+
+  /**
+   * Naming a spec at a finished run refuses instead of doing nothing.
+   *
+   * `run --spec=<the next ticket's spec>` on a completed run returned
+   * `{"outcome":"completed","report":null}`. The spec was never adopted,
+   * nothing ran, and nothing in that answer says either of those things — so
+   * the caller's next move is made believing a new ticket started under a new
+   * contract. A reviewer hit it on the second of three tickets.
+   *
+   * The `completed` answer to a BARE `run` is still right and still silent
+   * about specs, because nothing was claimed.
+   */
+  public function testNamingSpecsAtFinishedRunsIsRefused(): void {
+    $root = $this->makeRootWithConfig("preset: custom\n");
+    $executor = $this->allGatesPass();
+    $this->driveToCompletion($executor, $root);
+    file_put_contents($root . '/droost/droost-workflow/spec-next.md', "# Next\n");
+
+    $bare = $this->facade($executor)->run($root);
+    $this->assertSame(Outcome::Completed, $bare->outcome, 'a bare re-run still just says so');
+
+    try {
+      $this->facade($executor)->run($root, spec: 'droost/droost-workflow/spec-next.md');
+      $this->fail('a spec named at a finished run must not be swallowed');
+    }
+    catch (StateError $error) {
+      $this->assertStringContainsString('NOT adopted', $error->getMessage());
+      $this->assertStringContainsString('reset', $error->getMessage(), 'and it names the way forward');
+    }
   }
 
   /**

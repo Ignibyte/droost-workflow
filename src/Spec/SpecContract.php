@@ -180,9 +180,59 @@ final class SpecContract {
       glob($dir . '/tmp-spec-*.md') ?: [],
     );
     if (count($candidates) === 1) {
-      return self::relative($root, $candidates[0]);
+      $only = self::relative($root, $candidates[0]);
+      // THE TIDY STATE IS THE DANGEROUS ONE. `reset` archives run.json and
+      // leaves the spec where it is, so the next bare `run` found exactly one
+      // candidate and adopted it — the FINISHED ticket's spec, silently, as the
+      // contract governing a new ticket. At two or more leftover specs the
+      // refusal above already fires and the operator picks; at exactly one
+      // there was nothing to pick and nothing said so. A reviewer drove three
+      // tickets through one repository and the second inherited the first's
+      // acceptance criteria without a word.
+      //
+      // Adopting is still right for a spec nobody has used. Only a spec a
+      // previous run already carried to its end is refused, and the refusal
+      // names both ways forward — because re-running the SAME ticket after a
+      // reset is a real thing to want, and it is one flag away.
+      if (in_array($only, self::specsAlreadyGoverned($root, $stateDir), TRUE)) {
+        throw SpecError::alreadyGoverned($only, $stateDir);
+      }
+
+      return $only;
     }
     throw SpecError::unresolvable($stateDir, count($candidates));
+  }
+
+  /**
+   * The specs that archived runs were governed by.
+   *
+   * Read from the history directory `reset` writes, which is the only record
+   * that a spec has already had a run of its own. Failures are silent by
+   * design: an unreadable archive must not stop a new run from starting, and
+   * the consequence of missing one is the old behaviour, not a worse one.
+   *
+   * @param string $root
+   *   The project root.
+   * @param string $stateDir
+   *   The resolved state directory, project-relative.
+   *
+   * @return list<string>
+   *   Project-relative spec paths.
+   */
+  private static function specsAlreadyGoverned(string $root, string $stateDir): array {
+    $seen = [];
+    foreach (glob($root . '/' . $stateDir . '/history/*.json') ?: [] as $archived) {
+      $decoded = json_decode((string) @file_get_contents($archived), TRUE);
+      if (!is_array($decoded)) {
+        continue;
+      }
+      $spec = $decoded['spec_path'] ?? NULL;
+      if (is_string($spec) && $spec !== '') {
+        $seen[] = $spec;
+      }
+    }
+
+    return array_values(array_unique($seen));
   }
 
   /**
