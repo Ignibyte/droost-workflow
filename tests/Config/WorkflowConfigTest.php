@@ -53,10 +53,19 @@ class WorkflowConfigTest extends WorkflowTestCase {
       $config->gate('mutation')->on,
       'the optional tiers stay switchable',
     );
-    $this->assertCount(3, $config->deprecations);
-    foreach ($config->deprecations as $notice) {
-      $this->assertStringContainsString('mandatory since 0.4.0', $notice);
-    }
+    $mandatory = array_values(array_filter(
+      $config->deprecations,
+      static fn (string $notice): bool => str_contains($notice, 'mandatory since 0.4.0'),
+    ));
+    $this->assertCount(3, $mandatory, 'one per disarm attempt, superseded and recorded');
+
+    // The fourth is a different notice about the same file: it names `max`
+    // and turns mutation off, so the level is not what decided that gate.
+    // Counted separately rather than folded in, because the two say different
+    // things — one is "you cannot", the other is "you did, and here it is".
+    $this->assertCount(4, $config->deprecations);
+    $dial = array_values(array_diff($config->deprecations, $mandatory));
+    $this->assertStringContainsString('gates.mutation.on', $dial[0] ?? '');
   }
 
   /**

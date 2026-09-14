@@ -39,6 +39,13 @@ mode: agentic
 #   custom — not a point on the dial: the values spelled out below.
 # `factory`/`light` still load as aliases of max/medium (recorded under the
 # canonical name, with a notice). `fast` was retired in 0.3 and is refused.
+#
+# CHANGING THIS LINE ALONE DOES NOT MOVE EVERYTHING. Every key below is
+# written out, and an explicit key beats the preset — so setting `preset: max`
+# here still leaves `enforcement: soft`, still leaves mutation, playwright and
+# coverage off, and still leaves max_gate_retries at 2. To let a level decide
+# a lever, DELETE that lever's line. `droost-workflow status` names every key
+# that is overriding the level you asked for, under `deprecations`.
 preset: custom
 
 # hard | soft | off

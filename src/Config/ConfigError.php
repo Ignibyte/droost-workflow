@@ -689,6 +689,46 @@ final class ConfigError extends \RuntimeException {
   }
 
   /**
+   * A named preset whose own answers the file spells out and overrides.
+   *
+   * Explicit beats preset, which is the right precedence. What was missing is
+   * that nothing SAID so: `init` writes every value longhand under
+   * `preset: custom`, so a user who does the documented thing and turns the
+   * dial to `max` keeps `enforcement: soft` and keeps mutation, playwright and
+   * coverage off — the three gates that separate max from xhigh — while
+   * `status` reports `preset: max` and an empty deprecations list.
+   *
+   * Silent, and in the loosening direction. The shipped lever file's own
+   * rationale is that "a visible loosening is the honest way to allow it".
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $preset
+   *   The preset the file names.
+   * @param list<string> $overridden
+   *   One phrase per lever, already carrying both values.
+   *
+   * @return string
+   *   The notice.
+   */
+  public static function presetOverriddenNotice(
+    string $source,
+    string $preset,
+    array $overridden,
+  ): string {
+    return sprintf(
+      '%s: preset "%s" is named, but these levers are spelled out below and '
+      . 'win over it, so moving the dial will not change them: %s. Delete a '
+      . 'key to let the level decide it; keep it to keep the explicit value. '
+      . 'Both are legitimate — this notice exists because only one of them is '
+      . 'what the dial appears to do.',
+      $source,
+      $preset,
+      implode('; ', $overridden),
+    );
+  }
+
+  /**
    * The notice recorded for the retired phases key.
    *
    * @param string $source

@@ -291,22 +291,48 @@ final class WorkflowConfig {
         $baseGates[$gate->name()] = $gate->toSettings();
       }
 
+      $mode = self::readMode($root, $source, $base->mode);
+      $gates = self::scopeTrioLikeThePair(
+        self::readGates($root, $source, $baseGates, $deprecations, $contributed),
+      );
+      $retries = $root->has('max_gate_retries')
+        ? $root->intInRange('max_gate_retries', 0, self::MAX_RETRIES_CEILING)
+        : $base->maxGateRetries;
+      $enforcement = self::readEnforcement($root, $source, $base->enforcement);
+      $seekers = self::readSeekers($root, $source, $base->seekers);
+
+      // WHAT THE DIAL DID NOT DO. Explicit keys beat the preset, which is the
+      // right precedence and is not the problem. The problem was that nothing
+      // said so: `init` writes every value out longhand under `preset: custom`,
+      // so a user who does the documented thing and turns the dial to `max`
+      // gets `enforcement: soft` and mutation, playwright and coverage still
+      // off — the three gates that distinguish max from xhigh — while `status`
+      // reports `preset: max` and an empty deprecations list.
+      //
+      // Measured on one init'd repo, changing only the preset line: written
+      // out here it resolves soft with 10 gates on, and `preset: max` alone
+      // resolves hard with 13.
+      //
+      // Silent, and in the loosening direction. This file's own rationale is
+      // that "a visible loosening is the honest way to allow it", so the
+      // override is recorded where every lever report already looks.
+      $override = $root->has('preset')
+        ? self::dialOverrides($base, $mode, $gates, $retries, $enforcement, $seekers)
+        : NULL;
+      if ($override !== NULL) {
+        $deprecations[] = ConfigError::presetOverriddenNotice($source, $base->name, $override);
+      }
+
       return new self(
-        self::readMode($root, $source, $base->mode),
+        $mode,
         Phase::canonical(),
-        self::scopeTrioLikeThePair(self::readGates($root, $source, $baseGates, $deprecations, $contributed)),
+        $gates,
         $base->name,
-        $root->has('max_gate_retries')
-          ? $root->intInRange(
-            'max_gate_retries',
-            0,
-            self::MAX_RETRIES_CEILING,
-          )
-          : $base->maxGateRetries,
+        $retries,
         $provenance,
-        self::readEnforcement($root, $source, $base->enforcement),
+        $enforcement,
         $deprecations,
-        self::readSeekers($root, $source, $base->seekers),
+        $seekers,
         // Preset-independent on purpose: building must engage the pipeline
         // whatever the gate weight, so the default is hard everywhere and the
         // lever is the only thing that loosens it.
@@ -664,6 +690,98 @@ final class WorkflowConfig {
     }
 
     return $phases;
+  }
+
+  /**
+   * What a named preset would have decided, and the file decided instead.
+   *
+   * Narrow on purpose, because a notice nobody reads is not a notice. It is
+   * asked only when the file NAMES a preset — a file that names none never
+   * read the dial, whatever it defaults to — never for `custom`, which IS
+   * "the values spelled out below", and for gates only in the loosening
+   * direction: a gate the level runs and this file does not.
+   *
+   * @param \Droost\Workflow\Config\Preset $base
+   *   The preset as resolved.
+   * @param \Droost\Workflow\Config\Mode $mode
+   *   The mode the file resolved to.
+   * @param array<string, \Droost\Workflow\Config\GateSettings> $gates
+   *   The gates the file resolved to.
+   * @param int $retries
+   *   The retry budget the file resolved to.
+   * @param \Droost\Workflow\Config\Enforcement $enforcement
+   *   The enforcement the file resolved to.
+   * @param bool $seekers
+   *   Whether seekers run.
+   *
+   * @return list<string>|null
+   *   One phrase per overridden lever, or NULL when the dial is intact.
+   */
+  private static function dialOverrides(
+    Preset $base,
+    Mode $mode,
+    array $gates,
+    int $retries,
+    Enforcement $enforcement,
+    bool $seekers,
+  ): ?array {
+    if ($base->name === 'custom') {
+      return NULL;
+    }
+    $differences = [];
+    if ($mode !== $base->mode) {
+      $differences[] = sprintf(
+        'mode (%s says %s, this file says %s)',
+        $base->name,
+        $base->mode->value,
+        $mode->value,
+      );
+    }
+    if ($enforcement !== $base->enforcement) {
+      $differences[] = sprintf(
+        'enforcement (%s says %s, this file says %s)',
+        $base->name,
+        $base->enforcement->value,
+        $enforcement->value,
+      );
+    }
+    if ($seekers !== $base->seekers) {
+      $differences[] = sprintf(
+        'seekers.on (%s says %s, this file says %s)',
+        $base->name,
+        $base->seekers ? 'true' : 'false',
+        $seekers ? 'true' : 'false',
+      );
+    }
+    if ($retries !== $base->maxGateRetries) {
+      $differences[] = sprintf(
+        'max_gate_retries (%s says %d, this file says %d)',
+        $base->name,
+        $base->maxGateRetries,
+        $retries,
+      );
+    }
+    // Gates: only the ones the level RUNS and this file does not.
+    //
+    // Not every difference. A tuning lever (a level, a standard, a path set)
+    // is the ordinary reason to write this file at all, and a gate the file
+    // turns ON that the level leaves off is somebody asking for MORE — both
+    // would drown the line that matters. What was invisible, and what this
+    // file's own rationale calls out as needing to be visible, is the
+    // loosening: `preset: max` with three of max's gates quietly off.
+    foreach ($base->gates as $name => $preset) {
+      $resolved = $gates[$name] ?? NULL;
+      if ($resolved !== NULL && $preset->on && !$resolved->on) {
+        // The loop's own condition settles both values, so they are stated
+        // rather than re-derived from it.
+        $differences[] = sprintf(
+          'gates.%s.on (%s says true, this file says false)',
+          $name,
+          $base->name,
+        );
+      }
+    }
+    return $differences === [] ? NULL : $differences;
   }
 
   /**
