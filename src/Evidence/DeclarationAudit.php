@@ -654,10 +654,30 @@ final class DeclarationAudit {
     }
     $head = (string) @file_get_contents($path, FALSE, NULL, 0, 4096);
 
-    return preg_match(
-      '#__DIR__|autoload\.php|vendor/composer|node_modules|\$basedir|xdebug_break#',
-      $head,
-    ) === 1;
+    // A STATEMENT, NOT A SUBSTRING. The first cut searched the whole head
+    // for words a package manager tends to use, and a COMMENT carries words
+    // just as well as code does: `#!/bin/sh` + `# vendor/composer` +
+    // `exit 0` was exempt, and so was `exit 0 # autoload.php`. One comment
+    // line stubbed all three gate binaries invisibly, which is the attack
+    // this exemption exists to survive.
+    //
+    // What a real proxy does is EXECUTE a computed path. Composer's writes
+    // `return include __DIR__ . '/..'.'/squizlabs/…/bin/phpcs';` (or a
+    // require of the autoloader); npm's shim execs "$basedir/../pkg/bin/x".
+    // A stub that runs nothing matches neither, and no package manager
+    // emits one.
+    $executes = '#(?:^|[\\s;{(=])(?:require|include)(?:_once)?\\s*\\(?\\s*'
+      . '(?:__DIR__|__FILE__|dirname\\s*\\()#';
+    // The other composer shape: a proxy that requires a path written out in
+    // full rather than computed. Matched on the PATH, which a comment can
+    // carry — so it must still sit inside a require/include statement.
+    $literal = '#(?:^|[\\s;{(=])(?:require|include)(?:_once)?\\s*\\(?\\s*\\S*'
+      . '(?:autoload|vendor/)#';
+    $shim = '#\\$basedir[^\\n]*node_modules|exec[^\\n]*\\$basedir#';
+
+    return preg_match($executes, $head) === 1
+      || preg_match($literal, $head) === 1
+      || preg_match($shim, $head) === 1;
   }
 
   /**

@@ -302,9 +302,44 @@ if ($mode === 'operator-commands') {
   // not. Every claim resting on "droost wrote these rows and the agent could
   // not" was false for as long as an agent had a shell.
   protected_path_shell_guard($stdin, $root, $stateDir);
-  // Run state is irrelevant here: bypass is granted precisely when there is
-  // no run, and a waiver during one. The rule is about WHO, not WHEN.
+  // Run state is irrelevant to the two tiers above: bypass is granted
+  // precisely when there is no run, and a waiver during one. The rule is about
+  // WHO, not WHEN.
   operator_commands_guard($stdin);
+  // THE PHASE WALLS APPLY TO A SHELL TOO, and they did not. `.claude/
+  // settings.json` routes Bash here, this branch exited without ever reading
+  // the run, and so during PLAN — the phase whose whole job is "write the
+  // spec, do not start building yet" — `Write modules/custom/x.module` was
+  // refused while `echo x > modules/custom/x.module` was permitted. The agent
+  // that obeyed the refusal was the only one held to it.
+  //
+  // Read here rather than at the top, so the two tiers above keep costing
+  // nothing on a project with no run.
+  $shellDocument = [];
+  $shellState = $root . '/' . $stateDir . '/run.json';
+  if (is_file($shellState)) {
+    $decoded = json_decode((string) @file_get_contents($shellState), TRUE);
+    $shellDocument = is_array($decoded) ? $decoded : [];
+  }
+  $shellInput = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
+  $shellCommand = $shellInput['command'] ?? '';
+  if (is_string($shellCommand) && $shellCommand !== '') {
+    $shellPhase = $shellDocument['current_phase'] ?? NULL;
+    $shellPhases = is_array($shellDocument['phases'] ?? NULL) ? $shellDocument['phases'] : [];
+    $shellStatus = is_string($shellPhases[$shellPhase] ?? NULL) ? $shellPhases[$shellPhase] : '';
+    // A finished or failed phase is not a live plan phase; the pre-tool-use
+    // branch makes the same two exceptions and they have to agree.
+    if (is_string($shellPhase) && $shellStatus !== 'failed' && $shellStatus !== 'passed') {
+      shell_phase_guard(
+        operator_commands_scan_text($shellCommand),
+        $root,
+        $stateDir,
+        $shellDocument,
+        $shellPhase,
+        is_string($shellDocument['enforcement'] ?? NULL) ? $shellDocument['enforcement'] : 'off',
+      );
+    }
+  }
   exit(0);
 }
 
@@ -420,52 +455,7 @@ if ($mode === 'pre-tool-use') {
   //
   // The question is where the write LANDS, which is a different question from
   // what the string spells, and `resolved_relative()` already answers it.
-  $inState = FALSE;
-  if ($file !== '') {
-    $absolute = str_starts_with($file, '/') ? $file : rtrim($root, '/') . '/' . ltrim($file, '/');
-    $landing = normalised_path($absolute);
-    $rootPath = normalised_path(rtrim($root, '/'));
-    $relative = str_starts_with($landing, $rootPath . '/')
-      ? substr($landing, strlen($rootPath) + 1)
-      : '';
-    // WHERE IT LANDS WINS. This took either answer, so a symlink from inside
-    // the state directory to `modules/custom` made the literal path in-state
-    // and the write went through during PLAN. The resolved answer is the one
-    // that describes what happens; the literal is only consulted when nothing
-    // resolves, which is the ordinary case of a file not yet on disk.
-    $resolved = resolved_relative($absolute, $root);
-    $candidate = $resolved !== '' ? $resolved : $relative;
-    $inState = $candidate !== ''
-      && str_starts_with($candidate, trim($stateDir, '/') . '/');
-    // AND THE RUN'S OWN SPEC, WHEREVER IT LIVES. `--spec` accepts any path in
-    // the project, and this block exempted only the state directory — so a run
-    // begun with `--spec=docs/spec.md` could not have its spec edited during
-    // PLAN, which is the one phase whose whole job is writing it. The run then
-    // refused to advance ("docs/spec.md has no `## Tooling plan` section — add
-    // the section, then re-run") while refusing the edit that would add it,
-    // and it could not be moved either: re-declaring answers "a run has ONE
-    // spec; to work under a different one, reset and begin a new run".
-    //
-    // The only way out was to stop using the editing tools and reach for a
-    // shell, since this block governs Write and Edit and not Bash. An agent
-    // that obeyed the refusal was stuck and one that ignored it was fine,
-    // which is the worst way for a rule to be wrong.
-    //
-    // Read from the record rather than guessed, so it is exactly the document
-    // this run is held to and not any file that looks like one.
-    if (!$inState && $candidate !== '') {
-      $declared = $document['spec_path'] ?? NULL;
-      if (is_string($declared) && $declared !== '' && normalised_path($declared) === $candidate) {
-        $inState = TRUE;
-      }
-    }
-  }
-  // The lever file used to be exempted here too, and that clause was dead: a
-  // run is under way by definition in this branch, and `baseline_dir_guard()`
-  // — which runs first in pre-tool-use — refuses `droost.workflow.yml` for
-  // exactly that reason. Two rules saying opposite things about the same file
-  // is worse than either, so the one that never fires is gone rather than
-  // left to be believed.
+  $inState = plan_exempts($file, $root, $stateDir, $document);
   if ($inState) {
     exit(0);
   }
@@ -1413,6 +1403,149 @@ function operator_commands_flagged(array $tokens, array $flags): bool {
   }
 
   return FALSE;
+}
+
+/**
+ * Whether a path is plan's own to write.
+ *
+ * The state directory, and the run's declared spec wherever the operator put
+ * it. Asked of where the write LANDS rather than of what the string spells:
+ * `droost/droost-workflow/../../modules/custom/evil.php` holds the state
+ * directory's two segments and lands in custom code, and a symlink out of the
+ * state directory does the same thing without the `..`.
+ *
+ * ONE FUNCTION, because the plan wall used to live only in `pre-tool-use` —
+ * so `Write modules/custom/x.module` was refused during PLAN and
+ * `Bash echo x > modules/custom/x.module` was permitted. The agent that obeyed
+ * the refusal was the only one held to it, which is the worst way for a rule
+ * to be wrong, and the commit that fixed the spec half of this named the shell
+ * half in its own message and did not close it.
+ *
+ * @param string $file
+ *   The path being written.
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The resolved state directory.
+ * @param array<string, mixed> $document
+ *   The run record, for the spec it declares.
+ *
+ * @return bool
+ *   TRUE when plan may write it.
+ */
+function plan_exempts(string $file, string $root, string $stateDir, array $document): bool {
+  if ($file === '') {
+    return TRUE;
+  }
+  $absolute = str_starts_with($file, '/') ? $file : rtrim($root, '/') . '/' . ltrim($file, '/');
+  $landing = normalised_path($absolute);
+  $rootPath = normalised_path(rtrim($root, '/'));
+  $relative = str_starts_with($landing, $rootPath . '/')
+    ? substr($landing, strlen($rootPath) + 1)
+    : '';
+  $resolved = resolved_relative($absolute, $root);
+  $candidate = $resolved !== '' ? $resolved : $relative;
+  if ($candidate === '') {
+    // OUTSIDE THE PROJECT. `/tmp/scratch.txt` is not this project's code and
+    // the plan wall has nothing to say about it — refusing it would stop a
+    // scratch file, a log, a heredoc into /tmp, which is ordinary work at
+    // every phase.
+    return TRUE;
+  }
+  if (str_starts_with($candidate, trim($stateDir, '/') . '/')) {
+    return TRUE;
+  }
+  // The run's declared spec, read from the RECORD rather than guessed, so it
+  // is exactly the document this run is held to and not any file that looks
+  // like one.
+  $declared = $document['spec_path'] ?? NULL;
+
+  return is_string($declared) && $declared !== '' && normalised_path($declared) === $candidate;
+}
+
+/**
+ * Applies the phase walls to what a shell command writes.
+ *
+ * `.claude/settings.json` routes Bash to `operator-commands`, which ran the
+ * protected-path and operator-verb tiers and exited without ever consulting
+ * the phase. So during PLAN — the phase whose whole job is "write the spec,
+ * do not start building yet" — a redirect into custom code was permitted
+ * while the identical `Write` was refused, and the same was true of the
+ * require_run wall on a project with no run at all.
+ *
+ * The write operands come from the same tokeniser the path tier uses, so the
+ * two walls agree about what a command writes; only the question differs.
+ *
+ * @param string $command
+ *   The already-scanned command line.
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The resolved state directory.
+ * @param array<string, mixed> $document
+ *   The run record.
+ * @param string $phase
+ *   The current phase, or '' when no run is active.
+ * @param string $enforcement
+ *   The run's frozen enforcement level.
+ */
+function shell_phase_guard(
+  string $command,
+  string $root,
+  string $stateDir,
+  array $document,
+  string $phase,
+  string $enforcement,
+): void {
+  if ($phase !== 'plan' || $enforcement !== 'hard') {
+    return;
+  }
+  // The shell's own idea of where it is, tracked exactly as the path tier
+  // tracks it — `getcwd()` is the HOOK's directory, which is not the
+  // command's, and a bare filename means something different in each.
+  $cwd = rtrim($root, '/');
+  foreach (operator_commands_invocations($command) as $tokens) {
+    $unwrapped = operator_commands_unwrapped($tokens);
+    $verb = strtolower(ltrim($unwrapped[0] ?? '', "\x01({"));
+    if ($verb === 'cd' || $verb === 'pushd') {
+      $target = '';
+      foreach (array_slice($unwrapped, 1) as $word) {
+        if ($word === '--' || str_starts_with($word, '-')) {
+          continue;
+        }
+        $target = ltrim($word, "\x01");
+        break;
+      }
+      $moved = $target === '' ? FALSE : realpath(
+        str_starts_with($target, '/') ? $target : $cwd . '/' . $target,
+      );
+      $cwd = $moved === FALSE ? $root : $moved;
+      continue;
+    }
+    foreach ($tokens as $token) {
+      if (!str_starts_with($token, "\x01")) {
+        continue;
+      }
+      $target = ltrim($token, "\x01");
+      if ($target === '' || str_starts_with($target, '/dev/')) {
+        continue;
+      }
+      $absolute = str_starts_with($target, '/') ? $target : $cwd . '/' . $target;
+      if (plan_exempts($absolute, $root, $stateDir, $document)) {
+        continue;
+      }
+      fwrite(STDERR, sprintf(
+        'droost:workflow:continue: the active run is still in PLAN, and this '
+        . 'command writes to %s. Write the spec under %s/ and advance the run '
+        . '(/droost:workflow:continue) before building. A shell redirect is '
+        . 'the same act as an edit; the wall does not stop at the tool you '
+        . 'chose.',
+        $target,
+        $stateDir,
+      ));
+      exit(2);
+    }
+  }
 }
 
 /**

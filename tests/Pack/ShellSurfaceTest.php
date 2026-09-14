@@ -616,6 +616,64 @@ final class ShellSurfaceTest extends WorkflowTestCase {
   }
 
   /**
+   * The phase walls govern a shell, not just the editing tools.
+   *
+   * `.claude/settings.json` routes Bash to the operator-commands mode, which
+   * ran the protected-path and operator-verb tiers and exited without ever
+   * reading the run. So during PLAN — the phase whose whole job is "write the
+   * spec, do not start building yet" —
+   *
+   *     Write modules/custom/x/x.module           refused
+   *     Bash  echo x > modules/custom/x/x.module  ALLOWED
+   *
+   * The agent that obeyed the refusal was the only one held to it, which is
+   * the worst way for a rule to be wrong. The commit that fixed the SPEC half
+   * of this named the shell half in its own message and did not close it.
+   *
+   * Both tiers ask the same function now, so they cannot drift.
+   */
+  public function testThePhaseWallsGovernTheShellToo(): void {
+    $root = $this->lab();
+    mkdir($root . '/docs', 0755, TRUE);
+    file_put_contents($root . '/droost/droost-workflow/run.json', (string) json_encode([
+      'run_id' => 'r1',
+      'current_phase' => 'plan',
+      'phases' => ['plan' => 'active'],
+      'enforcement' => 'hard',
+      'spec_path' => 'docs/spec.md',
+    ]));
+
+    foreach ([
+      'a redirect into custom code' => 'echo x > modules/custom/acme/acme.module',
+      'the same after a cd' => 'cd modules/custom/acme && echo y > acme.module',
+      'a project file that is not the spec' => 'echo x > docs/other.md',
+      'an append' => 'echo x >> src/Money.php',
+    ] as $label => $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $label . ' is building, during plan');
+      $this->assertStringContainsString('PLAN', $stderr, 'and it says why');
+    }
+
+    // Plan's OWN artefacts, and everything that is not the project's code.
+    foreach ([
+      'the spec, where the run declared it' => 'echo x >> docs/spec.md',
+      'a spec in the state directory' => 'echo x > droost/droost-workflow/spec-a.md',
+      // The same write reached by moving first. Without cd tracking this
+      // resolves against the project root instead, where it is an ordinary
+      // project file and would be refused — so this case is what makes the
+      // tracking load-bearing rather than decorative.
+      'a spec written after a cd into the state directory' =>
+      'cd droost/droost-workflow && echo x > spec-b.md',
+      'a scratch file outside the project' => 'echo x > /tmp/droost-scratch.txt',
+      'reading' => 'cat src/Money.php',
+      'installing' => 'composer install',
+    ] as $label => $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $label . ' is not building: ' . $stderr);
+    }
+  }
+
+  /**
    * A NUL byte is refused rather than interpreted.
    *
    * It crashed the guard: `preg_match()` throws a ValueError on a NUL in PHP 8,

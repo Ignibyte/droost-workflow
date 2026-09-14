@@ -507,7 +507,12 @@ final class GuardTest extends WorkflowTestCase {
       'a file beside it that is not the spec' => $root . '/docs/other.md',
       'an ordinary project file' => $root . '/modules/custom/acme/acme.module',
       'a climb out of the exemption' => $root . '/droost/droost-workflow/../../modules/custom/acme/acme.module',
-      'the same segments somewhere else entirely' => '/tmp/droost/droost-workflow/../../etc/acme.module',
+      // A lookalike INSIDE the project: it carries the state directory's two
+      // segments and is not the state directory, so it must not be exempted
+      // by its spelling. (A path outside the project entirely is not the plan
+      // wall's business at all — building the project is what the wall is
+      // about, and `/tmp/scratch.txt` is not that.)
+      'the same segments somewhere else in the project' => $root . '/sub/droost/droost-workflow/acme.module',
       'a symlink out of the state directory' => $root . '/droost/droost-workflow/out/evil.php',
     ] as $label => $path) {
       [$exit] = $this->guard($root, 'pre-tool-use', ['tool_input' => ['file_path' => $path]]);

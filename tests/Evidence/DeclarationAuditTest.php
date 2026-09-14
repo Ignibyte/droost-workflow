@@ -544,4 +544,59 @@ final class DeclarationAuditTest extends TestCase {
     );
   }
 
+  /**
+   * A gate binary is exempt only if a package manager plausibly wrote it.
+   *
+   * THE EXEMPTION HAD NO TEST AT ALL. A reviewer mutated
+   * `packageManagerWrote()` to `return TRUE` — every rewritten gate binary
+   * exempt, which is the whole attack this rule exists to survive — and the
+   * entire suite stayed green. The commit that shipped it said "eleven
+   * mutations, eleven caught"; this was not one of them.
+   *
+   * And the rule was weak on its own terms. It searched the first 4KB for
+   * words a package manager tends to use, and a COMMENT carries words as well
+   * as code does:
+   *
+   *   "#!/bin/sh\nexit 0"                     -> creep, correctly
+   *   "#!/bin/sh\n# vendor/composer\nexit 0"   -> EXEMPT
+   *   "#!/bin/sh\nexit 0 # autoload.php"       -> EXEMPT
+   *
+   * One comment line stubbed all three gate binaries invisibly. What a real
+   * proxy DOES is execute a computed path, and a stub that runs nothing
+   * cannot fake that.
+   */
+  public function testGateBinariesNeedThePackageManagerToBeExempt(): void {
+    $root = sys_get_temp_dir() . '/droost-bin-' . bin2hex(random_bytes(6));
+    mkdir($root . '/vendor/bin', 0775, TRUE);
+
+    // Composer's real proxy, as this very repository's vendor/bin holds it.
+    $proxy = "#!/usr/bin/env php\n<?php\n"
+      . "\$GLOBALS['_composer_bin_dir'] = __DIR__;\n"
+      . "return include __DIR__ . '/..'.'/squizlabs/php_codesniffer/bin/phpcs';\n";
+
+    $cases = [
+      'a bare stub' => ["#!/bin/sh\nexit 0\n", ['vendor/bin/phpcs']],
+      'a stub whose COMMENT names composer' => ["#!/bin/sh\n# vendor/composer\nexit 0\n", ['vendor/bin/phpcs']],
+      'a stub whose comment names the autoloader' => ["#!/bin/sh\nexit 0 # autoload.php\n", ['vendor/bin/phpcs']],
+      'a stub whose comment names __DIR__' => ["#!/bin/sh\n# __DIR__ is fine\nexit 0\n", ['vendor/bin/phpcs']],
+      'composer\'s own proxy' => [$proxy, []],
+      'a proxy requiring the autoloader' => ["#!/usr/bin/env php\n<?php\nrequire __DIR__ . '/../autoload.php';\n", []],
+      'an npm shim' => ["#!/bin/sh\nbasedir=\$(dirname \"\$0\")\nexec node \"\$basedir/../x/bin/x\" \"\$@\"\n", []],
+    ];
+    foreach ($cases as $label => [$body, $expected]) {
+      file_put_contents($root . '/vendor/bin/phpcs', $body);
+      $audit = new DeclarationAudit(
+        ['src'],
+        [],
+        ['vendor/bin/phpcs', 'composer.lock'],
+        NULL,
+        [],
+        [],
+        $root,
+      );
+      $this->assertSame($expected, $audit->undeclared(), $label);
+    }
+    exec('rm -rf ' . escapeshellarg($root));
+  }
+
 }
