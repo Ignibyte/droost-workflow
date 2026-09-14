@@ -10,9 +10,15 @@ use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Cli\ArgvDispatcher;
+use Droost\Workflow\Evidence\CheckRecord;
+use Droost\Workflow\Evidence\CheckState;
+use Droost\Workflow\Evidence\EvidenceStore;
+use Droost\Workflow\Evidence\Fault;
 use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Gate\SiteDriverInterface;
+use Droost\Workflow\Mode\PendingQuestion;
 use Droost\Workflow\Mode\RunStateOnlySink;
+use Droost\Workflow\State\RunStateStore;
 use Droost\Workflow\State\StateError;
 use Droost\Workflow\WorkflowFacade;
 
@@ -417,6 +423,113 @@ class SurfaceParityTest extends WorkflowTestCase {
       unset($gate);
     }
     return $out;
+  }
+
+  /**
+   * An answer that did not move the phase is a non-zero exit, with the reason.
+   *
+   * `answer` chose its line from the phase alone, so when the facade declined
+   * to advance past a blocked check it printed `answered — now at plan`, exit
+   * 0 — byte for byte what an advance prints. A reviewer ran forty-three
+   * `answer`/`run` cycles that way and could not tell "advanced" from "still
+   * here" from the surface at all. stderr with a non-zero exit is this
+   * surface's whole contract, and a phase that did not move is not a success.
+   */
+  public function testTheCliReportsAnAnswerThatDidNotMoveThePhase(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: pair\n");
+    $out = [];
+    $err = [];
+    $dispatcher = new ArgvDispatcher(
+      function (string $line) use (&$out): void {
+        $out[] = $line;
+      },
+      function (string $line) use (&$err): void {
+        $err[] = $line;
+      },
+      static fn (): string => '2026-08-25T00:00:00+00:00',
+      static fn (): string => 'run-cli',
+      static fn (): string => '',
+    );
+    $this->assertSame(0, $dispatcher->dispatch(['run'], $root), 'pair mode pauses at plan');
+
+    // A blocked check this phase's own audit does not speak for — the shape a
+    // contributed plugin that threw leaves behind.
+    (new EvidenceStore($root))->record('run-cli', 'plan', new CheckRecord(
+      'check',
+      'contributed_checks',
+      CheckState::Blocked,
+      Fault::Environment,
+      'the provider threw',
+      'reinstall or remove the module that contributes it',
+    ));
+
+    $exit = $dispatcher->dispatch(['answer', 'keep going'], $root);
+
+    $this->assertSame(ArgvDispatcher::EXIT_RUN_FAILED, $exit, 'a phase that did not move is not exit 0');
+    $stderr = implode("\n", $err);
+    $this->assertStringContainsString('still at plan', $stderr, 'it says where the run still is');
+    $this->assertStringContainsString('contributed_checks', $stderr, 'and what holds it');
+    $this->assertStringContainsString('reinstall or remove', $stderr, 'and the remedy');
+    $this->assertNotContains('answered — now at plan', $out, 'and never the line an advance prints');
+  }
+
+  /**
+   * An answer that STOPPED the run is reported as the decision it was.
+   *
+   * The held-phase path reads the store for blocked rows, and a "stop here"
+   * leaves one behind (`stopped_by_operator`) — so unless the stop is decided
+   * FIRST, a human ending a stuck run is told "still at code, 1 check holds
+   * the phase" as though they had not just ended it. The one place the
+   * product asks somebody for a judgement has to report the judgement back.
+   */
+  public function testTheCliReportsAnAnswerThatStoppedTheRun(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\n");
+    $out = [];
+    $err = [];
+    $dispatcher = new ArgvDispatcher(
+      function (string $line) use (&$out): void {
+        $out[] = $line;
+      },
+      function (string $line) use (&$err): void {
+        $err[] = $line;
+      },
+      static fn (): string => '2026-08-25T00:00:00+00:00',
+      static fn (): string => 'run-cli',
+      static fn (): string => '',
+    );
+    $this->assertSame(0, $dispatcher->dispatch(['run'], $root), 'plan passes and the run moves on');
+
+    // The run in front of the block ceiling's question — the only question
+    // whose answer can end a run.
+    $store = new RunStateStore($root);
+    $state = $store->load();
+    $this->assertNotNull($state);
+    $phase = $state->currentPhase;
+    $this->assertNotNull($phase);
+    $store->save($state->awaiting((new PendingQuestion(
+      $phase,
+      'Is the work progressing, or is it stuck on something it cannot fix?',
+      $phase->value . ': 60 unresolved non-gate blocks',
+      '2026-08-25T00:00:00+00:00',
+      $phase->value . ' has not cleared a block in 60 attempts',
+      [],
+      ['keep going', 'stop here'],
+      PendingQuestion::KIND_STUCK,
+    ))->toArray()));
+
+    $exit = $dispatcher->dispatch(['answer', 'stop here — this is stuck and I will look at it'], $root);
+
+    $this->assertSame(ArgvDispatcher::EXIT_RUN_FAILED, $exit, 'a stopped run is not exit 0');
+    $this->assertStringContainsString(
+      'STOPPED at ' . $phase->value,
+      implode("\n", $out),
+      'it reports the decision that was made',
+    );
+    $this->assertStringNotContainsString(
+      'still at',
+      implode("\n", $err),
+      'and not as a phase merely held by the row the stop itself wrote',
+    );
   }
 
   /**

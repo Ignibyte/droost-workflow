@@ -701,7 +701,7 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     $this->assertStringContainsString('undeclared.php', $first['why'], 'it names the file');
     $this->assertIsString($first['guidance']);
     $this->assertStringContainsString(
-      'no waiver',
+      'Nothing on your side waives it',
       $first['guidance'],
       'and says what kind of problem it is: work to do, not setup to fix',
     );

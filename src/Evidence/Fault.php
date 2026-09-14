@@ -128,7 +128,11 @@ enum Fault: string {
   public function guidance(): string {
     return match ($this) {
       self::None => '',
-      self::Agent, self::Unknown => 'This is the work, not the setup: fix the cause and re-run. There is no waiver for it.',
+      // "Nothing on YOUR side": an operator can waive a failing GATE on the
+      // drush surface, and "there is no waiver for it" beside a run-level
+      // remedy offering exactly that read as the envelope contradicting
+      // itself. The claim that is true everywhere is about who holds the pen.
+      self::Agent, self::Unknown => 'This is the work, not the setup: fix the cause and re-run. Nothing on your side waives it.',
       self::Environment => 'This cannot be fixed from where you are. Show the OPERATOR the remedy below and ask them to run it in their terminal; do not run it yourself and do not retry around it.',
     };
   }

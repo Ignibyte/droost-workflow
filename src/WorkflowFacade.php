@@ -840,16 +840,28 @@ final class WorkflowFacade {
    * @param string $answer
    *   What the human said.
    *
-   * @return \Droost\Workflow\State\RunState
-   *   The run, no longer awaiting, already persisted.
+   * @return \Droost\Workflow\Mode\RunOutcome
+   *   What answering did — `Advanced`, `Completed`, `Failed` when the answer
+   *   ended the run, or `Blocked` with the rows that hold the phase. The run
+   *   inside is no longer awaiting and already persisted.
    *
    * @throws \Droost\Workflow\State\StateError
    *   When there is no run to answer.
    */
-  public function answer(string $projectRoot, string $answer): RunState {
+  public function answer(string $projectRoot, string $answer): RunOutcome {
     $store = new RunStateStore($projectRoot);
     $state = $this->requireRun($store);
     $answered = $this->engine()->answer($state, $answer, $this->now(), $projectRoot);
+    // A "stop here" to the stuck question FAILED the phase in the engine. That
+    // is a human's decision about the run and it is returned as one, before
+    // the held-check path below can mistake its own `stopped_by_operator` row
+    // for an ordinary block.
+    $stoppedAt = $answered->currentPhase;
+    if ($stoppedAt !== NULL && $answered->statusOf($stoppedAt) === PhaseStatus::Failed) {
+      $store->save($answered);
+
+      return new RunOutcome(Outcome::Failed, $answered);
+    }
     // A pause exists for exactly one reason: the current phase passed its
     // gates and pair mode asked its check-in question. The answer IS that
     // check-in, so answering moves the run on — to the next phase, or, at the
@@ -905,9 +917,25 @@ final class WorkflowFacade {
         // A declaration block is a correctable condition: declare the file, or
         // stop touching it, and answer again. Leaving the phase ACTIVE is what
         // makes that possible, and the blocked rows are already recorded.
+        //
+        // AND IT SAYS SO. The rows were computed one line up and thrown away,
+        // and the CLI chose its line from the phase alone — so a held answer
+        // printed `answered — now at plan`, exit 0, byte for byte what an
+        // advance prints. A reviewer drove forty-three `answer`/`run` cycles
+        // that way, every one exit 0, every one saying the same thing, and
+        // could not tell "advanced" from "still here" from the surface at
+        // all. The phase not moving IS the outcome, so it is returned as one,
+        // with what holds it — the same envelope `run()` returns for the same
+        // condition.
         $store->save($answered);
 
-        return $answered;
+        return new RunOutcome(
+          Outcome::Blocked,
+          $answered,
+          NULL,
+          NULL,
+          self::blockingRows($answered, $phase, $projectRoot),
+        );
       }
       $next = $this->nextPhase($answered, $phase);
       $answered = $next === NULL
@@ -921,7 +949,11 @@ final class WorkflowFacade {
     if ($phase !== NULL) {
       $this->announceAdvanceOrComplete($phase, $answered);
     }
-    return $answered;
+
+    return new RunOutcome(
+      $answered->currentPhase === NULL ? Outcome::Completed : Outcome::Advanced,
+      $answered,
+    );
   }
 
   /**
@@ -1597,11 +1629,20 @@ final class WorkflowFacade {
       'check' => 'run',
       'fault' => Fault::None->value,
       'why' => sprintf('the %s phase spent its retry budget; this run is over', $phase->value),
+      // THE VERB IS NAMED, AND SO IS THE SURFACE IT LIVES ON. This said "the
+      // OPERATOR can waive them" beside a gate whose own guidance said "there
+      // is no waiver" — one envelope, two answers — and a reviewer then ran
+      // `droost-workflow gate-waive phpstan` and got `unknown command`. The
+      // waiver exists, on the drush surface; the standalone binary has none,
+      // and a remedy that offers one there is a remedy nobody can follow.
       'remedy' => 'Read the full report with `droost-workflow status` or '
       . '`droost-workflow evidence`, then clear the run with '
       . '`droost-workflow reset` and begin the next one. If every gate that '
       . 'killed the phase has been answered for, the OPERATOR can waive them '
-      . 'instead and the phase reopens.',
+      . 'with `drush droost:workflow:gate-waive <gate> "<reason>"` and the '
+      . 'phase reopens — that verb exists on the drush surface only; the '
+      . 'standalone `droost-workflow` binary has no waiver, and there `reset` '
+      . 'is the exit.',
       'guidance' => '',
     ];
 

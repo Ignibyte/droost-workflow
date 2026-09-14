@@ -296,7 +296,7 @@ final class WorkflowFacadeEventsTest extends WorkflowTestCase {
       if ($outcome->outcome !== Outcome::Paused) {
         break;
       }
-      $answered = $this->facade($executor, $listener)->answer($root, 'continue');
+      $answered = $this->facade($executor, $listener)->answer($root, 'continue')->state;
       if ($answered->currentPhase === NULL) {
         break;
       }

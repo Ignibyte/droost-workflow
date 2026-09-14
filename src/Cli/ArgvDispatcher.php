@@ -16,7 +16,6 @@ use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Pack\PackError;
 use Droost\Workflow\Seeker\SeekerError;
-use Droost\Workflow\State\PhaseStatus;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\Spec\SpecError;
 use Droost\Workflow\State\StateError;
@@ -532,7 +531,8 @@ final class ArgvDispatcher {
       $this->fail('answer needs the answer: droost-workflow answer "yes"');
       return self::EXIT_USAGE;
     }
-    $state = $this->facade($projectRoot)->answer($projectRoot, $text);
+    $outcome = $this->facade($projectRoot)->answer($projectRoot, $text);
+    $phase = $outcome->state->currentPhase;
     // Answering IS the check-in the pause was for, so the run moved on;
     // say where it now stands rather than a bare acknowledgment.
     //
@@ -541,10 +541,7 @@ final class ArgvDispatcher {
     // code`, which reads as "carry on". The one place the product asks somebody
     // for a judgement then reported their judgement back as though it had not
     // been made.
-    $phase = $state->currentPhase;
-    $stopped = $phase !== NULL
-      && ($state->phases[$phase->value] ?? NULL) === PhaseStatus::Failed;
-    if ($stopped) {
+    if ($outcome->outcome === Outcome::Failed && $phase !== NULL) {
       $this->say(sprintf(
         'answered — the run is STOPPED at %s on your word, not on a gate. '
         . 'Nothing further will advance it. `droost-workflow evidence` renders '
@@ -552,6 +549,38 @@ final class ArgvDispatcher {
         . 'once you know what made it stick.',
         $phase->value,
       ));
+
+      return self::EXIT_RUN_FAILED;
+    }
+    // OR DID NOT MOVE IT. The facade declined to advance because a check is
+    // still blocked, and this line was chosen from the phase alone — so it
+    // said `answered — now at plan`, exit 0, exactly what an advance says. An
+    // agent cannot tell "advanced" from "still here" from that, and one ran
+    // forty-three identical cycles trying. A held phase is a non-zero exit
+    // with the reason on stderr, which is this surface's whole contract.
+    if ($outcome->outcome === Outcome::Blocked && $phase !== NULL) {
+      $held = count($outcome->blocked);
+      $this->fail(sprintf(
+        'answered — still at %s. %d check%s hold%s the phase, and an answer '
+        . 'does not change what a check found:',
+        $phase->value,
+        $held,
+        $held === 1 ? '' : 's',
+        $held === 1 ? 's' : '',
+      ));
+      foreach ($outcome->blocked as $row) {
+        $this->fail(sprintf(
+          '  %s [%s]: %s%s',
+          $row['check'],
+          $row['fault'],
+          $row['why'],
+          $row['remedy'] !== '' ? ' — ' . $row['remedy'] : '',
+        ));
+      }
+      $this->fail(
+        'Clear what they name and answer again, or `answer "stop here"` to end '
+        . 'the run on your word. `droost-workflow evidence` renders every row.',
+      );
 
       return self::EXIT_RUN_FAILED;
     }

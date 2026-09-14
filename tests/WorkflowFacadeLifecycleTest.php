@@ -49,7 +49,9 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
     $this->assertSame(Phase::Plan, $paused->state->currentPhase);
 
     // The answer IS the check-in: the run moves to code.
-    $answered = $this->facade($executor)->answer($root, 'yes, continue');
+    $outcome = $this->facade($executor)->answer($root, 'yes, continue');
+    $this->assertSame(Outcome::Advanced, $outcome->outcome, 'and says that it moved');
+    $answered = $outcome->state;
     $this->assertSame(Phase::Code, $answered->currentPhase);
     $this->assertSame(PhaseStatus::Passed, $answered->statusOf(Phase::Plan));
     $this->assertNull($answered->awaiting, 'the pause is consumed');
@@ -232,12 +234,22 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
       'reinstall or remove the module that contributes it',
     ), '2026-09-14T00:00:00+00:00');
 
-    $answered = $facade->answer($root, 'keep going');
+    $outcome = $facade->answer($root, 'keep going');
+    $answered = $outcome->state;
 
     $this->assertSame(
       $phase,
       $answered->currentPhase,
       'the phase does not advance while a check is still blocked',
+    );
+    // AND THE SURFACE IS TOLD. This returned the unchanged state and nothing
+    // else, and the CLI printed `answered — now at <phase>`, exit 0 — the
+    // same line as an advance. A reviewer ran forty-three cycles of that.
+    $this->assertSame(Outcome::Blocked, $outcome->outcome, 'a held phase is a held outcome');
+    $this->assertSame(
+      ['contributed_checks'],
+      array_column($outcome->blocked, 'check'),
+      'naming what holds it, so the caller can act rather than guess',
     );
     $this->assertNotSame(
       PhaseStatus::Passed,
