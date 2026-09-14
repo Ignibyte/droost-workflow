@@ -118,8 +118,10 @@ enum WorkType: string {
    * The changed files that make this declaration false.
    *
    * A declaration is false when the diff holds work the type cannot be true
-   * alongside — not merely work the type did not predict. One stray file is
-   * never a lie, and a type with no contradictions can never tell one.
+   * alongside — not merely work the type did not predict. One stray file
+   * among others is never a lie, and a type with no contradictions can never
+   * tell one. (One file that is the WHOLE diff is not stray — the audit
+   * judges that proportion, not this method.)
    *
    * @param list<string> $changed
    *   Project-relative changed paths, already filtered of the run's own record.

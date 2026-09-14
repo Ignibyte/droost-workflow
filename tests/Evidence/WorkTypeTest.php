@@ -88,6 +88,41 @@ final class WorkTypeTest extends TestCase {
   }
 
   /**
+   * One file that is the WHOLE diff is not a stray file.
+   *
+   * The proportion rule required more than one contradicting file, so a run
+   * blocked on `type_coverage` could re-declare its single changed `.module`
+   * as `docs` and advance past phpcs and phpstan with `work_type` reporting
+   * "the diff matches" — and, since the un-asked check is retired to
+   * `not_applicable`, no tell left in the record. A reviewer drove exactly
+   * that. "One stray file is never a lie" is about a file among others.
+   */
+  public function testTheWholeDiffContradictingIsNotStray(): void {
+    $audit = new DeclarationAudit(
+      ['web/modules/custom/demo'],
+      [],
+      ['web/modules/custom/demo/demo.module'],
+      WorkType::Docs,
+      [],
+    );
+
+    $check = $this->check($audit, 'work_type');
+    $this->assertSame(CheckState::Blocked, $check->state, 'PHP declared as documentation, and nothing else in the diff');
+    $this->assertSame(Fault::Agent, $check->fault);
+    $this->assertStringContainsString('1 of 1 changed file(s) contradict it', (string) $check->summary);
+
+    // Two files, both PHP, declared docs: the same lie, twice.
+    $both = new DeclarationAudit(
+      ['web/modules/custom/demo'],
+      [],
+      ['web/modules/custom/demo/demo.module', 'web/modules/custom/demo/demo.install'],
+      WorkType::Docs,
+      [],
+    );
+    $this->assertSame(CheckState::Blocked, $this->check($both, 'work_type')->state);
+  }
+
+  /**
    * One stray file is not a false declaration.
    *
    * A content-model ticket that also touches a `.theme` to register its display

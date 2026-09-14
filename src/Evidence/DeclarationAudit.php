@@ -379,9 +379,16 @@ final class DeclarationAudit {
       ));
       $unexpected = $this->workType->contradictedBy($subject);
       // Contradiction, not a census — and still proportional, because one file
-      // that happens to match is not the shape of a false declaration.
+      // that happens to match AMONG OTHERS is not the shape of a false
+      // declaration. When the one file IS the whole diff it is not stray, and
+      // the proportion rule was the escape: blocked on `type_coverage`,
+      // re-declare the single changed `.module` as `docs`, and the run
+      // advanced past phpcs and phpstan with `work_type` reporting "the diff
+      // matches" — leaving, since 1f1ea48 retires the un-asked check to
+      // `not_applicable`, no tell in the record at all.
       $total = max(count($subject), 1);
-      $adrift = count($unexpected) / $total > 0.5 && count($unexpected) > 1;
+      $adrift = $unexpected !== []
+        && ((count($unexpected) / $total > 0.5 && count($unexpected) > 1) || count($unexpected) === count($subject));
       $checks[] = new CheckRecord(
         'declaration',
         'work_type',

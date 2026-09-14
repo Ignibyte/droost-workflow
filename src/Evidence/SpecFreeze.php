@@ -138,7 +138,23 @@ final class SpecFreeze {
     foreach ([self::GROUNDING, self::CRITERIA] as $heading) {
       $lost = self::lostRows($text, $frozenText, $heading);
       if ($lost !== []) {
-        $breaches[] = sprintf('%s (%d row(s) removed or rewritten)', $heading, count($lost));
+        // NAME THE ROWS. "3 row(s) removed or rewritten" sent a reviewer
+        // round a loop: refused at complete for a missing `Verified By`
+        // column, refused again for adding it, and back — three attempts
+        // before finding that a cell OTHER than the one they were adding had
+        // moved. The frozen text of what went missing is the only thing that
+        // lets somebody diff their edit against the promise.
+        $named = array_map(
+          static fn (string $row): string => '"' . mb_strimwidth($row, 0, 90, '…') . '"',
+          array_slice($lost, 0, 3),
+        );
+        $breaches[] = sprintf(
+          '%s (%d row(s) removed or rewritten; frozen as %s%s)',
+          $heading,
+          count($lost),
+          implode(', ', $named),
+          count($lost) > 3 ? sprintf(', and %d more', count($lost) - 3) : '',
+        );
       }
     }
 

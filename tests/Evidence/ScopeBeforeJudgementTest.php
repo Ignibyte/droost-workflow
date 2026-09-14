@@ -356,10 +356,25 @@ final class ScopeBeforeJudgementTest extends WorkflowTestCase {
     $facade->declareChanges($root, ['src/Declared.php'], [], 'docs');
     $after = $facade->run($root, $spec);
 
-    $this->assertSame(
-      [],
+    $unresolved = array_column(
       (new EvidenceStore($root))->unresolved($after->state->runId, 'code'),
+      'name',
+    );
+    $this->assertNotContains(
+      'type_coverage',
+      $unresolved,
       'the record agrees with the engine: a check nobody asks holds nothing',
+    );
+    // AND THE RE-DECLARATION IS JUDGED. This fixture is shaped exactly like
+    // the escape a reviewer drove — blocked on type_coverage, re-declare the
+    // single changed PHP file as documentation, advance past phpcs and
+    // phpstan with a clean record. One PHP file that IS the whole diff is not
+    // a stray file, and "docs" is a lie about it; the lie is what holds the
+    // run now, by name, rather than nothing at all.
+    $this->assertSame(
+      ['work_type'],
+      $unresolved,
+      'the false declaration itself blocks, and it is the only thing that does',
     );
   }
 

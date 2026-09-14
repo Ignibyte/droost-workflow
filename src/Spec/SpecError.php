@@ -212,7 +212,7 @@ final class SpecError extends \RuntimeException {
       $diagnosis = sprintf('%s name no test, and the rest are empty', implode(', ', $unnamed));
     }
     return new self(sprintf(
-      '%s: %d acceptance criteri%s without a "%s" entry (%s) — %s. Fill it at the test phase with a reference to the test that proves each row — a PHPUnit method or class (`FooTest::testBar`, `FooTest`), or a test file (`tests/e2e/rink.spec.ts`, `features/login.feature`) — or `manual — <reason>` for a criterion no test can prove; the report prints manual as manual, never as passed. The cell has to POINT at something a reader can open, so prose describing what was checked does not fill it. Then re-run.',
+      '%s: %d acceptance criteri%s without a "%s" entry (%s) — %s. Fill it now (the test phase is where it belongs, and the cell is the ONE cell of a frozen row you may write): a reference to the test that proves each row — a PHPUnit method or class (`FooTest::testBar`, `FooTest`), or a test file (`tests/e2e/rink.spec.ts`, `features/login.feature`) — or `manual — <reason>` for a criterion no test can prove; the report prints manual as manual, never as passed. The cell has to POINT at something a reader can open, so prose describing what was checked does not fill it. If the table has no such column, APPEND one — a new header cell and one new cell per row — and leave every other header and cell exactly as it is: the plan froze those, and rewriting or reordering them while adding the column is refused as a change to the contract. Then re-run.',
       $path,
       count($ids),
       count($ids) === 1 ? 'on' : 'a',
@@ -248,7 +248,11 @@ final class SpecError extends \RuntimeException {
       . 'was there at plan being REMOVED or REWRITTEN, because the gates after '
       . 'plan are graded against what was promised, not against what the file '
       . 'says once the work turned out to be harder. Put the original rows '
-      . 'back, or reset the run and plan again with the contract you mean.',
+      . 'back, or reset the run and plan again with the contract you mean. '
+      . 'Adding a COLUMN is not a change to a row — only the cells that were '
+      . 'there are compared, and the "Verified By" cell is never compared — so '
+      . 'if you were adding one, some OTHER cell moved: diff the rows named '
+      . 'above against the frozen text.',
       $path,
       $sections === [] ? '' : ' — changed: ' . implode(', ', $sections),
     ));

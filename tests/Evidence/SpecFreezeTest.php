@@ -118,9 +118,13 @@ final class SpecFreezeTest extends TestCase {
   public function testRewritingCriterionIsCaught(): void {
     $tampered = str_replace('the page renders', 'the module exists', $this->spec());
 
-    $this->assertSame(
-      ['## Acceptance criteria (1 row(s) removed or rewritten)'],
-      SpecFreeze::breaches($tampered, $this->spec()),
+    $breaches = SpecFreeze::breaches($tampered, $this->spec());
+    $this->assertCount(1, $breaches);
+    // NAMED, as frozen. "1 row(s) removed or rewritten" sent a reviewer round
+    // a three-attempt loop before they found which cell had moved.
+    $this->assertStringStartsWith(
+      '## Acceptance criteria (1 row(s) removed or rewritten; frozen as "AC1|the page renders',
+      $breaches[0],
     );
   }
 
@@ -132,9 +136,11 @@ final class SpecFreezeTest extends TestCase {
     $tampered = str_replace('| AC1 | the page renders | curl /rinks | |', '', $this->spec());
 
     $this->assertNotSame($this->spec(), $tampered, 'the fixture really did delete it');
-    $this->assertSame(
-      ['## Acceptance criteria (1 row(s) removed or rewritten)'],
-      SpecFreeze::breaches($tampered, $this->spec()),
+    $breaches = SpecFreeze::breaches($tampered, $this->spec());
+    $this->assertCount(1, $breaches);
+    $this->assertStringStartsWith(
+      '## Acceptance criteria (1 row(s) removed or rewritten; frozen as "AC1|the page renders',
+      $breaches[0],
     );
   }
 
