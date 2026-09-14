@@ -140,16 +140,30 @@ final class EvidenceStore {
     // WAL so a reader — the guard hook fires on every edit — never blocks the
     // writer, and NORMAL because losing the last row to a power cut costs a
     // re-run of one gate, while fsync on every insert costs every gate.
-    $pdo->exec('PRAGMA journal_mode = WAL');
-    $pdo->exec('PRAGMA synchronous = NORMAL');
-    $pdo->exec('PRAGMA foreign_keys = ON');
-    // SQLite allows one writer, and droost has several: the gate pipeline, the
-    // grounding resolver, the declaration audit, and the Stop hook's own
-    // connection. Without a timeout a contending write throws "database is
-    // locked" immediately — and every call site swallows it, which made a
-    // locked database a silent PASS for the declaration audit. Five seconds is
-    // far longer than any write here takes and far shorter than a person waits.
-    $pdo->exec('PRAGMA busy_timeout = 5000');
+    //
+    // EVERY PRAGMA INSIDE THE TRY, because only `new \PDO` was. SQLite
+    // defers opening the file until the first statement, so on a read-only
+    // store — a restored backup, a tightened permission, a read-only mount
+    // — the constructor succeeded and `PRAGMA journal_mode = WAL` threw a
+    // raw PDOException carrying "SQLSTATE[HY000] … attempt to write a
+    // readonly database". The docblock promises an EvidenceError naming the
+    // path and the reason; a reader got a SQLSTATE instead.
+    try {
+      $pdo->exec('PRAGMA journal_mode = WAL');
+      $pdo->exec('PRAGMA synchronous = NORMAL');
+      $pdo->exec('PRAGMA foreign_keys = ON');
+      // SQLite allows one writer, and droost has several: the gate
+      // pipeline, the grounding resolver, the declaration audit, and the
+      // Stop hook's own connection. Without a timeout a contending write
+      // throws "database is locked" immediately — and every call site
+      // swallows it, which made a locked database a silent PASS for the
+      // declaration audit. Five seconds is far longer than any write here
+      // takes and far shorter than a person waits.
+      $pdo->exec('PRAGMA busy_timeout = 5000');
+    }
+    catch (\PDOException $e) {
+      throw EvidenceError::unwritable($path, $e->getMessage());
+    }
     $this->pdo = $pdo;
     $this->migrate($pdo);
 
@@ -670,6 +684,39 @@ final class EvidenceStore {
       $this->checklist($runId, $phase),
       static fn (array $row): bool => (CheckState::tryFrom(self::text($row, 'state')) ?? CheckState::Pending)->blocksAdvance(),
     ));
+  }
+
+  /**
+   * Folds the write-ahead log back into the database file.
+   *
+   * A PLAIN `cp` OF THE STORE LOSES COMMITTED VERDICTS, SILENTLY, and the
+   * short copy verifies CLEAN. WAL plus `synchronous = NORMAL` means
+   * everything since the last checkpoint lives in `evidence.sqlite-wal`, so
+   * anything that collects the file without its sidecars — cp, tar, a backup,
+   * a bundle collector — takes a prefix of the record. A reviewer measured
+   * 9,762 rows in the copy against 9,903 in the original: 141 verdicts gone,
+   * both files self-consistent, no banner, no tell, because the rows and the
+   * chain head come from the same checkpoint boundary.
+   *
+   * That is the accident case the chain claims to catch ("what the chain
+   * catches is accident, corruption and casual editing"), and it does not.
+   * It matters here because droost's own eval harness collects bundles with
+   * `cp -Rp`.
+   *
+   * Called at a PHASE boundary, not per row: checkpointing every insert would
+   * undo the reason `synchronous = NORMAL` is set, and the window it leaves —
+   * a copy taken mid-phase — is one gate's worth rather than a run's. Best
+   * effort: a checkpoint that cannot run is not a reason to fail a phase whose
+   * gates have already passed.
+   */
+  public function checkpoint(): void {
+    try {
+      $this->connection()->exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    }
+    catch (\Throwable) {
+      // A contended or read-only store keeps its sidecars; nothing here
+      // depends on the fold having happened.
+    }
   }
 
   /**

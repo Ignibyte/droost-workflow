@@ -243,4 +243,57 @@ final class ScopeBeforeJudgementTest extends WorkflowTestCase {
     );
   }
 
+  /**
+   * The phase write folds the log; nothing else is positioned to.
+   *
+   * `EvidenceStore::checkpoint()` exists so that a plain `cp` of
+   * `evidence.sqlite` carries the whole record rather than a prefix — a
+   * reviewer measured 141 verdicts lost that way, both files self-consistent,
+   * no banner and no tell, and droost's own eval harness collects bundles
+   * with `cp -Rp`. The behaviour is pinned in
+   * `TamperEvidenceTest::testPlainCopiesOfTheStoreHoldTheWholeRecord`.
+   *
+   * What THIS pins is the wiring, and it does so by reading the source
+   * because behaviour cannot reach it: SQLite auto-checkpoints at a thousand
+   * pages, so a run small enough to drive in a test leaves an empty log
+   * whether or not anything asked for one. A test that drove a real run and
+   * asserted an empty log passed with the call deleted — measured, not
+   * assumed.
+   *
+   * A source assertion is the weaker kind and it is the honest one here: it
+   * catches the call being removed, which is the regression that matters,
+   * and it does not pretend to have observed anything it did not.
+   */
+  public function testThePhaseWriteIsWhatFoldsTheLog(): void {
+    $recorder = (string) file_get_contents(
+      dirname(__DIR__, 2) . '/src/Evidence/EvidenceRecorder.php',
+    );
+    $body = strstr($recorder, 'public function recordPhase(');
+    $this->assertIsString($body, 'the recorder still writes a phase');
+    $end = strpos($body, "\n  }\n");
+    $this->assertIsInt($end, 'the method has a closing brace');
+
+    $this->assertStringContainsString(
+      '$store->checkpoint();',
+      substr($body, 0, $end),
+      'the phase boundary is where the log is folded — per row would undo '
+      . 'the reason synchronous is NORMAL, and never leaves a copy whole',
+    );
+
+    // And a real run does in fact leave nothing behind, which is the
+    // observable half even though it cannot distinguish the fix.
+    [$root, $spec] = $this->project();
+    $facade = $this->facadeSeeing(['src/Declared.php']);
+    $facade->run($root, $spec);
+    $facade->declareChanges($root, ['src/Declared.php'], [], 'code');
+    $facade->run($root, $spec);
+
+    $wal = $root . '/droost/droost-workflow/evidence.sqlite-wal';
+    clearstatcache();
+    $this->assertTrue(
+      !file_exists($wal) || filesize($wal) === 0,
+      'a copy of the file after a run is the record',
+    );
+  }
+
 }

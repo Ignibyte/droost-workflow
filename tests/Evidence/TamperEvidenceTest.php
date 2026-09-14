@@ -7,6 +7,7 @@ namespace Droost\Workflow\Tests\Evidence;
 use Droost\Workflow\Evidence\CheckRecord;
 use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\Evidence\EvaluationReport;
+use Droost\Workflow\Evidence\EvidenceError;
 use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Evidence\Fault;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -569,6 +570,103 @@ final class TamperEvidenceTest extends TestCase {
       $forged,
       'naming how much of the record it covers',
     );
+  }
+
+  /**
+   * A plain copy of the store carries the whole record.
+   *
+   * WAL plus `synchronous = NORMAL` means everything since the last
+   * checkpoint lives in `evidence.sqlite-wal`, so anything that collects the
+   * file without its sidecars — cp, tar, a backup, a bundle collector — takes
+   * a PREFIX of the record and the short copy verifies CLEAN. A reviewer
+   * measured 9,762 rows in the copy against 9,903 in the original: 141
+   * verdicts gone, both files self-consistent, no banner and no tell, because
+   * the rows and the chain head come from the same checkpoint boundary.
+   *
+   * That is the accident case the chain's own prose claims to catch — "what
+   * the chain catches is accident, corruption and casual editing" — and it
+   * did not. It matters here because droost's own eval harness collects
+   * bundles with `cp -Rp`.
+   *
+   * The fold happens at a PHASE boundary rather than per row: checkpointing
+   * every insert would undo the reason `synchronous = NORMAL` is set, and the
+   * window that leaves is one gate's worth rather than a run's.
+   */
+  public function testPlainCopiesOfTheStoreHoldTheWholeRecord(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'low']);
+    for ($i = 0; $i < 120; $i++) {
+      $store->record('r1', 'code', new CheckRecord(
+        kind: 'gate',
+        name: 'gate_' . $i,
+        state: CheckState::Satisfied,
+        summary: 'x',
+        exitCode: 0,
+        measured: TRUE,
+      ));
+    }
+    $database = $this->root . '/droost/droost-workflow/evidence.sqlite';
+    $this->assertFileExists($database);
+
+    $store->checkpoint();
+    clearstatcache();
+
+    // Copy ONLY the database, which is what every collector that does not
+    // know about SQLite's sidecars does.
+    $copy = $this->root . '/copy';
+    mkdir($copy . '/droost/droost-workflow', 0775, TRUE);
+    copy($database, $copy . '/droost/droost-workflow/evidence.sqlite');
+
+    $query = (new \PDO('sqlite:' . $copy . '/droost/droost-workflow/evidence.sqlite'))
+      ->query('SELECT COUNT(*) FROM check_result');
+    $this->assertNotFalse($query, 'the copy is a readable database');
+    $counted = $query->fetchColumn();
+
+    $this->assertSame(
+      120,
+      (int) $counted,
+      'the copy holds every verdict, not the ones that happened to be folded in',
+    );
+    $this->assertNull(
+      (new EvidenceStore($copy))->integrity('r1'),
+      'and it verifies, because it is the whole chain rather than a prefix',
+    );
+  }
+
+  /**
+   * A store that cannot be written says so in droost's own words.
+   *
+   * Only `new \PDO` was inside the try, and SQLite defers opening the file
+   * until the first statement — so on a read-only store the constructor
+   * succeeded and `PRAGMA journal_mode = WAL` threw a raw PDOException
+   * carrying "SQLSTATE[HY000] … attempt to write a readonly database". The
+   * docblock promises an EvidenceError naming the path and the reason.
+   */
+  public function testAnUnwritableStoreThrowsTheDocumentedError(): void {
+    $locked = $this->root . '/locked';
+    mkdir($locked . '/droost/droost-workflow', 0775, TRUE);
+    $database = $locked . '/droost/droost-workflow/evidence.sqlite';
+    // A real SQLite file, then made unwritable along with its directory so
+    // SQLite cannot create the sidecars either.
+    (new \PDO('sqlite:' . $database))->exec('CREATE TABLE x (id INTEGER)');
+    chmod($database, 0444);
+    chmod($locked . '/droost/droost-workflow', 0555);
+
+    try {
+      (new EvidenceStore($locked))->upsertRun('r1', ['preset' => 'low']);
+      $this->markTestSkipped('this filesystem let the write through anyway');
+    }
+    catch (EvidenceError $error) {
+      $this->assertStringContainsString(
+        'evidence.sqlite',
+        $error->getMessage(),
+        'the error names the path, which a bare SQLSTATE does not',
+      );
+    }
+    finally {
+      chmod($locked . '/droost/droost-workflow', 0775);
+      chmod($database, 0644);
+    }
   }
 
 }

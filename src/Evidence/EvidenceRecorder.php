@@ -70,6 +70,9 @@ final class EvidenceRecorder {
           $now,
         );
       }
+      // The phase is written; fold the log back into the file so a copy taken
+      // between phases is the whole record. See EvidenceStore::checkpoint().
+      $store->checkpoint();
     }
     catch (\Throwable $e) {
       // Deliberately broad. PDO throws PDOException, the store throws
