@@ -92,7 +92,11 @@ final class BaselineWriter {
         $skipped[$gate] = 'tool missing, no suite config, or nothing to analyse';
         continue;
       }
-      if (ShellGateExecutor::toolFailedToRun($gate, $run['exit'])) {
+      if (ShellGateExecutor::toolFailedToRun(
+        $gate,
+        $run['exit'],
+        is_string($run['stdout'] ?? NULL) ? $run['stdout'] : '',
+      )) {
         // A crash is not zero findings. Recorded as zero, the baseline would
         // claim a clean bill for a tool that never read a file, and the
         // tool's first real run would then fail on debt the record says does

@@ -278,6 +278,23 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     // NULL when the gate carries no paths lever (the tool discovers the
     // repo's own config); a list otherwise — possibly empty, see below.
     $scoped = $this->scopedPaths($gate, $root);
+    if (is_array($scoped) && $scoped !== []) {
+      // REPLACES the default subject, which is what the comment beside the
+      // `.` in `argvFor()` has always claimed and what `array_merge` never
+      // did. The observed command was:
+      //
+      //   phpcs -q --report=json . --standard=PSR12 … src tests
+      //
+      // — the whole project AND the scope, so the lever an operator sets to
+      // narrow a gate widened it instead. 935 violations came back, 876 of
+      // them in `.claude/hooks/droost-workflow-guard.php`, a file `init` had
+      // installed; the run failed terminally, and the obvious next step
+      // (phpcbf on what was reported) would have rewritten droost's own hook.
+      $argv = array_values(array_filter(
+        $argv,
+        static fn (string $argument): bool => $argument !== '.',
+      ));
+    }
     if (is_array($scoped)) {
       // The front-end trio lint the files they are handed; a bare directory
       // makes them parse everything under it as their own language. Expand a
@@ -415,7 +432,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       );
     }
 
-    if (self::toolFailedToRun($gate->name, $exit)) {
+    if (self::toolFailedToRun($gate->name, $exit, $stdout, $stderr)) {
       // The tool itself broke — a config it could not load, a crash before
       // it read a file. Not a verdict on the code: a failing lint names
       // files, a crash names the environment. Reported as such, with the
@@ -508,7 +525,10 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       return GateResult::skippedNoSite($gate->name);
     }
 
-    if ($gate->name === 'phpcs' && $exit === 16) {
+    // Phpcs handed nothing to check. BEFORE the baseline partition, because
+    // `againstBaseline()` renders it as "passed — 0 new, 0 inherited", the most
+    // reassuring sentence in the report, about a scan that read no files.
+    if ($gate->name === 'phpcs' && $exit === 16 && self::foundNothingToCheck($stdout . $stderr)) {
       return GateResult::labelledPass(
         $gate->name,
         $exit,
@@ -1346,17 +1366,92 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   The gate name.
    * @param int $exit
    *   The tool's exit code.
+   * @param string $stdout
+   *   What the tool wrote to stdout, for a tool whose exit codes moved between
+   *   majors and whose output says what it actually did.
+   * @param string $stderr
+   *   What it wrote to stderr.
    *
    * @return bool
    *   TRUE when the tool did not get as far as judging anything.
    */
-  public static function toolFailedToRun(string $gate, int $exit): bool {
+  public static function toolFailedToRun(
+    string $gate,
+    int $exit,
+    string $stdout = '',
+    string $stderr = '',
+  ): bool {
     return match ($gate) {
       'eslint', 'prettier' => $exit === 2,
       'stylelint' => in_array($exit, [1, 64, 78], TRUE),
-      'phpcs' => $exit === 3,
+      // PHP_CodeSniffer 4 RENUMBERED THESE. Its ExitCode class is OKAY 0,
+      // FIXABLE 1, NON_FIXABLE 2, FAILED_TO_FIX 4, PROCESS_ERROR 16 — so 3 is
+      // `1|2`, the commonest possible result: ordinary violations, some of
+      // them fixable. Under phpcs 3, 3 was the processing error.
+      //
+      // Reading 3 as "could not run" inverted the gate on phpcs 4 in both
+      // directions at once. A run with 935 real violations was reported as a
+      // broken environment and skipped the feedback loop entirely; exit 16 —
+      // the real config error, `the "Drupal" coding standard is not installed`
+      // — was recorded as a labelled PASS on a mandatory gate.
+      //
+      // Rather than sniff the version, ask what the tool produced: a phpcs
+      // that judged anything emits a JSON report, on either major, and a
+      // processing error emits a message. 16 is a process error on both.
+      // Exit 16 is PHP_CodeSniffer 4's PROCESS_ERROR, and it covers two very
+      // different things: "you gave me nothing to check" and "the Drupal
+      // coding standard is not installed". The whole of 16 was read as the
+      // first — a labelled pass — so a broken ruleset came back as a PASS on a
+      // mandatory gate. phpcs says which it means, so this asks.
+      'phpcs' => ($exit === 16 && !self::foundNothingToCheck($stdout . $stderr))
+        || ($exit === 3 && !self::reportWasProduced($stdout)),
       default => FALSE,
     };
+  }
+
+  /**
+   * Whether phpcs is saying it was handed nothing, rather than that it broke.
+   *
+   * Both are exit 16 on PHP_CodeSniffer 4, and they mean opposite things: one
+   * is a scan of nothing (a labelled pass, honestly recorded as measuring
+   * nothing), the other is a configuration the tool could not load (a gate
+   * that did not run). phpcs distinguishes them in its message and nowhere
+   * else.
+   *
+   * @param string $output
+   *   The tool's combined output.
+   *
+   * @return bool
+   *   TRUE when it found nothing to check.
+   */
+  public static function foundNothingToCheck(string $output): bool {
+    return preg_match(
+      '/no files were checked|must supply at least one file|nothing to check/i',
+      $output,
+    ) === 1;
+  }
+
+  /**
+   * Whether a tool's stdout carries a report it produced.
+   *
+   * The difference between "I ran and found problems" and "I could not run",
+   * for a tool whose exit codes moved between majors. A parseable report means
+   * it got as far as judging something, and that is true of every version.
+   *
+   * @param string $stdout
+   *   What the tool wrote.
+   *
+   * @return bool
+   *   TRUE when a report is present.
+   */
+  public static function reportWasProduced(string $stdout): bool {
+    $trimmed = ltrim($stdout);
+    if ($trimmed === '' || ($trimmed[0] !== '{' && $trimmed[0] !== '[')) {
+      return FALSE;
+    }
+    $decoded = json_decode($trimmed, TRUE);
+
+    return is_array($decoded) && (isset($decoded['files']) || isset($decoded['totals']));
   }
 
   /**

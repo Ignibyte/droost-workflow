@@ -423,6 +423,50 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * A paths lever REPLACES the default subject; it does not widen it.
+   *
+   * The comment beside the `.` in `argvFor()` has always said "a `paths` lever
+   * replaces this below", and `array_merge` never did. The invocation a real
+   * project recorded was:
+   *
+   *   phpcs -q --report=json . --standard=PSR12 … src tests
+   *
+   * — the whole project AND the scope. So the lever an operator sets to narrow
+   * a gate widened it instead: 935 violations came back, 876 of them in
+   * `.claude/hooks/droost-workflow-guard.php`, a file `init` had installed. The
+   * run failed terminally on a mandatory gate, and the obvious next step —
+   * phpcbf on what was reported — would have rewritten droost's own hook.
+   *
+   * It is also the lever the gate's own error message recommends setting.
+   */
+  public function testPathsLeversReplaceTheDefaultSubject(): void {
+    $root = $this->rootWithBinaries(['phpcs']);
+    mkdir($root . '/src', 0755, TRUE);
+    file_put_contents($root . '/src/Money.php', "<?php\n");
+    $seen = [];
+    $executor = new ShellGateExecutor(
+      function (array $argv) use (&$seen): array {
+        $seen = $argv;
+        return [0, '', ''];
+      },
+      static fn (): int => 0,
+    );
+
+    $executor->execute(
+      new GateSettings('phpcs', TRUE, ['standard' => 'Drupal', 'paths' => 'src']),
+      $root,
+    );
+
+    $this->assertContains('src', $seen, 'the scope is what gets scanned');
+    $this->assertNotContains(
+      '.',
+      $seen,
+      'and the project root is not scanned alongside it — which would include '
+      . 'the hook droost itself installed',
+    );
+  }
+
+  /**
    * A paths lever appends the paths that exist and hold analysable files.
    *
    * The configured pair names one directory with real code and one that does
@@ -980,6 +1024,91 @@ class ShellGateExecutorTest extends WorkflowTestCase {
       array_filter($own, static fn (mixed $a): bool => is_string($a) && str_starts_with($a, '--extensions=')),
       'and its own extensions',
     );
+  }
+
+  /**
+   * PHP_CodeSniffer 4 renumbered its exit codes, and the gate read the old set.
+   *
+   * Phpcs 4's ExitCode is OKAY 0, FIXABLE 1, NON_FIXABLE 2, FAILED_TO_FIX 4,
+   * PROCESS_ERROR 16. So 3 is `1|2` — ordinary violations, some fixable, which
+   * is the commonest possible result of running phpcs — and under phpcs 3 it
+   * was the processing error.
+   *
+   * Reading 3 as "could not run" inverted the gate in both directions at once,
+   * measured on a real project: 935 real violations came back as a broken
+   * ENVIRONMENT and skipped the feedback loop entirely (the agent is told to
+   * check its ruleset, not to fix its code), while exit 16 — `the "Drupal"
+   * coding standard is not installed` — was recorded as a labelled PASS on a
+   * mandatory gate.
+   *
+   * The gate asks what phpcs produced rather than sniffing its version: a run
+   * that judged anything emits a JSON report, on either major.
+   */
+  public function testPhpcsFindingsAreFindingsOnEitherMajor(): void {
+    $root = $this->rootWithBinaries(['phpcs']);
+    $report = (string) json_encode([
+      'totals' => ['errors' => 2, 'warnings' => 0, 'fixable' => 1],
+      'files' => [
+        'src/Money.php' => [
+          'errors' => 2,
+          'warnings' => 0,
+          'messages' => [
+            [
+              'message' => 'Line indented incorrectly',
+              'source' => 'Drupal.WhiteSpace.ScopeIndent.IncorrectExact',
+              'line' => 12,
+              'type' => 'ERROR',
+            ],
+            [
+              'message' => 'Missing short description',
+              'source' => 'Drupal.Commenting.DocComment.Missing',
+              'line' => 3,
+              'type' => 'ERROR',
+            ],
+          ],
+        ],
+      ],
+    ]);
+    $executor = new ShellGateExecutor(
+      static fn (array $argv): array => [3, $report, ''],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('phpcs', TRUE), $root);
+
+    $this->assertSame(
+      GateStatus::Failed,
+      $result->status,
+      'violations are a verdict on the code, and belong in the feedback loop',
+    );
+    $this->assertNotSame(
+      GateStatus::ErrorToolFailed,
+      $result->status,
+      'not a broken environment, which skips the loop and blames the ruleset',
+    );
+  }
+
+  /**
+   * Exit 16 means two opposite things, and phpcs says which.
+   *
+   * Both are PROCESS_ERROR on phpcs 4: "you handed me nothing" and "I cannot
+   * load that standard". The whole of 16 was read as the first, so a ruleset
+   * the tool could not load came back as a PASS on a gate that has no waiver.
+   */
+  public function testExitSixteenIsReadFromWhatPhpcsSaid(): void {
+    $root = $this->rootWithBinaries(['phpcs']);
+
+    $broken = new ShellGateExecutor(
+      static fn (array $argv): array => [16, '', 'ERROR: the "Drupal" coding standard is not installed.'],
+      static fn (): int => 0,
+    );
+    $result = $broken->execute(new GateSettings('phpcs', TRUE), $root);
+    $this->assertSame(
+      GateStatus::ErrorToolFailed,
+      $result->status,
+      'a standard it cannot load is a gate that did not run, not a pass',
+    );
+    $this->assertFalse($result->labelledPass, 'and not a measurement of anything');
   }
 
   /**
