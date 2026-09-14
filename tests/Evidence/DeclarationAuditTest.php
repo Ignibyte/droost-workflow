@@ -398,42 +398,56 @@ final class DeclarationAuditTest extends TestCase {
   }
 
   /**
-   * The gate binaries are not covered by the dependency exemption.
+   * A gate binary is creep when the AGENT rewrites it, not when composer does.
    *
    * `vendor/` and `node_modules/` were exempted so `composer require` would
-   * stop being charged to the agent — and they took `vendor/bin/` and
-   * `node_modules/.bin/` with them, which is where every gate droost runs
-   * lives. Replacing `vendor/bin/phpstan` with `#!/bin/sh\nexit 0` used to be
-   * undeclared scope: blocked, agent fault, no waiver.
+   * stop being charged to the agent, and they took `vendor/bin/` and
+   * `node_modules/.bin/` with them — where every gate droost runs lives. A
+   * reviewer stubbed all three binaries with `exit 0` and watched the code
+   * phase PASS with phpcs and phpstan recorded `satisfied`.
    *
-   * A reviewer drove the consequence end to end: all three binaries stubbed,
-   * the code phase PASSED, and phpcs and phpstan recorded `satisfied` with
-   * `measured = 1`. Not even a labelled pass — an ordinary green over a tool
-   * that did nothing. "The gates passed" had become "the gates were replaced".
+   * Making them unconditionally undeclared then walled off ordinary work:
+   * composer rewrites `vendor/bin/*` on every install, so a plain `composer
+   * update` blocked the run with no waiver. The third wall I moved rather than
+   * removed today.
+   *
+   * The audit cannot see WHO wrote a file; it can see whether the package
+   * manager ran, and a manifest or lock in the same diff is that. The guard is
+   * the layer that knows who and refuses the agent outright — this is the
+   * backstop for a host with no hooks, where nothing else is watching.
    */
-  public function testTheGateBinariesAreNotExempt(): void {
-    $audit = new DeclarationAudit(
-      ['src/A.php'],
-      [],
-      [
-        'src/A.php',
-        'vendor/bin/phpstan',
-        'node_modules/.bin/eslint',
-        // The trees around them stay exempt: this is about the executables.
-        'vendor/acme/lib/Thing.php',
-        'vendor/composer/installed.json',
-        'node_modules/left-pad/index.js',
+  public function testGateBinariesAreCreepOnlyWithoutTheirManifest(): void {
+    $cases = [
+      'composer install, lock changed' => [
+        ['src/A.php', 'composer.json', 'composer.lock', 'vendor/bin/phpcs'],
+        [],
       ],
-    );
-
-    $undeclared = $audit->undeclared();
-    sort($undeclared);
-
-    $this->assertSame(
-      ['node_modules/.bin/eslint', 'vendor/bin/phpstan'],
-      $undeclared,
-      'the tools droost trusts are the agent\'s to install, never to write',
-    );
+      'npm ci, lock changed' => [
+        ['src/A.php', 'package-lock.json', 'node_modules/.bin/eslint'],
+        [],
+      ],
+      'an agent rewriting a gate binary' => [
+        ['src/A.php', 'vendor/bin/phpcs'],
+        ['vendor/bin/phpcs'],
+      ],
+      // The mixed case, which is the one a single flag would get wrong:
+      // composer really did run for PHP, and nothing explains the node binary.
+      'composer for php, an agent for node' => [
+        ['src/A.php', 'composer.lock', 'vendor/bin/phpcs', 'node_modules/.bin/eslint'],
+        ['node_modules/.bin/eslint'],
+      ],
+      // And the trees around them stay exempt either way.
+      'ordinary dependency files' => [
+        ['src/A.php', 'vendor/acme/lib/Thing.php', 'node_modules/left-pad/index.js'],
+        [],
+      ],
+    ];
+    foreach ($cases as $label => [$changed, $want]) {
+      $got = (new DeclarationAudit(['src/A.php'], [], $changed))->undeclared();
+      sort($got);
+      sort($want);
+      $this->assertSame($want, $got, $label);
+    }
   }
 
   /**

@@ -71,11 +71,15 @@ final class DeclarationAudit {
    * dependency-tree exemption that swallowed them turned "the gates passed"
    * into "the gates were replaced".
    *
-   * @var list<string>
+   * Mapped to the manifests whose presence in the same diff means the PACKAGE
+   * MANAGER rewrote them rather than the agent, because composer touches these
+   * on every install and refusing that would wall off ordinary work.
+   *
+   * @var array<string, list<string>>
    */
   private const array TOOL_DIRS = [
-    'vendor/bin/',
-    'node_modules/.bin/',
+    'vendor/bin/' => ['composer.json', 'composer.lock'],
+    'node_modules/.bin/' => ['package.json', 'package-lock.json', 'yarn.lock'],
   ];
 
   private const array NEVER_CREEP = [
@@ -171,7 +175,7 @@ final class DeclarationAudit {
   public function undeclared(): array {
     return array_values(array_filter(
       $this->changedFiles,
-      fn (string $file): bool => !$this->covered($file) && !self::exempt($file),
+      fn (string $file): bool => !$this->covered($file) && !$this->exempt($file),
     ));
   }
 
@@ -279,7 +283,7 @@ final class DeclarationAudit {
       // run.json counted as "not that kind of work" and outvoted the diff.
       $subject = array_values(array_filter(
         $this->changedFiles,
-        static fn (string $file): bool => !self::exempt($file),
+        fn (string $file): bool => !$this->exempt($file),
       ));
       $unexpected = $this->workType->contradictedBy($subject);
       // Contradiction, not a census — and still proportional, because one file
@@ -510,7 +514,7 @@ final class DeclarationAudit {
    * @return bool
    *   TRUE when it is exempt.
    */
-  private static function exempt(string $file): bool {
+  private function exempt(string $file): bool {
     $file = self::normalise($file);
     // THE GATE BINARIES ARE NOT EXEMPT, whatever tree they sit in. `vendor/`
     // and `node_modules/` were added so a `composer require` would stop being
@@ -523,12 +527,36 @@ final class DeclarationAudit {
     // recorded `satisfied` with `measured = 1`. Not even a labelled pass: an
     // ordinary green over a tool that did nothing.
     //
-    // Checked before the prefixes, because the prefixes would otherwise match.
-    foreach (self::TOOL_DIRS as $tools) {
+    // Checked before the prefixes, because the prefixes would otherwise match —
+    // and only when the package manager did NOT run. Composer rewrites
+    // `vendor/bin/*` on every install, so making them unconditionally
+    // undeclared meant an ordinary `composer update` blocked the run with no
+    // waiver: a worse wall than the hole it closed, and the third time today I
+    // have moved one.
+    //
+    // The audit cannot see WHO wrote a file. It can see whether the package
+    // manager ran, and a manifest or lock file in the same diff is that. A
+    // binary rewritten with no manifest change is an agent rewriting the tool
+    // droost is about to trust; a binary rewritten beside a changed lock is
+    // composer doing its job. The guard is the layer that knows who, and
+    // refuses the agent's write outright — this is the backstop for a host
+    // with no hooks, where enforcement is advisory and nothing else is
+    // watching.
+    foreach (self::TOOL_DIRS as $tools => $manifests) {
       $tools = self::normalise($tools);
-      if (str_starts_with($file, rtrim($tools, '/') . '/')) {
-        return FALSE;
+      if (!str_starts_with($file, rtrim($tools, '/') . '/')) {
+        continue;
       }
+      foreach ($manifests as $manifest) {
+        $manifest = self::normalise($manifest);
+        foreach ($this->changedFiles as $changed) {
+          if (self::normalise($changed) === $manifest) {
+            return TRUE;
+          }
+        }
+      }
+
+      return FALSE;
     }
     foreach (self::NEVER_CREEP as $prefix) {
       // Both sides normalised: comparing a normalised path against a raw
