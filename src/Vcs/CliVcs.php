@@ -46,11 +46,24 @@ final class CliVcs implements VcsInterface {
     // working tree holds that the index or HEAD does not: modified, added,
     // untracked. `--porcelain` is the stable machine format.
     if ($base !== NULL) {
-      [$exit, $stdout] = $this->git($projectRoot, ['diff', '--name-only', $base]);
+      // `-z` HERE TOO. The status half below was converted and this was not,
+      // and this is the branch that actually runs: a base is known on every
+      // run past the first phase. `git diff --name-only` QUOTES any path git
+      // considers unusual — `core.quotePath` defaults on, so a single
+      // non-ASCII byte is enough — and nothing downstream strips the quotes:
+      //
+      //   git diff --name-only HEAD~1
+      //   "vendor/symfony/string/Tests/\303\274n\303\257code-fixture.php"
+      //
+      // The leading `"` breaks every prefix match, so a file inside an exempt
+      // tree stops being exempt and an honest diff is reported as scope creep.
+      // A committed path containing a newline is worse: splitting on `\R`
+      // invents two paths out of one, neither of which exists.
+      [$exit, $stdout] = $this->git($projectRoot, ['diff', '--name-only', '-z', $base]);
       if ($exit === 0) {
-        foreach (preg_split('/\R/', $stdout) ?: [] as $line) {
-          if (trim($line) !== '') {
-            $files[] = trim($line);
+        foreach (explode("\0", $stdout) as $line) {
+          if ($line !== '') {
+            $files[] = $line;
           }
         }
       }

@@ -37,7 +37,13 @@ final class CliVcsTest extends WorkflowTestCase {
     $vcs = new CliVcs(static function (array $argv) use (&$seen): array {
       $seen[] = $argv;
       if (in_array('diff', $argv, TRUE)) {
-        return [0, "web/modules/custom/a/a.module\nweb/themes/custom/t/t.css\n", ''];
+        // NUL-separated here too. `--name-only` without `-z` QUOTES any path
+        // git considers unusual — `core.quotePath` defaults on, so one
+        // non-ASCII byte is enough — and the leading `"` then breaks every
+        // prefix match downstream, so a file inside an exempt tree stops
+        // being exempt. The status half was converted and this was not, and
+        // this is the branch that runs on every phase past the first.
+        return [0, "web/modules/custom/a/a.module\0web/themes/custom/t/t.css\0", ''];
       }
       // NUL-separated, which is what `-z` returns — and a rename emits its new
       // path then its old one as a second field, rather than "old -> new".
@@ -58,7 +64,12 @@ final class CliVcsTest extends WorkflowTestCase {
       'web/modules/custom/b/b.info.yml',
       'web/themes/custom/t/t.css',
     ], $files, 'sorted, deduplicated, renames by their new name');
-    $this->assertSame(['git', '-C', '/repo', 'diff', '--name-only', 'abc123'], $seen[0]);
+    $this->assertSame(
+      ['git', '-C', '/repo', 'diff', '--name-only', '-z', 'abc123'],
+      $seen[0],
+      '-z here too: --name-only quotes any path git considers unusual, and the
+      leading quote then breaks every prefix match downstream',
+    );
     $this->assertSame(
       ['git', '-C', '/repo', 'status', '--porcelain', '-z', '--untracked-files=all'],
       $seen[1],
@@ -115,6 +126,51 @@ final class CliVcsTest extends WorkflowTestCase {
     foreach ($files as $file) {
       $this->assertStringNotContainsString('"', $file, 'and nothing arrives quoted');
     }
+  }
+
+  /**
+   * A path git would quote comes back as the path, not as its spelling.
+   *
+   * `git diff --name-only HEAD~1` on a real repository:
+   *
+   *     "vendor/symfony/string/Tests/\303\274n\303\257code-fixture.php"
+   *
+   * The quotes and the octal escapes are git's rendering, not the name. Passed
+   * through, the leading `"` breaks every prefix match — so a file inside a
+   * tree the scope audit exempts reads as undeclared creep, with an agent
+   * fault and no waiver, on a file nobody chose to write. A committed path
+   * containing a NEWLINE is worse still: splitting on `\R` invents two paths
+   * out of one, neither of which exists.
+   *
+   * `-z` is git's answer to both, and asserting it is asserted through the
+   * ARGV as well as the output, because a fixture that returns NUL-separated
+   * text would pass whatever the command asked for.
+   */
+  public function testTheDiffIsAskedForNulSeparated(): void {
+    $seen = [];
+    $vcs = new CliVcs(static function (array $argv) use (&$seen): array {
+      $seen[] = $argv;
+      if (in_array('diff', $argv, TRUE)) {
+        return [0, "vendor/x/\u{fc}n\u{ef}code.php\0src/A.php\0", ''];
+      }
+
+      return [0, '', ''];
+    });
+
+    $files = $vcs->changedFiles('/repo', 'abc123');
+
+    $diff = [];
+    foreach ($seen as $argv) {
+      if (in_array('diff', $argv, TRUE)) {
+        $diff = $argv;
+      }
+    }
+    $this->assertContains('-z', $diff, 'the diff is asked for NUL-separated');
+    $this->assertSame(
+      ['src/A.php', "vendor/x/\u{fc}n\u{ef}code.php"],
+      $files,
+      'and the name comes back as the name, with no quotes around it',
+    );
   }
 
 }

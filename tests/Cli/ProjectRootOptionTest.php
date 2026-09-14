@@ -296,6 +296,63 @@ final class ProjectRootOptionTest extends TestCase {
   }
 
   /**
+   * The --project flag is consumed once, wherever the caller puts it.
+   *
+   * It was read out of the tail and LEFT there, so every verb had to know to
+   * skip it and two of them did not. `answer` was fixed for its own version
+   * of this; `swap` was not:
+   *
+   *   swap --project=<p> agentic  ->  'swap needs a mode …, got "--project="'
+   *   swap agentic --project=<p>  ->  fine
+   *
+   * while the usage text says "--project=<path> works on every verb". And
+   * before the verb — which is how a person writes it —
+   * `droost-workflow --project=<path> init` came back "unknown command
+   * --project=/…" with the full usage block.
+   *
+   * A rule applied by hand at each call site is a rule that will be missed at
+   * one of them, so it is applied once, in `dispatch()`, before the verb is
+   * read.
+   */
+  public function testTheProjectFlagIsConsumedWhereverItSits(): void {
+    mkdir($this->root . '/lib/sub', 0775, TRUE);
+
+    foreach ([
+      'before the verb' => ['--project=' . $this->root, 'status'],
+      'after the verb' => ['status', '--project=' . $this->root],
+    ] as $label => $argv) {
+      [$code, $printed] = $this->dispatch($argv, $this->root . '/lib/sub');
+      $this->assertSame(ArgvDispatcher::EXIT_OK, $code, $label . ' is a usable invocation');
+      $this->assertStringContainsString(
+        '"provenance": "file"',
+        $printed,
+        $label . ' still names the project',
+      );
+    }
+
+    // And the verb's own arguments survive it, in either order. `swap` read
+    // the flag as its MODE, so the two spellings gave different answers to
+    // the same question — which is the property to assert, rather than any
+    // particular answer (there is no run here, so both refuse).
+    [$before, $beforeSaid] = $this->dispatch(
+      ['swap', '--project=' . $this->root, 'agentic'],
+      $this->root . '/lib/sub',
+    );
+    [$after, $afterSaid] = $this->dispatch(
+      ['swap', 'agentic', '--project=' . $this->root],
+      $this->root . '/lib/sub',
+    );
+
+    $this->assertStringNotContainsString(
+      'swap needs a mode',
+      $beforeSaid,
+      'the flag is not mistaken for the verb\'s own argument',
+    );
+    $this->assertSame($after, $before, 'and where the flag sits does not change the answer');
+    $this->assertSame($afterSaid, $beforeSaid, 'nor what is said about it');
+  }
+
+  /**
    * But `init` never climbs: it is how a project comes into existence.
    *
    * Climbing there made `init` in an empty subdirectory adopt the parent and

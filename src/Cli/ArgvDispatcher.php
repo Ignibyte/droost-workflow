@@ -87,6 +87,30 @@ final class ArgvDispatcher {
    *   The process exit code.
    */
   public function dispatch(array $argv, string $projectRoot): int {
+    // CONSUMED FIRST, AND REMOVED. `--project=` was read out of the tail and
+    // left in it, so each verb had to know to skip it and two of them did not:
+    // `swap --project=<path> agentic` read the FLAG as the mode and failed
+    // with 'swap needs a mode … got "--project=/…"', while
+    // `swap agentic --project=<path>` worked — and the usage text says
+    // "--project=<path> works on every verb". `answer` was fixed for its own
+    // version of this and `swap` was not, which is the shape of a rule applied
+    // by hand rather than in one place.
+    //
+    // Reading it BEFORE the verb also answers `droost-workflow --project=<path>
+    // init`, which is how a person writes it and which came back "unknown
+    // command --project=/…" with the full usage block.
+    $named = FALSE;
+    $argv = array_values(array_filter($argv, static function (mixed $argument) use (&$projectRoot, &$named): bool {
+      if (is_string($argument) && str_starts_with($argument, '--project=')) {
+        $projectRoot = substr($argument, strlen('--project='));
+        $named = TRUE;
+
+        return FALSE;
+      }
+
+      return TRUE;
+    }));
+
     $verb = $argv[0] ?? '';
     if ($verb === '' || $verb === 'help' || $verb === '--help') {
       $this->usage();
@@ -104,13 +128,6 @@ final class ArgvDispatcher {
     // state directory it reads is not necessarily the one the guard is
     // enforcing — two components disagreeing about which repository this is.
     // Naming the root ends the argument.
-    $named = FALSE;
-    foreach ($argv as $argument) {
-      if (is_string($argument) && str_starts_with($argument, '--project=')) {
-        $projectRoot = substr($argument, strlen('--project='));
-        $named = TRUE;
-      }
-    }
     // WITHOUT `--project`, walk up to the project that is already here.
     //
     // The working directory was taken as the repository, full stop. Run from a
