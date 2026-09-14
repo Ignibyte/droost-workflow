@@ -95,6 +95,26 @@ final class EvaluationReportTest extends TestCase {
   }
 
   /**
+   * The template path points where a project reads it, not where it ships.
+   *
+   * `pack/templates/evaluation.md` is the source in this repo; `init`
+   * installs it at `.claude/templates/evaluation.md`, and that is the only
+   * copy an installed project has. The rendered document told the reader to
+   * "Fill it from `pack/templates/…`", a path absent in their project.
+   */
+  public function testTheTemplatePathIsTheInstalledCopy(): void {
+    $this->seed();
+    $report = (new EvaluationReport(new EvidenceStore($this->root)))->render('r1');
+
+    $this->assertStringContainsString('.claude/templates/evaluation.md', $report, 'the installed copy');
+    $this->assertStringNotContainsString(
+      'from `pack/templates/evaluation.md`',
+      $report,
+      'not the source path, which an installed project does not have',
+    );
+  }
+
+  /**
    * The last column separates a green from a measurement.
    *
    * Fourteen of fifteen gates can report green having measured nothing, and

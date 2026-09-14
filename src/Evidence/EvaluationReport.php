@@ -502,8 +502,9 @@ final class EvaluationReport {
       . "and whether a patch truly landed — which is exactly why the template\n"
       . "asks for them before the subject starts. A store written DURING the\n"
       . "run is the wrong side of that line.\n\n"
-      . "Fill it from `pack/templates/evaluation.md` §2, with the four traps it\n"
-      . "lists.\n";
+      . "Fill it from `.claude/templates/evaluation.md` §2 (init installs the\n"
+      . "template there — `pack/templates/` is where it ships FROM, not where a\n"
+      . "project reads it), with the four traps it lists.\n";
   }
 
   /**
@@ -1649,7 +1650,7 @@ final class EvaluationReport {
       . "links droost itself is on. Link 8 in particular (`phases`) is\n"
       . "subject-written by design, and corroborating it is the evaluator's\n"
       . "job.\n\n"
-      . "Fill §7.1, §7.2 and §7.3 from `pack/templates/evaluation.md`. Two of\n"
+      . "Fill §7.1, §7.2 and §7.3 from `.claude/templates/evaluation.md`. Two of\n"
       . "its blind spots are now lit and should be answered from above rather\n"
       . "than listed as dark: knowledge-layer usage is §4a, and tool refusals\n"
       . "are the refusal count in §4a. Enforcement effectiveness is still dark\n"

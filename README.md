@@ -494,6 +494,7 @@ writes:
 .claude/agents/droost-debugger.md
 .claude/hooks/droost-workflow-guard.php
 .claude/partials/droost-usage.md
+.claude/templates/evaluation.md
 droost.workflow.yml          # only if you don't already have one
 ```
 
@@ -535,8 +536,9 @@ Two files outside the pack are touched, and only additively: the hook
 entries are **merged** into `.claude/settings.json` (an existing file keeps
 everything else it holds; one that cannot be parsed is refused, not
 replaced), and the run-state directory's ignore lines are **appended** to
-`.gitignore` if they are not already there. `init` prints both when it does
-them.
+`.gitignore` if they are not already there. Both are edited in place rather
+than announced in init's file tally, so `git diff` after an install is where
+you see them.
 
 ## Install
 
