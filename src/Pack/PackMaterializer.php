@@ -590,11 +590,69 @@ final class PackMaterializer {
         PackManifest::SOURCE_DIR . '/' . PackManifest::CONFIG_FILE,
       );
     }
+    $contents = self::standardThisProjectHas($root, $contents);
     if (@file_put_contents($to, $contents) !== strlen($contents)) {
       throw PackError::unwritable($destination, 'the write did not complete');
     }
 
     return $report->withWritten($destination);
+  }
+
+  /**
+   * The shipped lever file with a phpcs standard this project can actually run.
+   *
+   * INIT'S OWN DEFAULT COULD NOT PASS INIT'S OWN MANDATORY GATE. The shipped
+   * file names `Drupal,DrupalPractice`, nothing in `droost/workflow`'s
+   * dependency tree provides it, and the README's Install section says the
+   * package "requires no Drupal". So a plain PHP project, following the
+   * documented happy path literally, got:
+   *
+   *   phpcs could not run (exit 16): ERROR: the "Drupal" coding standard is
+   *   not installed.
+   *
+   * phpcs is mandatory, the standalone CLI has no `gate-waive`, and `standard`
+   * freezes into run.json at begin — so the first run died on the third
+   * attempt with `exhausted: true` and `reset` as the only exit. A reviewer
+   * lost a whole ticket to it, on a repository where they had written nothing
+   * wrong.
+   *
+   * Drupal's standard ships in `drupal/coder`, so its presence is the
+   * question, and PSR-12 is what phpcs itself ships with. Written into the
+   * file rather than resolved at gate time, because a lever file is intent
+   * somebody can read and change — quietly analysing with a different standard
+   * than the one the file names is the sort of thing this project refuses
+   * everywhere else.
+   *
+   * @param string $root
+   *   The project root.
+   * @param string $contents
+   *   The shipped lever file.
+   *
+   * @return string
+   *   The contents, with the standard adjusted if Drupal's is not installed.
+   */
+  private static function standardThisProjectHas(string $root, string $contents): string {
+    foreach ([
+      '/vendor/drupal/coder/coder_sniffer/Drupal/ruleset.xml',
+      '/vendor/drupal/coder/coder_sniffer/Drupal',
+      '/web/core/lib/Drupal.php',
+      '/core/lib/Drupal.php',
+    ] as $marker) {
+      if (file_exists(rtrim($root, '/') . $marker)) {
+        return $contents;
+      }
+    }
+
+    // The note goes on its own LINE: `phpcs: { standard: … }` is a YAML flow
+    // mapping, and a `#` inside the braces is part of the value, not a
+    // comment. Caught by reading the file init wrote.
+    return (string) preg_replace(
+      '/^(\s*)phpcs:(\s*)\{ standard: "Drupal,DrupalPractice" \}$/m',
+      "$1# PSR-12 because drupal/coder is not installed here; switch this to\n"
+      . "$1# \"Drupal,DrupalPractice\" once it is.\n"
+      . '$1phpcs:$2{ standard: "PSR12" }',
+      $contents,
+    );
   }
 
   /**

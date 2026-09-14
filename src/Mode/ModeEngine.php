@@ -215,6 +215,15 @@ final class ModeEngine {
     // the two boundaries the pattern names: leaving code, and completing.
     // It sits before the pair question on purpose: there is no point asking
     // a human to advance a run the engine itself will not advance.
+    // PER PHASE, not per run. `$state->seeker` is the LAST ledger, so a clean
+    // inspection at CODE set it to `clean` permanently and the COMPLETE
+    // checkpoint could never fire again — the README promises the seeker
+    // inspects "after the code phase's gates pass, and again at complete",
+    // and a reviewer's third ticket got exactly one inspection.
+    //
+    // The path that disabled the second check was the EASY one: a clean code
+    // inspection. Complete is where the diff is largest, so a run that got a
+    // clean read early is precisely the run nobody looked at again.
     if (($phase === Phase::Code || $phase === Phase::Complete)
       && $state->seekers
       && ($state->seeker['status'] ?? NULL) !== 'clean') {

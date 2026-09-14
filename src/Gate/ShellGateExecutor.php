@@ -1328,6 +1328,21 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         // Found dogfooding against droost — 336 files OOMed the gate while
         // the repo's own lint script passed the same flag all along.
         '--memory-limit=1G',
+        // A SUBJECT, the way phpcs gets one. phpcs is handed `.` when the
+        // repo has no ruleset; the branch above it passed phpstan NO PATH at
+        // all, phpstan exited 1 with "At least one path must be specified",
+        // and that became a labelled pass. `init` writes `phpstan: { level: 6
+        // }` with no `paths`, so on every project without a `phpstan.neon` —
+        // which is what init creates — the mandatory analyser reported
+        // `passed` over zero files, for the life of the project. A reviewer
+        // planted a real return-type defect, watched phpstan find it in 0.8s
+        // by hand, and watched the gate say passed.
+        //
+        // Not `.`: phpstan has no `--ignore`, so the only way to keep
+        // `vendor/`, `node_modules/` and droost's own installed files out of
+        // it is not to hand them over. The project's own top-level source
+        // directories are what is left.
+        ...$this->defaultPhpPaths($root, $gate),
       ],
       // The front-end lint trio. Exit code IS the verdict (nonzero = problems),
       // like the mandatory tools; the json format is emitted for the findings
@@ -1381,6 +1396,53 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       'playwright' => [$binary, 'test'],
       default => [$binary],
     };
+  }
+
+  /**
+   * The project's own top-level directories that hold analysable PHP.
+   *
+   * Only used when nothing else names a subject: no `paths` lever and no
+   * `phpstan.neon`. With either of those, phpstan is already pointed
+   * somewhere and this stays out of the way.
+   *
+   * Vendored trees and droost's own installed files are excluded for the
+   * reason `notTheProjectsCode()` gives — a tool judging the tool's own files
+   * is a category error, and phpstan has no ignore flag to undo it with.
+   *
+   * @param string $root
+   *   The project root.
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate, for its `paths` lever.
+   *
+   * @return list<string>
+   *   Project-relative directories, or empty when something else names the
+   *   subject or the project has no PHP outside its dependencies.
+   */
+  private function defaultPhpPaths(string $root, GateSettings $gate): array {
+    if (trim((string) ($gate->options['paths'] ?? '')) !== '') {
+      return [];
+    }
+    foreach (['phpstan.neon', 'phpstan.neon.dist', 'phpstan.dist.neon'] as $config) {
+      if (is_file(rtrim($root, '/') . '/' . $config)) {
+        return [];
+      }
+    }
+    $found = [];
+    foreach ((array) @scandir(rtrim($root, '/')) as $entry) {
+      if (!is_string($entry) || $entry === '.' || $entry === '..' || str_starts_with($entry, '.')) {
+        continue;
+      }
+      $path = rtrim($root, '/') . '/' . $entry;
+      if (!is_dir($path) || self::notTheProjectsCode($path)) {
+        continue;
+      }
+      if ($this->hasAnalysable($path, self::ANALYSABLE[$gate->name] ?? ['php'])) {
+        $found[] = $entry;
+      }
+    }
+    sort($found);
+
+    return $found;
   }
 
   /**

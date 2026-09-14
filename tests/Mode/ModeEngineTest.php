@@ -571,17 +571,43 @@ class ModeEngineTest extends WorkflowTestCase {
     $released = $engine->runPhase($clean, Phase::Code, $this->root, self::NOW);
     $this->assertSame(Outcome::Advanced, $released->outcome);
 
-    // The other boundary: complete demands the clean record too.
+    // The other boundary: complete demands a clean record OF ITS OWN.
+    //
+    // This used to pass with the code phase's ledger still standing, because
+    // `$state->seeker` is the LAST ledger and a clean one set it permanently
+    // — so the arm this test is named for could never fire, and it asserted
+    // `Completed` on a checkpoint that was silently skipped. A reviewer's
+    // third ticket got exactly one inspection, at code, and the README
+    // promises one "after the code phase's gates pass, and again at
+    // complete". Complete is where the diff is largest, and the path that
+    // disabled the second read was the easy one.
     $atComplete = $released->state
       ->advanceTo(Phase::Test)
       ->advanceTo(Phase::Complete);
-    $completed = $engine->runPhase(
-      $atComplete,
-      Phase::Complete,
-      $this->root,
-      self::NOW,
+    $held = $engine->runPhase($atComplete, Phase::Complete, $this->root, self::NOW);
+    $this->assertSame(
+      Outcome::InspectionDue,
+      $held->outcome,
+      'complete asks for its own inspection, not the code phase\'s',
     );
+
+    $inspected = $held->state->withSeekerReport([
+      'status' => 'clean',
+      'critical' => 0,
+      'medium' => 0,
+      'low' => 0,
+      'observations' => 0,
+      'reported_at' => self::NOW,
+    ]);
+    $completed = $engine->runPhase($inspected, Phase::Complete, $this->root, self::NOW);
     $this->assertSame(Outcome::Completed, $completed->outcome);
+
+    // And the trail keeps both, which is what the report counts.
+    $this->assertGreaterThanOrEqual(
+      2,
+      count($completed->state->seekerHistory),
+      'clearing the current verdict does not erase the inspections that happened',
+    );
   }
 
   /**

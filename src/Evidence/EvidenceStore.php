@@ -1342,20 +1342,43 @@ final class EvidenceStore {
       // it: `code 4 phpstan satisfied measured=1`, `code 5 phpstan satisfied
       // measured=0`, and `test 1 type_coverage satisfied`. The run's own last
       // word about a gate is the only one that can stand for it.
+      // GROUPED BY PHASE TOO. `insertCheck()` numbers attempts per
+      // (run_id, phase, kind, name), so attempts RESTART each phase — and
+      // `MAX(attempt)` grouped by name alone picked whichever phase happened
+      // to run the gate most often:
+      //
+      //   code phpcs attempt=3 measured=true
+      //   test phpcs attempt=1 measured=false   <- the run's actual last word
+      //   measuredGates() => ["phpcs"]
+      //
+      // Which is the same defect this query was rewritten to close, moved
+      // from the attempt axis to the phase axis. `checklist()` had it right
+      // and this did not.
       'SELECT c.name FROM check_result c
-         JOIN (SELECT name, MAX(attempt) AS attempt
+         JOIN (SELECT phase, name, MAX(attempt) AS attempt
                  FROM check_result
                 WHERE run_id = ? AND kind = \'gate\'
-                GROUP BY name) latest
-           ON c.name = latest.name AND c.attempt = latest.attempt
+                GROUP BY phase, name) latest
+           ON c.phase = latest.phase AND c.name = latest.name
+          AND c.attempt = latest.attempt
         WHERE c.run_id = ? AND c.kind = \'gate\' AND c.state IN (' . $placeholders . ')
           AND (c.measured IS NULL OR c.measured = 1)
+          AND NOT EXISTS (
+            SELECT 1 FROM check_result later
+             JOIN (SELECT phase, name, MAX(attempt) AS attempt
+                     FROM check_result
+                    WHERE run_id = ? AND kind = \'gate\'
+                    GROUP BY phase, name) latest2
+               ON later.phase = latest2.phase AND later.name = latest2.name
+              AND later.attempt = latest2.attempt
+            WHERE later.run_id = c.run_id AND later.kind = \'gate\'
+              AND later.name = c.name AND later.id > c.id
+              AND (later.measured = 0 OR later.state NOT IN (' . $placeholders . '))
+          )
         GROUP BY c.name'
     );
-    $statement->execute(array_merge(
-      [$runId, $runId],
-      array_map(static fn (CheckState $state): string => $state->value, $measured),
-    ));
+    $values = array_map(static fn (CheckState $state): string => $state->value, $measured);
+    $statement->execute(array_merge([$runId, $runId], $values, [$runId], $values));
 
     return array_map(static fn (array $row): string => self::text($row, 'name'), self::rows($statement));
   }

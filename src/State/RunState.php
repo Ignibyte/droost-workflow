@@ -517,7 +517,21 @@ final class RunState {
     $phases[$this->currentPhase->value] = PhaseStatus::Passed;
     $phases[$to->value] = PhaseStatus::Active;
 
-    return $this->with(phases: $phases, currentPhase: $to);
+    // THE SEEKER'S VERDICT BELONGS TO THE PHASE IT INSPECTED. `$this->seeker`
+    // is the LAST ledger, and the checkpoint asks whether it says `clean` —
+    // so a clean inspection at CODE set it permanently and the COMPLETE
+    // checkpoint could never fire again. The README promises the seeker
+    // inspects "after the code phase's gates pass, and again at complete";
+    // a reviewer's third ticket got exactly one inspection, and the path that
+    // disabled the second was the EASY one — a clean code read. Complete is
+    // where the diff is largest, so a run that got a clean read early is
+    // precisely the run nobody looks at again.
+    //
+    // The TRAIL is untouched: `seekerHistory` keeps every ledger, which is
+    // what the report and the evaluation count. Only the current verdict is
+    // cleared, because the next phase has not been inspected yet and saying
+    // otherwise is the claim this clears.
+    return $this->with(phases: $phases, currentPhase: $to, clearSeeker: TRUE);
   }
 
   /**
@@ -1745,6 +1759,10 @@ final class RunState {
    *   append rather than replace: see withSeekerReport().
    * @param string|null $specPath
    *   The governing spec, or NULL to keep the current one.
+   * @param bool $clearSeeker
+   *   Whether to CLEAR the current seeker verdict. NULL means "unchanged" for
+   *   every other field here, which is what makes this necessary:
+   *   `seeker: NULL` cannot clear the verdict, only fail to set it.
    *
    * @return self
    *   A new instance.
@@ -1758,6 +1776,11 @@ final class RunState {
     ?string $tasks = NULL,
     ?array $seekerHistory = NULL,
     ?string $specPath = NULL,
+    // NULL means "unchanged" for every other field here, which is what makes
+    // this one necessary: `seeker: NULL` cannot CLEAR the verdict, it can only
+    // fail to set it. Written out because a silent no-op is exactly what this
+    // shape produces, and one shipped.
+    bool $clearSeeker = FALSE,
   ): self {
     return new self(
       $this->runId,
@@ -1777,7 +1800,7 @@ final class RunState {
       $this->phaseGates,
       $this->enforcement,
       $this->seekers,
-      $seeker ?? $this->seeker,
+      $clearSeeker ? NULL : ($seeker ?? $this->seeker),
       $browser ?? $this->browser,
       $tasks ?? $this->tasks,
       $seekerHistory ?? $this->seekerHistory,

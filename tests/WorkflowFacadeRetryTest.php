@@ -239,4 +239,58 @@ class WorkflowFacadeRetryTest extends WorkflowTestCase {
     );
   }
 
+  /**
+   * A run that spent its budget says why, and what to do now.
+   *
+   * Every later `run` returned, byte-identical, for ever:
+   *
+   *   {"outcome":"failed","report":null,"blocked":[],"awaiting":null,
+   *    "retries":{"attempts":{"phpcs":2},"exhausted":true}}
+   *
+   * A reviewer drove nine. The `retries` block names a gate and a COUNT, not
+   * what the gate found — the comment there claimed it "says why" and it did
+   * not — and nothing named `status`, `evidence` or `reset`, all of which
+   * work. The same shape was fixed for the two `Blocked` paths and this one
+   * was missed.
+   */
+  public function testSpentBudgetsSayWhyAndWhatToDo(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmax_gate_retries: 1\n");
+    $facade = $this->facade($this->phpcsAlwaysFails());
+
+    // Driven to TERMINAL, which is one invocation past the first `Failed`:
+    // plan advances, code fails once inside budget, code fails again out of
+    // budget and the phase is recorded Failed on disk. Only then does a later
+    // `run` take the refusal path this test is about.
+    $reloaded = NULL;
+    for ($step = 0; $step < 8; $step++) {
+      $facade->run($root);
+      $reloaded = (new RunStateStore($root))->load();
+      if ($reloaded !== NULL && $reloaded->statusOf(Phase::Code) === PhaseStatus::Failed) {
+        break;
+      }
+    }
+    $this->assertNotNull($reloaded);
+    $this->assertSame(
+      PhaseStatus::Failed,
+      $reloaded->statusOf(Phase::Code),
+      'the budget is spent and the phase is terminal on disk',
+    );
+
+    // And every later run says the same USEFUL thing, rather than nothing.
+    $again = $facade->run($root);
+    $this->assertSame(Outcome::Failed, $again->outcome);
+    $this->assertNotSame([], $again->blocked, 'the envelope carries a reason');
+
+    $said = '';
+    foreach ($again->blocked as $row) {
+      $said .= ($row['why'] ?? '') . ' ' . ($row['remedy'] ?? '');
+    }
+    $this->assertStringContainsString('reset', $said, 'and names the way out');
+    $this->assertStringContainsString(
+      'evidence',
+      $said,
+      'and where the full report still is',
+    );
+  }
+
 }

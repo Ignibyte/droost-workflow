@@ -207,10 +207,31 @@ class SurfaceParityTest extends WorkflowTestCase {
       // one.
       $walk[] = $outcome->outcome->value . ':' . ($phase === NULL ? '(none)' : $phase->value);
     }
+    // COMPLETE ASKS FOR ITS OWN INSPECTION. This walk used to reach
+    // `completed` in three steps because a clean ledger at CODE set the run's
+    // seeker verdict permanently, so the complete checkpoint was silently
+    // skipped — the README promises one inspection "after the code phase's
+    // gates pass, and again at complete", and complete is where the diff is
+    // largest.
     $this->assertSame(
-      ['advanced:test', 'advanced:complete', 'completed:(none)'],
+      ['advanced:test', 'advanced:complete', 'inspection-due:complete'],
       $walk,
-      'the run advances to complete, then completes with no current phase',
+      'the run advances to complete and is held there for its own inspection',
+    );
+
+    $second = $facade->recordSeeker(
+      $root,
+      "## Seeker Inspection\n\nInspector: independent\n\n(no findings)\n",
+    );
+    $this->assertSame('clean', $second['status']);
+
+    $final = $facade->run($root);
+    $this->assertSame(
+      'completed:(none)',
+      $final->outcome->value . ':' . ($final->state->currentPhase === NULL
+        ? '(none)'
+        : $final->state->currentPhase->value),
+      'and then completes, with no current phase',
     );
 
     // Re-running an ended run says so rather than starting a second one.

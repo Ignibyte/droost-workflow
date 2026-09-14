@@ -542,6 +542,54 @@ final class EvidenceStoreTest extends TestCase {
   }
 
   /**
+   * The last word ACROSS PHASES, not the highest attempt number.
+   *
+   * `insertCheck()` numbers attempts per (run_id, phase, kind, name), so
+   * attempts RESTART each phase — and taking `MAX(attempt)` grouped by name
+   * alone picked whichever phase happened to run the gate most often:
+   *
+   *   code phpcs attempt=3 measured=true
+   *   test phpcs attempt=1 measured=false    <- the run's actual last word
+   *   measuredGates() => ["phpcs"]
+   *
+   * Which is the same defect the query was rewritten to close, moved from the
+   * attempt axis to the phase axis. `checklist()` had it right and this did
+   * not, and it feeds the mandatory-measured check.
+   */
+  public function testTheLastWordIsTheLastWordAcrossPhases(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
+    for ($attempt = 0; $attempt < 3; $attempt++) {
+      $store->record('r1', 'code', new CheckRecord(
+        kind: 'gate',
+        name: 'phpcs',
+        state: CheckState::Satisfied,
+        summary: 'analysed 40 files',
+        exitCode: 0,
+        measured: TRUE,
+      ));
+    }
+    $this->assertSame(['phpcs'], $store->measuredGates('r1'), 'three measuring attempts at code');
+
+    // One attempt at test, examining nothing — a lower attempt NUMBER and a
+    // later word.
+    $store->record('r1', 'test', new CheckRecord(
+      kind: 'gate',
+      name: 'phpcs',
+      state: CheckState::Satisfied,
+      summary: 'the configured paths contain nothing to analyse',
+      exitCode: 0,
+      measured: FALSE,
+    ));
+
+    $this->assertSame(
+      [],
+      $store->measuredGates('r1'),
+      'the run\'s last word wins, whatever phase it was spoken in',
+    );
+  }
+
+  /**
    * The green expires when a LATER attempt is not green.
    *
    * `stillGreen()` reads the newest attempt, and reading the oldest instead

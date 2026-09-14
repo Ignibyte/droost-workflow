@@ -624,11 +624,27 @@ final class WorkflowFacade {
     if ($state->statusOf($phase) === PhaseStatus::Failed) {
       if (!$this->waiversCoverTheFailure($state, $phase)) {
         // The phase spent its retry budget. Re-running would silently restart
-        // a run the engine already declared over — so nothing executes, and
-        // the envelope's retries block says why. Recovery is deliberate:
-        // reset() archives the record, then a fresh run begins — or the
-        // operator WAIVES every gate that killed the phase (below).
-        return new RunOutcome(Outcome::Failed, $state);
+        // a run the engine already declared over — so nothing executes.
+        //
+        // WITH THE REASON, and with the way out. This returned
+        // `{"outcome":"failed","report":null,"blocked":[],"awaiting":null}`
+        // on every later `run`, byte-identical, for ever — a reviewer drove
+        // nine. The `retries` block names a gate and a COUNT, not what the
+        // gate found; the comment here used to claim it "says why" and it
+        // does not. The same shape was fixed for the two `Blocked` paths and
+        // this one was missed.
+        //
+        // The last real report is still in run.json, and `status` and
+        // `evidence` render it in full — but nothing in the envelope named
+        // either, or named `reset`, so an agent driving from the envelope had
+        // the word `failed` and nothing else.
+        return new RunOutcome(
+          Outcome::Failed,
+          $state,
+          NULL,
+          NULL,
+          self::terminalRows($state, $phase, $projectRoot),
+        );
       }
       // Every gate that killed the phase has since been waived by the
       // operator — a signed, reasoned act through the terminal, refused from
@@ -1535,6 +1551,61 @@ final class WorkflowFacade {
       NULL,
       self::blockingRows($outcome->state, $phase, $projectRoot),
     );
+  }
+
+  /**
+   * Why a phase died, and what to do now, for a terminal envelope.
+   *
+   * The gates that spent the budget, each with what it found — read from the
+   * store, which still holds the last real verdict — plus one row naming the
+   * two commands that exist here. An agent driving from the envelope
+   * otherwise has the word `failed` and nothing else.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase that died.
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return list<array{check: string, fault: string, why: string, remedy: string, guidance: string}>
+   *   The rows.
+   */
+  private static function terminalRows(RunState $state, Phase $phase, string $projectRoot): array {
+    $rows = [];
+    try {
+      foreach ((new EvidenceStore($projectRoot))->checklist($state->runId, $phase->value) as $row) {
+        $state_ = CheckState::tryFrom(is_string($row['state'] ?? NULL) ? $row['state'] : '');
+        if ($state_ !== CheckState::Blocked) {
+          continue;
+        }
+        $fault = is_string($row['fault'] ?? NULL) ? $row['fault'] : '';
+        $rows[] = [
+          'check' => is_string($row['name'] ?? NULL) ? $row['name'] : '',
+          'fault' => $fault,
+          'why' => is_string($row['summary'] ?? NULL) ? $row['summary'] : '',
+          'remedy' => is_string($row['remedy'] ?? NULL) ? $row['remedy'] : '',
+          'guidance' => (Fault::tryFrom($fault) ?? Fault::None)->guidance(),
+        ];
+      }
+    }
+    catch (\Throwable) {
+      // A record that cannot be read is not a reason to say nothing at all —
+      // the row below still names the way out.
+    }
+    $rows[] = [
+      'check' => 'run',
+      'fault' => Fault::None->value,
+      'why' => sprintf('the %s phase spent its retry budget; this run is over', $phase->value),
+      'remedy' => 'Read the full report with `droost-workflow status` or '
+      . '`droost-workflow evidence`, then clear the run with '
+      . '`droost-workflow reset` and begin the next one. If every gate that '
+      . 'killed the phase has been answered for, the OPERATOR can waive them '
+      . 'instead and the phase reopens.',
+      'guidance' => '',
+    ];
+
+    return $rows;
   }
 
   /**
