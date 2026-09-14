@@ -57,11 +57,13 @@ search, the wiki as knowledge — is always used. Five points, two weights:
   the functional suites are REQUIRED to exist — a missing phpunit or
   playwright suite fails the gate rather than passing labelled-empty.
 - **Light weight — `medium`, `low`** — a SHORTER spec in the same EARS shape:
-  what was asked, what will change, and a handful of "When <trigger>, the
-  <system> shall <response>" criteria — written to
+  what was asked, what will change, a handful of "When <trigger>, the
+  <system> shall <response>" criteria, AND the `## Grounding` and `## Tooling
+  plan` sections the engine requires at every weight — written to
   `droost/droost-workflow/tmp-spec-<slug>.md` and presented back in chat at
   complete. Depth trims, never format: one spec shape everywhere is what the
-  seeker grades against. At `low` there is additionally NO wiki: `wiki_fresh`
+  seeker grades against, and the grounding discipline is never what a lighter
+  weight drops. At `low` there is additionally NO wiki: `wiki_fresh`
   is off and the complete phase writes no wiki pages; phpunit is off BY
   PRESET (the test phase runs only the browser check) and reports `off`,
   never `passed` — that is the level's declared trade, not a green suite.

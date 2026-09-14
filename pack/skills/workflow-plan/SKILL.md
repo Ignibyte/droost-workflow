@@ -210,9 +210,12 @@ from run.json — and since 0.4 the weight is DEPTH, never format. The five-poin
 dial collapses to two weights: a **`high`/`xhigh`/`max`** (or `custom`) run
 writes the full spec above to `droost/droost-workflow/spec-<slug>.md`. A
 **`medium`/`low`** run writes a shorter spec in the same EARS shape — what was
-asked, what will change, and a handful of "When <trigger>, the <system> shall
-<response>" criteria — to `droost/droost-workflow/tmp-spec-<slug>.md`, presented
-back in chat at complete.
+asked, what will change, a handful of "When <trigger>, the <system> shall
+<response>" criteria, AND the `## Grounding` and `## Tooling plan` sections
+(the engine refuses to leave plan without them at every weight — grounding is
+the discipline the light spec trims depth from, not out) — to
+`droost/droost-workflow/tmp-spec-<slug>.md`, presented back in chat at
+complete.
 One spec format everywhere is what the seeker checkpoint grades against;
 a criterion-free sketch would give the adversarial reviewer nothing to hold
 the diff to. Either way the file exists BEFORE code does: the lighter weight
