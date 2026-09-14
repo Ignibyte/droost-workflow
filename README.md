@@ -48,9 +48,16 @@ enforcement: soft               # hard | soft | off — the hooks, mid-run only
 require_run: hard               # hard | soft | off — custom-code edits with NO active run
 gates:
   phpcs:          { on: true,  standard: "Drupal,DrupalPractice" }
+  # ^ Drupal's standard needs drupal/coder. Where the project is not Drupal —
+  # no coder, no docroot, no module/theme/profile at the root — `init` writes
+  # PSR12 here, and a level's Drupal default is substituted the same way,
+  # with a notice under `deprecations`. Set it yourself and it is yours.
   phpstan:        { on: true,  level: 6 }      # 0-9 | max
   # both static gates accept paths: "web/modules/custom,web/themes/custom" —
-  # repo-relative analysis targets for repos with no phpcs.xml/phpstan.neon
+  # repo-relative analysis targets. Without paths and without a
+  # phpcs.xml/phpstan.neon, the gate is pointed at the project's OWN code:
+  # its top-level source directories and root-level files, or a Drupal
+  # site's modules/custom and themes/custom — never vendor/, core or contrib.
   phpunit:        { on: true }
   mutation:       { on: false, msi_min: 0 }
   playwright:     { on: false }
@@ -429,13 +436,15 @@ envelope: `{outcome, current_phase, report, awaiting, retries}`, where
 over". Exit codes stay simple — paused is not failed, and both kinds of
 failure exit non-zero. Recovery from a terminal failure is deliberate:
 `vendor/bin/droost-workflow reset` (or `drush droost:workflow:reset`)
-archives the record to `.droost-workflow/history/` and clears the way —
+archives the record to `droost/droost-workflow/history/` and clears the way —
 the same verb that closes out a COMPLETED run, whose record also persists
 until reset.
 
 ## Run state
 
-Run state lives beside the lever file, in `.droost-workflow/run.json`:
+Run state lives beside the lever file, in `droost/droost-workflow/run.json`
+(a project that still has the older `.droost-workflow/` directory keeps
+using it until that directory is gone):
 
 ```json
 { "v": 1, "run_id": "...", "phases": { "plan": "passed", "code": "active" } }
@@ -521,6 +530,13 @@ directories and nothing else; a directory without the marker belongs to you
 and is refused rather than overwritten. Your `droost.workflow.yml` is never
 refreshed at all — it is version-controlled intent you wrote, and resetting
 your gates on an unrelated re-install would be an unpleasant surprise.
+
+Two files outside the pack are touched, and only additively: the hook
+entries are **merged** into `.claude/settings.json` (an existing file keeps
+everything else it holds; one that cannot be parsed is refused, not
+replaced), and the run-state directory's ignore lines are **appended** to
+`.gitignore` if they are not already there. `init` prints both when it does
+them.
 
 ## Install
 

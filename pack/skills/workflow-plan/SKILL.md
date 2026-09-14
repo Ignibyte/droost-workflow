@@ -198,7 +198,12 @@ Then produce the spec:
 
 6. **Acceptance criteria in EARS form** — "When <trigger>, the <system> shall
    <observable response>", one observable behaviour per row, each with a way
-   to check it. A criterion nobody can check is not a criterion.
+   to check it. A criterion nobody can check is not a criterion. Give the
+   table a `Verified By` column NOW, left empty: the test phase fills it with
+   the test that proves each row, and `complete` refuses while any cell is
+   empty. The plan freezes every other cell of this table; a column added
+   later is allowed only as an appended column with nothing else touched, and
+   a run that reached complete without one has lost a round to exactly that.
 
 The spec's WEIGHT follows the run's preset — read the frozen, canonical name
 from run.json — and since 0.4 the weight is DEPTH, never format. The five-point

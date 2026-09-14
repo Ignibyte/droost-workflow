@@ -122,11 +122,15 @@ static analysis only, and non-negotiable: the pair is mandatory since 0.4,
 tunable but never off. The functional gates belong to the test phase, where
 there is behaviour to verify.
 
-**Then the seeker checkpoint, at the levels that run one.** `low` has no
-seeker — the phase returns `advanced` and no inspection is due, so do not
-dispatch a reviewer for a checkpoint that never fires. Everywhere else: when
-the static pair passes, the engine
-holds the run at `inspection-due` rather than advancing: dispatch the
+**Then the seeker checkpoint, wherever one is armed.** The envelope's
+`outcome` is the truth: `advanced` means no inspection is due; `inspection-due`
+means one is, and the run will not move until its ledger is recorded — re-running
+`run` returns `inspection-due` again, indefinitely. The level decides the
+default (`low` arms no seeker; every other level does), and the lever file's
+`seekers: { on: … }` overrides the level either way — the file `init` writes
+arms it at every level, `low` included. Do not reason about the level; read
+the outcome. When it is `inspection-due`, the engine is
+holding the run rather than advancing: dispatch the
 `workflow-seeker` agent over everything this run changed, append its
 `## Seeker Inspection` section to the spec verbatim, and record it with the
 `seeker-report` surface. Open CRITICAL or MEDIUM findings are fixed and

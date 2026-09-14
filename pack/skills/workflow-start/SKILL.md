@@ -16,10 +16,11 @@ If `droost/droost-workflow/run.json` already exists, do **not** start a second r
 
 - The run is still **in progress** → resume it with
   `/droost:workflow:continue`, not a new start. To abandon it deliberately,
-  `drush droost:workflow:reset --force`.
+  `drush droost:workflow:reset --force` (or, on a checkout with no site,
+  `vendor/bin/droost-workflow reset --force`).
 - The run has **finished** (completed or failed) → clear it with
-  `drush droost:workflow:reset` (it archives the record to
-  `droost/droost-workflow/history/`), then start fresh.
+  `drush droost:workflow:reset` or `vendor/bin/droost-workflow reset` (either
+  archives the record to `droost/droost-workflow/history/`), then start fresh.
 
 Only when there is no run.json does a start proceed.
 
