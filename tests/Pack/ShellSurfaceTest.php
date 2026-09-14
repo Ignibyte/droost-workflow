@@ -538,13 +538,70 @@ final class ShellSurfaceTest extends WorkflowTestCase {
     $root = $this->lab();
     file_put_contents($root . '/do.sh', "#!/bin/sh\ndrush droost:workflow:bypass x\n");
     file_put_contents($root . '/big.sh', "#!/bin/sh\n" . str_repeat("# pad\n", 12000) . "echo hi\n");
-    symlink($root . '/do.sh', $root . '/link.sh');
+    symlink($root . '/nowhere', $root . '/broken.sh');
 
-    foreach (['bash big.sh', 'bash link.sh'] as $command) {
+    foreach (['bash big.sh', 'bash broken.sh'] as $command) {
       [$exit, , $stderr] = $this->shell($root, $command);
       $this->assertSame(2, $exit, $command . ' cannot be read');
       $this->assertStringContainsString('cannot read', $stderr, 'and it says so');
     }
+  }
+
+  /**
+   * A link to a script is read THROUGH, and its target is judged.
+   *
+   * The symlink refusal closed `link.sh -> do.sh` by refusing every link —
+   * and `bin/drush -> ../vendor/drush/drush/drush`, the standard composer
+   * bin-dir layout, with it: `./bin/drush cr` was "a symlink" nobody could
+   * un-symlink. The honest answer to `link.sh` was always to read do.sh. So
+   * a link's target is what is judged: under vendor/ it is a tool; elsewhere
+   * it is read; one that resolves to nothing is still unreadable.
+   */
+  public function testLinkedScriptsAreReadThrough(): void {
+    $root = $this->lab();
+    file_put_contents($root . '/do.sh', "#!/bin/sh\ndrush droost:workflow:bypass x\n");
+    symlink($root . '/do.sh', $root . '/link.sh');
+    mkdir($root . '/bin', 0755, TRUE);
+    mkdir($root . '/vendor/drush/drush', 0755, TRUE);
+    file_put_contents($root . '/vendor/drush/drush/drush', "#!/bin/sh\necho drush\n");
+    symlink('../vendor/drush/drush/drush', $root . '/bin/drush');
+
+    foreach (['bash link.sh', './link.sh'] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' is do.sh, and do.sh runs the verb');
+      $this->assertStringContainsString('droost:workflow:bypass', $stderr, 'judged by what it says');
+    }
+    foreach (['./bin/drush status', 'bash bin/drush status'] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' is a tool under vendor/: ' . $stderr);
+    }
+  }
+
+  /**
+   * A system binary is not a script the agent wrote a moment ago.
+   *
+   * `\.{0,2}/` permitted zero dots, so every absolute path was self-executing
+   * and the unreadable-script tier then refused `/usr/bin/git status` because
+   * git is larger than 64KB — a remedy nobody can follow, over a command that
+   * touches nothing. A 40-command daily battery had no absolute-path
+   * invocation in it, which is how this shipped.
+   */
+  public function testSystemBinariesAreNotTheAgentsScripts(): void {
+    $root = $this->lab();
+    foreach ([
+      '/usr/bin/git status',
+      '/bin/ls -la',
+      '/usr/bin/find . -name "*.php"',
+      PHP_BINARY . ' -v',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' is ordinary: ' . $stderr);
+    }
+
+    // But an absolute path INSIDE the project is `./do.sh` spelled longer.
+    file_put_contents($root . '/do.sh', "#!/bin/sh\ndrush droost:workflow:bypass x\n");
+    [$exit] = $this->shell($root, $root . '/do.sh');
+    $this->assertSame(2, $exit, 'the agent\'s own script is read whichever way it is spelled');
   }
 
   /**
@@ -563,7 +620,10 @@ final class ShellSurfaceTest extends WorkflowTestCase {
     $root = $this->lab();
     foreach ([
       "find . -iname 'DROOST-WORKFLOW-GUARD.PHP' -delete",
-      "find .claude -iname 'RUN.JSON' -delete",
+      // `droost`, not `.claude`: run.json is not under `.claude`, so a find
+      // rooted there genuinely cannot reach it — the old assertion here was
+      // pinning the over-broad prediction, not the truth.
+      "find droost -iname 'RUN.JSON' -delete",
       "find . -iregex '.*GUARD.*' -delete",
       "find . -name '*.php' -exec rm {} +",
       'find . -name "*.php" -exec php -r "unlink($argv[1]);" {} +',
@@ -775,9 +835,261 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       'drush droost:workflow:baseline --status',
       'find . -name "*.php" -newer composer.json',
       'rm -rf node_modules',
+      '/usr/bin/git status',
+      'FOO=bar composer install',
+      'find . -depth -name "*.tmp" -delete',
     ] as $command) {
       [$exit, , $stderr] = $this->shell($root, $command);
       $this->assertSame(0, $exit, $command . ' is ordinary work: ' . $stderr);
+    }
+  }
+
+  /**
+   * Find applies its expression in order, and so does the judgement of it.
+   *
+   * `-delete` acts on whatever passed the tests BEFORE it. `find . -name
+   * "*.tmp" -delete` deletes `.tmp` files; `find . -delete -name "*.tmp"`
+   * deletes everything, and the filter after the action constrains nothing.
+   * The reach test asked "could any filter anywhere match a protected name",
+   * so a decoy `-name "nomatch"` placed after `-delete` answered no — and the
+   * `&&` turned that into an allow. Driven: the guard and every other file
+   * under `.` deleted.
+   */
+  public function testFindIsJudgedInExpressionOrder(): void {
+    $root = $this->lab();
+    foreach ([
+      'find . -delete -name "nomatch"',
+      'find .claude -delete -name "nomatch"',
+      // Shapes this cannot model fail CLOSED rather than guessed at.
+      'find . ! -name "x" -delete',
+      'find . -name "x" -o -delete',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' reaches enforcement');
+    }
+    foreach ([
+      'find . -name "*.tmp" -delete',
+      'find . -depth -name "*.tmp" -delete',
+      'find . -type f -name "*.orig" -delete',
+      'find . -name "*.log" -mtime +7 -delete',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' is scoped away first: ' . $stderr);
+    }
+  }
+
+  /**
+   * Find's path patterns are tested against the paths find would print.
+   *
+   * The candidate list was `[$name, '.claude/hooks/'.$name, './'.$name]` and
+   * never `./droost/droost-workflow/run.json`, so any pattern with a
+   * directory component missed. `find . -path "*droost-workflow/*" -delete`
+   * wiped run.json, bypass.json and the evidence store together under a
+   * verdict of ALLOW. The comment beside the list claimed `-path` was
+   * covered; it was not.
+   */
+  public function testFindPathPatternsAreTestedAgainstRealPaths(): void {
+    $root = $this->lab();
+    foreach ([
+      'find . -path "*droost-workflow/*" -delete',
+      'find . -path "*/.claude/hooks/*" -delete',
+      'find . -wholename "*/.claude/hooks/*" -delete',
+      'find . -ipath "*/.CLAUDE/*" -delete',
+      'find . -regex ".*/droost-workflow/.*" -delete',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' reaches enforcement');
+    }
+  }
+
+  /**
+   * A global option before the search path does not empty the search path.
+   *
+   * Find's `-H`, `-L`, `-P` and BSD's `-E` come BEFORE the paths. The loop
+   * broke on the first `-`, so `$searchPaths` was `["find"]`, the slice was
+   * empty, and nothing was judged. `find -L .claude/hooks -type f -delete`
+   * deleted the guard. A regression from the round that reworked this tier.
+   */
+  public function testFindGlobalOptionsDoNotEmptyTheSearchPaths(): void {
+    $root = $this->lab();
+    foreach ([
+      'find -L .claude/hooks -type f -delete',
+      'find -E . -regex ".*guar[d]\.php" -delete',
+      'find -H droost -name run.json -delete',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' reaches enforcement');
+    }
+  }
+
+  /**
+   * Whatever `rm` refuses, `find … -delete` refuses too.
+   *
+   * The find tier kept its own list of twelve protected basenames — a second,
+   * narrower copy of what `enforcement_refusal_for()` and the tree rule
+   * protect — so `rm vendor/bin/eslint` was refused while `find vendor/bin
+   * -name eslint -delete` was permitted. Same file, same run, two answers.
+   * There is no list now: the protected files that really exist are
+   * enumerated and asked of the rule `rm` is held to.
+   */
+  public function testFindProtectsWhatRmProtects(): void {
+    $root = $this->lab();
+    mkdir($root . '/node_modules/.bin', 0755, TRUE);
+    mkdir($root . '/.claude/commands', 0755, TRUE);
+    mkdir($root . '/.claude/skills', 0755, TRUE);
+    file_put_contents($root . '/vendor/bin/eslint', '#!/bin/sh');
+    file_put_contents($root . '/vendor/bin/drush', '#!/bin/sh');
+    file_put_contents($root . '/node_modules/.bin/prettier', '#!/bin/sh');
+    file_put_contents($root . '/.claude/commands/work.md', '# work');
+    file_put_contents($root . '/.claude/skills/x.md', '# x');
+
+    foreach ([
+      'rm vendor/bin/eslint' => 'find vendor/bin -name "eslint" -delete',
+      'rm node_modules/.bin/prettier' => 'find node_modules/.bin -name "prettier" -delete',
+      'rm vendor/bin/drush' => 'find vendor/bin -name "drush" -delete',
+      'rm .claude/commands/work.md' => 'find .claude/commands -name "*.md" -delete',
+      'rm .claude/skills/x.md' => 'find .claude/skills -name "*.md" -delete',
+    ] as $direct => $viaFind) {
+      [$exitDirect] = $this->shell($root, $direct);
+      [$exitFind] = $this->shell($root, $viaFind);
+      $this->assertSame(2, $exitDirect, $direct . ' is refused');
+      $this->assertSame(2, $exitFind, $viaFind . ' is the same act and gets the same answer');
+    }
+  }
+
+  /**
+   * An interpreter under `-exec` is judged as the shell tier judges one.
+   *
+   * `php` sat on find's read list, promoted to a write only when followed by
+   * `-r`, `-e` or `-c` — so `-exec php evil.php {} \;` was a read, and
+   * evil.php is one Write away. The shell tier's own rule for a script it
+   * cannot open is to refuse; this was the one tier not following it. A
+   * read-list program that names a file to WRITE — `phpcs --report-file=` —
+   * is a write too, through the same flag function the shell tier asks.
+   */
+  public function testFindExecOfAnInterpreterIsJudgedLikeTheShellTier(): void {
+    $root = $this->lab();
+    foreach ([
+      'find . -name "droost-workflow-guard.php" -exec php evil.php {} \\;',
+      'find . -name "droost-workflow-guard.php" -exec php -f evil.php {} \\;',
+      'find . -name "*.php" -exec sh -c "rm {}" \\;',
+      'find . -name "*.php" -exec vendor/bin/phpcs --report-file=.claude/hooks/droost-workflow-guard.php {} +',
+      'find . -fprint .claude/hooks/droost-workflow-guard.php',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' writes');
+    }
+    foreach ([
+      'find . -name "*.php" -exec php -l {} \\;',
+      'find . -name "*.php" -exec php --version \\;',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' only inspects: ' . $stderr);
+    }
+  }
+
+  /**
+   * A find that cannot reach the enforcement is ordinary work.
+   *
+   * The reach is what really sits under the search path, so a search below
+   * custom code, in a directory that does not exist, or outside the project
+   * has nothing protected to reach and is left alone whatever its action.
+   */
+  public function testFindBelowTheEnforcementIsOrdinary(): void {
+    $root = $this->lab();
+    mkdir($root . '/src', 0755, TRUE);
+    file_put_contents($root . '/src/a.orig', 'x');
+    foreach ([
+      'find src -name "*.orig" -delete',
+      'find modules/custom -name "*.php" -delete',
+      'find build -type f -delete',
+      'find /tmp -name "x" -delete',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' reaches nothing protected: ' . $stderr);
+    }
+  }
+
+  /**
+   * The directory wall follows `cd` like every other tier.
+   *
+   * The containing-directory check lived in a second loop after the main one,
+   * with no tracked working directory, and resolved every operand against the
+   * project root. So `cd droost && rm -rf droost-workflow` looked up
+   * `droost-workflow`, found it on no list, and permitted it: the state
+   * directory was deleted, and `cd .claude && rm -rf hooks` took the guard
+   * the same way. The main loop had followed `cd` since the forged-bypass
+   * round, one screen above.
+   */
+  public function testTheDirectoryWallFollowsCd(): void {
+    $root = $this->lab();
+    foreach ([
+      'cd droost && rm -rf droost-workflow',
+      'cd .claude && rm -rf hooks',
+      'cd droost && mv droost-workflow /tmp/x',
+      'cd droost && rm -rf ./droost-workflow/',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' takes the directory');
+    }
+    mkdir($root . '/src/build', 0755, TRUE);
+    foreach (['cd src && rm -rf build', 'cd modules && rm -rf custom/acme/tmp'] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' is ordinary: ' . $stderr);
+    }
+  }
+
+  /**
+   * A leading shell assignment does not hide the runner.
+   *
+   * `FOO=bar bash -c "…"` runs `bash -c "…"` with one variable set — but the
+   * head here was the literal `FOO=bar`, which is neither a wrapper word nor
+   * an interpreter, so the payload was never re-scanned and both walls went
+   * blind on one token. `env FOO=bar bash -c …` was refused because `env` is
+   * a wrapper; dropping the word `env` was the whole bypass. Driven: the
+   * guard overwritten, `stop` from 2 to 0.
+   */
+  public function testLeadingAssignmentsDoNotHideTheRunner(): void {
+    $root = $this->lab();
+    foreach ([
+      'FOO=bar bash -c "drush droost:workflow:bypass x"',
+      'FOO=bar bash -c "echo PWNED > .claude/hooks/droost-workflow-guard.php"',
+      'X=1 sh -c "rm -rf droost/droost-workflow"',
+      'LC_ALL=C bash -c "drush droost:workflow:gate-waive phpcs"',
+      'FOO=bar rm -rf droost/droost-workflow',
+      'A=1 B=2 drush droost:workflow:bypass x',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' is the same command with a variable set');
+    }
+    foreach (['CC=gcc make', 'FOO=bar composer install', 'DEBUG=1 vendor/bin/phpunit'] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' is ordinary: ' . $stderr);
+    }
+  }
+
+  /**
+   * Brace RANGES are expanded, not only comma lists.
+   *
+   * The enumerator split on commas, so `guar{c..e}.php` was one literal
+   * branch matching nothing; `glob(GLOB_BRACE)` does not expand ranges
+   * either; and with no `/` in the operand the directory rule never ran. A
+   * `cd` into the protected directory supplied the slash-less operand, and
+   * `rm -f droost-workflow-guar{c..e}.php` deleted the guard.
+   */
+  public function testBraceRangesAreExpanded(): void {
+    $root = $this->lab();
+    foreach ([
+      'cd .claude/hooks && rm -f droost-workflow-guar{c..e}.php',
+      'cd droost/droost-workflow && rm -f ru{m..o}.json',
+      'rm .claude/hooks/droost-workflow-guar{c..e}.php',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' spells the protected name');
+    }
+    foreach (['rm src/file{1..3}.bak', 'for i in {1..10}; do echo $i; done'] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' is ordinary: ' . $stderr);
     }
   }
 
