@@ -65,15 +65,32 @@ final class PhpcsStandardTest extends WorkflowTestCase {
   }
 
   /**
-   * A site, under any docroot name composer scaffolds.
+   * A site under a docroot named ANYTHING is Drupal.
+   *
+   * `web` and `docroot` are conventions, not the rule — `html` and `public`
+   * are in the wild, and `ShellGateExecutor` already analyses `<docroot>/
+   * modules/custom` on any of them. This detector agreed only on `web`/
+   * `docroot`, so an `html/` site got PSR-12 substituted onto real Drupal.
    */
-  public function testTheDocrootSaysDrupal(): void {
-    foreach (['web', 'docroot', '.'] as $docroot) {
+  public function testTheDocrootSaysDrupalWhateverItIsNamed(): void {
+    foreach (['web', 'docroot', 'html', 'public', '.'] as $docroot) {
       $root = $this->makeRoot();
       mkdir($root . '/' . $docroot . '/core/lib', 0755, TRUE);
       file_put_contents($root . '/' . $docroot . '/core/lib/Drupal.php', "<?php\n");
       $this->assertTrue(PhpcsStandard::drupalApplies($root), 'docroot at ' . $docroot);
+      $this->assertSame(
+        'Drupal,DrupalPractice',
+        PhpcsStandard::forProject($root, 'Drupal,DrupalPractice'),
+        'so the level\'s Drupal standard stands on it, not PSR-12',
+      );
     }
+
+    // Not fooled by a dependency that happens to ship Drupal core's marker.
+    $plain = $this->makeRoot();
+    mkdir($plain . '/vendor/x/core/lib', 0755, TRUE);
+    file_put_contents($plain . '/vendor/x/core/lib/Drupal.php', "<?php\n");
+    file_put_contents($plain . '/composer.json', '{"name":"acme/x","type":"library"}');
+    $this->assertFalse(PhpcsStandard::drupalApplies($plain), 'a marker under vendor/ is not this project being Drupal');
   }
 
   /**

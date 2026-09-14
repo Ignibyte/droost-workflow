@@ -64,9 +64,20 @@ final class PhpcsStandard {
         return TRUE;
       }
     }
-    // A site, under any of the docroot names composer scaffolds.
-    foreach (['/web/core/lib/Drupal.php', '/docroot/core/lib/Drupal.php', '/core/lib/Drupal.php'] as $marker) {
-      if (is_file($root . $marker)) {
+    // A site, under a docroot named ANYTHING. Composer's web-root is `web`
+    // by convention but `docroot`, `html` and `public` are all in the wild —
+    // and `ShellGateExecutor` already keys the phpstan subject on core's
+    // marker under any top-level directory, so on an `html/` site it analysed
+    // `html/modules/custom` while this returned FALSE and PSR-12 was
+    // substituted onto a real Drupal site. Same marker, same breadth now.
+    if (is_file($root . '/core/lib/Drupal.php')) {
+      return TRUE;
+    }
+    foreach ((array) @scandir($root) as $entry) {
+      if (is_string($entry)
+        && $entry !== '.' && $entry !== '..'
+        && $entry !== 'vendor' && $entry !== 'node_modules'
+        && is_file($root . '/' . $entry . '/core/lib/Drupal.php')) {
         return TRUE;
       }
     }
