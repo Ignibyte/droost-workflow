@@ -99,9 +99,18 @@ if (getenv('CLAUDE_PROJECT_DIR') === FALSE || getenv('CLAUDE_PROJECT_DIR') === '
     if ($levers === NULL && is_file($here . '/droost.workflow.yml')) {
       $levers = $here;
     }
-    // `file_exists`, not `is_dir`: a worktree and a submodule carry `.git` as a
-    // FILE, and `is_dir` walked straight out of them into somebody else's repo.
-    if (file_exists($here . '/.git')) {
+    // A worktree and a submodule carry `.git` as a FILE, so `is_dir` alone
+    // walked straight out of them into somebody else's repo. But `file_exists`
+    // alone meant ANY file called `.git` was a repository boundary, and
+    // `echo x > modules/custom/.git` is one command: the walk stopped there,
+    // the root became a directory three levels below the real one, and every
+    // protected path — `.claude/hooks/droost-workflow-guard.php` among them —
+    // stopped matching. One echo turned the guard off.
+    //
+    // A real `.git` file says `gitdir: <path>` and that path is on disk. That
+    // is the whole difference, it costs a read of a few bytes, and a plant now
+    // has to build a plausible git directory rather than write a word.
+    if (git_boundary($here)) {
       break;
     }
     $parent = dirname($here);
@@ -136,6 +145,47 @@ if (!is_file($root . '/droost/droost-workflow/run.json')) {
   }
 }
 
+// A CRASH READS AS PERMISSION. The host runs this hook and interprets its exit
+// code: 2 blocks, 0 allows, and anything else is neither — which every host
+// tried resolves in the agent's favour. So every way this file can die has to
+// land on 2, and two of them did not.
+//
+// A NUL byte in `file_path` was the live one. `preg_match()` and `file_exists()`
+// throw ValueError on a NUL in PHP 8, nothing here caught it, and
+// `{"tool_input":{"file_path":"a\u0000b"}}` exited 255 — the protected-path
+// check never ran. A fatal error anywhere else in the file lands the same way.
+//
+// These two handlers are the floor: whatever goes wrong, the answer is a
+// refusal that says so, never a silent allow. They are deliberately the FIRST
+// thing the file does, because a crash before they are installed is exactly the
+// crash they exist to catch.
+set_exception_handler(static function (\Throwable $error): void {
+  fwrite(STDERR, sprintf(
+    'The droost workflow guard could not complete this check (%s: %s at %s:%d), '
+    . 'so it refused rather than permitted. A guard that cannot decide has not '
+    . 'decided in your favour. Retry the action as written; if it keeps failing, '
+    . 'the OPERATOR reinstalls the hook with `droost-workflow init`.',
+    $error::class,
+    $error->getMessage(),
+    basename($error->getFile()),
+    $error->getLine(),
+  ));
+  exit(2);
+});
+register_shutdown_function(static function (): void {
+  $fatal = error_get_last();
+  if ($fatal !== NULL && ($fatal['type'] & (E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR)) !== 0) {
+    fwrite(STDERR, sprintf(
+      'The droost workflow guard died before it could decide (%s at %s:%d), so '
+      . 'it refused. The OPERATOR reinstalls the hook with `droost-workflow init`.',
+      $fatal['message'],
+      basename($fatal['file']),
+      $fatal['line'],
+    ));
+    exit(2);
+  }
+});
+
 // The payload is read ONCE: several branches below consult it, and a stream
 // read twice is empty the second time.
 $stdin = (string) stream_get_contents(STDIN);
@@ -151,6 +201,38 @@ $stdin = (string) stream_get_contents(STDIN);
 $payload = json_decode($stdin, TRUE);
 $payload = is_array($payload) ? $payload : [];
 $stopHookActive = ($payload['stop_hook_active'] ?? FALSE) === TRUE;
+
+// A NUL byte is never part of a real path or a real command — no filesystem
+// this runs on accepts one — but it IS what truncates a C string, so
+// `.claude/hooks/droost-workflow-guard.php\0.txt` is one name to this guard and
+// a different one to whatever acts on it. Refusing the byte is the whole
+// answer, and it has to happen before any check touches the value.
+$carriesNul = static function (mixed $value) use (&$carriesNul): bool {
+  if (is_string($value)) {
+    return str_contains($value, "\0");
+  }
+  if (is_array($value)) {
+    foreach ($value as $key => $item) {
+      if ((is_string($key) && str_contains($key, "\0")) || $carriesNul($item)) {
+        return TRUE;
+      }
+    }
+  }
+
+  return FALSE;
+};
+// The DECODED payload, not just the raw text: a host sends the byte as the six
+// characters `\\u0000`, so scanning stdin finds nothing while the value that
+// reaches `preg_match()` carries a real NUL. Both are checked, because a host
+// that sends the raw byte exists too.
+if (str_contains($stdin, "\0") || $carriesNul($payload)) {
+  fwrite(STDERR,
+    'A NUL byte appeared in this tool call. No path or command legitimately '
+    . 'carries one, and it is the classic way to make a guard read one name '
+    . 'while the system acts on another — so this is refused without being '
+    . 'interpreted. If you meant an ordinary path, write it without the byte.');
+  exit(2);
+}
 
 if ($mode === 'operator-commands') {
   // A shell is a file editor. `baseline_dir_guard()` refuses the store and the
@@ -270,8 +352,37 @@ if ($mode === 'pre-tool-use') {
   $input = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
   $file = $input['file_path'] ?? ($input['notebook_path'] ?? '');
   $file = is_string($file) ? $file : '';
-  if (str_contains($file, $stateDir . '/')
-    || str_ends_with($file, 'droost.workflow.yml')) {
+  // CONTAINS was the test, and `..` walks straight back out of what it
+  // contains: `droost/droost-workflow/../../modules/custom/evil.php` holds the
+  // state directory's name and lands in custom code, so the plan-phase block —
+  // the one that says "write the spec, do not start building yet" — exempted
+  // the exact edit it exists to refuse. So did any path anywhere on the disk
+  // with those two segments in it.
+  //
+  // The question is where the write LANDS, which is a different question from
+  // what the string spells, and `resolved_relative()` already answers it.
+  $inState = FALSE;
+  if ($file !== '') {
+    $absolute = str_starts_with($file, '/') ? $file : rtrim($root, '/') . '/' . ltrim($file, '/');
+    $landing = normalised_path($absolute);
+    $rootPath = normalised_path(rtrim($root, '/'));
+    $relative = str_starts_with($landing, $rootPath . '/')
+      ? substr($landing, strlen($rootPath) + 1)
+      : '';
+    $resolved = resolved_relative($absolute, $root);
+    foreach ([$relative, $resolved] as $candidate) {
+      if ($candidate !== '' && str_starts_with($candidate, trim($stateDir, '/') . '/')) {
+        $inState = TRUE;
+      }
+    }
+  }
+  // The lever file used to be exempted here too, and that clause was dead: a
+  // run is under way by definition in this branch, and `baseline_dir_guard()`
+  // — which runs first in pre-tool-use — refuses `droost.workflow.yml` for
+  // exactly that reason. Two rules saying opposite things about the same file
+  // is worse than either, so the one that never fires is gone rather than
+  // left to be believed.
+  if ($inState) {
     exit(0);
   }
   $message = 'droost:workflow:continue: the active run is still in PLAN — write the spec '
@@ -412,6 +523,29 @@ function operator_commands_guard(string $stdin): void {
     return;
   }
   $command = operator_commands_scan_text($command);
+  // A droost command must NAME its verb. `drush $(echo droost:workflow:byp)ass`
+  // ran the bypass and matched nothing here, because `(` and `)` end a token
+  // and the verb arrived in three pieces — the shell joins them back together
+  // after this hook has already answered.
+  //
+  // Substitution is refused only where it can hide an operator verb: inside an
+  // invocation of drush or droost-workflow. `cd $(git rev-parse --show-toplevel)`
+  // and `git commit -m "$(cat msg)"` are ordinary work and stay ordinary. That
+  // narrowness is the point — a guard that refused every `$(` would be switched
+  // off within a day, and a guard switched off enforces nothing.
+  if (preg_match(
+    '/(?:^|[;&|(]|\s)(?:\S*\/)?(?:drush|droost-workflow)\b[^;&|\n]*(?:\$\(|`|\$\{)/',
+    operator_commands_unquoted($command),
+  ) === 1) {
+    fwrite(STDERR,
+      'This command builds a droost command out of a substitution, so what it '
+      . 'actually runs cannot be read here — and the operator-only verbs '
+      . '(bypass, gate-waive, baseline, effort, arming a write gate) are '
+      . 'exactly what that hides. Write the drush command out in full. If you '
+      . 'genuinely need a computed argument, compute it into a variable on its '
+      . 'own line first; it is the VERB that has to be legible.');
+    exit(2);
+  }
   // Per INVOCATION, from TOKENS. Asking the raw line three different questions
   // let each answer come from a different command: `bypass "hotfix"; echo
   // --off` read its exemption out of the `echo`, `"droost:workflow:byp"ass`
@@ -462,7 +596,8 @@ function operator_commands_guard(string $stdin): void {
       // preview is exactly how an agent should ground a level it proposes.
       $which = 'effort';
     }
-    elseif (operator_commands_arms_write_gate($tokens)) {
+    elseif (operator_commands_arms_write_gate($tokens)
+      || operator_commands_php_arms_write_gate($tokens)) {
       // ARMING a write gate is the operator's act too (round 25, R25-F2: the
       // subject asked for allow_entity_write rather than arming it — this makes
       // asking the only path). Disarming is a tightening and is not matched.
@@ -483,6 +618,57 @@ function operator_commands_guard(string $stdin): void {
     ));
     exit(2);
   }
+}
+
+/**
+ * The command with the contents of every quoted span blanked out.
+ *
+ * A substitution inside quotes is still a substitution to the shell, but the
+ * distinction that matters here is a different one: text inside quotes is
+ * usually being PASSED to something (a commit message, a PR body, an echo)
+ * rather than being the command's own verb. `git commit -m "ran drush
+ * droost:workflow:bypass for $(date)"` is a sentence about a command; `drush
+ * $(echo droost:workflow:byp)ass` is the command. Blanking the quoted spans
+ * tells them apart without a list of which tools take a message argument.
+ *
+ * A single-word check would be simpler and wrong in both directions; this one
+ * is wrong only where an agent quotes a real droost invocation's verb, which
+ * the tokeniser catches separately because a runner's string is re-scanned.
+ *
+ * @param string $command
+ *   The command line.
+ *
+ * @return string
+ *   The same text, with quoted contents replaced by spaces so offsets and word
+ *   boundaries are preserved.
+ */
+function operator_commands_unquoted(string $command): string {
+  $out = '';
+  $quote = '';
+  $length = strlen($command);
+  for ($i = 0; $i < $length; $i++) {
+    $char = $command[$i];
+    if ($quote !== '') {
+      if ($char === '\\' && $quote === '"' && $i + 1 < $length) {
+        $out .= '  ';
+        $i++;
+        continue;
+      }
+      if ($char === $quote) {
+        $quote = '';
+      }
+      $out .= ' ';
+      continue;
+    }
+    if ($char === '\'' || $char === '"') {
+      $quote = $char;
+      $out .= ' ';
+      continue;
+    }
+    $out .= $char;
+  }
+
+  return $out;
 }
 
 /**
@@ -514,11 +700,18 @@ function operator_commands_arms_write_gate(array $tokens): bool {
     }
     if (in_array($lower, ['config:set', 'config-set', 'cset'], TRUE)) {
       // The settings object has to be named for this to be droost's gate.
-      $verb = isset($words[$index + 1]) && strtolower($words[$index + 1]) === 'droost.settings'
-        ? $index + 1
-        : NULL;
-      if ($verb !== NULL) {
+      $next = strtolower($words[$index + 1] ?? '');
+      if ($next === 'droost.settings') {
+        $verb = $index + 1;
         break;
+      }
+      // The DOTTED spelling is the same command. `drush cset
+      // droost.settings.allow_entity_write true` names the key in one token,
+      // which read as neither the object nor the flag, and armed a write gate
+      // with the guard watching. Drush accepts both forms; so does this.
+      if (preg_match('/^droost\.settings\.(allow_\w+)$/i', $next) === 1
+        && in_array(strtolower($words[$index + 2] ?? ''), $arming, TRUE)) {
+        return TRUE;
       }
     }
   }
@@ -530,6 +723,90 @@ function operator_commands_arms_write_gate(array $tokens): bool {
 
   return preg_match('/^allow_\w+$/i', $flag) === 1
     && in_array(strtolower($value), $arming, TRUE);
+}
+
+/**
+ * Whether a line of PHP arms a droost write gate.
+ *
+ * `drush php:eval` is a runner, so the tokeniser already hands the PHP through
+ * as its own invocation — and then every matcher looked for `droost:gate` or
+ * `config:set` and found neither, because this spelling has no drush verb at
+ * all:
+ *
+ *     drush php:eval "\Drupal::configFactory()
+ *       ->getEditable('droost.settings')->set('allow_entity_write', TRUE)->save();"
+ *
+ * Same config object, same key, same effect, and it was permitted. The shape to
+ * match is not a verb but the three things that have to be present for the
+ * write to mean anything: droost's settings, an allow_* key, and a truthy.
+ *
+ * @param string $line
+ *   The invocation's text.
+ *
+ * @return bool
+ *   TRUE when the line writes a droost allow_* switch on.
+ */
+function operator_commands_php_arms_write_gate(array $tokens): bool {
+  // Flattened from the tokens rather than matched against PHP source, because
+  // by the time this sees it there is no PHP source left. The tokeniser splits
+  // on grouping punctuation and marks `>` as a redirect, so
+  // `->set('allow_entity_write', TRUE)` arrives as `-`, `\x01set`,
+  // `allow_entity_write,`, `TRUE`. A pattern written against the code an agent
+  // typed matches none of that, which is why the first cut of this permitted
+  // the write it was added to refuse.
+  $flat = strtolower(implode(' ', array_map(
+    static fn (string $token): string => ltrim($token, "\x01"),
+    $tokens,
+  )));
+  if (preg_match('/droost[.\\\'"]?settings|droost_workflow/', $flat) !== 1) {
+    return FALSE;
+  }
+  if (preg_match('/allow_\w+/', $flat) !== 1) {
+    return FALSE;
+  }
+  // Something that WRITES, and something truthy. Reading the switch is not
+  // arming it — `\Drupal::config('droost.settings')->get('allow_entity_write')`
+  // is a perfectly good thing for an agent to ask, and asking is the behaviour
+  // this whole rule is trying to produce.
+  return preg_match('/(?<![a-z_])(set|setmultiple|save|seteditable|setsetting)(?![a-z_])/', $flat) === 1
+    && preg_match('/(?<![a-z_])(true|1|on)(?![a-z_0-9])/', $flat) === 1;
+}
+
+/**
+ * An argument list with its leading wrappers removed.
+ *
+ * `nice`, `time`, `timeout 5`, `sudo`, and the shell's own `builtin`, `command`
+ * and `eval` all run what follows them, and every decision this file makes was
+ * reading `$tokens[0]`. So `builtin cd .claude/hooks && echo … > guard.php`
+ * left the tracked directory pinned at the project root while the real shell
+ * had moved — every relative operand then resolved somewhere harmless, the
+ * guard overwrote itself, and `stop` went from exit 2 to exit 0. `nice rm -rf
+ * droost/droost-workflow` walked past the destructive-verb test the same way.
+ *
+ * @param list<string> $tokens
+ *   The argument list.
+ *
+ * @return list<string>
+ *   The list with wrappers and their own flags removed.
+ */
+function operator_commands_unwrapped(array $tokens): array {
+  $wrappers = '/^(?:sudo|command|builtin|eval|exec|env|nice|time|setsid|stdbuf|ionice'
+    . '|caffeinate|arch|unbuffer|doas|busybox|nohup|timeout|watch|flock|parallel|su'
+    . '|script|chronic|ts)$/';
+  for ($strip = 0; $strip < 8 && $tokens !== []; $strip++) {
+    $word = strtolower(basename(ltrim($tokens[0], "\x01")));
+    if (preg_match($wrappers, $word) !== 1) {
+      break;
+    }
+    array_shift($tokens);
+    // The wrapper's own flags and its numeric argument (`timeout 5`, `nice -n
+    // 10`), so the command it runs becomes the head.
+    while ($tokens !== [] && (str_starts_with($tokens[0], '-') || preg_match('/^\d+$/', $tokens[0]) === 1)) {
+      array_shift($tokens);
+    }
+  }
+
+  return array_values($tokens);
 }
 
 /**
@@ -858,11 +1135,12 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     //
     // A leading `(` or `{` is its own token now, so a subshell's `cd` is still
     // the head of its invocation.
-    $verbWord = strtolower(ltrim($tokens[0] ?? '', '({'));
+    $unwrapped = operator_commands_unwrapped($tokens);
+    $verbWord = strtolower(ltrim($unwrapped[0] ?? '', '({'));
     if ($verbWord === 'cd' || $verbWord === 'pushd') {
       // The first operand that is not one of `cd`'s own flags.
       $target = '';
-      foreach (array_slice($tokens, 1) as $word) {
+      foreach (array_slice($unwrapped, 1) as $word) {
         if ($word === '--') {
           continue;
         }
@@ -894,10 +1172,23 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
         $writesTo = TRUE;
         break;
       }
+      // A flag can redirect as surely as `>`. `git diff --output=<path>`
+      // truncates and fills its target, and `git diff` is on the read list —
+      // so the guard's own file was a legal destination for a "read".
+      if (preg_match('/^(--output|--out|--outfile|--write|--dest|--destination|-o|-O)(=|$)/i', $token) === 1) {
+        $writesTo = TRUE;
+        break;
+      }
     }
-    $verb = strtolower($tokens[0] ?? '');
-    $sub = strtolower($tokens[1] ?? '');
-    $reading = !$writesTo && in_array($verb, [
+    $plain = operator_commands_unwrapped($tokens);
+    $verb = strtolower(basename($plain[0] ?? ''));
+    $sub = strtolower($plain[1] ?? '');
+    // PARENTHESISED. `&&` binds tighter than `||`, so `!$writesTo && in_array(…)
+    // || ($verb === 'git' && …)` left the git branch answering on its own —
+    // and `git diff --output=.claude/hooks/droost-workflow-guard.php` was read
+    // as a read while it truncated the guard. The write check has to govern
+    // BOTH lists, which is what it was written to do.
+    $reading = !$writesTo && (in_array($verb, [
       'cat', 'less', 'more', 'head', 'tail', 'ls', 'stat', 'file', 'wc',
       'grep', 'egrep', 'rg', 'diff', 'md5', 'shasum', 'md5sum', 'sha1sum',
       'sha256sum', 'cmp', 'realpath', 'readlink', 'jq',
@@ -906,11 +1197,25 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       // that string would be rewriting. Read it with `droost-workflow
       // evidence`, which renders the whole round.
     ], TRUE)
-      || ($verb === 'git' && in_array($sub, ['diff', 'log', 'show', 'status', 'blame'], TRUE));
+      || ($verb === 'git' && in_array($sub, ['diff', 'log', 'show', 'status', 'blame'], TRUE)));
     if ($reading) {
       continue;
     }
-    foreach ($tokens as $operand) {
+    // A flag's VALUE is an operand. Every token starting with `-` was skipped
+    // as "a flag, not a path", which is true of `-q` and false of
+    // `--output=.claude/hooks/droost-workflow-guard.php` — so the one form
+    // that both marks itself a write AND carries its destination inside the
+    // flag reached neither check. Split here, and mark the value a write
+    // target, because that is exactly what the flag makes it.
+    $operands = [];
+    foreach ($tokens as $token) {
+      if (preg_match('/^(--output|--out|--outfile|--write|--dest|--destination|-o|-O)=(.+)$/i', $token, $flag) === 1) {
+        $operands[] = "\x01" . $flag[2];
+        continue;
+      }
+      $operands[] = $token;
+    }
+    foreach ($operands as $operand) {
       if ($operand === '' || str_starts_with($operand, '-')) {
         continue;
       }
@@ -920,12 +1225,44 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       // else is usually being read or run.
       $target = str_starts_with($operand, "\x01");
       $operand = ltrim($operand, "\x01");
+      // A GLOB names the directory it sits in, never the files. `rm
+      // .claude/hooks/*` matched no protected FILE — the shell expands the
+      // wildcard, and by the time a name reached this check there was no name,
+      // just a `*`. It deleted the guard. `rm droost/droost-workflow/*.json`
+      // took the run record the same way. Judging the DIRECTORY is the answer
+      // that does not require expanding anything.
+      //
+      // NARROW, because the first cut of this was worse than the hole it
+      // closed: it read `?` as a wildcard and refused `find . -name "*.php"`,
+      // a heredoc containing `<?php`, and `rm -rf node_modules/*` before
+      // `npm ci`. A guard that refuses ordinary work is removed, and then the
+      // wildcard case is not enforced either. So only a pattern that actually
+      // NAMES a directory is judged — one with a `/` in it — plus the bare
+      // everything-glob, which names the directory the shell is standing in.
+      $globDir = NULL;
+      if (str_contains($operand, '/') && preg_match('/[*\[]/', basename($operand)) === 1) {
+        $globDir = dirname($operand);
+      }
+      elseif ($operand === '*' || $operand === './*' || $operand === '.*') {
+        $globDir = '.';
+      }
+      if ($globDir !== NULL) {
+        $globRefusal = wildcard_directory_refusal(
+          $globDir === '.' || $globDir === '' ? $cwd : (str_starts_with($globDir, '/') ? $globDir : $cwd . '/' . $globDir),
+          $root,
+          $stateDir,
+        );
+        if ($globRefusal !== '') {
+          fwrite(STDERR, sprintf('%s (Refused: %s)', $globRefusal, trim($command)));
+          exit(2);
+        }
+      }
       $absolute = str_starts_with($operand, '/') ? $operand : $cwd . '/' . $operand;
       $refusal = enforcement_refusal($absolute, $root, $stateDir);
       if ($refusal !== ''
         && preg_match('#(^|/)(vendor/bin|node_modules/\.bin)/[^/]+$#', $operand) === 1
         && !$target
-        && preg_match('/^(cp|mv|ln|install|tee|dd|truncate|sed|chmod|chown|rm|shred|patch)$/', $verb) !== 1) {
+        && preg_match('/^(cp|mv|ln|install|tee|dd|truncate|sed|chmod|chown|rm|shred|patch|curl|wget|scp|rsync|unzip|tar)$/', $verb) !== 1) {
         // Named, not written: running a gate's own tool is what it is for.
         continue;
       }
@@ -987,7 +1324,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
   // drift, and one of them had already been fixed.
   $directory = NULL;
   foreach (operator_commands_invocations($command) as $tokens) {
-    if (preg_match($destructive, implode(' ', $tokens)) !== 1) {
+    if (preg_match($destructive, implode(' ', operator_commands_unwrapped($tokens))) !== 1) {
       continue;
     }
     foreach ($tokens as $operand) {
@@ -1315,6 +1652,130 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
       . 'under way. Rewriting your own instructions mid-run is not the same act '
       . 'as improving them: do it before a run, or ask the operator. '
       . '`droost-workflow init` takes the shipped versions.';
+  }
+
+  return '';
+}
+
+/**
+ * Whether a directory is a real repository boundary.
+ *
+ * A `.git` DIRECTORY always is. A `.git` FILE is one only when it points at a
+ * git directory that exists — which is what git itself requires of a worktree
+ * or a submodule, and what a planted file does not have.
+ *
+ * @param string $directory
+ *   The directory being tested.
+ *
+ * @return bool
+ *   TRUE when the walk should stop here.
+ */
+function git_boundary(string $directory): bool {
+  $dot = rtrim($directory, '/') . '/.git';
+  if (is_dir($dot)) {
+    return TRUE;
+  }
+  if (!is_file($dot)) {
+    return FALSE;
+  }
+  $head = (string) @file_get_contents($dot, FALSE, NULL, 0, 4096);
+  if (preg_match('/^gitdir:\s*(\S.*?)\s*$/m', $head, $match) !== 1) {
+    return FALSE;
+  }
+  $target = $match[1];
+  $target = str_starts_with($target, '/') ? $target : rtrim($directory, '/') . '/' . $target;
+
+  return is_dir($target);
+}
+
+/**
+ * The refusal for a wildcard aimed at a directory.
+ *
+ * A glob names no file, so `enforcement_refusal()` has nothing to judge: `rm
+ * .claude/hooks/*` reached the protected-path check as the literal string `*`
+ * and passed it, and the shell then deleted the guard. This asks the only
+ * question that can be asked before expansion — does this directory hold, or
+ * sit inside, something the pipeline rests on?
+ *
+ * Both directions matter. `rm .claude/hooks/*` aims INSIDE a protected
+ * directory; `rm -r droost/*` aims at one that CONTAINS two of them. Either
+ * way the expansion reaches enforcement, so either way this refuses and asks
+ * for the name instead.
+ *
+ * @param string $directory
+ *   The absolute directory the wildcard sits in.
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The resolved state directory.
+ *
+ * @return string
+ *   A refusal message, or '' when nothing protected is in reach.
+ */
+function wildcard_directory_refusal(string $directory, string $root, string $stateDir): string {
+  $rootPath = normalised_path($root);
+  $path = normalised_path($directory);
+  $relative = str_starts_with($path, $rootPath)
+    ? trim(substr($path, strlen($rootPath)), '/')
+    : $path;
+  $landing = resolved_relative($directory, $root);
+  if ($landing !== '') {
+    $landing = trim($landing, '/');
+  }
+
+  // Protected as a TREE: everything under these is enforcement, so a wildcard
+  // that reaches them from ABOVE is refused too. `rm -r droost/*` takes the run
+  // record and the baseline without naming either.
+  $trees = [
+    '.claude/hooks' => 'the hook that IS this enforcement',
+    'droost/droost-workflow' => 'the run\'s own record, its evidence store and the bypass grant',
+    '.droost-workflow' => 'the run\'s own record, its evidence store and the bypass grant',
+    'droost/baseline' => 'the operator\'s adoption baseline',
+  ];
+  $stateRelative = trim($stateDir, '/');
+  if ($stateRelative !== '' && !isset($trees[$stateRelative])) {
+    $trees[$stateRelative] = 'the run\'s own record and its evidence store';
+  }
+  // Protected as FILES ONLY. `vendor/bin/phpcs` is a verdict; `vendor/` is an
+  // ordinary tree that `composer install` rewrites, and `rm -rf node_modules`
+  // before `npm ci` is a thing people do every day. So a wildcard INSIDE these
+  // is refused and one above them is not — which is the same rule the
+  // single-file check already applies, said once more for the glob.
+  $files = [
+    '.claude' => 'the hook and the settings that wire this enforcement in',
+    'vendor/bin' => 'the gate executables whose exit codes are the verdicts',
+    'node_modules/.bin' => 'the gate executables whose exit codes are the verdicts',
+  ];
+
+  foreach ([$relative, $landing] as $candidate) {
+    if ($candidate === '.') {
+      $candidate = '';
+    }
+    foreach ($trees + $files as $dir => $what) {
+      if ($candidate !== '' && ($candidate === $dir || str_starts_with($candidate, $dir . '/'))) {
+        return sprintf(
+          'A shell command in this run expands a wildcard inside `%s`, which holds %s. '
+          . 'The shell expands it; this guard sees a `*` and never the names it '
+          . 'becomes, so it cannot tell a tidy-up from the one move that removes '
+          . 'the enforcement. Name the file you mean.',
+          $dir,
+          $what,
+        );
+      }
+    }
+    foreach ($trees as $dir => $what) {
+      if (str_starts_with($dir . '/', $candidate === '' ? '' : $candidate . '/')) {
+        return sprintf(
+          'A shell command in this run expands a wildcard across `%s`, which holds %s. '
+          . 'The shell expands it; this guard sees a `*` and never the names it '
+          . 'becomes, so it cannot tell a tidy-up from the one move that removes '
+          . 'the enforcement. Name what you mean, or work below the directory '
+          . 'that holds the run.',
+          $candidate === '' ? 'the project root' : $candidate,
+          $what,
+        );
+      }
+    }
   }
 
   return '';

@@ -149,4 +149,68 @@ abstract class WorkflowTestCase extends TestCase {
     @rmdir($path);
   }
 
+  /**
+   * Executes the packed guard exactly as Claude Code would.
+   *
+   * @param string $root
+   *   The project root, delivered as CLAUDE_PROJECT_DIR — the way Claude Code
+   *   runs the hook, and what the guard resolves its run state against.
+   * @param string $mode
+   *   The guard mode: pre-tool-use or stop.
+   * @param array<string, mixed> $payload
+   *   The hook payload delivered on stdin.
+   * @param string|null $cwd
+   *   The working directory to run from, when it must differ from the project
+   *   root (the agent's Bash tool can move it — R27-F1). Defaults to $root.
+   *
+   * @return array{int, string, string}
+   *   Exit code, stdout, stderr.
+   */
+  protected function guard(string $root, string $mode, array $payload, ?string $cwd = NULL): array {
+    $script = dirname(__DIR__) . '/pack/hooks/droost-workflow-guard.php';
+    // Set CLAUDE_PROJECT_DIR explicitly so the fixture root wins over any value
+    // in the environment that runs the suite, and so cwd and the project root
+    // can be driven apart to exercise the moved-cwd case.
+    $env = getenv();
+    $env['CLAUDE_PROJECT_DIR'] = $root;
+    $process = proc_open(
+      [PHP_BINARY, $script, $mode],
+      [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+      $pipes,
+      $cwd ?? $root,
+      $env,
+    );
+    $this->assertIsResource($process);
+    fwrite($pipes[0], (string) json_encode($payload));
+    fclose($pipes[0]);
+    $stdout = (string) stream_get_contents($pipes[1]);
+    $stderr = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $code = proc_close($process);
+
+    // A CRASH IS NOT AN ANSWER. The guard speaks in two exit codes — 0 allows,
+    // 2 blocks — and anything else is a PHP error, which a host reads as "not a
+    // block". A top-level `const` added to this file was not hoisted the way a
+    // function declaration is, so every operator-command check died with an
+    // uncaught Error and exited 255; the shell probe used to find it asked "is
+    // the code 2?" and reported that as ALLOWED. Enforcement was off for an
+    // hour and the probe said it was working.
+    //
+    // Asserted here rather than in each test, so a test cannot pass by reading
+    // a crash as permission.
+    $this->assertContains(
+      $code,
+      [0, 2],
+      sprintf(
+        "The guard exited %d, which is neither allow (0) nor block (2) — it "
+        . "crashed. stderr:\n%s",
+        $code,
+        $stderr,
+      ),
+    );
+
+    return [$code, $stdout, $stderr];
+  }
+
 }

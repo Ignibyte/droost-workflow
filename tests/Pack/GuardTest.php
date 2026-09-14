@@ -452,6 +452,92 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * The plan-phase block is about where a write LANDS, not how it is spelled.
+   *
+   * The exemption asked whether the path CONTAINED the state directory's name,
+   * and `..` walks straight back out of what it contains:
+   * `droost/droost-workflow/../../modules/custom/acme/acme.module` holds the
+   * two segments and lands in custom code. So the block that says "write the
+   * spec, do not start building yet" exempted the exact edit it exists to
+   * refuse — and so did any path anywhere on the disk with those segments in
+   * it.
+   */
+  public function testThePlanBlockJudgesWhereWritesLand(): void {
+    $root = $this->rootWithRun('plan', 'active', 'hard');
+
+    // The spec is plan's own artefact and still passes.
+    [$spec] = $this->guard($root, 'pre-tool-use', [
+      'tool_input' => ['file_path' => $root . '/droost/droost-workflow/spec-x.md'],
+    ]);
+    $this->assertSame(0, $spec, 'the spec is what plan is for');
+
+    foreach ([
+      'an ordinary project file' => $root . '/modules/custom/acme/acme.module',
+      'a climb out of the exemption' => $root . '/droost/droost-workflow/../../modules/custom/acme/acme.module',
+      'the same segments somewhere else entirely' => '/tmp/droost/droost-workflow/../../etc/acme.module',
+    ] as $label => $path) {
+      [$exit] = $this->guard($root, 'pre-tool-use', ['tool_input' => ['file_path' => $path]]);
+      $this->assertSame(2, $exit, $label . ' is not the spec');
+    }
+  }
+
+  /**
+   * A file called `.git` is a repository boundary only when it really is one.
+   *
+   * The walk that finds the project root stops at a `.git`, and it used
+   * `file_exists` — so `echo x > modules/custom/acme/.git` moved the root three
+   * levels down, every protected path stopped matching, and one command turned
+   * the guard off. A real worktree or submodule `.git` FILE says
+   * `gitdir: <path>` and that path is on disk; that is the whole difference.
+   *
+   * Driven without CLAUDE_PROJECT_DIR, because the walk is what is being
+   * tested and an explicit project directory skips it.
+   */
+  public function testPlantedGitFilesDoNotMoveTheProjectRoot(): void {
+    $root = $this->rootWithRun('plan', 'active', 'hard');
+    // Deliberately NOT under modules/custom: the require_run wall matches that
+    // path shape wherever the root ends up, so it would refuse at every root
+    // and the test would pass without the walk doing anything.
+    $deep = $root . '/packages/acme';
+    mkdir($deep, 0755, TRUE);
+
+    $walk = function (string $cwd) use ($deep): int {
+      $process = proc_open(
+        [PHP_BINARY, dirname(__DIR__, 2) . '/pack/hooks/droost-workflow-guard.php', 'pre-tool-use'],
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        $cwd,
+        ['PATH' => (string) getenv('PATH')],
+      );
+      $this->assertIsResource($process);
+      // The plan-phase block is then the only thing that can speak, and it
+      // speaks only if the walk found the run — so the exit code answers
+      // exactly one question: did the walk reach the real project root?
+      fwrite($pipes[0], (string) json_encode([
+        'tool_input' => ['file_path' => $deep . '/README.md'],
+      ]));
+      fclose($pipes[0]);
+      stream_get_contents($pipes[1]);
+      stream_get_contents($pipes[2]);
+      fclose($pipes[1]);
+      fclose($pipes[2]);
+
+      return proc_close($process);
+    };
+
+    $this->assertSame(2, $walk($deep), 'the plan block holds from a subdirectory');
+
+    file_put_contents($deep . '/.git', "not a repository\n");
+    $this->assertSame(2, $walk($deep), 'a planted .git file does not move the root');
+    unlink($deep . '/.git');
+
+    // A REAL one still stops the walk, which is why the naive check existed.
+    mkdir($deep . '/.realgit', 0755, TRUE);
+    file_put_contents($deep . '/.git', "gitdir: .realgit\n");
+    $this->assertSame(0, $walk($deep), 'a real worktree boundary is still a boundary');
+  }
+
+  /**
    * The baseline directory is never the agent's to edit — run or no run (D71).
    *
    * The one edit that makes the agent's own finding disappear. Refused at
@@ -1650,70 +1736,6 @@ final class GuardTest extends WorkflowTestCase {
       ]);
       $this->assertSame(0, $code, $command . ' runs the tool, which is what it is for');
     }
-  }
-
-  /**
-   * Executes the packed guard exactly as Claude Code would.
-   *
-   * @param string $root
-   *   The project root, delivered as CLAUDE_PROJECT_DIR — the way Claude Code
-   *   runs the hook, and what the guard resolves its run state against.
-   * @param string $mode
-   *   The guard mode: pre-tool-use or stop.
-   * @param array<string, mixed> $payload
-   *   The hook payload delivered on stdin.
-   * @param string|null $cwd
-   *   The working directory to run from, when it must differ from the project
-   *   root (the agent's Bash tool can move it — R27-F1). Defaults to $root.
-   *
-   * @return array{int, string, string}
-   *   Exit code, stdout, stderr.
-   */
-  private function guard(string $root, string $mode, array $payload, ?string $cwd = NULL): array {
-    $script = dirname(__DIR__, 2) . '/pack/hooks/droost-workflow-guard.php';
-    // Set CLAUDE_PROJECT_DIR explicitly so the fixture root wins over any value
-    // in the environment that runs the suite, and so cwd and the project root
-    // can be driven apart to exercise the moved-cwd case.
-    $env = getenv();
-    $env['CLAUDE_PROJECT_DIR'] = $root;
-    $process = proc_open(
-      [PHP_BINARY, $script, $mode],
-      [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-      $pipes,
-      $cwd ?? $root,
-      $env,
-    );
-    $this->assertIsResource($process);
-    fwrite($pipes[0], (string) json_encode($payload));
-    fclose($pipes[0]);
-    $stdout = (string) stream_get_contents($pipes[1]);
-    $stderr = (string) stream_get_contents($pipes[2]);
-    fclose($pipes[1]);
-    fclose($pipes[2]);
-    $code = proc_close($process);
-
-    // A CRASH IS NOT AN ANSWER. The guard speaks in two exit codes — 0 allows,
-    // 2 blocks — and anything else is a PHP error, which a host reads as "not a
-    // block". A top-level `const` added to this file was not hoisted the way a
-    // function declaration is, so every operator-command check died with an
-    // uncaught Error and exited 255; the shell probe used to find it asked "is
-    // the code 2?" and reported that as ALLOWED. Enforcement was off for an
-    // hour and the probe said it was working.
-    //
-    // Asserted here rather than in each test, so a test cannot pass by reading
-    // a crash as permission.
-    $this->assertContains(
-      $code,
-      [0, 2],
-      sprintf(
-        "The guard exited %d, which is neither allow (0) nor block (2) — it "
-        . "crashed. stderr:\n%s",
-        $code,
-        $stderr,
-      ),
-    );
-
-    return [$code, $stdout, $stderr];
   }
 
 }

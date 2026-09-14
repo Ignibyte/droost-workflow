@@ -233,12 +233,14 @@ final class ArgvDispatcher {
       // A repository boundary is a hard stop, checked AFTER the directory
       // itself so a project root that is also a repo root still matches.
       //
-      // `file_exists`, not `is_dir`: a WORKTREE and a SUBMODULE carry `.git`
-      // as a FILE, so `is_dir` walked straight out of them. A run started in a
-      // worktree of repo B picked up repo A's levers and wrote its record into
-      // repo A — a command that FAILED still left a run.json in a repository it
-      // was not run in.
-      if (file_exists($here . '/.git')) {
+      // A WORKTREE and a SUBMODULE carry `.git` as a FILE, so `is_dir` alone
+      // walked straight out of them: a run started in a worktree of repo B
+      // picked up repo A's levers and wrote its record into repo A. But
+      // `file_exists` alone made any file named `.git` a boundary, and one
+      // `echo` then moved the project root — the guard has the same walk and
+      // the same hole, where moving the root turns the protected paths off.
+      // A real `.git` file names a gitdir that exists; a planted one does not.
+      if (self::isRepositoryBoundary($here)) {
         break;
       }
       $parent = dirname($here);
@@ -249,6 +251,38 @@ final class ArgvDispatcher {
     }
 
     return $levers ?? $from;
+  }
+
+  /**
+   * Whether a directory is a real repository boundary.
+   *
+   * A `.git` DIRECTORY always is. A `.git` FILE is one only when it points at
+   * a git directory that exists, which is what git requires of a worktree or a
+   * submodule and what a file somebody echoed there does not have.
+   *
+   * @param string $directory
+   *   The directory being tested.
+   *
+   * @return bool
+   *   TRUE when the walk should stop here.
+   */
+  private static function isRepositoryBoundary(string $directory): bool {
+    $dot = rtrim($directory, '/') . '/.git';
+    if (is_dir($dot)) {
+      return TRUE;
+    }
+    if (!is_file($dot)) {
+      return FALSE;
+    }
+    $head = (string) @file_get_contents($dot, FALSE, NULL, 0, 4096);
+    if (preg_match('/^gitdir:\s*(\S.*?)\s*$/m', $head, $match) !== 1) {
+      return FALSE;
+    }
+    $target = str_starts_with($match[1], '/')
+      ? $match[1]
+      : rtrim($directory, '/') . '/' . $match[1];
+
+    return is_dir($target);
   }
 
   /**
