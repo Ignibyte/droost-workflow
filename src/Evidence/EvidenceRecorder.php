@@ -56,6 +56,7 @@ final class EvidenceRecorder {
         'base_commit' => $state->baseCommit,
         'spec_path' => $state->specPath,
       ]);
+      $emitted = [];
       foreach ($report->results as $result) {
         $levers = $state->resolvedGates[$result->gate] ?? [];
         $store->record(
@@ -69,7 +70,17 @@ final class EvidenceRecorder {
           ),
           $now,
         );
+        $emitted[] = $result->gate;
       }
+      // GATES TOO. Declarations and contributed checks were retired when a
+      // pass stopped emitting them; gates were not, and a gate's blocked row
+      // reaches the stop hook (`unresolved()` has no kind filter) while the
+      // run envelope skips it (`blockingChecks()` does) — so a contributed
+      // gate that blocked under drush and then vanished when the same phase
+      // was re-run through the standalone binary held the turn for ever, with
+      // no name, no reason and no way out, and the ceiling blind to it. Same
+      // rule, third kind.
+      $store->retireUnemitted($state->runId, $phase, 'gate', $emitted, $now);
       // The phase is written; fold the log back into the file so a copy taken
       // between phases is the whole record. See EvidenceStore::checkpoint().
       $store->checkpoint();

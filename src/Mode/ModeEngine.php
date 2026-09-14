@@ -849,7 +849,14 @@ final class ModeEngine {
    */
   private function openSeekerFindingsFor(RunState $state, Phase $phase, string $projectRoot): array {
     try {
-      return (new EvidenceStore($projectRoot))->openSeekerFindings($state->runId, $phase->value);
+      // The round the run knows about, not the last one that wrote rows: a
+      // clean inspection writes none, and inferring the round from the rows
+      // kept reporting the findings it had just cleared.
+      return (new EvidenceStore($projectRoot))->openSeekerFindings(
+        $state->runId,
+        $phase->value,
+        count($state->seekerHistory),
+      );
     }
     catch (\Throwable) {
       return [];

@@ -736,34 +736,47 @@ final class EvidenceStore {
    *   The run.
    * @param string $phase
    *   The phase.
+   * @param int|null $round
+   *   The inspection round the RUN says is current — the number of ledgers
+   *   filed — or NULL to infer it from the rows, which a clean round never
+   *   writes.
    *
    * @return list<array{check: string, fault: string, why: string, remedy: string, guidance: string}>
-   *   One entry per open finding, newest round first.
+   *   One entry per open finding in that round.
    */
-  public function openSeekerFindings(string $runId, string $phase): array {
+  public function openSeekerFindings(string $runId, string $phase, ?int $round = NULL): array {
     try {
+      // THE LATEST ROUND ONLY. Each ledger is a complete restatement —
+      // `recordSeekerFindings()` deletes the round and re-inserts it — and a
+      // later round marking F1 `resolved` adds a NEW row rather than updating
+      // the old one. Querying every round therefore reported a finding as
+      // open for ever once it had ever been open, so an agent that did the
+      // work and filed a clean follow-up was still told F1 was holding the
+      // phase.
+      //
+      // THE ROUND COMES FROM THE RUN, NOT FROM THE ROWS. A clean round writes
+      // NO rows — there is nothing to insert — so `MAX(round)` stayed pinned
+      // to the last round that found something and kept answering for it
+      // after the inspection that cleared it. The run state knows how many
+      // ledgers were filed; the caller passes that, and the MAX() inference
+      // is only the fallback for a reader with no state in hand.
       $statement = $this->connection()->prepare(
-        // THE LATEST ROUND ONLY. Each ledger is a complete restatement —
-        // `recordSeekerFindings()` deletes the round and re-inserts it — and
-        // a later round marking F1 `resolved` adds a NEW row rather than
-        // updating the old one. Querying every round therefore reported a
-        // finding as open for ever once it had ever been open, so an agent
-        // that did the work and filed a clean follow-up was still told F1 was
-        // holding the phase.
-        //
-        // The same stale-verdict shape as `checklist()`'s MAX(attempt), which
-        // is why it takes the same answer: the run's last word about a round
-        // is the only one that can stand for it.
-        'SELECT ref, severity, location, finding FROM seeker_finding
-          WHERE run_id = ? AND phase = ? AND LOWER(status) = \'open\'
-            AND round = (
-              SELECT MAX(round) FROM seeker_finding
-               WHERE run_id = ? AND phase = ?
-            )
-          ORDER BY ref ASC
-          LIMIT 50'
+        $round === NULL
+          ? 'SELECT ref, severity, location, finding FROM seeker_finding
+              WHERE run_id = ? AND phase = ? AND LOWER(status) = \'open\'
+                AND round = (
+                  SELECT MAX(round) FROM seeker_finding
+                   WHERE run_id = ? AND phase = ?
+                )
+              ORDER BY ref ASC
+              LIMIT 50'
+          : 'SELECT ref, severity, location, finding FROM seeker_finding
+              WHERE run_id = ? AND phase = ? AND LOWER(status) = \'open\'
+                AND round = ?
+              ORDER BY ref ASC
+              LIMIT 50'
       );
-      $statement->execute([$runId, $phase, $runId, $phase]);
+      $statement->execute($round === NULL ? [$runId, $phase, $runId, $phase] : [$runId, $phase, $round]);
       $rows = self::rows($statement);
     }
     catch (\Throwable) {
@@ -922,9 +935,14 @@ final class EvidenceStore {
         CheckState::NotApplicable,
         Fault::None,
         sprintf(
-          'no longer asked: the run\'s declarations changed and this check '
-          . 'does not apply to what it now declares. Its earlier verdict (%s) '
-          . 'stands in the record and is superseded here.',
+          $kind === 'gate'
+            ? 'no longer asked: this gate produced no verdict in the pass that '
+              . 'just ran — it left the catalog, or the surface running this '
+              . 'phase does not carry it. Its earlier verdict (%s) stands in '
+              . 'the record and is superseded here.'
+            : 'no longer asked: the run\'s declarations changed and this check '
+              . 'does not apply to what it now declares. Its earlier verdict '
+              . '(%s) stands in the record and is superseded here.',
           $state->value,
         ),
       ), $now);
@@ -1361,14 +1379,40 @@ final class EvidenceStore {
     $since->execute([$runId, $phase]);
     $mark = (int) ($since->fetchColumn() ?: 0);
 
+    // ONLY THE CHECKS THAT ARE STILL BLOCKED. This counted every blocked row
+    // regardless of whether a later attempt had cleared it, so a check that
+    // blocked fifty-nine times and then passed still counted fifty-nine — and
+    // the first block of a DIFFERENT check tipped the phase over the ceiling.
+    // The engine then paused a run that was making progress and asked a human
+    // "this phase has been blocked 60 times and none of them has cleared",
+    // both halves false: one HAD cleared, the other had blocked exactly once.
+    // The ceiling exists to catch a wedge; a run that just cleared a block is
+    // the opposite of wedged. The count is of attempts spent on checks whose
+    // CURRENT verdict is still blocked, so the sentence built from it is true
+    // by construction.
+    $current = [];
+    foreach ($this->checklist($runId, $phase) as $row) {
+      if (self::text($row, 'kind') === 'gate'
+        || CheckState::tryFrom(self::text($row, 'state')) !== CheckState::Blocked) {
+        continue;
+      }
+      $current[] = [self::text($row, 'kind'), self::text($row, 'name')];
+    }
+    if ($current === []) {
+      return 0;
+    }
     $statement = $pdo->prepare(
       'SELECT COUNT(*) FROM check_result
-        WHERE run_id = ? AND phase = ? AND kind != \'gate\' AND state = ? AND id > ?'
+        WHERE run_id = ? AND phase = ? AND kind = ? AND name = ? AND state = ? AND id > ?'
     );
-    $statement->execute([$runId, $phase, CheckState::Blocked->value, $mark]);
-    $count = $statement->fetchColumn();
+    $count = 0;
+    foreach ($current as [$kind, $name]) {
+      $statement->execute([$runId, $phase, $kind, $name, CheckState::Blocked->value, $mark]);
+      $one = $statement->fetchColumn();
+      $count += is_numeric($one) ? (int) $one : 0;
+    }
 
-    return is_numeric($count) ? (int) $count : 0;
+    return $count;
   }
 
   /**

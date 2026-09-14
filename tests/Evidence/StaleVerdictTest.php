@@ -4,10 +4,17 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Evidence;
 
+use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Evidence\CheckRecord;
 use Droost\Workflow\Evidence\CheckState;
+use Droost\Workflow\Evidence\EvidenceRecorder;
 use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Evidence\Fault;
+use Droost\Workflow\Gate\GateResult;
+use Droost\Workflow\Gate\GateStatus;
+use Droost\Workflow\Gate\PhaseReport;
+use Droost\Workflow\State\RunState;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -156,6 +163,120 @@ final class StaleVerdictTest extends TestCase {
       2,
       $store->unresolved('r1', 'code'),
       'a failing gate and another provider\'s check are not this pass\'s to retire',
+    );
+  }
+
+  /**
+   * A gate that stopped being emitted is retired like any other check.
+   *
+   * Declarations and contributed checks were retired when a pass stopped
+   * emitting them; gates were not. A gate's blocked row reaches the stop hook
+   * (`unresolved()` has no kind filter) while the run envelope skips it
+   * (`blockingChecks()` does), so a contributed gate that blocked under drush
+   * and then vanished when the same phase re-ran through the standalone binary
+   * held the turn for ever — with no name, no reason, and the ceiling blind to
+   * it. The gate PASS retires it, which is the counterpart to the test above:
+   * another kind's pass may not, its own must.
+   */
+  public function testGatesNoLongerEmittedAreRetired(): void {
+    $config = WorkflowConfig::fromArray(['mode' => 'agentic', 'preset' => 'medium'], 'test');
+    $state = RunState::begin('r1', '2026-09-14T00:00:00+00:00', $config);
+    $recorder = new EvidenceRecorder($this->root);
+
+    $recorder->recordPhase($state, 'code', new PhaseReport(Phase::Code, [
+      new GateResult('phpcs', GateStatus::Passed, exitCode: 0, summary: 'clean'),
+      new GateResult('module:snyk', GateStatus::Failed, exitCode: 1, summary: '2 high'),
+    ]));
+    $this->assertNull($recorder->lastError());
+    $this->assertSame(
+      ['module:snyk'],
+      array_column((new EvidenceStore($this->root))->unresolved('r1', 'code'), 'name'),
+      'the failing gate holds the phase',
+    );
+
+    // The same phase again, on a surface whose catalog does not carry snyk.
+    $recorder->recordPhase($state, 'code', new PhaseReport(Phase::Code, [
+      new GateResult('phpcs', GateStatus::Passed, exitCode: 0, summary: 'clean'),
+    ]));
+    $this->assertNull($recorder->lastError());
+    $this->assertSame(
+      [],
+      (new EvidenceStore($this->root))->unresolved('r1', 'code'),
+      'a gate nobody ran this pass no longer holds it',
+    );
+  }
+
+  /**
+   * The ceiling counts only the checks that are STILL blocked.
+   *
+   * `blockedAttempts()` counted every blocked row since the last pause, so a
+   * check that blocked fifty-nine times and then cleared still counted
+   * fifty-nine — and the FIRST block of a different check tipped the phase
+   * over the ceiling. A reviewer drove it: `ticket_id` cleared on attempt
+   * sixty, `transition` blocked once, and the engine paused a run that was
+   * making progress to ask "this phase has been blocked 60 times and none of
+   * them has cleared". Both halves false, and a healthy run halted on them.
+   */
+  public function testTheCeilingCountsOnlyChecksStillBlocked(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'low']);
+    foreach ([1, 2, 3] as $attempt) {
+      $store->record('r1', 'plan', new CheckRecord(
+        'check', 'ticket_id', CheckState::Blocked, Fault::Environment, 'no ticket, attempt ' . $attempt,
+      ));
+    }
+    $this->assertSame(3, $store->blockedAttempts('r1', 'plan'), 'three blocks on a check still blocked count three');
+
+    $store->record('r1', 'plan', new CheckRecord(
+      'check', 'ticket_id', CheckState::Satisfied, Fault::None, 'DSBX-1',
+    ));
+    $this->assertSame(
+      0,
+      $store->blockedAttempts('r1', 'plan'),
+      'a check that cleared no longer counts what it cost to clear',
+    );
+
+    $store->record('r1', 'plan', new CheckRecord(
+      'check', 'transition', CheckState::Blocked, Fault::Environment, 'still In Progress',
+    ));
+    $this->assertSame(
+      1,
+      $store->blockedAttempts('r1', 'plan'),
+      'and a different check blocking once is one, not four',
+    );
+  }
+
+  /**
+   * The round the run knows about clears what a clean inspection cleared.
+   *
+   * A clean round writes NO rows, so inferring the round from `MAX(round)`
+   * stayed pinned to the last round that found something and kept reporting
+   * F1 open after the inspection that cleared it. Latent today — the one
+   * reader is consulted only when the ledger is not clean — and one caller
+   * away from live, which is the shape this whole file exists to close.
+   */
+  public function testTheRoundTheRunKnowsAboutClearsWhatItCleared(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'low']);
+    $store->recordSeekerFindings('r1', 'code', 1, [
+      ['id' => 'F1', 'severity' => 'MEDIUM', 'location' => 'src/x.php', 'finding' => 'dead code', 'status' => 'open'],
+    ]);
+    $this->assertSame(
+      ['seeker:F1'],
+      array_column($store->openSeekerFindings('r1', 'code', 1), 'check'),
+      'round one found F1',
+    );
+
+    $store->recordSeekerFindings('r1', 'code', 2, []);
+    $this->assertSame(
+      [],
+      $store->openSeekerFindings('r1', 'code', 2),
+      'the run\'s second round found nothing, and says so',
+    );
+    $this->assertSame(
+      ['seeker:F1'],
+      array_column($store->openSeekerFindings('r1', 'code'), 'check'),
+      'the row-inferred fallback still answers for the last round that wrote — which is why the run passes the round',
     );
   }
 
