@@ -471,10 +471,17 @@ final class GuardTest extends WorkflowTestCase {
     ]);
     $this->assertSame(0, $spec, 'the spec is what plan is for');
 
+    // A SYMLINK out of the state directory is the other way to spell it, and
+    // taking EITHER the literal or the resolved answer let the literal win: the
+    // path reads as in-state and the write lands in custom code.
+    mkdir($root . '/modules/custom/acme', 0755, TRUE);
+    symlink($root . '/modules/custom/acme', $root . '/droost/droost-workflow/out');
+
     foreach ([
       'an ordinary project file' => $root . '/modules/custom/acme/acme.module',
       'a climb out of the exemption' => $root . '/droost/droost-workflow/../../modules/custom/acme/acme.module',
       'the same segments somewhere else entirely' => '/tmp/droost/droost-workflow/../../etc/acme.module',
+      'a symlink out of the state directory' => $root . '/droost/droost-workflow/out/evil.php',
     ] as $label => $path) {
       [$exit] = $this->guard($root, 'pre-tool-use', ['tool_input' => ['file_path' => $path]]);
       $this->assertSame(2, $exit, $label . ' is not the spec');
@@ -527,14 +534,176 @@ final class GuardTest extends WorkflowTestCase {
 
     $this->assertSame(2, $walk($deep), 'the plan block holds from a subdirectory');
 
-    file_put_contents($deep . '/.git', "not a repository\n");
-    $this->assertSame(2, $walk($deep), 'a planted .git file does not move the root');
-    unlink($deep . '/.git');
+    // Four plants, four ways the walk was moved, all with a run active above.
+    mkdir($root . '/decoy', 0755, TRUE);
+    $plants = [
+      'a file that is not a repository' => fn () => file_put_contents($deep . '/.git', "not a repository\n"),
+      // `gitdir:` naming any directory that exists satisfied "the target is on
+      // disk"; a git directory holds a HEAD and an object store.
+      'a gitdir pointing at an ordinary directory' => fn () => file_put_contents($deep . '/.git', "gitdir: " . $root . "/decoy\n"),
+      // `is_dir` follows a symlink, and git does not accept a symlinked .git.
+      'a .git symlinked to somewhere else' => fn () => symlink($root . '/decoy', $deep . '/.git'),
+      // And a REAL repository below the root, which is a real boundary — and
+      // still must not hide the run somebody is in.
+      'a real nested repository' => function () use ($deep): void {
+        mkdir($deep . '/.git/objects', 0755, TRUE);
+        file_put_contents($deep . '/.git/HEAD', "ref: refs/heads/main\n");
+      },
+    ];
+    foreach ($plants as $label => $plant) {
+      $plant();
+      $this->assertSame(2, $walk($deep), $label . ' cannot move the root');
+      exec('rm -rf ' . escapeshellarg($deep . '/.git'));
+    }
 
-    // A REAL one still stops the walk, which is why the naive check existed.
-    mkdir($deep . '/.realgit', 0755, TRUE);
+    // A REAL boundary with NO run above it still stops the walk — that is why
+    // the naive check existed, and an engine that walks past one writes its
+    // record into somebody else's repository.
+    mkdir($deep . '/.realgit/objects', 0755, TRUE);
+    file_put_contents($deep . '/.realgit/HEAD', "ref: refs/heads/main\n");
     file_put_contents($deep . '/.git', "gitdir: .realgit\n");
+    unlink($root . '/droost/droost-workflow/run.json');
     $this->assertSame(0, $walk($deep), 'a real worktree boundary is still a boundary');
+
+    // But an ACTIVE RUN ABOVE IT WINS, and the asymmetry with the engine is
+    // deliberate. The guard only READS: looking past a boundary and finding a
+    // run makes it more careful, and the cost of being wrong is an agent told
+    // not to end its turn. The engine WRITES: looking past a boundary and
+    // finding a project makes it put this run's record in another repository,
+    // and the cost of being wrong is a stranger's repo. So the guard walks on
+    // and `ArgvDispatcher` stops — which is why `git init web/modules/custom`,
+    // `ln -s /tmp .git` and `gitdir:` pointing at any directory that happens
+    // to exist no longer hide the run somebody is in.
+    file_put_contents($root . '/droost/droost-workflow/run.json', (string) json_encode([
+      'current_phase' => 'plan',
+      'phases' => ['plan' => 'active'],
+      'enforcement' => 'hard',
+    ]));
+    $this->assertSame(2, $walk($deep), 'a run above the boundary is still enforced');
+  }
+
+  /**
+   * A boundary that is not a repository does not stop the walk.
+   *
+   * With a run active above, "an active run wins" already refuses every plant —
+   * so that test cannot tell a recognised boundary from an unrecognised one.
+   * This one can: NO run, and a lever file at the real root that says
+   * `require_run: off`. If the walk reaches the root it reads that lever and
+   * the write is ordinary; if a plant stopped it short, the lever is never
+   * found, the default `hard` applies, and custom code is refused.
+   *
+   * So the exit code answers exactly one question — did the walk get past the
+   * thing pretending to be a repository?
+   *
+   * Both wrong answers have shipped. `is_dir` alone accepted a `.git`
+   * SYMLINKED anywhere, and "the gitdir target exists" was satisfied by
+   * `gitdir: /tmp`.
+   */
+  public function testOnlyRealRepositoriesStopTheWalk(): void {
+    $root = $this->makeRoot();
+    $deep = $root . '/modules/custom/acme';
+    mkdir($deep, 0755, TRUE);
+    mkdir($root . '/decoy', 0755, TRUE);
+    file_put_contents($root . '/droost.workflow.yml', "require_run: off\n");
+
+    $walk = function () use ($deep): int {
+      $process = proc_open(
+        [PHP_BINARY, dirname(__DIR__, 2) . '/pack/hooks/droost-workflow-guard.php', 'pre-tool-use'],
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        $deep,
+        ['PATH' => (string) getenv('PATH')],
+      );
+      $this->assertIsResource($process);
+      fwrite($pipes[0], (string) json_encode([
+        'tool_input' => ['file_path' => $deep . '/acme.module'],
+      ]));
+      fclose($pipes[0]);
+      stream_get_contents($pipes[1]);
+      stream_get_contents($pipes[2]);
+      fclose($pipes[1]);
+      fclose($pipes[2]);
+
+      return proc_close($process);
+    };
+
+    $this->assertSame(0, $walk(), 'with nothing planted, the walk finds the lever');
+
+    foreach ([
+      'a file that is not a repository' => fn () => file_put_contents($deep . '/.git', "junk\n"),
+      'a gitdir naming an ordinary directory' => fn () => file_put_contents($deep . '/.git', 'gitdir: ' . $root . "/decoy\n"),
+      'a .git symlinked elsewhere' => fn () => symlink($root . '/decoy', $deep . '/.git'),
+      // An EMPTY `.git` directory is not a repository either — `mkdir .git` is
+      // one command, and `is_dir` alone accepted it.
+      'an empty .git directory' => fn () => mkdir($deep . '/.git', 0755, TRUE),
+      // And a `.git` symlinked to a REAL git directory: git itself refuses a
+      // symlinked repository, and this is the only check that catches it once
+      // the target looks genuine.
+      'a .git symlinked to a real repository' => function () use ($root, $deep): void {
+        mkdir($root . '/decoy/.realgit/objects', 0755, TRUE);
+        file_put_contents($root . '/decoy/.realgit/HEAD', "ref: refs/heads/main\n");
+        symlink($root . '/decoy/.realgit', $deep . '/.git');
+      },
+    ] as $label => $plant) {
+      $plant();
+      $this->assertSame(0, $walk(), $label . ' is not a repository, so the walk goes on');
+      exec('rm -rf ' . escapeshellarg($deep . '/.git'));
+    }
+
+    // A REAL repository stops it, and then the root's lever is correctly out of
+    // reach — which is the behaviour the naive checks were reaching for.
+    mkdir($deep . '/.git/objects', 0755, TRUE);
+    file_put_contents($deep . '/.git/HEAD', "ref: refs/heads/main\n");
+    $this->assertSame(2, $walk(), 'a real repository is a real boundary');
+  }
+
+  /**
+   * An unusable CLAUDE_PROJECT_DIR does not stand the wall down.
+   *
+   * The guard took that variable verbatim. A stale worktree path, a typo or a
+   * deleted directory in it pointed the guard at nothing: no run.json, no
+   * active run, every stop permitted — silently, permanently, with no message
+   * — while `bin/droost-workflow` from the same shell REJECTED the same value,
+   * walked up, and kept advancing the real run.
+   *
+   * `ArgvDispatcher` was hardened for this and the guard was not, so the fix on
+   * one side became the divergence it was written to close. This is the worst
+   * shape available here: the engine advancing a run the guard is not watching.
+   */
+  public function testAnUnusableProjectDirectoryDoesNotDisarmTheWall(): void {
+    $root = $this->rootWithRun('code', 'active', 'hard');
+    $stop = function (?string $named) use ($root): int {
+      $env = ['PATH' => (string) getenv('PATH')];
+      if ($named !== NULL) {
+        $env['CLAUDE_PROJECT_DIR'] = $named;
+      }
+      $process = proc_open(
+        [PHP_BINARY, dirname(__DIR__, 2) . '/pack/hooks/droost-workflow-guard.php', 'stop'],
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        $root,
+        $env,
+      );
+      $this->assertIsResource($process);
+      fwrite($pipes[0], (string) json_encode(['hook_event_name' => 'Stop']));
+      fclose($pipes[0]);
+      stream_get_contents($pipes[1]);
+      stream_get_contents($pipes[2]);
+      fclose($pipes[1]);
+      fclose($pipes[2]);
+
+      return proc_close($process);
+    };
+
+    $this->assertSame(2, $stop($root), 'the wall stands with the right value');
+    $this->assertSame(2, $stop(NULL), 'and with none');
+    foreach ([
+      'a directory that does not exist' => '/private/tmp/droost-gone-' . bin2hex(random_bytes(4)),
+      'an empty value' => '',
+      'a file rather than a directory' => $root . '/droost/droost-workflow/run.json',
+    ] as $label => $named) {
+      $this->assertSame(2, $stop($named), $label . ' must not disarm the wall');
+    }
   }
 
   /**

@@ -65,10 +65,16 @@ $mode = $argv[1] ?? '';
 // there, so the wall and the plan-phase block quietly stop firing. Claude Code
 // sets CLAUDE_PROJECT_DIR to the real project root for every hook; prefer it,
 // and fall back to getcwd() for a manual CLI run where the var is unset.
-$root = getenv('CLAUDE_PROJECT_DIR');
-if ($root === FALSE || $root === '') {
-  $root = getcwd();
-}
+$host = getenv('CLAUDE_PROJECT_DIR');
+// IS IT A DIRECTORY. Taking the value verbatim meant a stale worktree path, a
+// typo or a deleted directory in that variable pointed the guard at nothing:
+// it found no run.json, reported no active run, and permitted every stop —
+// silently, permanently, with no message — while `bin/droost-workflow` from the
+// same shell rejected the same value, walked up, and kept advancing the real
+// run. `ArgvDispatcher` was hardened for this and the guard was not, so the fix
+// on one side BECAME the divergence it was written to close.
+$named = is_string($host) && $host !== '' && is_dir($host);
+$root = $named ? $host : getcwd();
 if ($root === FALSE) {
   exit(0);
 }
@@ -86,14 +92,16 @@ if ($root === FALSE) {
 // creating a directory is not an edit — must not hide the run somebody is in.
 // Inlined rather than imported: this file carries no autoloader by design, and
 // `PackGuardParityTest` is what keeps the two copies honest.
-if (getenv('CLAUDE_PROJECT_DIR') === FALSE || getenv('CLAUDE_PROJECT_DIR') === '') {
+if (!$named) {
   $here = rtrim($root, '/');
   $levers = NULL;
+  $boundary = NULL;
   for ($depth = 0; $depth < 32; $depth++) {
     if (is_file($here . '/droost/droost-workflow/run.json')
       || is_file($here . '/.droost-workflow/run.json')) {
       $root = $here;
       $levers = NULL;
+      $boundary = NULL;
       break;
     }
     if ($levers === NULL && is_file($here . '/droost.workflow.yml')) {
@@ -110,14 +118,30 @@ if (getenv('CLAUDE_PROJECT_DIR') === FALSE || getenv('CLAUDE_PROJECT_DIR') === '
     // A real `.git` file says `gitdir: <path>` and that path is on disk. That
     // is the whole difference, it costs a read of a few bytes, and a plant now
     // has to build a plausible git directory rather than write a word.
-    if (git_boundary($here)) {
-      break;
+    if ($boundary === NULL && git_boundary($here)) {
+      // REMEMBERED, not obeyed yet. A boundary is a real stop — a run started
+      // in a worktree of repo B must not adopt repo A's levers — but it is
+      // also one `git init web/modules/custom`, one `ln -s /tmp .git`, or one
+      // `gitdir:` pointing at any directory that happens to exist. Each of
+      // those hid the active run above and took `stop` from 2 to 0.
+      //
+      // So the walk keeps going, and an ACTIVE RUN above the boundary wins —
+      // the rule this file already states for an empty state directory, which
+      // is the same rule for the same reason. With no run above, the boundary
+      // answers, and a real worktree behaves exactly as before.
+      $boundary = ['root' => $here, 'levers' => $levers];
     }
     $parent = dirname($here);
     if ($parent === $here) {
       break;
     }
     $here = $parent;
+  }
+  if ($boundary !== NULL) {
+    // No active run above it, so the boundary stands and answers — a real
+    // worktree or submodule behaves exactly as it did before.
+    $root = $boundary['root'];
+    $levers = $boundary['levers'];
   }
   if ($levers !== NULL) {
     $root = $levers;
@@ -369,12 +393,15 @@ if ($mode === 'pre-tool-use') {
     $relative = str_starts_with($landing, $rootPath . '/')
       ? substr($landing, strlen($rootPath) + 1)
       : '';
+    // WHERE IT LANDS WINS. This took either answer, so a symlink from inside
+    // the state directory to `modules/custom` made the literal path in-state
+    // and the write went through during PLAN. The resolved answer is the one
+    // that describes what happens; the literal is only consulted when nothing
+    // resolves, which is the ordinary case of a file not yet on disk.
     $resolved = resolved_relative($absolute, $root);
-    foreach ([$relative, $resolved] as $candidate) {
-      if ($candidate !== '' && str_starts_with($candidate, trim($stateDir, '/') . '/')) {
-        $inState = TRUE;
-      }
-    }
+    $candidate = $resolved !== '' ? $resolved : $relative;
+    $inState = $candidate !== ''
+      && str_starts_with($candidate, trim($stateDir, '/') . '/');
   }
   // The lever file used to be exempted here too, and that clause was dead: a
   // run is under way by definition in this branch, and `baseline_dir_guard()`
@@ -569,6 +596,16 @@ function operator_commands_guard(string $stdin): void {
       $tokens,
       static fn (string $token): bool => preg_match('/\s/', $token) !== 1,
     ));
+    if (operator_commands_opaque_head($tokens)) {
+      fwrite(STDERR,
+        'This command runs whatever a variable happens to hold, so what it '
+        . 'actually does cannot be read here — and the operator-only verbs '
+        . '(bypass, gate-waive, baseline, effort, arming a write gate) are '
+        . 'exactly what that hides. Write the program name out: `bash -c "…"`, '
+        . '`drush …`, `vendor/bin/phpunit …`. A variable is fine in an '
+        . 'ARGUMENT; it is the program that has to be legible.');
+      exit(2);
+    }
     $which = NULL;
     if (preg_match('/droost:workflow:gate-waive\b|(?<![\w-])dwfgw\b/', $line) === 1) {
       $which = 'gate-waive';
@@ -672,6 +709,35 @@ function operator_commands_unquoted(string $command): string {
 }
 
 /**
+ * Whether a command's program name is a variable this guard cannot expand.
+ *
+ * `$SHELL -c "…"`, `S=/bin/sh; $S -c "…"` and `C="drush …bypass"; $C` all put
+ * an unexpanded variable where the program name goes. The guard has no shell
+ * and no environment, so it cannot know what runs — and a command it cannot
+ * read is not a command it may permit. A reviewer used exactly this to run the
+ * operator's bypass and to overwrite this file with the word PWNED, both under
+ * a verdict of ALLOW, with no pre-step and against every rule at once.
+ *
+ * ONLY THE PROGRAM NAME. A variable in an argument is ordinary and stays
+ * ordinary: `cp "$f" /tmp`, `cd "$ROOT"`, `git commit -m "$MSG"` are untouched.
+ *
+ * @param list<string> $tokens
+ *   One invocation's tokens.
+ *
+ * @return bool
+ *   TRUE when the head is an unexpanded variable.
+ */
+function operator_commands_opaque_head(array $tokens): bool {
+  $head = ltrim(operator_commands_unwrapped($tokens)[0] ?? '', "\x01({");
+
+  // A bare `$` counts: the tokeniser treats `{` and `}` as grouping, so
+  // `${RUNNER} -c …` arrives with `$` as the head and `RUNNER` beside it. Any
+  // head beginning with `$` is a program name this guard cannot read, which is
+  // the whole test.
+  return str_starts_with($head, '$');
+}
+
+/**
  * Whether an argument list arms a droost write gate.
  *
  * Both spellings: `droost:gate allow_x on` and `config:set droost.settings
@@ -758,7 +824,11 @@ function operator_commands_php_arms_write_gate(array $tokens): bool {
     static fn (string $token): string => ltrim($token, "\x01"),
     $tokens,
   )));
-  if (preg_match('/droost[.\\\'"]?settings|droost_workflow/', $flat) !== 1) {
+  // `$settings['droost']['allow_entity_write'] = TRUE;` is the arming that
+  // actually takes effect — GateState reads exactly that shape. The config
+  // spelling below is kept because an operator may reasonably TRY it, and
+  // refusing a no-op costs nothing; this is the one that works.
+  if (preg_match('/settings.{0,4}droost|droost.{0,4}settings|droost_workflow/', $flat) !== 1) {
     return FALSE;
   }
   if (preg_match('/allow_\w+/', $flat) !== 1) {
@@ -768,7 +838,8 @@ function operator_commands_php_arms_write_gate(array $tokens): bool {
   // arming it — `\Drupal::config('droost.settings')->get('allow_entity_write')`
   // is a perfectly good thing for an agent to ask, and asking is the behaviour
   // this whole rule is trying to produce.
-  return preg_match('/(?<![a-z_])(set|setmultiple|save|seteditable|setsetting)(?![a-z_])/', $flat) === 1
+  return (preg_match('/(?<![a-z_])(set|setmultiple|save|seteditable|setsetting)(?![a-z_])/', $flat) === 1
+    || str_contains($flat, '='))
     && preg_match('/(?<![a-z_])(true|1|on)(?![a-z_0-9])/', $flat) === 1;
 }
 
@@ -792,7 +863,7 @@ function operator_commands_php_arms_write_gate(array $tokens): bool {
 function operator_commands_unwrapped(array $tokens): array {
   $wrappers = '/^(?:sudo|command|builtin|eval|exec|env|nice|time|setsid|stdbuf|ionice'
     . '|caffeinate|arch|unbuffer|doas|busybox|nohup|timeout|watch|flock|parallel|su'
-    . '|script|chronic|ts)$/';
+    . '|script|chronic|ts|exec)$/';
   for ($strip = 0; $strip < 8 && $tokens !== []; $strip++) {
     $word = strtolower(basename(ltrim($tokens[0], "\x01")));
     if (preg_match($wrappers, $word) !== 1) {
@@ -945,6 +1016,16 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
     return $invocations;
   }
 
+  // PIPED INTO AN INTERPRETER, the whole pipeline is a program. `echo "drush
+  // droost:workflow:bypass x" | sh` put the verb in a quoted argument to
+  // `echo`, which is not a runner, so it was dropped as prose — and `sh` on the
+  // other side of the pipe had no argument for anything to look at. The
+  // unquoted spelling was already caught; the quoted one ran.
+  $piped = preg_match(
+    '/\|\s*(?:\S*\/)?(?:sh|bash|zsh|dash|ksh|fish|php|python3?|perl|ruby|node|xargs)\b/',
+    $command,
+  ) === 1;
+
   // A token carrying a whole command line is one: `ddev exec "drush …"`.
   //
   // Gated on the COMMAND being a runner, not on the token looking like a
@@ -964,7 +1045,7 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
   // allowlist loses that race, so the wrappers are STRIPPED first and whatever
   // is left is judged.
   $wrappers = '/^(?:sudo|command|env|nice|time|setsid|stdbuf|ionice|caffeinate|arch'
-    . '|unbuffer|doas|busybox|nohup|timeout|watch|flock|parallel|su|script)$/';
+    . '|unbuffer|doas|busybox|nohup|timeout|watch|flock|parallel|su|script|exec)$/';
   $runner = '/^(?:sudo|command|env)?$|^(?:\/\S+\/)?(?:sh|bash|zsh|dash|ksh|fish|eval'
     . '|php|python3?|perl|node|ruby|expect|xargs|nohup|timeout|script)$/';
   $verbs = '/droost:workflow:(gate-waive|baseline|bypass|effort)\b'
@@ -1009,14 +1090,60 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
     }
     $head = strtolower($bare[0] ?? '');
     $second = strtolower($bare[1] ?? '');
+    // A VARIABLE IS A SHELL. `$runs` asked whether the head literally spelled
+    // an interpreter, so `$SHELL -c "…"`, `S=/bin/sh; $S -c "…"` and
+    // `C="drush …bypass"; $C` were not runners, their quoted argument was
+    // dropped as prose, and BOTH walls went blind at once — a reviewer used it
+    // to run the operator's bypass and to overwrite this file with the word
+    // PWNED, under a verdict of ALLOW. It needed no pre-step and it defeated
+    // every rule this mode has.
+    //
+    // The guard cannot expand a variable, and that is the point: an unexpanded
+    // head is a command it CANNOT READ, and the honest answer to a command it
+    // cannot read is not "allow". Refusing here is narrow — a variable in an
+    // ARGUMENT (`cp "$f" /tmp`, `cd "$ROOT"`) is untouched, and only a variable
+    // standing where the program name goes is refused.
+    $opaque = str_starts_with(ltrim($bare[0] ?? '', '"\'({'), '$');
     $runs = $wrapped
+      || $opaque
       || preg_match($runner, $head) === 1
       || ($head === 'ssh')
       || (in_array($head, ['ddev', 'lando', 'fin', 'docker', 'docker-compose', 'podman'], TRUE)
         && in_array($second, ['exec', 'ssh', 'run'], TRUE))
       || ($head === 'drush' && str_starts_with($second, 'php'));
-    $kept = [];
+    // A SCRIPT FILE IS A COMMAND LINE THE GUARD CAN READ. `bash script.sh`
+    // hid the operator's verb in a file, and the guard judged the two words in
+    // front of it. It is a file on disk, inside the project, written moments
+    // ago by the agent — so read it, and judge what it says.
+    //
+    // Only the agent's own scripts: anything under `vendor/` or
+    // `node_modules/` is a tool's source, not a command line, and reading
+    // PHP as a shell script invents refusals out of string literals.
     $inners = [];
+    if ($runs && $depth < 2) {
+      foreach (array_slice($bare, 1) as $argument) {
+        $file = ltrim($argument, "\x01");
+        if ($file === '' || str_starts_with($file, '-') || preg_match('/\s/', $file) === 1) {
+          continue;
+        }
+        if (preg_match('#(^|/)(vendor|node_modules)/#', $file) === 1) {
+          continue;
+        }
+        $path = str_starts_with($file, '/') ? $file : (getcwd() ?: '.') . '/' . $file;
+        if (!is_file($path) || is_link($path) || (int) @filesize($path) > 65536) {
+          continue;
+        }
+        $script = (string) @file_get_contents($path, FALSE, NULL, 0, 65536);
+        if ($script === '' || str_contains($script, "\0")) {
+          continue;
+        }
+        foreach (operator_commands_invocations($script, $depth + 1) as $line) {
+          $inners[] = $line;
+        }
+        break;
+      }
+    }
+    $kept = [];
     foreach ($tokens as $token) {
       // WHATEVER is in it. This also required the token to carry an operator
       // VERB, so every protected-path write inside a runner was invisible —
@@ -1024,7 +1151,7 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
       // whole thing as one multi-word token that no path check can match, and
       // the guard overwrote itself. `$runs` is the gate; what the runner was
       // handed is a command line either way.
-      if ($runs && preg_match('/\s/', $token) === 1) {
+      if (($runs || $piped) && preg_match('/\s/', $token) === 1) {
         // The nested line REPLACES the argument that carried it. Keeping both
         // meant the outer invocation still held the verb — as one long token,
         // where its `--off` is not an argument — so `ddev exec "drush …
@@ -1156,6 +1283,20 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       $cwd = $moved === FALSE ? $root : $moved;
       continue;
     }
+    // Same reasoning as the verb tier: a program name this guard cannot read
+    // reaches every protected path as surely as `cp` does, and the tokeniser
+    // that feeds both walls is blind in the same way.
+    if (operator_commands_opaque_head($tokens)) {
+      fwrite(STDERR, sprintf(
+        'This command runs whatever a variable happens to hold, so where it '
+        . 'writes cannot be read here — and the run record, the evidence store '
+        . 'and this guard are all one redirect away. Write the program name '
+        . 'out. A variable is fine in an ARGUMENT; it is the program that has '
+        . 'to be legible. (Refused: %s)',
+        trim($command),
+      ));
+      exit(2);
+    }
     // A READ is not a write, and refusing one costs more than it buys. The
     // tier's own docblock says a shell string does not reliably tell them
     // apart — true of a string, and this is a list of arguments with a command
@@ -1188,6 +1329,36 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // and `git diff --output=.claude/hooks/droost-workflow-guard.php` was read
     // as a read while it truncated the guard. The write check has to govern
     // BOTH lists, which is what it was written to do.
+    // `find` READS until it is told to act, and then it acts on everything it
+    // found. `find . -name droost-workflow-guard.php -delete` deleted the
+    // guard and `find .claude -type f -delete` wiped the directory, because
+    // find is not a destructive verb and its targets are not globs — so
+    // neither wall was looking. The action flags are the whole difference.
+    if ($verb === 'find'
+      && operator_commands_flagged($tokens, ['-delete', '-exec', '-execdir', '-ok', '-okdir'])
+      && find_could_reach_enforcement($tokens)) {
+      foreach ($tokens as $token) {
+        $where = ltrim($token, "\x01");
+        if ($where === '' || str_starts_with($where, '-')) {
+          continue;
+        }
+        $under = wildcard_directory_refusal(
+          str_starts_with($where, '/') ? $where : $cwd . '/' . $where,
+          $root,
+          $stateDir,
+        );
+        if ($under !== '') {
+          fwrite(STDERR, sprintf(
+            '%s `find` with an action flag rewrites or removes everything it '
+            . 'matches, and this guard cannot see what it will match. '
+            . '(Refused: %s)',
+            $under,
+            trim($command),
+          ));
+          exit(2);
+        }
+      }
+    }
     $reading = !$writesTo && (in_array($verb, [
       'cat', 'less', 'more', 'head', 'tail', 'ls', 'stat', 'file', 'wc',
       'grep', 'egrep', 'rg', 'diff', 'md5', 'shasum', 'md5sum', 'sha1sum',
@@ -1209,7 +1380,10 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // target, because that is exactly what the flag makes it.
     $operands = [];
     foreach ($tokens as $token) {
-      if (preg_match('/^(--output|--out|--outfile|--write|--dest|--destination|-o|-O)=(.+)$/i', $token, $flag) === 1) {
+      if (preg_match('/^(--output|--out|--outfile|--write|--dest|--destination|-o|-O|of)=(.+)$/i', $token, $flag) === 1) {
+        // `of=` is dd's. It also defeated the `(^|/)` anchor every protected
+        // path is written with, so `dd of=.claude/hooks/droost-workflow-guard.php`
+        // matched nothing at all and overwrote the guard.
         $operands[] = "\x01" . $flag[2];
         continue;
       }
@@ -1225,22 +1399,38 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       // else is usually being read or run.
       $target = str_starts_with($operand, "\x01");
       $operand = ltrim($operand, "\x01");
-      // A GLOB names the directory it sits in, never the files. `rm
-      // .claude/hooks/*` matched no protected FILE — the shell expands the
-      // wildcard, and by the time a name reached this check there was no name,
-      // just a `*`. It deleted the guard. `rm droost/droost-workflow/*.json`
-      // took the run record the same way. Judging the DIRECTORY is the answer
-      // that does not require expanding anything.
+      // A GLOB names the directory it sits in, never the files — and the
+      // guard was reading the pattern where the shell will read the
+      // filesystem. Judging the DIRECTORY closed `rm .claude/hooks/*`; it did
+      // not close `rm .claude/hooks/droost-workflow-guard.ph?` (the `?` was
+      // dropped from the metacharacter set to stop `<?php` matching) or
+      // `rm dro[o]st/droost-workflow/run.json` (only the basename was
+      // inspected). Both deleted their targets.
       //
-      // NARROW, because the first cut of this was worse than the hole it
-      // closed: it read `?` as a wildcard and refused `find . -name "*.php"`,
-      // a heredoc containing `<?php`, and `rm -rf node_modules/*` before
-      // `npm ci`. A guard that refuses ordinary work is removed, and then the
-      // wildcard case is not enforced either. So only a pattern that actually
-      // NAMES a directory is judged — one with a `/` in it — plus the bare
-      // everything-glob, which names the directory the shell is standing in.
+      // So ASK THE FILESYSTEM, exactly as the shell is about to. `glob()`
+      // expands the same patterns against the same disk, and every name it
+      // returns is judged as if it had been typed. What the shell will do is
+      // knowable here, and guessing at the pattern was the mistake.
+      $meta = preg_match('/[*?\[]/', $operand) === 1;
+      if ($meta) {
+        $pattern = str_starts_with($operand, '/') ? $operand : $cwd . '/' . $operand;
+        foreach (glob($pattern, GLOB_BRACE) ?: [] as $expanded) {
+          $refused = enforcement_refusal($expanded, $root, $stateDir);
+          if ($refused !== '') {
+            fwrite(STDERR, sprintf(
+              '%s A wildcard in this command expands onto it. (Refused: %s)',
+              $refused,
+              trim($command),
+            ));
+            exit(2);
+          }
+        }
+      }
+      // And the directory, for the case the expansion cannot answer: a pattern
+      // that matches nothing today still names a directory, and `rm -r
+      // droost/*` reaches the run record through names that do not exist yet.
       $globDir = NULL;
-      if (str_contains($operand, '/') && preg_match('/[*\[]/', basename($operand)) === 1) {
+      if ($meta && str_contains($operand, '/')) {
         $globDir = dirname($operand);
       }
       elseif ($operand === '*' || $operand === './*' || $operand === '.*') {
@@ -1627,6 +1817,33 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
       . 'never by writing the file.';
   }
 
+  // WHERE THE WRITE GATES ACTUALLY LIVE. `Drupal\droost\GateState` reads the
+  // seven `allow_*` switches out of `$settings['droost']` in a dedicated
+  // `settings.droost.php` beside settings.php — deliberately not in config, so
+  // a `config:export`/`config:import` cannot arm them on another site. This
+  // guard was matching `droost.settings` config, which GateState never reads:
+  // it refused a command that does nothing and permitted the file that arms
+  // every destructive gate droost has. Writing it is the operator's act at a
+  // TTY, per environment, which is the whole design of putting it there.
+  if (preg_match('#(^|/)settings\.droost\.php$#', $relative) === 1) {
+    return 'That file IS the write-gate arming — the `allow_*` switches that '
+      . 'authorise destructive work. droost reads them live out of it, and it '
+      . 'lives outside config precisely so that arming one is a human decision '
+      . 'made per environment at a terminal. An agent writing its own is not '
+      . 'obtaining permission. Show the OPERATOR the gate you need and why, '
+      . 'and let them arm it: `drush droost:gate <gate> on`.';
+  }
+  // settings.php too, because `$settings['droost'][…]` set there is honoured
+  // as the base GateState overlays. A different file, the same arming.
+  if (preg_match('#(^|/)sites/[^/]+/settings\.php$#', $relative) === 1) {
+    return 'That is the site\'s settings.php, and droost honours '
+      . '`$settings[\'droost\'][\'allow_*\']` set there as the base for its '
+      . 'write gates — so an edit to it can arm destructive work. It is also '
+      . 'the file holding the database credentials and the hash salt. Ask the '
+      . 'OPERATOR for whatever this needs; if it is a gate, the command is '
+      . '`drush droost:gate <gate> on`.';
+  }
+
   if (preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/bypass\.json$#', $relative) === 1) {
     return 'That file IS the bypass grant — the operator\'s recorded decision '
       . 'to let this session build with no run at all. Writing your own is not '
@@ -1665,6 +1882,68 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
 }
 
 /**
+ * Whether a `find` command's own filters could reach enforcement.
+ *
+ * `find . -name droost-workflow-guard.php -delete` deletes the guard, and
+ * `find .claude -type f -delete` wipes the directory — so a find with an action
+ * flag has to be judged. But judging it by its starting directory alone refused
+ * `find . -name "*.tmp" -delete`, which is ordinary cleanup, and a guard that
+ * refuses ordinary cleanup is a guard somebody removes.
+ *
+ * find states its own filter, and `fnmatch()` evaluates the same patterns find
+ * does. So when every `-name`/`-path` pattern given is one that cannot match
+ * anything the pipeline rests on, the search is scoped away from enforcement
+ * and the command is ordinary. With no filter at all, nothing is excluded and
+ * the directory decides.
+ *
+ * @param list<string> $tokens
+ *   The invocation's tokens.
+ *
+ * @return bool
+ *   TRUE when a protected name is still in reach.
+ */
+function find_could_reach_enforcement(array $tokens): bool {
+  $patterns = [];
+  foreach ($tokens as $index => $token) {
+    if (preg_match('/^-(i?name|i?path|i?wholename|i?regex)$/', $token) === 1) {
+      $next = ltrim($tokens[$index + 1] ?? '', "\x01");
+      if ($next !== '') {
+        $patterns[] = $next;
+      }
+    }
+  }
+  if ($patterns === []) {
+    return TRUE;
+  }
+  // The names whose loss or rewrite disarms something. Basenames, because
+  // that is what `-name` matches; the path forms are covered by `-path`
+  // patterns being tested against them too.
+  $protected = [
+    'droost-workflow-guard.php',
+    'run.json',
+    'bypass.json',
+    'evidence.sqlite',
+    'settings.json',
+    'settings.local.json',
+    'settings.droost.php',
+    'settings.php',
+    'droost.workflow.yml',
+    'phpcs',
+    'phpstan',
+    'phpunit',
+  ];
+  foreach ($patterns as $pattern) {
+    foreach ($protected as $name) {
+      if (fnmatch($pattern, $name) || fnmatch($pattern, '.claude/hooks/' . $name)) {
+        return TRUE;
+      }
+    }
+  }
+
+  return FALSE;
+}
+
+/**
  * Whether a directory is a real repository boundary.
  *
  * A `.git` DIRECTORY always is. A `.git` FILE is one only when it points at a
@@ -1679,8 +1958,14 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
  */
 function git_boundary(string $directory): bool {
   $dot = rtrim($directory, '/') . '/.git';
+  // NOT A SYMLINK. `ln -s /tmp web/modules/custom/.git` made `is_dir` true and
+  // moved the project root; git does not accept a symlinked `.git` as a
+  // repository either, so refusing it costs nothing real.
+  if (is_link($dot)) {
+    return FALSE;
+  }
   if (is_dir($dot)) {
-    return TRUE;
+    return git_directory($dot);
   }
   if (!is_file($dot)) {
     return FALSE;
@@ -1692,7 +1977,28 @@ function git_boundary(string $directory): bool {
   $target = $match[1];
   $target = str_starts_with($target, '/') ? $target : rtrim($directory, '/') . '/' . $target;
 
-  return is_dir($target);
+  return git_directory($target);
+}
+
+/**
+ * Whether a directory is actually a git directory.
+ *
+ * `is_dir` alone accepted `gitdir: /tmp` — any path that happens to exist —
+ * so the round that required the target to exist was satisfied by naming
+ * `/tmp`. A git directory holds `HEAD` and an object store; checking for those
+ * two costs two stats and is what git itself looks for.
+ *
+ * @param string $directory
+ *   The candidate.
+ *
+ * @return bool
+ *   TRUE when it looks like a git directory.
+ */
+function git_directory(string $directory): bool {
+  $path = rtrim($directory, '/');
+
+  return is_file($path . '/HEAD')
+    && (is_dir($path . '/objects') || is_dir($path . '/refs') || is_file($path . '/config'));
 }
 
 /**

