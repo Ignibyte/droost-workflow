@@ -305,4 +305,140 @@ final class PackGuardParityTest extends TestCase {
     );
   }
 
+  /**
+   * The guard and the engine agree about what a repository is.
+   *
+   * Two implementations of one rule, in two files, one of which carries no
+   * autoloader and so cannot share the other's code. They have now diverged
+   * twice, in opposite directions, and the second divergence was created by
+   * the fix for the first:
+   *
+   *   * the engine walked and the guard did not, so a `cd` into a
+   *     subdirectory disarmed the stop wall while the binary kept advancing
+   *     the run;
+   *   * then the guard learned that `mkdir .git`, a symlinked `.git` and
+   *     `gitdir:` naming any directory that exists are not repositories, and
+   *     the engine did not — so one `mkdir lib/sub/.git` stopped the engine
+   *     two levels below the project, and it read built-in defaults while the
+   *     operator's lever file sat unread in the directory above.
+   *
+   * Neither was catchable by testing either side alone, and both were found by
+   * a reviewer diffing the two by hand. So this drives BOTH over the same
+   * shapes and compares the answers. It asserts agreement rather than a
+   * particular answer, because the thing that keeps breaking is the agreement.
+   */
+  public function testBothResolversAgreeOnWhatCountsAsRepository(): void {
+    $shapes = [
+      'nothing planted' => static function (string $root): void {},
+      'an empty state directory below' => static function (string $root): void {
+        mkdir($root . '/lib/sub/droost/droost-workflow', 0775, TRUE);
+      },
+      'an empty .git directory below' => static function (string $root): void {
+        mkdir($root . '/lib/sub/.git', 0775, TRUE);
+      },
+      'a junk .git file below' => static function (string $root): void {
+        file_put_contents($root . '/lib/sub/.git', "junk\n");
+      },
+      'a gitdir naming an ordinary directory' => static function (string $root): void {
+        mkdir($root . '/decoy', 0775, TRUE);
+        file_put_contents($root . '/lib/sub/.git', 'gitdir: ' . $root . "/decoy\n");
+      },
+      'a .git symlinked elsewhere' => static function (string $root): void {
+        mkdir($root . '/decoy', 0775, TRUE);
+        symlink($root . '/decoy', $root . '/lib/sub/.git');
+      },
+      'a .git symlinked to a real repository' => static function (string $root): void {
+        mkdir($root . '/decoy/.realgit/objects', 0775, TRUE);
+        file_put_contents($root . '/decoy/.realgit/HEAD', "ref: refs/heads/main\n");
+        symlink($root . '/decoy/.realgit', $root . '/lib/sub/.git');
+      },
+      'a real repository below' => static function (string $root): void {
+        mkdir($root . '/lib/sub/.git/objects', 0775, TRUE);
+        file_put_contents($root . '/lib/sub/.git/HEAD', "ref: refs/heads/main\n");
+      },
+      'a real worktree pointer below' => static function (string $root): void {
+        mkdir($root . '/lib/sub/.realgit/objects', 0775, TRUE);
+        file_put_contents($root . '/lib/sub/.realgit/HEAD', "ref: refs/heads/main\n");
+        file_put_contents($root . '/lib/sub/.git', "gitdir: .realgit\n");
+      },
+    ];
+
+    foreach ($shapes as $label => $shape) {
+      // A fresh subtree per shape, under this test's own scratch root so
+      // tearDown takes them all.
+      $root = $this->root . '/' . bin2hex(random_bytes(5));
+      mkdir($root . '/lib/sub/modules/custom/x', 0775, TRUE);
+      // `require_run: off` is the discriminator: whichever side found the
+      // lever file behaves differently from one that fell back to defaults.
+      file_put_contents($root . '/droost.workflow.yml', "preset: low\nrequire_run: off\n");
+      $shape($root);
+      $cwd = $root . '/lib/sub';
+
+      $this->assertSame(
+        $this->engineFoundTheLever($cwd),
+        $this->guardFoundTheLever($cwd),
+        sprintf('with %s, the guard and the engine must resolve the same project', $label),
+      );
+    }
+  }
+
+  /**
+   * Whether `bin/droost-workflow` read the project's lever file.
+   *
+   * @param string $cwd
+   *   Where to run from.
+   *
+   * @return bool
+   *   TRUE when it found one.
+   */
+  private function engineFoundTheLever(string $cwd): bool {
+    $process = proc_open(
+      [PHP_BINARY, dirname(__DIR__, 2) . '/bin/droost-workflow', 'status'],
+      [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+      $pipes,
+      $cwd,
+      ['PATH' => (string) getenv('PATH')],
+    );
+    $this->assertIsResource($process);
+    $printed = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    proc_close($process);
+
+    return str_contains($printed, '"provenance": "file"');
+  }
+
+  /**
+   * Whether the guard read the project's lever file.
+   *
+   * With `require_run: off` in it, a custom-code write is allowed only by a
+   * guard that found the file; the built-in default is `hard`.
+   *
+   * @param string $cwd
+   *   Where to run from.
+   *
+   * @return bool
+   *   TRUE when it found one.
+   */
+  private function guardFoundTheLever(string $cwd): bool {
+    $process = proc_open(
+      [PHP_BINARY, dirname(__DIR__, 2) . '/pack/hooks/droost-workflow-guard.php', 'pre-tool-use'],
+      [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+      $pipes,
+      $cwd,
+      ['PATH' => (string) getenv('PATH')],
+    );
+    $this->assertIsResource($process);
+    fwrite($pipes[0], (string) json_encode([
+      'tool_input' => ['file_path' => $cwd . '/modules/custom/x/x.module'],
+    ]));
+    fclose($pipes[0]);
+    stream_get_contents($pipes[1]);
+    stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+
+    return proc_close($process) === 0;
+  }
+
 }

@@ -107,6 +107,22 @@ final class DeclarationAudit {
     // an agent fault, on a file the agent did not choose to write. Installing a
     // dependency the plan asked for is not undeclared work; the declaration is
     // the requirement, and the manifest is how a package manager records it.
+    // THE TOOL CONFIG A GATE'S OWN REMEDY ASKS FOR. `phpstan.neon` was blocked
+    // as undeclared scope, with an agent fault and the guidance "This is the
+    // work, not the setup: fix the cause and re-run" — about the file the gate
+    // had just told the agent to add. Setting a gate up is the opposite of
+    // scope creep: it is how a run becomes measurable at all.
+    'phpcs.xml',
+    'phpcs.xml.dist',
+    'phpstan.neon',
+    'phpstan.neon.dist',
+    'phpunit.xml',
+    'phpunit.xml.dist',
+    '.eslintrc.json',
+    'eslint.config.js',
+    '.stylelintrc.json',
+    '.prettierrc',
+    'infection.json5',
     'composer.json',
     'composer.lock',
     'package.json',
@@ -159,6 +175,10 @@ final class DeclarationAudit {
    *   removed blames somebody for somebody else's decision — and cannot be
    *   cleared, because no phase can turn a gate back on. That is a deadlock,
    *   and this project has shipped that shape twice already.
+   * @param string|null $projectRoot
+   *   The repository, when the caller has one. With it the audit can READ
+   *   a gate binary and see whether a package manager wrote it; without it
+   *   it falls back to asking whether a manifest changed in the same diff.
    */
   public function __construct(
     private readonly array $declaredFiles,
@@ -167,6 +187,7 @@ final class DeclarationAudit {
     private readonly ?WorkType $workType = NULL,
     private readonly array $measuredGates = [],
     private readonly array $gatesOff = [],
+    private readonly ?string $projectRoot = NULL,
   ) {}
 
   /**
@@ -298,7 +319,17 @@ final class DeclarationAudit {
         $scopeSummary,
       );
     }
-    if ($this->workType !== NULL && $scopeIsDue) {
+    // A WORK TYPE CAN BE RE-DECLARED MID-RUN, so the check that judges it has
+    // to run more than once. It ran at `code` only, and a reviewer used that:
+    // blocked at test on `type_coverage`, they declared `--type=docs`
+    // (`Docs::mustMeasure()` is empty, so the coverage question dissolves) and
+    // the next run advanced straight to complete. Two PHP files passed as
+    // documentation, unchecked, and the evidence document shows a block and
+    // then a completed run with nothing between them.
+    //
+    // `Docs` is the type with contradictions, so re-asking at test is exactly
+    // where the escape is.
+    if ($this->workType !== NULL && ($scopeIsDue || $coverageIsDue)) {
       // Exempt paths filtered FIRST. Without it the audit was blocked by the
       // database recording the block: evidence.sqlite, its -wal and -shm, and
       // run.json counted as "not that kind of work" and outvoted the diff.
@@ -570,6 +601,66 @@ final class DeclarationAudit {
   }
 
   /**
+   * Whether a gate binary looks like the package manager's work.
+   *
+   * THE FILE, NOT THE DIFF. The first rule here asked "is a manifest anywhere
+   * in this diff", and the agent writes the diff — so stubbing phpcs, phpstan
+   * and phpunit and also touching `composer.lock` made all three invisible for
+   * the rest of the run. That is the end-to-end attack this exemption exists
+   * to survive, reachable by adding one file. The same rule failed the other
+   * way on a repository that COMMITS `vendor/`: `composer install` rewrites
+   * the bin shims and touches no manifest at all, so an honest install was
+   * charged to the agent as scope creep, with an agent fault and no waiver.
+   *
+   * Both are answered by looking at what is actually there. Composer writes a
+   * symlink into the package's own `bin/`, or a proxy that loads the
+   * autoloader; npm writes a shim that names `node_modules`. `#!/bin/sh` and
+   * `exit 0` is neither, and no package manager has ever produced it.
+   *
+   * With no project root — the audit exercised directly, in a unit test — the
+   * old manifest question is the fallback, because there is no file to read.
+   *
+   * @param string $file
+   *   The project-relative binary.
+   * @param list<string> $manifests
+   *   The manifests whose presence stands in for an install when the file
+   *   cannot be read.
+   *
+   * @return bool
+   *   TRUE when the package manager plausibly wrote it.
+   */
+  private function packageManagerWrote(string $file, array $manifests): bool {
+    if ($this->projectRoot === NULL) {
+      foreach ($manifests as $manifest) {
+        $manifest = self::normalise($manifest);
+        foreach ($this->changedFiles as $changed) {
+          if (self::normalise($changed) === $manifest) {
+            return TRUE;
+          }
+        }
+      }
+
+      return FALSE;
+    }
+
+    $path = rtrim($this->projectRoot, '/') . '/' . $file;
+    // A symlink is composer's usual shape, and a REMOVED binary is a removal
+    // rather than a stub — there is no replaced verdict to worry about.
+    if (is_link($path)) {
+      return TRUE;
+    }
+    if (!file_exists($path)) {
+      return TRUE;
+    }
+    $head = (string) @file_get_contents($path, FALSE, NULL, 0, 4096);
+
+    return preg_match(
+      '#__DIR__|autoload\.php|vendor/composer|node_modules|\$basedir|xdebug_break#',
+      $head,
+    ) === 1;
+  }
+
+  /**
    * Whether a changed file falls under something declared.
    *
    * @param string $file
@@ -656,16 +747,17 @@ final class DeclarationAudit {
       if (!str_starts_with($file, rtrim($tools, '/') . '/')) {
         continue;
       }
-      foreach ($manifests as $manifest) {
-        $manifest = self::normalise($manifest);
-        foreach ($this->changedFiles as $changed) {
-          if (self::normalise($changed) === $manifest) {
-            return TRUE;
-          }
-        }
+      // A DOTFILE IS NOT A GATE BINARY. This matched every file under the
+      // directory, so `vendor/bin/.phpunit.result.cache` — which phpunit
+      // writes, which the agent never touches, and which the very same commit
+      // added to NEVER_CREEP to stop this exact wall — was still blocked with
+      // an agent fault and no waiver, because the tool-dir rule is consulted
+      // first. The file exists in droost's own checkout.
+      if (str_starts_with(basename($file), '.')) {
+        return TRUE;
       }
 
-      return FALSE;
+      return $this->packageManagerWrote($file, $manifests);
     }
     foreach (self::NEVER_CREEP as $prefix) {
       // Both sides normalised: comparing a normalised path against a raw

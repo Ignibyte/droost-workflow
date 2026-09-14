@@ -658,6 +658,129 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * One enforced continuation per stop attempt — on EVERY branch.
+   *
+   * The file states this contract in a comment and two branches did not keep
+   * it. A crash is DETERMINISTIC: the same payload crashes on attempt one, two
+   * and ten, so the crash handlers' unconditional `exit(2)` meant the agent was
+   * told to continue, tried to stop again, and got the same refusal for ever.
+   * A hook that can never be satisfied is not enforcement, it is a hang — and
+   * the remedy those handlers print (`droost-workflow init`) fixes none of the
+   * causes that land there. The NUL branch was worse: under `stop` the agent
+   * named no path, so "write it without the byte" is advice about a tool call
+   * it did not make.
+   *
+   * The file learned this once already, for an unparseable run.json. The
+   * handlers added later did not inherit it.
+   *
+   * Driven against a COPY with a deliberate fatal, because the property being
+   * tested is what happens when this code is wrong.
+   */
+  public function testStopBranchesHonourTheOneContinuationContract(): void {
+    $root = $this->rootWithRun('code', 'active', 'hard');
+    $source = (string) file_get_contents(
+      dirname(__DIR__, 2) . '/pack/hooks/droost-workflow-guard.php',
+    );
+    $marker = '$stateFile = $root';
+    $this->assertStringContainsString($marker, $source, 'the guard still resolves its state file');
+    $broken = $root . '/broken-guard.php';
+    file_put_contents($broken, str_replace(
+      $marker,
+      "nonexistent_function_xyz();\n" . $marker,
+      $source,
+    ));
+    $guard = dirname(__DIR__, 2) . '/pack/hooks/droost-workflow-guard.php';
+
+    $stop = function (string $script, array $payload) use ($root): int {
+      $process = proc_open(
+        [PHP_BINARY, $script, 'stop'],
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        $root,
+        ['CLAUDE_PROJECT_DIR' => $root, 'PATH' => (string) getenv('PATH')],
+      );
+      $this->assertIsResource($process);
+      fwrite($pipes[0], (string) json_encode($payload));
+      fclose($pipes[0]);
+      stream_get_contents($pipes[1]);
+      stream_get_contents($pipes[2]);
+      fclose($pipes[1]);
+      fclose($pipes[2]);
+
+      return proc_close($process);
+    };
+
+    // A TRUE FATAL, not a Throwable: `set_exception_handler` catches an Error
+    // and never lets the shutdown handler speak, so a test that only throws
+    // leaves the second handler unexercised. Exhausting memory raises E_ERROR,
+    // which only `register_shutdown_function` can see — and which is exactly
+    // what a large payload or a runaway walk would produce in the field.
+    $starved = $root . '/starved-guard.php';
+    file_put_contents($starved, str_replace(
+      $marker,
+      "ini_set('memory_limit', '8M');\nstr_repeat('x', 64 * 1024 * 1024);\n" . $marker,
+      $source,
+    ));
+
+    foreach ([
+      'the ordinary phase wall' => [$guard, []],
+      'a fatal in the guard itself' => [$broken, []],
+      'memory exhausted, which only the shutdown handler sees' => [$starved, []],
+      'a NUL byte in the payload' => [$guard, ['x' => "a\0b"]],
+    ] as $label => [$script, $extra]) {
+      $this->assertSame(
+        2,
+        $stop($script, $extra + ['hook_event_name' => 'Stop']),
+        $label . ' refuses the first attempt',
+      );
+      $this->assertSame(
+        0,
+        $stop($script, $extra + ['stop_hook_active' => TRUE]),
+        $label . ' lets the second one through, or the run can never end',
+      );
+    }
+
+    // TRUTHY, not identical-to-TRUE. Claude Code sends a boolean; this file
+    // documents Codex and a hand-invoked hook as callers too, and reading
+    // their spellings as FALSE turns the contract into a deadlock.
+    foreach ([TRUE, 'true', 1, '1'] as $flag) {
+      $this->assertSame(
+        0,
+        $stop($guard, ['stop_hook_active' => $flag]),
+        'a continuation spelled ' . var_export($flag, TRUE) . ' is a continuation',
+      );
+    }
+    foreach ([FALSE, 'false', 0, '0'] as $flag) {
+      $this->assertSame(
+        2,
+        $stop($guard, ['stop_hook_active' => $flag]),
+        var_export($flag, TRUE) . ' is not a continuation',
+      );
+    }
+
+    // And a crash anywhere else still refuses: a refusal in pre-tool-use costs
+    // one tool call, and the agent can do something else.
+    $process = proc_open(
+      [PHP_BINARY, $broken, 'pre-tool-use'],
+      [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+      $pipes,
+      $root,
+      ['CLAUDE_PROJECT_DIR' => $root, 'PATH' => (string) getenv('PATH')],
+    );
+    $this->assertIsResource($process);
+    fwrite($pipes[0], (string) json_encode([
+      'tool_name' => 'Write',
+      'tool_input' => ['file_path' => $root . '/src/Foo.php'],
+    ]));
+    fclose($pipes[0]);
+    stream_get_contents($pipes[1]);
+    stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $this->assertSame(2, proc_close($process), 'a crash still fails closed everywhere else');
+  }
+
+  /**
    * An unusable CLAUDE_PROJECT_DIR does not stand the wall down.
    *
    * The guard took that variable verbatim. A stale worktree path, a typo or a

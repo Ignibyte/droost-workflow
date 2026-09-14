@@ -1763,6 +1763,9 @@ final class WorkflowFacade {
         // operator: three ways a gate cannot show a measurement, none of
         // them anything the agent chose.
         $gatesOff,
+        // So the audit can READ a gate binary rather than infer from the diff
+        // whether a package manager wrote it.
+        $projectRoot,
       );
       $blocked = FALSE;
       foreach ($audit->checks($phase->value) as $check) {

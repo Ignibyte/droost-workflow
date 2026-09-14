@@ -268,8 +268,13 @@ final class ArgvDispatcher {
    */
   private static function isRepositoryBoundary(string $directory): bool {
     $dot = rtrim($directory, '/') . '/.git';
+    // NOT A SYMLINK. `ln -s /tmp lib/sub/.git` made `is_dir` true and stopped
+    // the walk; git does not accept a symlinked repository either.
+    if (is_link($dot)) {
+      return FALSE;
+    }
     if (is_dir($dot)) {
-      return TRUE;
+      return self::isGitDirectory($dot);
     }
     if (!is_file($dot)) {
       return FALSE;
@@ -282,7 +287,36 @@ final class ArgvDispatcher {
       ? $match[1]
       : rtrim($directory, '/') . '/' . $match[1];
 
-    return is_dir($target);
+    return self::isGitDirectory($target);
+  }
+
+  /**
+   * Whether a directory is actually a git directory.
+   *
+   * THE GUARD AND THIS HAVE TO AGREE, and they stopped agreeing the moment one
+   * of them was hardened alone. The guard learned that `mkdir .git`, a `.git`
+   * symlinked anywhere, and `gitdir:` naming any directory that exists are not
+   * repositories; this did not. So one `mkdir lib/sub/.git` stopped the engine
+   * two levels below the project and it read built-in defaults while the
+   * operator's `droost.workflow.yml` sat unread in the directory above — the
+   * guard, meanwhile, found it. A divergence in the opposite direction from
+   * the last one, created by the fix for the last one.
+   *
+   * `PackGuardParityTest` now drives both resolvers over the same shapes,
+   * because two implementations of one rule is the defect and a test that
+   * compares them is the only thing that keeps it from recurring.
+   *
+   * @param string $directory
+   *   The candidate.
+   *
+   * @return bool
+   *   TRUE when it looks like a git directory.
+   */
+  private static function isGitDirectory(string $directory): bool {
+    $path = rtrim($directory, '/');
+
+    return is_file($path . '/HEAD')
+      && (is_dir($path . '/objects') || is_dir($path . '/refs') || is_file($path . '/config'));
   }
 
   /**

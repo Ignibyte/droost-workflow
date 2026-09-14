@@ -96,6 +96,24 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       'nice rm' => 'nice rm -rf droost/droost-workflow',
       'timeout mv' => 'timeout 5 mv droost/droost-workflow /tmp/dw',
       'sudo nice cd' => 'sudo nice cd .claude/hooks && echo x > droost-workflow-guard.php',
+      // A WRAPPER IN FRONT OF A RUNNER, which is a different tier from a
+      // wrapper in front of `cd` — and the tier that stayed open. There were
+      // two wrapper lists: the one the path tier strips had `builtin`,
+      // `chronic` and `ts`, and the one that decides whether a quoted argument
+      // is re-scanned as a command line did not. So `builtin eval "…"` left
+      // the payload as one opaque token that no verb matcher and no path
+      // matcher could see, while the identical command without those two words
+      // was refused. `builtin eval` is real in both bash and zsh.
+      //
+      // The cases above are all `cd`; every one of them passed while this was
+      // wide open. A rule stated twice is a rule that will eventually be true
+      // once, so the list is now one function — and these pin the words that
+      // had drifted.
+      'builtin eval a verb' => 'builtin eval "drush droost:workflow:bypass x"',
+      'builtin eval a write' => 'builtin eval "echo x > .claude/hooks/droost-workflow-guard.php"',
+      'builtin eval a removal' => 'builtin eval "rm -rf droost/droost-workflow"',
+      'chronic eval' => 'chronic eval "drush droost:workflow:gate-waive phpcs"',
+      'ts bash -c' => 'ts bash -c "rm .claude/hooks/droost-workflow-guard.php"',
     ];
     foreach ($cases as $label => $command) {
       [$exit] = $this->shell($root, $command);

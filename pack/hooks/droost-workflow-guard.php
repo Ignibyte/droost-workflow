@@ -183,7 +183,26 @@ if (!is_file($root . '/droost/droost-workflow/run.json')) {
 // refusal that says so, never a silent allow. They are deliberately the FIRST
 // thing the file does, because a crash before they are installed is exactly the
 // crash they exist to catch.
-set_exception_handler(static function (\Throwable $error): void {
+// ONE ENFORCED CONTINUATION PER STOP ATTEMPT, and that has to include these.
+// These two handlers refused unconditionally, and a crash is DETERMINISTIC:
+// the same payload crashes on attempt one, two and ten, so under `stop` the
+// agent was told to continue, tried to stop again, and got the same exit 2 for
+// ever. A hook that can never be satisfied is not enforcement, it is a hang —
+// and the remedy these print (`droost-workflow init`) fixes none of the
+// causes that land here. The file already learned this once, for an
+// unparseable run.json; the handlers added later did not inherit it.
+//
+// Written by the reader below the moment it knows, and defaulted so that a
+// crash BEFORE the payload is understood still fails closed. Only `stop` is
+// let through: a refusal in pre-tool-use costs one tool call, and the agent
+// can do something else.
+$GLOBALS['workflow_guard_mode'] = $argv[1] ?? '';
+$GLOBALS['workflow_guard_continued'] = FALSE;
+$crashExit = static function (): int {
+  return (($GLOBALS['workflow_guard_mode'] ?? '') === 'stop'
+    && ($GLOBALS['workflow_guard_continued'] ?? FALSE) === TRUE) ? 0 : 2;
+};
+set_exception_handler(static function (\Throwable $error) use ($crashExit): void {
   fwrite(STDERR, sprintf(
     'The droost workflow guard could not complete this check (%s: %s at %s:%d), '
     . 'so it refused rather than permitted. A guard that cannot decide has not '
@@ -194,9 +213,9 @@ set_exception_handler(static function (\Throwable $error): void {
     basename($error->getFile()),
     $error->getLine(),
   ));
-  exit(2);
+  exit($crashExit());
 });
-register_shutdown_function(static function (): void {
+register_shutdown_function(static function () use ($crashExit): void {
   $fatal = error_get_last();
   if ($fatal !== NULL && ($fatal['type'] & (E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR)) !== 0) {
     fwrite(STDERR, sprintf(
@@ -206,7 +225,7 @@ register_shutdown_function(static function (): void {
       basename($fatal['file']),
       $fatal['line'],
     ));
-    exit(2);
+    exit($crashExit());
   }
 });
 
@@ -224,7 +243,16 @@ $stdin = (string) stream_get_contents(STDIN);
 // the contract, and it is the contract for every branch.
 $payload = json_decode($stdin, TRUE);
 $payload = is_array($payload) ? $payload : [];
-$stopHookActive = ($payload['stop_hook_active'] ?? FALSE) === TRUE;
+// TRUTHY, not identical-to-TRUE. Claude Code sends a boolean; this file also
+// documents Codex and a hand-invoked hook as supported callers, and `"true"`,
+// `1` and `"1"` all read as "the agent was already made to continue once".
+// Reading those as FALSE turns the one-continuation contract into a deadlock
+// on every host that does not send a JSON boolean.
+$flag = $payload['stop_hook_active'] ?? FALSE;
+$stopHookActive = $flag === TRUE
+  || $flag === 1
+  || (is_string($flag) && in_array(strtolower($flag), ['true', '1', 'yes'], TRUE));
+$GLOBALS['workflow_guard_continued'] = $stopHookActive;
 
 // A NUL byte is never part of a real path or a real command — no filesystem
 // this runs on accepts one — but it IS what truncates a C string, so
@@ -250,6 +278,13 @@ $carriesNul = static function (mixed $value) use (&$carriesNul): bool {
 // reaches `preg_match()` carries a real NUL. Both are checked, because a host
 // that sends the raw byte exists too.
 if (str_contains($stdin, "\0") || $carriesNul($payload)) {
+  // Under `stop` on a second attempt there is nothing for the agent to do —
+  // it named no path, and the refusal's own advice ("write it without the
+  // byte") applies to a tool call it did not make. Refusing for ever there is
+  // a hang, so the one-continuation contract holds here as everywhere else.
+  if ($mode === 'stop' && $stopHookActive) {
+    exit(0);
+  }
   fwrite(STDERR,
     'A NUL byte appeared in this tool call. No path or command legitimately '
     . 'carries one, and it is the classic way to make a guard read one name '
@@ -844,6 +879,34 @@ function operator_commands_php_arms_write_gate(array $tokens): bool {
 }
 
 /**
+ * The programs that run whatever follows them.
+ *
+ * ONE LIST, because there were two and they drifted — and the drift was a
+ * complete bypass rather than an inconsistency. `builtin`, `chronic` and `ts`
+ * had been added to the stripper used by the PATH tier and not to the one that
+ * decides whether a quoted argument is re-scanned as a command line, so:
+ *
+ *     builtin eval "drush droost:workflow:bypass x"                  ALLOWED
+ *     builtin eval "echo '<?php exit(0);' > .claude/hooks/guard.php" ALLOWED
+ *     builtin eval "rm -rf droost/droost-workflow"                   ALLOWED
+ *
+ * while the identical commands without the two-word prefix were all refused.
+ * `builtin eval` is a real construct in both bash and zsh. A reviewer found it
+ * by diffing the two lists — which is the only way anyone would have.
+ *
+ * The lesson is in the shape, not the words: a rule stated twice is a rule
+ * that will eventually be true once.
+ *
+ * @return string
+ *   A regex matching one wrapper word.
+ */
+function operator_commands_wrapper_pattern(): string {
+  return '/^(?:sudo|command|builtin|eval|exec|env|nice|time|setsid|stdbuf|ionice'
+    . '|caffeinate|arch|unbuffer|doas|busybox|nohup|timeout|watch|flock|parallel'
+    . '|su|script|chronic|ts)$/';
+}
+
+/**
  * An argument list with its leading wrappers removed.
  *
  * `nice`, `time`, `timeout 5`, `sudo`, and the shell's own `builtin`, `command`
@@ -861,9 +924,7 @@ function operator_commands_php_arms_write_gate(array $tokens): bool {
  *   The list with wrappers and their own flags removed.
  */
 function operator_commands_unwrapped(array $tokens): array {
-  $wrappers = '/^(?:sudo|command|builtin|eval|exec|env|nice|time|setsid|stdbuf|ionice'
-    . '|caffeinate|arch|unbuffer|doas|busybox|nohup|timeout|watch|flock|parallel|su'
-    . '|script|chronic|ts|exec)$/';
+  $wrappers = operator_commands_wrapper_pattern();
   for ($strip = 0; $strip < 8 && $tokens !== []; $strip++) {
     $word = strtolower(basename(ltrim($tokens[0], "\x01")));
     if (preg_match($wrappers, $word) !== 1) {
@@ -1044,8 +1105,7 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
   // `setsid`, `stdbuf`, `su -c`, `git -c alias.z='!drush …' z`. Growing the
   // allowlist loses that race, so the wrappers are STRIPPED first and whatever
   // is left is judged.
-  $wrappers = '/^(?:sudo|command|env|nice|time|setsid|stdbuf|ionice|caffeinate|arch'
-    . '|unbuffer|doas|busybox|nohup|timeout|watch|flock|parallel|su|script|exec)$/';
+  $wrappers = operator_commands_wrapper_pattern();
   $runner = '/^(?:sudo|command|env)?$|^(?:\/\S+\/)?(?:sh|bash|zsh|dash|ksh|fish|eval'
     . '|php|python3?|perl|node|ruby|expect|xargs|nohup|timeout|script)$/';
   $verbs = '/droost:workflow:(gate-waive|baseline|bypass|effort)\b'

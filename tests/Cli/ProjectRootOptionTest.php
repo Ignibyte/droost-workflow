@@ -281,7 +281,11 @@ final class ProjectRootOptionTest extends TestCase {
 
     // A real worktree pointer does stop it: the levers above are somebody
     // else's, and adopting them writes this run's record into their repository.
-    mkdir($this->root . '/lib/sub/.realgit', 0775, TRUE);
+    // A REAL git directory, because a gitdir naming any directory that
+    // happens to exist is not a repository — `gitdir: /tmp` satisfied the
+    // first cut of this check and moved the root.
+    mkdir($this->root . '/lib/sub/.realgit/objects', 0775, TRUE);
+    file_put_contents($this->root . '/lib/sub/.realgit/HEAD', "ref: refs/heads/main\n");
     file_put_contents($this->root . '/lib/sub/.git', "gitdir: .realgit\n");
     [, $worktree] = $this->dispatch(['status'], $this->root . '/lib/sub');
     $this->assertStringNotContainsString(
