@@ -101,8 +101,15 @@ final class PackMaterializer {
         continue;
       }
       // Not drifted (refresh), or drifted but --take-upstream said take it.
+      // Whether it CHANGED is a different question from whether it was
+      // written, and the report used to conflate them — announcing "wrote 21
+      // file(s)" about a project where nothing moved.
+      $unchanged = is_file($to)
+        && hash_equals(hash('sha256', $shipped), hash('sha256', (string) file_get_contents($to)));
       $this->writeFile($destination, $to, $shipped);
-      $report = $report->withWritten($destination);
+      $report = $unchanged
+        ? $report->withCurrent($destination)
+        : $report->withWritten($destination);
       $newLock[$destination] = hash('sha256', $shipped);
     }
     $this->writeLock($root, $newLock);

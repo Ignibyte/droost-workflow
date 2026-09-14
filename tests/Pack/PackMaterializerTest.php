@@ -8,6 +8,7 @@ use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\Pack\PackError;
 use Droost\Workflow\Pack\PackManifest;
 use Droost\Workflow\Pack\PackMaterializer;
+use Droost\Workflow\State\RunStateStore;
 
 /**
  * Installing the pack into a consuming repository.
@@ -145,10 +146,59 @@ class PackMaterializerTest extends WorkflowTestCase {
       '.claude/skills/workflow-plan/SKILL.md',
       $report->drifted,
     );
+    // ALREADY CURRENT, which is a different report from WRITTEN and the
+    // distinction is the point: `written` counted every rewrite including the
+    // ones with identical bytes, so a re-run announced "wrote 21 file(s)" on a
+    // project where nothing had moved. A reviewer read that as "init never
+    // refreshes anything" — untrue, and exactly what a meaningless count
+    // invites. The file is still rewritten; it is no longer counted as change.
     $this->assertContains(
+      '.claude/skills/workflow-plan/SKILL.md',
+      $report->current,
+    );
+    $this->assertNotContains(
       '.claude/skills/workflow-plan/SKILL.md',
       $report->written,
     );
+  }
+
+  /**
+   * An upgrade refreshes a file the user never touched.
+   *
+   * The half a reviewer's probe could not see, because they had edited the
+   * file first and then concluded that `init` never refreshes. It does: drift
+   * is measured against what droost LAST WROTE, so a file matching the lock is
+   * replaced with whatever the package now ships, and only a file the user
+   * changed is kept.
+   */
+  public function testAnUpgradeRefreshesWhatTheUserNeverTouched(): void {
+    $root = $this->makeRoot();
+    $materializer = new PackMaterializer();
+    $materializer->init($root);
+
+    $skill = $root . '/.claude/skills/workflow-plan/SKILL.md';
+    $shipped = (string) file_get_contents($skill);
+    $lockPath = $root . '/' . RunStateStore::resolveStateDir($root) . '/pack.lock';
+
+    // The state droost would be in one release earlier: the local file is what
+    // droost wrote then, and the package now ships something else.
+    file_put_contents($skill, "AN OLDER RELEASE\n");
+    $lock = json_decode((string) file_get_contents($lockPath), TRUE);
+    $this->assertIsArray($lock);
+    $lock['.claude/skills/workflow-plan/SKILL.md'] = hash('sha256', "AN OLDER RELEASE\n");
+    file_put_contents($lockPath, (string) json_encode($lock));
+
+    $report = $materializer->init($root);
+
+    $this->assertSame($shipped, file_get_contents($skill), 'the upgrade lands');
+    $this->assertContains('.claude/skills/workflow-plan/SKILL.md', $report->written);
+    $this->assertNotContains('.claude/skills/workflow-plan/SKILL.md', $report->drifted);
+
+    // And an edit the user made is still theirs.
+    file_put_contents($skill, $shipped . "\n# my note\n");
+    $kept = $materializer->init($root);
+    $this->assertStringContainsString('my note', (string) file_get_contents($skill));
+    $this->assertContains('.claude/skills/workflow-plan/SKILL.md', $kept->drifted);
   }
 
   /**

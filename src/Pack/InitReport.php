@@ -25,24 +25,50 @@ final class InitReport {
    *   Pack files the user has edited since droost last shipped them, kept as
    *   they are rather than overwritten. Delete one and re-init to take the
    *   upstream version.
+   * @param list<string> $current
+   *   Paths the installer rewrote with the bytes they already held. `written`
+   *   counted these, so a re-run on an up-to-date project announced "wrote 16
+   *   file(s)" while `diff` showed nothing had changed, and the number moved
+   *   between runs for reasons an operator could not see. A reviewer read that
+   *   as "init never refreshes anything" — which is not true, and is what a
+   *   meaningless count invites somebody to conclude.
    */
   public function __construct(
     public readonly array $written = [],
     public readonly array $kept = [],
     public readonly array $drifted = [],
+    public readonly array $current = [],
   ) {}
 
   /**
-   * This report with a written path added.
+   * This report with an already-current path added.
    *
    * @param string $path
-   *   The path written.
+   *   The path whose shipped bytes were already in place.
+   *
+   * @return self
+   *   A new report.
+   */
+  public function withCurrent(string $path): self {
+    return new self(
+      $this->written,
+      $this->kept,
+      $this->drifted,
+      [...$this->current, $path],
+    );
+  }
+
+  /**
+   * This report with one file recorded as written.
+   *
+   * @param string $path
+   *   The destination, project-relative.
    *
    * @return self
    *   A new report.
    */
   public function withWritten(string $path): self {
-    return new self([...$this->written, $path], $this->kept, $this->drifted);
+    return new self([...$this->written, $path], $this->kept, $this->drifted, $this->current);
   }
 
   /**
@@ -55,7 +81,7 @@ final class InitReport {
    *   A new report.
    */
   public function withDrifted(string $path): self {
-    return new self($this->written, $this->kept, [...$this->drifted, $path]);
+    return new self($this->written, $this->kept, [...$this->drifted, $path], $this->current);
   }
 
   /**
@@ -68,7 +94,7 @@ final class InitReport {
    *   A new report.
    */
   public function withKept(string $path): self {
-    return new self($this->written, [...$this->kept, $path], $this->drifted);
+    return new self($this->written, [...$this->kept, $path], $this->drifted, $this->current);
   }
 
   /**
@@ -84,7 +110,18 @@ final class InitReport {
    *   One line per outcome that occurred.
    */
   public function summary(array $omit = []): string {
-    $lines = [sprintf('wrote %d file(s)', count($this->written))];
+    $lines = [];
+    // The count is what CHANGED. "wrote 21 file(s)" on a project where nothing
+    // moved is a number that teaches a reader to ignore the line.
+    if ($this->written !== []) {
+      $lines[] = sprintf('wrote %d file(s)', count($this->written));
+    }
+    if ($this->current !== []) {
+      $lines[] = sprintf('%d file(s) already current', count($this->current));
+    }
+    if ($lines === []) {
+      $lines[] = 'nothing to do — the pack is current';
+    }
     foreach ($this->kept as $path) {
       if (in_array($path, $omit, TRUE)) {
         // Kept, and somebody else already said so. droost's own installer
