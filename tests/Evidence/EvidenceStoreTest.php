@@ -495,6 +495,53 @@ final class EvidenceStoreTest extends TestCase {
   }
 
   /**
+   * A gate is judged on its LATEST verdict, not on any verdict it ever had.
+   *
+   * `SELECT DISTINCT name … AND measured = 1` asked whether a gate had EVER
+   * measured something. So one throwaway invocation with `paths` pointed at
+   * real code — then unset again — satisfied `type_coverage` permanently while
+   * the verdict actually on record examined nothing. A reviewer stumbled into
+   * it rather than looking for it, which is how the evidence read:
+   *
+   *   code 4  phpstan  satisfied  measured=1
+   *   code 5  phpstan  satisfied  measured=0
+   *   test 1  type_coverage  satisfied  "phpcs, phpstan, phpunit all measured
+   *                                      something"
+   *
+   * The run's own last word about a gate is the only one that can stand for it.
+   */
+  public function testGatesAreJudgedOnTheirLatestVerdict(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
+
+    $store->record('r1', 'code', new CheckRecord(
+      kind: 'gate',
+      name: 'phpstan',
+      state: CheckState::Satisfied,
+      summary: 'analysed 40 files',
+      exitCode: 0,
+      measured: TRUE,
+    ));
+    $this->assertSame(['phpstan'], $store->measuredGates('r1'), 'the first verdict measured');
+
+    // The levers moved and the next run of the same gate examined nothing.
+    $store->record('r1', 'code', new CheckRecord(
+      kind: 'gate',
+      name: 'phpstan',
+      state: CheckState::Satisfied,
+      summary: 'the configured paths contain nothing to analyse',
+      exitCode: 0,
+      measured: FALSE,
+    ));
+
+    $this->assertSame(
+      [],
+      $store->measuredGates('r1'),
+      'and the run no longer claims phpstan measured anything, because it did not',
+    );
+  }
+
+  /**
    * The green expires when a LATER attempt is not green.
    *
    * `stillGreen()` reads the newest attempt, and reading the oldest instead

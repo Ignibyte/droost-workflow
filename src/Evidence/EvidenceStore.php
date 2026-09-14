@@ -1122,12 +1122,25 @@ final class EvidenceStore {
       // to catch that case, passing in that case. NULL is a v2 row, written
       // before the executor could say; it keeps its old reading rather than
       // being called a lie retroactively.
-      'SELECT DISTINCT name FROM check_result
-        WHERE run_id = ? AND kind = \'gate\' AND state IN (' . $placeholders . ')
-          AND (measured IS NULL OR measured = 1)'
+      // THE LATEST ATTEMPT, not any attempt. `SELECT DISTINCT` asked whether
+      // a gate had EVER measured something, so one throwaway invocation with
+      // `paths` set — then unset again — satisfied this permanently while the
+      // verdict actually on record measured nothing. A reviewer stumbled into
+      // it: `code 4 phpstan satisfied measured=1`, `code 5 phpstan satisfied
+      // measured=0`, and `test 1 type_coverage satisfied`. The run's own last
+      // word about a gate is the only one that can stand for it.
+      'SELECT c.name FROM check_result c
+         JOIN (SELECT name, MAX(attempt) AS attempt
+                 FROM check_result
+                WHERE run_id = ? AND kind = \'gate\'
+                GROUP BY name) latest
+           ON c.name = latest.name AND c.attempt = latest.attempt
+        WHERE c.run_id = ? AND c.kind = \'gate\' AND c.state IN (' . $placeholders . ')
+          AND (c.measured IS NULL OR c.measured = 1)
+        GROUP BY c.name'
     );
     $statement->execute(array_merge(
-      [$runId],
+      [$runId, $runId],
       array_map(static fn (CheckState $state): string => $state->value, $measured),
     ));
 

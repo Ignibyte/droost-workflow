@@ -129,7 +129,12 @@ final class WorkTypeTest extends TestCase {
     $check = $this->check($audit, 'type_coverage');
     $this->assertSame(CheckState::Blocked, $check->state);
     $this->assertStringContainsString('config_clean', (string) $check->summary);
-    $this->assertStringContainsString('measured nothing', (string) $check->summary);
+    $this->assertStringContainsString('without examining anything', (string) $check->summary);
+    // ENVIRONMENT, with a remedy. A gate that ran and examined nothing is
+    // describing its own configuration, and an agent fault here says "this is
+    // the work, not the setup" about a lever the agent may not even edit.
+    $this->assertSame(Fault::Environment, $check->fault);
+    $this->assertStringContainsString('paths', (string) $check->remedy);
   }
 
   /**
@@ -255,9 +260,14 @@ final class WorkTypeTest extends TestCase {
       }
     }
 
-    $this->assertSame(
-      ['satisfied'],
-      $states,
+    // NOT which word, but whether it holds the phase. At `test` the only gate
+    // `code` work rests on that RUNS there is phpunit, and the operator lifted
+    // it — so the honest answer is that nothing at this phase can speak for the
+    // type, which is `not_applicable`, not a pass nobody earned. What the test
+    // is named for is that the rescue rescues, and that is what it asserts.
+    $this->assertCount(1, $states, 'exactly one verdict, not a pair that argue');
+    $this->assertFalse(
+      CheckState::from($states[0])->blocksAdvance(),
       'the rescue rescues, rather than producing the next block',
     );
   }

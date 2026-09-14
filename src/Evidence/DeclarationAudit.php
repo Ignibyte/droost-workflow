@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Evidence;
 
+use Droost\Workflow\Config\PhaseGateMap;
+
 /**
  * What the agent said it would change, against what it actually changed.
  *
@@ -281,7 +283,11 @@ final class DeclarationAudit {
     // NULL means "no phase named", which is how the audit is exercised
     // directly; both questions are then due.
     $scopeIsDue = $phase === NULL || $phase === 'code';
-    $coverageIsDue = $phase === NULL || $phase === 'test';
+    // CODE TOO, now that each gate is asked about where it runs: phpcs and
+    // phpstan are code-phase gates, and asking about them only at test is what
+    // made this check unanswerable. `gatesDueAt()` narrows it to the gates the
+    // phase can speak for, so `code` never reports phpunit as unmeasured.
+    $coverageIsDue = $phase === NULL || $phase === 'code' || $phase === 'test';
     $checks = [];
     if ($scopeIsDue) {
       $checks[] = new CheckRecord(
@@ -327,10 +333,26 @@ final class DeclarationAudit {
 
     }
     if ($this->workType !== NULL && $coverageIsDue) {
-      $missed = array_values(array_diff($this->workType->mustMeasure(), $this->measuredGates));
+      // ASKED WHERE THE GATE RUNS. This asked about all three of `code` work's
+      // gates at TEST, and phpcs and phpstan do not run at test — so a phpcs
+      // whose `paths` lever pointed at nothing blocked the run one phase after
+      // the last moment anything could change the answer. Nothing inside test
+      // can make a code-phase gate measure, the lever is frozen for the run and
+      // the guard refuses it anyway, the mandatory trio carries no waiver, and
+      // a Blocked outcome spends no budget — so the run could not end, could
+      // not advance, and could not be fixed. Two reviewers reached it
+      // independently; one drove 56 identical invocations to be sure.
+      //
+      // Each gate is now asked about at a phase it actually runs at, so the
+      // same fact surfaces while it can still be acted on.
+      $due = self::gatesDueAt($phase);
+      $subject = $due === NULL
+        ? $this->workType->mustMeasure()
+        : array_values(array_intersect($this->workType->mustMeasure(), $due));
+      $missed = array_values(array_diff($subject, $this->measuredGates));
       // A gate the LEVEL turned off is not a gate the agent failed to satisfy.
       $missed = array_values(array_diff($missed, $this->gatesOff));
-      $rests = array_values(array_diff($this->workType->mustMeasure(), $this->gatesOff));
+      $rests = array_values(array_diff($subject, $this->gatesOff));
       if ($rests === [] && $this->workType->mustMeasure() !== []) {
         // Every gate this type rests on is off at this level. Green would be a
         // verification nobody performed; blocked would be unclearable, since no
@@ -340,9 +362,17 @@ final class DeclarationAudit {
           'type_coverage',
           CheckState::NotApplicable,
           Fault::None,
+          // NOT "the level". Three things land a gate in this list and only one
+          // of them is the dial: the level turned it off, the SURFACE could not
+          // run it (a site gate with no site — which a `content_model` ticket
+          // through the CLI hits every time), or the OPERATOR waived it. Naming
+          // the level for all three told a reader about a preset decision
+          // nobody made, and hid the fact that the same ticket through drush
+          // would have verified it.
           sprintf(
-            '%s work rests on %s, and this level runs none of them. Nothing here is verified by a '
-            . 'gate — that is the trade the level makes, and it is not a pass.',
+            '%s work rests on %s, and none of them could produce a measurement here — turned off '
+            . 'by the level, unreachable on this surface, or waived by the operator. Nothing in '
+            . 'this phase is verified by a gate, and that is not a pass.',
             $this->workType->value,
             implode(', ', $this->workType->mustMeasure()),
           ),
@@ -353,16 +383,36 @@ final class DeclarationAudit {
           'declaration',
           'type_coverage',
           $missed === [] ? CheckState::Satisfied : CheckState::Blocked,
-          $missed === [] ? Fault::None : Fault::Agent,
+          // ENVIRONMENT, not agent. A gate that RAN and examined nothing is
+          // describing its own configuration — a `paths` lever pointing at a
+          // directory that does not exist, a standard the tool cannot load, a
+          // declaration that does not match the diff. None of that is work the
+          // agent can do by trying harder, and the guidance attached to an
+          // agent fault says "This is the work, not the setup: fix the cause
+          // and re-run. There is no waiver for it", which was false in every
+          // observed case and named no way out of any of them.
+          //
+          // Environment carries a remedy and lets the OPERATOR record an
+          // unblock, which is the difference between a block and a wedge.
+          $missed === [] ? Fault::None : Fault::Environment,
           $missed === []
             ? sprintf('%s work: %s all measured something', $this->workType->value, implode(', ', $rests))
             : sprintf(
-              '%s work rests on %s, and %s measured nothing this run. A gate that passes over an '
-              . 'empty path set has not checked the thing this ticket is about.',
+              '%s work rests on %s, and %s ran without examining anything. A gate that passes '
+              . 'over an empty path set has not checked the thing this ticket is about — so this '
+              . 'is the gate\'s configuration talking, not the code.',
               $this->workType->value,
               implode(', ', $rests),
               implode(', ', $missed),
             ),
+          $missed === [] ? NULL : sprintf(
+            'Point the gate at the code: set gates.%1$s.paths in droost.workflow.yml (or give '
+            . '%1$s its own config file), then re-run this phase. If the declared work type is '
+            . 'wrong for this diff, `droost-workflow declare-changes --type=<type>` is the other '
+            . 'answer. Levers are frozen per run, so an operator editing them now is editing the '
+            . 'next run — ask them to clear this one with `reset --force` after.',
+            $missed[0],
+          ),
         );
       }
     }
@@ -495,6 +545,28 @@ final class DeclarationAudit {
         $hollow[0],
       ),
     );
+  }
+
+  /**
+   * The gates a phase actually runs, or NULL when the phase is unnamed.
+   *
+   * Read from `PhaseGateMap::DEFAULT`, which is the same table the engine
+   * dispatches from — so "did this gate measure anything" can only be asked
+   * where the gate had a chance to.
+   *
+   * @param string|null $phase
+   *   The phase name.
+   *
+   * @return list<string>|null
+   *   Gate names, or NULL for an unnamed phase (every gate is then in scope,
+   *   which is how the audit is exercised directly).
+   */
+  private static function gatesDueAt(?string $phase): ?array {
+    if ($phase === NULL) {
+      return NULL;
+    }
+
+    return PhaseGateMap::DEFAULT[$phase] ?? [];
   }
 
   /**
