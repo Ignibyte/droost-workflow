@@ -128,4 +128,40 @@ final class FindingParsersTest extends WorkflowTestCase {
     $this->assertNull(FindingParsers::msiPercent(''));
   }
 
+  /**
+   * The phpstan JSON report: messages under files, and the analyser's own.
+   *
+   * `phpstanErrorCount()` above reads the totals; this reads the MESSAGES,
+   * which nothing did before — the plain path recorded a phpstan report as
+   * its three top-level wrappers and the evidence document printed
+   * "— not recorded —" for every file, line and message.
+   */
+  public function testPhpstanReport(): void {
+    $root = $this->makeRoot();
+    $json = json_encode([
+      'totals' => ['errors' => 1, 'file_errors' => 1],
+      'files' => [
+        $root . '/src/A.php' => [
+          'errors' => 1,
+          'messages' => [
+            ['message' => 'Bad return', 'line' => 9, 'ignorable' => TRUE, 'identifier' => 'return.type'],
+          ],
+        ],
+      ],
+      'errors' => ['Child process error: out of memory'],
+    ], JSON_THROW_ON_ERROR);
+
+    $findings = FindingParsers::phpstan($json, $root);
+
+    $this->assertCount(2, $findings);
+    $this->assertSame('src/A.php', $findings[0]['file'], 'paths are project-relative');
+    $this->assertSame('return.type', $findings[0]['rule'], 'the identifier is the rule');
+    $this->assertSame(9, $findings[0]['line']);
+    $this->assertTrue($findings[0]['error']);
+    $this->assertSame('', $findings[1]['file'], 'an analyser failure has no file');
+    $this->assertSame('phpstan', $findings[1]['rule']);
+    $this->assertSame('Child process error: out of memory', $findings[1]['message']);
+    $this->assertSame([], FindingParsers::phpstan('not json', $root));
+  }
+
 }

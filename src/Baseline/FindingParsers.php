@@ -53,6 +53,62 @@ final class FindingParsers {
   }
 
   /**
+   * The findings in a phpstan `--error-format=json` report.
+   *
+   * One row per message under `files.<path>.messages`, plus one per entry in
+   * the top-level `errors` list — those are the analyser's own failures
+   * ("Child process error", an unreadable file) and carry no path. The
+   * `identifier` phpstan >= 1.11 attaches (`return.type`, `argument.type`)
+   * is the rule; older reports have none and the rule is empty.
+   *
+   * Until this existed the plain (no-baseline) path recorded phpstan's
+   * findings through a generic key-per-top-level-object parser, so a report
+   * with ONE real error was recorded as three findings — `totals`, `files`
+   * and an empty `errors` — none with a file, a line or a message, and the
+   * evidence document rendered every column "— not recorded —".
+   *
+   * @param string $stdout
+   *   The report.
+   * @param string $root
+   *   The project root.
+   *
+   * @return list<array{file: string, rule: string, message: string, line: int, error: bool, key: string}>
+   *   The findings.
+   */
+  public static function phpstan(string $stdout, string $root): array {
+    $decoded = self::decode($stdout);
+    $out = [];
+    $files = is_array($decoded['files'] ?? NULL) ? $decoded['files'] : [];
+    foreach ($files as $path => $entry) {
+      if (!is_string($path) || !is_array($entry) || !is_array($entry['messages'] ?? NULL)) {
+        continue;
+      }
+      $file = FindingKey::relative($root, $path);
+      foreach ($entry['messages'] as $message) {
+        if (!is_array($message)) {
+          continue;
+        }
+        $out[] = self::finding(
+          $root,
+          $file,
+          is_string($message['identifier'] ?? NULL) ? $message['identifier'] : '',
+          is_string($message['message'] ?? NULL) ? $message['message'] : '',
+          is_int($message['line'] ?? NULL) ? $message['line'] : 0,
+          TRUE,
+        );
+      }
+    }
+    $general = is_array($decoded['errors'] ?? NULL) ? $decoded['errors'] : [];
+    foreach ($general as $error) {
+      if (is_string($error) && trim($error) !== '') {
+        $out[] = self::finding($root, '', 'phpstan', $error, 0, TRUE);
+      }
+    }
+
+    return $out;
+  }
+
+  /**
    * The findings in an eslint `--format=json` report.
    *
    * @param string $stdout

@@ -676,7 +676,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
           $exit,
           $elapsed,
           sprintf('phpcs passed with %d warning(s) and no errors (warnings never fail this gate; see the findings)', $totals['warnings']),
-          $this->findings($stdout),
+          $this->findings($stdout, $gate->name, $root),
           $invocation,
         );
       }
@@ -729,7 +729,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $exit,
       $elapsed,
       $this->summarise($gate->name, $exit, $stdout, $stderr),
-      $this->findings($stdout, $gate->name),
+      $this->findings($stdout, $gate->name, $root),
       $invocation,
     );
   }
@@ -841,7 +841,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $summary = $status === GateStatus::Passed
         ? sprintf('phpstan passed — 0 new, %d inherited', $inherited)
         : sprintf('phpstan FAILED — %d new error(s) the baseline does not record (%d inherited)', $newCount, $inherited);
-      return GateResult::ran('phpstan', $status, $exit, $elapsed, $summary, $this->findings($stdout), $invocation)
+      return GateResult::ran('phpstan', $status, $exit, $elapsed, $summary, $this->findings($stdout, 'phpstan', $root), $invocation)
         ->withBaselineCounts($inherited, $newCount);
     }
 
@@ -2015,18 +2015,51 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    * should cost the report its detail, not its verdict. The exit code decides
    * pass or fail, always.
    *
+   * ONE PARSER PER TOOL, WHETHER OR NOT A BASELINE EXISTS. `FindingParsers`
+   * already read phpcs, eslint and stylelint into file/line/rule/message rows
+   * — and only the baseline partition asked it. The plain path fell through
+   * to the generic key-per-top-level-object shape below, so a phpcs or
+   * phpstan report was recorded as its WRAPPERS: `totals`, `files`, `errors`.
+   * A reviewer's evidence document showed "3 findings" for one real phpstan
+   * error and "— not recorded —" in every File, Line, Rule and Message cell,
+   * with the one defect surviving only inside a truncated Detail blob. Same
+   * finding, two shapes, depending on whether the operator had adopted a
+   * baseline. The generic shape remains for tools nobody has written a
+   * parser for.
+   *
    * @param string $stdout
    *   Standard output.
    * @param string $gate
    *   The gate's name, for the tools whose output is prose rather than a
-   *   machine format the gate can ask for.
+   *   machine format the gate can ask for, and to pick the parser.
+   * @param string $root
+   *   The project root, for paths relative to it. '' when unknown, in which
+   *   case only the generic shape is available.
    *
    * @return list<array<string, mixed>>
    *   The findings, or an empty list.
    */
-  private function findings(string $stdout, string $gate = ''): array {
+  private function findings(string $stdout, string $gate = '', string $root = ''): array {
     if (trim($stdout) === '') {
       return [];
+    }
+    if ($root !== '') {
+      $parsed = match ($gate) {
+        'phpcs' => FindingParsers::phpcs($stdout, $root),
+        'phpstan' => FindingParsers::phpstan($stdout, $root),
+        'eslint' => FindingParsers::eslint($stdout, $root),
+        'stylelint' => FindingParsers::stylelint($stdout, $root),
+        default => NULL,
+      };
+      if ($parsed !== NULL) {
+        return array_map(static fn (array $finding): array => [
+          'file' => $finding['file'],
+          'line' => $finding['line'],
+          'rule' => $finding['rule'],
+          'message' => $finding['message'],
+          'detail' => $finding['error'] ? 'error' : 'warning',
+        ], $parsed);
+      }
     }
     // PHPUNIT PRINTS PROSE, and the gate recorded ZERO findings for it — so
     // the only account of a failing suite was the summary line, and that was
