@@ -496,4 +496,79 @@ final class TamperEvidenceTest extends TestCase {
     $this->assertStringNotContainsString('belongs to run', $report);
   }
 
+  /**
+   * Using the legacy amnesty is visible, even when it is a forgery.
+   *
+   * The chain lets a verdict below the watermark carry no digest, because rows
+   * written before schema v5 genuinely have none. The guards on that are a
+   * watermark that cannot exceed MAX(id) and a file mark the v5 migration
+   * writes — and both live in this repository, so `grep LEGACY_MARK` gives an
+   * attacker both. A reviewer forged a FRESH store in four statements on a
+   * plain PDO connection:
+   *
+   *     PRAGMA application_id = <the constant>;
+   *     UPDATE run SET chained_from = (SELECT MAX(id) FROM check_result);
+   *     UPDATE check_result SET state='satisfied', row_digest='';
+   *     UPDATE run SET chain_head='';
+   *
+   * and the evaluation rendered "4 gates adjudicated. 4 measured something"
+   * with NO banner, when two of those gates were blocked with an agent fault.
+   * Worse than the truncation the report already discloses, because it
+   * preserves the row count — so the one compensating control the document
+   * names, reading §4's count against what the phases claim, does not fire.
+   *
+   * Nothing kept inside this file can make the amnesty unforgeable; that needs
+   * a secret the repository does not hold, which the chain's docblock says. So
+   * the property asserted here is the one that is achievable and that decides
+   * whether a reader is misled: USING the amnesty is stated, every time.
+   */
+  public function testUsingTheLegacyAmnestyIsAlwaysStated(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
+    foreach ([
+      ['phpcs', 'code', CheckState::Satisfied, Fault::None, 0],
+      ['phpstan', 'code', CheckState::Satisfied, Fault::None, 0],
+      ['phpunit', 'test', CheckState::Blocked, Fault::Agent, 1],
+      ['eslint', 'test', CheckState::Blocked, Fault::Agent, 1],
+    ] as [$name, $phase, $state, $fault, $exit]) {
+      $store->record('r1', $phase, new CheckRecord(
+        kind: 'gate',
+        name: $name,
+        state: $state,
+        fault: $fault,
+        summary: 'x',
+        exitCode: $exit,
+        invocation: $name,
+        durationMs: 12,
+        measured: TRUE,
+      ));
+    }
+    $honest = (new EvaluationReport(new EvidenceStore($this->root)))->render('r1');
+    $this->assertStringNotContainsString(
+      'NOT COVERED BY THE CHAIN',
+      $honest,
+      'a store droost created claims no amnesty, so it says nothing about one',
+    );
+
+    // The forgery, exactly as it was driven: no droost code, four statements.
+    $pdo = new \PDO('sqlite:' . $this->root . '/droost/droost-workflow/evidence.sqlite');
+    $pdo->exec('PRAGMA application_id = 1146244167');
+    $pdo->exec('UPDATE run SET chained_from = (SELECT MAX(id) FROM check_result)');
+    $pdo->exec("UPDATE check_result SET state='satisfied', fault='none', exit_code=0, row_digest=''");
+    $pdo->exec("UPDATE run SET chain_head=''");
+    unset($pdo);
+
+    $forged = (new EvaluationReport(new EvidenceStore($this->root)))->render('r1');
+    $this->assertStringContainsString(
+      'NOT COVERED BY THE CHAIN',
+      $forged,
+      'and a store that DOES claim one says so, above everything a reader acts on',
+    );
+    $this->assertStringContainsString(
+      '4 VERDICT(S)',
+      $forged,
+      'naming how much of the record it covers',
+    );
+  }
+
 }

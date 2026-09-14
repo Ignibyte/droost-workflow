@@ -89,7 +89,7 @@ final class SubjectHasher {
         continue;
       }
       if (is_dir($absolute)) {
-        foreach (self::walk($absolute) as $relative => $found) {
+        foreach (self::walk($absolute, $root) as $relative => $found) {
           $files[$path . '/' . $relative] = $found;
         }
         // The directories the walk refused to descend into are part of what
@@ -270,12 +270,19 @@ final class SubjectHasher {
    *
    * @param string $directory
    *   The absolute directory.
+   * @param string $root
+   *   The project root, so a symlink can be judged by whether it lands inside
+   *   it. Empty means "do not follow any link" — the fingerprint then records
+   *   every link by shape, which is the honest answer when there is no root to
+   *   measure against.
    *
-   * @return array<string, string>
-   *   Relative path to absolute path.
+   * @return array<string, string|null>
+   *   Relative path to absolute path; NULL for a descriptor whose whole value
+   *   is encoded in its key.
    */
-  private static function walk(string $directory): array {
+  private static function walk(string $directory, string $root = ''): array {
     $found = [];
+    $links = [];
     $iterator = new \RecursiveIteratorIterator(
       new \RecursiveCallbackFilterIterator(
         new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS),
@@ -287,13 +294,110 @@ final class SubjectHasher {
     );
     $prefix = strlen(rtrim($directory, '/')) + 1;
     foreach ($iterator as $file) {
-      if (!$file instanceof \SplFileInfo || !$file->isFile()) {
+      if (!$file instanceof \SplFileInfo) {
+        continue;
+      }
+      // A SYMLINKED DIRECTORY CONTRIBUTED NOTHING AT ALL. The walk does not
+      // descend into one (RecursiveDirectoryIterator does not follow links by
+      // default) and `skippedShape()` only shapes the directories it NAMES —
+      // so a whole subtree reached through a link was invisible: not its
+      // content, not its shape, not even its existence.
+      //
+      // A reviewer pointed a gate's `paths` lever at `src`, where
+      // `src/Payments` linked to `../lib`, recorded a green, then rewrote an
+      // authorisation check to `return TRUE;` and watched `stillGreen()` say
+      // yes over a byte-identical fingerprint. That is precisely the failure
+      // the whole mechanism exists to prevent, and it was not stated anywhere
+      // — unlike the >2MB middle-edit hole, which is documented.
+      //
+      // Links are recorded by WHERE THEY POINT and what is on the other side:
+      // the target's own shape, which moves when anything in it is added,
+      // removed or resized. Following it and hashing the contents would be
+      // better still, and is refused for the same reason `insideRoot()`
+      // refuses `paths: ../outside` — a fingerprint must not depend on bytes
+      // outside the project, or it can never expire.
+      if ($file->isLink()) {
+        $relative = substr($file->getPathname(), $prefix);
+        $target = (string) @readlink($file->getPathname());
+        $real = @realpath($file->getPathname());
+        // INSIDE THE PROJECT, FOLLOW IT. A link to another part of this
+        // repository points at bytes the run can change, so those bytes belong
+        // in the fingerprint exactly as any other file's do — and then a
+        // same-size rewrite behind the link moves the digest too.
+        //
+        // Outside the project, record the shape and stop, for the same reason
+        // `insideRoot()` refuses `paths: ../outside`: a fingerprint that
+        // depends on bytes nobody here can change never expires, which defeats
+        // the mechanism rather than extending it.
+        if ($real !== FALSE && $root !== '' && self::insideRoot($root, $real) && is_dir($real)) {
+          foreach (self::walk($real, $root) as $inner => $path) {
+            $found[$relative . '/' . $inner] = $path;
+          }
+          $links[] = sprintf('link:%s->%s|followed', $relative, $target);
+          continue;
+        }
+        $links[] = sprintf(
+          'link:%s->%s|%s',
+          $relative,
+          $target,
+          $real === FALSE ? 'broken' : self::treeShape($real),
+        );
+        continue;
+      }
+      if (!$file->isFile()) {
         continue;
       }
       $found[substr($file->getPathname(), $prefix)] = $file->getPathname();
     }
+    sort($links);
+    foreach ($links as $link) {
+      $found['skipped:' . $link] = NULL;
+    }
 
     return $found;
+  }
+
+  /**
+   * How many files a tree holds and how many bytes they come to.
+   *
+   * The same cheap descriptor `skippedShape()` uses, for the same reason: an
+   * addition, a removal or a size change moves it, and hashing an arbitrary
+   * tree on every gate is the cost this avoids. A same-size in-place rewrite
+   * behind a link still escapes, which is the trade — stated here rather than
+   * left to be discovered, which is how the hole above came to exist.
+   *
+   * @param string $directory
+   *   The resolved target.
+   *
+   * @return string
+   *   Entry count and total bytes, or a word when it cannot be read.
+   */
+  private static function treeShape(string $directory): string {
+    if (is_file($directory)) {
+      return 'file|' . (int) @filesize($directory);
+    }
+    if (!is_dir($directory)) {
+      return 'missing';
+    }
+    $count = 0;
+    $bytes = 0;
+    try {
+      $inside = new \RecursiveIteratorIterator(
+        new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS),
+        \RecursiveIteratorIterator::LEAVES_ONLY,
+      );
+      foreach ($inside as $entry) {
+        if ($entry instanceof \SplFileInfo && $entry->isFile()) {
+          $count++;
+          $bytes += (int) $entry->getSize();
+        }
+      }
+    }
+    catch (\UnexpectedValueException) {
+      return 'unreadable';
+    }
+
+    return sprintf('%d|%d', $count, $bytes);
   }
 
 }

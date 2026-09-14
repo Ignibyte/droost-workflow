@@ -305,8 +305,11 @@ final class EvaluationReport {
       . "> each visible. And the concession that an empty digest means \"written\n"
       . "> before the chain existed\" is bounded twice over — by a watermark that\n"
       . "> cannot exceed the rows that exist, and by a mark the file only carries\n"
-      . "> if it really does hold rows that old. A store created for this round\n"
-      . "> carries neither, so in it every verdict must show a digest.\n"
+      . "> if it really does hold rows that old — both of which are written in\n"
+      . "> this same file, so a forger who reads the source can set them. When\n"
+      . "> a store DOES claim that concession, the banner below says how much\n"
+      . "> of this run it covers; absent that banner, every verdict here\n"
+      . "> carries a digest.\n"
       . "> \n"
       . "> It does NOT establish that the record is untampered, and cannot. Every\n"
       . "> input to the check — the algorithm, the digests, the head, the\n"
@@ -331,6 +334,35 @@ final class EvaluationReport {
       . "> commit the rendered evaluation, where a diff shows what changed, or\n"
       . "> write it somewhere the agent has no credentials for. That is an\n"
       . "> operator's decision and droost cannot make it from in here.\n";
+    // THE AMNESTY, SAID OUT LOUD. A run whose verdicts sit below the watermark
+    // is a run the chain does not speak for, and until now that was silent:
+    // a reviewer forged a fresh store in four statements, one of them a PRAGMA
+    // copied out of this repository, and the evaluation rendered every gate
+    // satisfied with no banner at all. The forgery preserved the row count, so
+    // the one compensating control this document names — read §4's count
+    // against what the phases claim — could not fire either.
+    //
+    // This does not make the amnesty unforgeable; nothing kept inside this
+    // file can. It makes using it visible, which is the property that decides
+    // whether a reader is misled.
+    $unverified = $this->store->unverifiedByAmnesty($runId);
+    if ($unverified > 0) {
+      $out .= sprintf(
+        "\n> ## ⚠ %d VERDICT(S) HERE ARE NOT COVERED BY THE CHAIN\n"
+        . "> \n"
+        . "> This store claims that its first %d verdict(s) were written before\n"
+        . "> the digest chain existed, so they carry none and the integrity\n"
+        . "> check does not speak for them. That is legitimate on a project\n"
+        . "> whose store predates droost's v5 schema — and it is also what a\n"
+        . "> forged record looks like, because the claim is two values in this\n"
+        . "> same file and anyone who reads droost's source can write them.\n"
+        . "> \n"
+        . "> If this project's store is not older than v5, treat everything\n"
+        . "> below as unverified and re-run the round in a fresh store.\n",
+        $unverified,
+        $unverified,
+      );
+    }
     if ($break !== NULL) {
       $out .= sprintf(
         "\n> ## ⚠ THIS RECORD HAS BEEN ALTERED\n"

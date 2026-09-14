@@ -673,6 +673,64 @@ final class EvidenceStore {
   }
 
   /**
+   * How many verdicts the legacy amnesty excuses from the chain.
+   *
+   * THE AMNESTY IS FORGEABLE AND WAS SILENT, which is the combination that
+   * matters. `integrity()` lets a row below the watermark carry no digest,
+   * because rows written before v5 genuinely have none; the guards on that are
+   * a watermark that cannot exceed MAX(id) and a file mark the v5 migration
+   * writes. Both live in the same open-source file an attacker is already
+   * editing, and one `grep LEGACY_MARK` gives both — a reviewer forged a fresh
+   * store in four statements:
+   *
+   *     PRAGMA application_id = <the constant>;
+   *     UPDATE run SET chained_from = (SELECT MAX(id) FROM check_result);
+   *     UPDATE check_result SET state='satisfied', row_digest='';
+   *     UPDATE run SET chain_head='';
+   *
+   * and the evaluation rendered "4 gates adjudicated. 4 measured something"
+   * with no banner, when two of those gates were blocked with an agent fault.
+   * On a store that genuinely migrated from v4 the same forgery needs no
+   * constant at all, permanently, because the mark is stamped for the life of
+   * the file.
+   *
+   * Making the amnesty unforgeable needs a secret that does not live in the
+   * repository, which is the open problem the chain's own docblock names. What
+   * is available here is to stop it being SILENT: a reader who is told "the
+   * first N verdicts are not covered by the chain" can weigh that, and the
+   * reviewer's point was precisely that the one compensating control the
+   * document names — read §4's count against what the phases claim — does not
+   * fire against a forgery that preserves the row count.
+   *
+   * @param string $runId
+   *   The run being rendered.
+   *
+   * @return int
+   *   How many of this run's verdicts sit below the watermark, which is how
+   *   many the chain does not speak for. Zero on every store droost created.
+   */
+  public function unverifiedByAmnesty(string $runId): int {
+    try {
+      $mark = $this->connection()->query(
+        'SELECT COALESCE(MIN(chained_from), 0) FROM run WHERE chained_from IS NOT NULL'
+      );
+      $watermark = $mark === FALSE ? 0 : (int) ($mark->fetchColumn() ?: 0);
+      if ($watermark <= 0) {
+        return 0;
+      }
+      $statement = $this->connection()->prepare(
+        'SELECT COUNT(*) FROM check_result WHERE run_id = ? AND id <= ?'
+      );
+      $statement->execute([$runId, $watermark]);
+
+      return (int) ($statement->fetchColumn() ?: 0);
+    }
+    catch (\Throwable) {
+      return 0;
+    }
+  }
+
+  /**
    * The unresolved non-gate checks, shaped for an agent to act on.
    *
    * WHY A RUN IS BLOCKED IS NOT OPTIONAL. `RunOutcome`'s docblock records what
