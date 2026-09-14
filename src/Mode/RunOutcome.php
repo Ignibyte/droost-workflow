@@ -68,6 +68,26 @@ final class RunOutcome {
   }
 
   /**
+   * Attempts still available per gate that has used any.
+   *
+   * The same arithmetic `GateRunner::mayRetry()` does, stated rather than
+   * left to the reader. Only gates with a recorded attempt appear: a gate
+   * that has never failed has its whole budget and saying so for thirteen
+   * gates would bury the two that matter.
+   *
+   * @return array<string, int>
+   *   Gate name to attempts remaining, never below zero.
+   */
+  private function remaining(): array {
+    $left = [];
+    foreach ($this->state->feedbackAttempts as $gate => $spent) {
+      $left[$gate] = max(0, $this->state->maxGateRetries - $spent);
+    }
+
+    return $left;
+  }
+
+  /**
    * The one run envelope every surface renders.
    *
    * Until this existed the same five fields were assembled three times — in
@@ -79,8 +99,8 @@ final class RunOutcome {
    *   The envelope: outcome, current_phase, preset (the effort level the run
    *   is held to — the frozen, canonical name, so a reader can tell a gate
    *   the level dropped from one that failed), report, awaiting, and the
-   *   retries block (attempts per gate, the bound, and whether the budget
-   *   is exhausted).
+   *   retries block (attempts per gate, what each has LEFT, the bound, and
+   *   whether the phase's budget is exhausted).
    */
   public function toArray(): array {
     return [
@@ -95,8 +115,21 @@ final class RunOutcome {
       // third-party tool. An agent cannot do that, and loops.
       'blocked' => $this->blocked,
       'awaiting' => $this->question?->toArray(),
+      // HOW MANY ARE LEFT, not only how many are spent. `attempts` and
+      // `max_gate_retries` do determine it — `GateRunner::mayRetry()` is
+      // `attempts < max` — but only to a reader who knows the comparison is
+      // `<` and not `<=`. `{"attempts":{"phpcs":2},"max_gate_retries":2}`
+      // reads just as naturally as "two of two used, one more coming", and
+      // the agent that believes that spends a turn on a gate that will not
+      // run again.
+      //
+      // `exhausted` cannot answer it either: it is the PHASE's status, so
+      // mid-loop it is FALSE while one particular gate already has nothing
+      // left. Stating the remainder per gate costs a few bytes and removes
+      // the inference.
       'retries' => [
         'attempts' => $this->state->feedbackAttempts,
+        'remaining' => $this->remaining(),
         'max_gate_retries' => $this->state->maxGateRetries,
         'exhausted' => $this->exhausted(),
       ],

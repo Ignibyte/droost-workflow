@@ -77,8 +77,18 @@ class WorkflowFacadeRetryTest extends WorkflowTestCase {
       ['outcome', 'current_phase', 'preset', 'report', 'blocked', 'awaiting', 'retries'],
       array_keys($envelope),
     );
+    // `remaining` is why this row is worth pinning: "attempts phpcs 1,
+    // max_gate_retries 1" reads just as naturally as "one of one used, one
+    // more coming", and an agent that believes that spends a turn on a gate
+    // that will not run again. `mayRetry()` is `attempts < max`, and only a
+    // reader who knows the comparison is `<` can tell from the other two.
     $this->assertSame(
-      ['attempts' => ['phpcs' => 1], 'max_gate_retries' => 1, 'exhausted' => TRUE],
+      [
+        'attempts' => ['phpcs' => 1],
+        'remaining' => ['phpcs' => 0],
+        'max_gate_retries' => 1,
+        'exhausted' => TRUE,
+      ],
       $envelope['retries'],
     );
   }

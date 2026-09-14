@@ -322,7 +322,7 @@ class SurfaceParityTest extends WorkflowTestCase {
     $retries = $envelope['retries'];
     $this->assertIsArray($retries);
     $this->assertSame(
-      ['attempts', 'max_gate_retries', 'exhausted'],
+      ['attempts', 'remaining', 'max_gate_retries', 'exhausted'],
       array_keys($retries),
     );
 
