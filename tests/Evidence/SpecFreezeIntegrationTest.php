@@ -647,12 +647,12 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     // failure loop it replaced, because that one at least kept working.
     $facade->answer($root, 'keep going');
     $this->assertSame(
-      Outcome::Failed,
+      Outcome::Blocked,
       $facade->run($root, $spec)->outcome,
       'answering resumes ordinary blocking rather than re-asking immediately',
     );
     $this->assertSame(
-      Outcome::Failed,
+      Outcome::Blocked,
       $facade->run($root, $spec)->outcome,
       'and keeps resuming it',
     );
@@ -684,7 +684,9 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     file_put_contents($root . '/undeclared.php', "<?php // never declared\n");
 
     $outcome = $facade->run($root, $spec);
-    $this->assertSame(Outcome::Failed, $outcome->outcome);
+    // Blocked rather than failed — nothing was spent, and the caller is being
+    // told what to fix rather than that the run is over.
+    $this->assertSame(Outcome::Blocked, $outcome->outcome);
 
     $envelope = $outcome->toArray();
     $this->assertArrayHasKey('blocked', $envelope, 'the envelope has somewhere to say why');

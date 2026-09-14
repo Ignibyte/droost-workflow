@@ -399,7 +399,9 @@ final class ArgvDispatcher {
     // that treats non-zero as broken. Retryable and terminal failures share
     // the exit code — the difference lives in the envelope's
     // retries.exhausted, where a caller can actually act on it.
-    return $outcome->outcome === Outcome::Failed
+    // Blocked is non-zero too — the run did not advance — but the envelope's
+    // own word is what tells a reader whether to fix and re-run or to reset.
+    return $outcome->outcome === Outcome::Failed || $outcome->outcome === Outcome::Blocked
       ? self::EXIT_RUN_FAILED
       : self::EXIT_OK;
   }

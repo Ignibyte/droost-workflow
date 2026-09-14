@@ -191,7 +191,10 @@ final class ModeEngine {
     if (!$this->adjudicateChecks($state, $phase, $projectRoot)) {
       $stuck = $this->stuckOutcome($state, $phase, $projectRoot, $report, $now);
 
-      return $stuck ?? new RunOutcome(Outcome::Failed, $state, $report);
+      // A contributed check or a spec condition, not a gate: nothing was spent
+      // and the agent may fix and return. The block ceiling above is what stops
+      // that becoming endless.
+      return $stuck ?? new RunOutcome(Outcome::Blocked, $state, $report);
     }
 
     // The seeker checkpoint. Gates verify rules; the seeker verifies

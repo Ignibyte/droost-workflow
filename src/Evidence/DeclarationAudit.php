@@ -422,6 +422,11 @@ final class DeclarationAudit {
    *   Gates this run's level turned off, which are nobody's failure.
    * @param string|null $phase
    *   The phase, or NULL to ask regardless.
+   * @param list<string> $blockedGates
+   *   Gates holding a blocked row. These RAN; a failure is not an absence.
+   * @param \Droost\Workflow\Evidence\WorkType|null $workType
+   *   The declared work type, so this stays quiet where `type_coverage`
+   *   already blocks on the same facts.
    *
    * @return \Droost\Workflow\Evidence\CheckRecord|null
    *   The record, or NULL when the trio measured or the phase is too early.
@@ -430,15 +435,32 @@ final class DeclarationAudit {
     array $measuredGates,
     array $gatesOff,
     ?string $phase = NULL,
+    array $blockedGates = [],
+    ?WorkType $workType = NULL,
   ): ?CheckRecord {
+    // A work type that already rests on the trio has `type_coverage`, which
+    // BLOCKS on the same facts. Two rows with near-identical prose and opposite
+    // verdicts — `recorded/none` beside `blocked/agent` — invite a reader to
+    // discount the one that matters, and `WorkType::Code` rests on exactly this
+    // trio, so the commonest work type got both.
+    if ($workType !== NULL && array_diff(['phpcs', 'phpstan', 'phpunit'], $workType->mustMeasure()) === []) {
+      return NULL;
+    }
     // Test and complete only: at code, phpunit has not run, and saying so would
     // be a false alarm on every run.
     if ($phase !== NULL && $phase !== 'test' && $phase !== 'complete') {
       return NULL;
     }
+    // BLOCKED gates are subtracted too. A gate with a blocked row ran — it
+    // found violations, or its tool errored, or its binary was absent — and
+    // none of that is "measured nothing". Without this, a phpcs that found
+    // nineteen violations was recorded as having measured nothing and told to
+    // set `gates.phpcs.paths`: false about what happened, and useless as
+    // advice.
     $hollow = array_values(array_diff(
       array_values(array_diff(['phpcs', 'phpstan', 'phpunit'], $gatesOff)),
       $measuredGates,
+      $blockedGates,
     ));
     if ($hollow === []) {
       return NULL;

@@ -1061,6 +1061,37 @@ final class EvidenceStore {
   }
 
   /**
+   * The gates that ran and did not pass.
+   *
+   * A gate with a blocked row RAN — it found violations, or its tool errored,
+   * or its binary was missing. None of those is "measured nothing", and the
+   * caller that asks about hollow gates has to subtract these or it states
+   * something false: a phpcs that found nineteen violations was recorded as
+   * "ran and measured nothing — point it with gates.phpcs.paths", which is
+   * wrong about what happened AND wrong about what would help.
+   *
+   * `measuredGates()` cannot answer this on its own, because `Blocked` is not
+   * a measuring state and a blocked gate is excluded from it for good reason:
+   * a failing gate has not shown a clean measurement. The two questions are
+   * different and both are needed.
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return list<string>
+   *   Gate names, deduplicated.
+   */
+  public function blockedGates(string $runId): array {
+    $statement = $this->connection()->prepare(
+      'SELECT DISTINCT name FROM check_result
+        WHERE run_id = ? AND kind = \'gate\' AND state = ?'
+    );
+    $statement->execute([$runId, CheckState::Blocked->value]);
+
+    return array_map(static fn (array $row): string => self::text($row, 'name'), self::rows($statement));
+  }
+
+  /**
    * The gates that actually measured something in this run.
    *
    * "Measured" is a stricter claim than "passed": a gate that was off by

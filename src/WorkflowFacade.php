@@ -1474,8 +1474,12 @@ final class WorkflowFacade {
       $this->now(),
     );
 
+    // BLOCKED, not failed. A declaration block spends nothing — `attempts` is
+    // empty and `exhausted` is false — and one `declare-changes` clears it. It
+    // reported `failed`, which the README answers with `reset`, so an agent
+    // reading its own envelope destroyed a run it could have saved.
     return $stuck ?? new RunOutcome(
-      Outcome::Failed,
+      Outcome::Blocked,
       $outcome->state,
       $outcome->report,
       NULL,
@@ -1713,6 +1717,8 @@ final class WorkflowFacade {
         $store->measuredGates($state->runId),
         $gatesOff,
         $phase->value,
+        $store->blockedGates($state->runId),
+        $store->workType($state->runId),
       );
       if ($hollow !== NULL) {
         $store->record($state->runId, $phase->value, $hollow, $this->now());

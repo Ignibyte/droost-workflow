@@ -134,7 +134,11 @@ final class ContributedCheckIntegrationTest extends WorkflowTestCase {
       ),
     ], $calls))->run($root, $spec);
 
-    $this->assertSame(Outcome::Failed, $outcome->outcome, 'a blocked check holds the phase');
+    // BLOCKED, not failed: a contributed check costs no retry budget and the
+    // agent may fix and return. `failed` meant "the budget is spent or this is
+    // terminal", which the README answers with `reset` — so an agent reading
+    // its own envelope threw away a run one correction would have freed.
+    $this->assertSame(Outcome::Blocked, $outcome->outcome, 'a blocked check holds the phase');
     $this->assertSame(['plan' => 1], $calls, 'and it was asked exactly once, at plan');
   }
 
@@ -210,7 +214,7 @@ final class ContributedCheckIntegrationTest extends WorkflowTestCase {
 
     $outcome = $this->facade($exploding)->run($root, $spec);
 
-    $this->assertSame(Outcome::Failed, $outcome->outcome, 'the phase stops');
+    $this->assertSame(Outcome::Blocked, $outcome->outcome, 'the phase stops, recoverably');
 
     $rows = $this->storeRows(
       (new EvidenceStore($root))->connection(),
