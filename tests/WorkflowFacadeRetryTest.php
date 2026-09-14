@@ -48,6 +48,21 @@ class WorkflowFacadeRetryTest extends WorkflowTestCase {
     $this->assertFalse($second->exhausted());
     $this->assertSame(['phpcs' => 1], $second->state->feedbackAttempts);
     $this->assertSame(1, $executor->executions['phpcs']);
+    // The `remaining` count is INVOCATIONS still available, not `max - spent`.
+    // The phase
+    // is not exhausted, and invocation 3 below WILL execute phpcs (and could
+    // pass) — so a gate at spent == max still has its terminal run left, and
+    // `max - spent` (= 0 here) read as "will not run again" a run too early.
+    $this->assertFalse($second->exhausted());
+    $this->assertSame(
+      [
+        'attempts' => ['phpcs' => 1],
+        'remaining' => ['phpcs' => 1],
+        'max_gate_retries' => 1,
+        'exhausted' => FALSE,
+      ],
+      $second->toArray()['retries'],
+    );
 
     // Invocation 3 — code again: phpcs fails, 1 < 1 is out of budget. The
     // phase is terminally failed, recorded as such on disk.

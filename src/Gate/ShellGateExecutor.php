@@ -566,7 +566,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         $gate->name,
         $exit,
         self::causeLine($stderr, $stdout),
-        self::toolFailedHint($gate->name),
+        self::toolFailedHint($gate->name, self::causeLine($stderr, $stdout)),
         $invocation,
       );
     }
@@ -1888,11 +1888,31 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *
    * @param string $gate
    *   The gate name.
+   * @param string $cause
+   *   The tool's own failure line, so a hint can key on it — a missing coding
+   *   standard names its install, a different phpcs error gets the general
+   *   advice.
    *
    * @return string
    *   The hint.
    */
-  public static function toolFailedHint(string $gate): string {
+  public static function toolFailedHint(string $gate, string $cause = ''): string {
+    // A MISSING CODING STANDARD NAMES ITS FIX. `init` writes Drupal's standard
+    // for a Drupal project — a module checkout included, which has no
+    // drupal/coder in its own vendor/ — so the first run exits 16 with "the
+    // Drupal coding standard is not installed", an environment fault. The
+    // generic hint said "check the ruleset gates.phpcs.standard names", which
+    // is not the fix; the fix is to install coder. Detected from the tool's
+    // own words rather than assumed, so a genuinely wrong standard still gets
+    // the general advice.
+    if ($gate === 'phpcs' && stripos($cause, 'is not installed') !== FALSE) {
+      return 'phpcs cannot find the coding standard gates.phpcs.standard names. '
+        . 'If it is Drupal\'s (Drupal, DrupalPractice), install it — '
+        . '`composer require --dev drupal/coder` — and allow its '
+        . 'dealerdirect/phpcodesniffer-composer-installer plugin; that is the '
+        . 'OPERATOR\'s to run. Otherwise set gates.phpcs.standard to one '
+        . '`vendor/bin/phpcs -i` lists.';
+    }
     return match ($gate) {
       'eslint' => 'eslint walked up to a config it cannot load — on a Drupal site that is core\'s scaffolded .eslintrc.json, whose plugins only core\'s own yarn install provides. Point gates.eslint.config at this project\'s own config (its package.json lint script names it); the gate then pins it and turns discovery off.',
       'stylelint' => 'stylelint could not load its config — point gates.stylelint.config at this project\'s own stylelint config.',
@@ -2007,6 +2027,19 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     // Neither says anything about what failed. A reviewer driving from the
     // envelope was handed a version number and asked to fix something; the
     // feedback loop's whole premise is that the record names the cause.
+    //
+    // PHPSTAN COUNTS RATHER THAN SCRAPES. Even with `--error-format=json`,
+    // PHPStan 2.x prints an "Instructions for interpreting errors" block to
+    // stderr, and it WRAPS — so the banner-skip regex, which matches by line
+    // prefix, let a continuation line through and the summary became "or
+    // `return.missing`.", a fragment of the advice, not the cause. The JSON
+    // report on stdout has the real number; use it.
+    if ($gate === 'phpstan') {
+      $count = FindingParsers::phpstanErrorCount($stdout);
+      if ($count !== NULL && $count > 0) {
+        return sprintf('phpstan failed (exit %d): %d error%s', $exit, $count, $count === 1 ? '' : 's');
+      }
+    }
     $line = self::failureLine($stderr, $stdout);
 
     return sprintf(
