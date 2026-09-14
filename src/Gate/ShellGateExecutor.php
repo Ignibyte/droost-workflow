@@ -673,7 +673,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $exit,
       $elapsed,
       $this->summarise($gate->name, $exit, $stdout, $stderr),
-      $this->findings($stdout),
+      $this->findings($stdout, $gate->name),
       $invocation,
     );
   }
@@ -1693,15 +1693,124 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     if ($exit === 0) {
       return $gate . ' passed';
     }
-    // Prefer stderr's first line: a tool that failed to start says why there,
-    // while stdout is often a machine format nobody wants in a summary.
-    $line = strtok(trim($stderr) !== '' ? $stderr : $stdout, "\n");
+    // NOT THE FIRST LINE. A tool's first line is its banner, and the summary
+    // is what a reader sees first — and what propagates into the evidence
+    // document as the account of the failure:
+    //
+    //   "phpunit failed (exit 1): PHPUnit 13.3.3 by Sebastian Bergmann"
+    //   "phpstan failed (exit 1): Instructions for interpreting errors"
+    //
+    // Neither says anything about what failed. A reviewer driving from the
+    // envelope was handed a version number and asked to fix something; the
+    // feedback loop's whole premise is that the record names the cause.
+    $line = self::failureLine($stderr, $stdout);
+
     return sprintf(
       '%s failed (exit %d)%s',
       $gate,
       $exit,
-      $line === FALSE ? '' : ': ' . $line,
+      $line === '' ? '' : ': ' . $line,
     );
+  }
+
+  /**
+   * The failing tests in a phpunit run, as findings.
+   *
+   * Phpunit emits no machine format the gate asks for, so this reads the
+   * report it does print:
+   *
+   *   1) Acme\Tests\ReorderTest::testReportKeysBySku
+   *   Failed asserting that two arrays are identical.
+   *   --- Expected
+   *   …
+   *   /path/tests/ReorderTest.php:25
+   *
+   * Best-effort, like every other parse here: a format that moves costs the
+   * detail and never the verdict, which stays the exit code.
+   *
+   * @param string $stdout
+   *   The tool's output.
+   *
+   * @return list<array{key: string, detail: array<string, string>}>
+   *   One entry per failing test.
+   */
+  private static function phpunitFailures(string $stdout): array {
+    $lines = preg_split('/\R/', $stdout) ?: [];
+    $out = [];
+    $count = count($lines);
+    for ($i = 0; $i < $count; $i++) {
+      if (preg_match('/^\d+\)\s+(\S+::\S+|\S+)\s*$/', trim($lines[$i]), $head) !== 1) {
+        continue;
+      }
+      $message = '';
+      $where = '';
+      for ($j = $i + 1; $j < $count && $j < $i + 40; $j++) {
+        $line = trim($lines[$j]);
+        if (preg_match('/^\d+\)\s+\S+/', $line) === 1) {
+          break;
+        }
+        if ($message === '' && $line !== '' && !str_starts_with($line, '---') && !str_starts_with($line, '+++')) {
+          $message = mb_substr($line, 0, 300);
+          continue;
+        }
+        if (preg_match('#^(/\S+\.php):(\d+)$#', $line, $at) === 1) {
+          $where = $at[1] . ':' . $at[2];
+        }
+      }
+      $out[] = [
+        'key' => $head[1],
+        'detail' => array_filter([
+          'test' => $head[1],
+          'message' => $message,
+          'at' => $where,
+        ], static fn (string $one): bool => $one !== ''),
+      ];
+      if (count($out) >= 50) {
+        break;
+      }
+    }
+
+    return $out;
+  }
+
+  /**
+   * The line of a tool's output that says what failed.
+   *
+   * Preferred over the first line, which is a banner in every tool this runs.
+   * The patterns are the shapes tools actually print when they have something
+   * to report; with none of them present the first line that is not a banner
+   * is still better than the banner.
+   *
+   * @param string $stderr
+   *   Standard error.
+   * @param string $stdout
+   *   Standard output.
+   *
+   * @return string
+   *   One line, bounded, or '' when the tool said nothing.
+   */
+  private static function failureLine(string $stderr, string $stdout): string {
+    $lines = preg_split('/\R/', trim($stderr) !== '' ? $stderr : $stdout) ?: [];
+    $banner = '/^(PHPUnit \d|PHP_CodeSniffer|PHPStan|Instructions for|Runtime:'
+      . '|Configuration:|Note: Using|Each error has|This page contains|Before fixing'
+      . '|The error usually|Do not |^-+$|^\.+$|^\s*$)/i';
+    $tells = '/^(There (was|were) \d|Tests: |FAILURES|ERRORS|OK, but|\[ERROR\]'
+      . '|\d+\)\s|FOUND \d+ ERROR|Found \d+ error)/i';
+    $fallback = '';
+    foreach ($lines as $line) {
+      $line = trim($line);
+      if ($line === '' || preg_match($banner, $line) === 1) {
+        continue;
+      }
+      if (preg_match($tells, $line) === 1) {
+        return mb_substr($line, 0, 200);
+      }
+      if ($fallback === '') {
+        $fallback = mb_substr($line, 0, 200);
+      }
+    }
+
+    return $fallback;
   }
 
   /**
@@ -1713,13 +1822,31 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *
    * @param string $stdout
    *   Standard output.
+   * @param string $gate
+   *   The gate's name, for the tools whose output is prose rather than a
+   *   machine format the gate can ask for.
    *
    * @return list<array<string, mixed>>
    *   The findings, or an empty list.
    */
-  private function findings(string $stdout): array {
+  private function findings(string $stdout, string $gate = ''): array {
     if (trim($stdout) === '') {
       return [];
+    }
+    // PHPUNIT PRINTS PROSE, and the gate recorded ZERO findings for it — so
+    // the only account of a failing suite was the summary line, and that was
+    // the version banner. A reviewer's record held `"findings":[]` beside
+    // `"summary":"phpunit failed (exit 1): PHPUnit 13.3.3 by Sebastian
+    // Bergmann and contributors."` while the same command by hand named two
+    // failing tests and the assertion each broke.
+    //
+    // The shape is stable and has been for a decade: a numbered heading, the
+    // message under it, and the file:line last.
+    if ($gate === 'phpunit') {
+      $parsed = self::phpunitFailures($stdout);
+      if ($parsed !== []) {
+        return $parsed;
+      }
     }
     try {
       $decoded = json_decode($stdout, TRUE, 32, JSON_THROW_ON_ERROR);

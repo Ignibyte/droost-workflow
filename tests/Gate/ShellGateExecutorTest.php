@@ -1028,6 +1028,82 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * A failing gate's record names what failed, not the tool's version.
+   *
+   * `summarise()` took the FIRST line of output, which is a banner in every
+   * tool this runs — and the summary is what a reader sees first and what
+   * propagates into the evidence document as the account of the failure:
+   *
+   *   "phpunit failed (exit 1): PHPUnit 13.3.3 by Sebastian Bergmann…"
+   *   "phpstan failed (exit 1): Instructions for interpreting errors"
+   *
+   * Neither says anything about what failed. A reviewer driving from the
+   * envelope was handed a version number and asked to fix something, and the
+   * feedback loop's whole premise is that the record names the cause.
+   */
+  public function testFailingGatesNameWhatFailed(): void {
+    $root = $this->rootWithBinaries(['phpunit']);
+    $output = "PHPUnit 13.3.3 by Sebastian Bergmann and contributors.\n\n"
+      . "Runtime:       PHP 8.4.24\nConfiguration: /x/phpunit.xml\n\n..FF\n\n"
+      . "There were 2 failures:\n\n"
+      . "1) Acme\\Tests\\ReorderTest::testReportKeysBySku\n"
+      . "Failed asserting that two arrays are identical.\n--- Expected\n+++ Actual\n\n"
+      . "/private/tmp/x/tests/ReorderTest.php:25\n";
+    file_put_contents($root . '/phpunit.xml', '<phpunit/>');
+    $executor = new ShellGateExecutor(
+      static fn (array $argv): array => [1, $output, ''],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('phpunit', TRUE), $root);
+
+    $this->assertSame(GateStatus::Failed, $result->status);
+    $this->assertStringNotContainsString(
+      'Sebastian Bergmann',
+      $result->summary,
+      'the banner is not the account of a failure',
+    );
+    $this->assertStringContainsString(
+      '2 failures',
+      $result->summary,
+      'what failed is',
+    );
+  }
+
+  /**
+   * And a failing suite's tests reach the record as findings.
+   *
+   * Phpunit emits no machine format the gate asks for, so it recorded ZERO
+   * findings — the only account of a failing suite was that summary line. The
+   * same command by hand named the failing test, the assertion it broke, and
+   * the file and line.
+   */
+  public function testFailingSuitesRecordWhichTestsFailed(): void {
+    $root = $this->rootWithBinaries(['phpunit']);
+    file_put_contents($root . '/phpunit.xml', '<phpunit/>');
+    $output = "PHPUnit 13.3.3 by Sebastian Bergmann and contributors.\n\n..FF\n\n"
+      . "There were 2 failures:\n\n"
+      . "1) Acme\\Tests\\ReorderTest::testReportKeysBySku\n"
+      . "Failed asserting that two arrays are identical.\n\n"
+      . "/private/tmp/x/tests/ReorderTest.php:25\n\n"
+      . "2) Acme\\Tests\\ReorderTest::testTotals\n"
+      . "Failed asserting that 4 matches expected 5.\n\n"
+      . "/private/tmp/x/tests/ReorderTest.php:41\n";
+    $executor = new ShellGateExecutor(
+      static fn (array $argv): array => [1, $output, ''],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('phpunit', TRUE), $root);
+
+    $this->assertCount(2, $result->findings, 'one finding per failing test');
+    $rendered = (string) json_encode($result->findings);
+    $this->assertStringContainsString('testReportKeysBySku', $rendered, 'named');
+    $this->assertStringContainsString('two arrays are identical', $rendered, 'with the assertion');
+    $this->assertStringContainsString('ReorderTest.php:25', $rendered, 'and where');
+  }
+
+  /**
    * PHP_CodeSniffer 4 renumbered its exit codes, and the gate read the old set.
    *
    * Phpcs 4's ExitCode is OKAY 0, FIXABLE 1, NON_FIXABLE 2, FAILED_TO_FIX 4,
