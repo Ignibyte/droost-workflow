@@ -234,6 +234,7 @@ final class ArgvDispatcher {
   private static function projectAbove(string $from): string {
     $here = rtrim($from, '/');
     $levers = NULL;
+    $boundary = NULL;
     for ($depth = 0; $depth < 32; $depth++) {
       // An ACTIVE RUN wins outright, and wins over anything nearer. An agent
       // that creates `lib/droost/droost-workflow/` — one empty directory, no
@@ -257,14 +258,28 @@ final class ArgvDispatcher {
       // `echo` then moved the project root — the guard has the same walk and
       // the same hole, where moving the root turns the protected paths off.
       // A real `.git` file names a gitdir that exists; a planted one does not.
-      if (self::isRepositoryBoundary($here)) {
-        break;
+      //
+      // REMEMBERED, NOT OBEYED YET — the same rule the guard learned, because
+      // the two have to agree and the guard learned it alone. `git init
+      // lib/sub` then made this resolver stop at `lib/sub` while the guard
+      // went on enforcing against the real root: the levers a run is HELD to
+      // and the levers the guard ENFORCES became two different sets, and a
+      // `run` from there wrote a second record.
+      //
+      // So the walk continues, and an active run above wins. With no run
+      // above, the boundary answers and a worktree behaves exactly as it did
+      // — which is the case the stop was written for.
+      if ($boundary === NULL && self::isRepositoryBoundary($here)) {
+        $boundary = ['root' => $here, 'levers' => $levers];
       }
       $parent = dirname($here);
       if ($parent === $here) {
         break;
       }
       $here = $parent;
+    }
+    if ($boundary !== NULL) {
+      return $boundary['levers'] ?? $boundary['root'];
     }
 
     return $levers ?? $from;

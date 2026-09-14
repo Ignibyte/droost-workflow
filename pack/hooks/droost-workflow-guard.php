@@ -554,8 +554,14 @@ exit(0);
  *   The command with data-only heredoc bodies removed.
  */
 function operator_commands_scan_text(string $command): string {
-  $interpreter = '/(?:^|[|;&(`]|\$\()\s*(?:sudo\s+(?:-\S+\s+)*)?(?:env\s+(?:\S+=\S*\s+)*)?'
-    . '(?:sh|bash|zsh|dash|ksh|fish|eval|source|\.|php|python3?|perl|node|ruby|expect|tmux|ssh|docker'
+  // ANY wrapper in front, not just `sudo` and `env`. This was a FOURTH copy
+  // of the list, and `nohup bash <<EOF`, `timeout 9 bash <<EOF` and
+  // `sudo -u me bash <<EOF` all classified their bodies as DATA — so the
+  // heredoc was dropped and the verb inside it was never seen, while the bare
+  // `bash <<EOF` was refused.
+  $interpreter = '/(?:^|[|;&(`]|\$\()\s*'
+    . '(?:(?:' . operator_commands_wrapper_words() . ')\s+(?:-\S+\s+|\S+=\S*\s+|\d+(?:\.\d+)?[smhd]?\s+)*)*'
+    . '(?:' . operator_commands_interpreter_words() . '|tmux|ssh|docker'
     . '|ddev\s+(?:exec|ssh)|lando\s+(?:ssh|exec)|fin\s+(?:exec|ssh)|drush\s+(?:php:?\S*|ev|scr))(?:\s|$)/';
   $lines = preg_split('/\R/', $command) ?: [];
   $kept = [];
@@ -791,7 +797,13 @@ function operator_commands_opaque_head(array $tokens): bool {
   // `${RUNNER} -c …` arrives with `$` as the head and `RUNNER` beside it. Any
   // head beginning with `$` is a program name this guard cannot read, which is
   // the whole test.
-  return str_starts_with($head, '$');
+  // A BACKTICK IS THE SAME SHELL FEATURE. Round five closed `$VAR -c` and
+  // `$(which sh) -c`; `` `echo sh` -c "…" `` is the older spelling of the
+  // second and was permitted — the tokeniser treats a backtick as an ordinary
+  // character, so `` `echo `` and `` sh` `` arrive as two plain words and the
+  // quoted payload is dropped as prose. A reviewer used it to overwrite this
+  // file and take `stop` from 2 to 0.
+  return str_starts_with($head, '$') || str_contains($head, '`');
 }
 
 /**
@@ -922,10 +934,97 @@ function operator_commands_php_arms_write_gate(array $tokens): bool {
  * @return string
  *   A regex matching one wrapper word.
  */
+function operator_commands_interpreter_words(): string {
+  // ONE LIST, for the same reason the wrappers became one: there were FOUR
+  // and every gap between them was a bypass. The heredoc classifier had its
+  // own at `operator_commands_scan_text()`, the tokeniser's `$runner` had
+  // another, the pipe rule had a third, and the script-file read rode on the
+  // second. Each round of fixes taught one of them a new word.
+  //
+  // `source` and `.` are here because they run a file in the current shell —
+  // `source do.sh` was a bypass while `bash do.sh` was refused. `xargs` is
+  // here because `| xargs sh -c` hands over a command line.
+  return 'sh|bash|zsh|dash|ksh|fish|eval|source|\.|php|python3?|perl|node|ruby'
+    . '|expect|xargs|script';
+}
+
+/**
+ * The programs that run whatever follows them.
+ *
+ * @return string
+ *   A regex matching one wrapper word.
+ */
 function operator_commands_wrapper_pattern(): string {
-  return '/^(?:sudo|command|builtin|eval|exec|env|nice|time|setsid|stdbuf|ionice'
+  return '/^(?:' . operator_commands_wrapper_words() . ')$/';
+}
+
+/**
+ * The wrapper words, as a bare alternation.
+ *
+ * Separate from the anchored pattern so the heredoc classifier and the pipe
+ * rule can embed the same words rather than keeping copies — which is how
+ * `nohup bash <<EOF` and `| env sh` came to be permitted while `bash <<EOF`
+ * and `| sh` were refused.
+ *
+ * @return string
+ *   The alternation, without delimiters or anchors.
+ */
+function operator_commands_wrapper_words(): string {
+  return 'sudo|command|builtin|eval|exec|env|nice|time|setsid|stdbuf|ionice'
     . '|caffeinate|arch|unbuffer|doas|busybox|nohup|timeout|watch|flock|parallel'
-    . '|su|script|chronic|ts)$/';
+    . '|su|script|chronic|ts';
+}
+
+/**
+ * One invocation with its leading wrappers removed, and how many came off.
+ *
+ * ONE STRIPPER. There were two, and they disagreed about a wrapper's own
+ * ARGUMENT: this one ate `timeout`'s `5`, and the copy inside
+ * `operator_commands_invocations()` ate only flags. So the tokeniser's `$head`
+ * became the literal `5`, `$runs` was FALSE, the quoted payload was never
+ * re-scanned, and the verb tier then dropped it as prose:
+ *
+ *     ddev exec "drush droost:workflow:bypass x"              refused
+ *     timeout 5 ddev exec "drush droost:workflow:bypass x"    ALLOWED
+ *     timeout 5 ddev exec "echo x > .claude/hooks/…guard.php" ALLOWED
+ *
+ * One extra word took the operator-verb wall, the protected-path wall and the
+ * state directory together. The list had been unified one round earlier and
+ * the RULE had not, which is the same defect the unification was written to
+ * end — so it is one function now, and both callers ask it.
+ *
+ * `timeout` also takes a unit suffix (`5s`, `5m`, `5h`, `5d`) on GNU and BSD,
+ * and a bare `/^\d+$/` matched none of them: `timeout 5s rm -rf
+ * droost/droost-workflow` walked past the destructive tier that `timeout 5`
+ * did not.
+ *
+ * @param list<string> $tokens
+ *   The argument list.
+ *
+ * @return array{0: list<string>, 1: int}
+ *   The remaining tokens, and how many wrappers were removed.
+ */
+function operator_commands_strip_wrappers(array $tokens): array {
+  $wrappers = operator_commands_wrapper_pattern();
+  $stripped = 0;
+  for ($strip = 0; $strip < 8 && $tokens !== []; $strip++) {
+    $word = strtolower(basename(ltrim($tokens[0], "\x01")));
+    if (preg_match($wrappers, $word) !== 1) {
+      break;
+    }
+    array_shift($tokens);
+    $stripped++;
+    // The wrapper's own flags and its argument: `nice -n 10`, `timeout 5`,
+    // `timeout 5s`, `timeout 1.5m`, `sudo -u me`.
+    while ($tokens !== [] && (
+      str_starts_with($tokens[0], '-')
+      || preg_match('/^\d+(?:\.\d+)?[smhd]?$/i', $tokens[0]) === 1
+    )) {
+      array_shift($tokens);
+    }
+  }
+
+  return [array_values($tokens), $stripped];
 }
 
 /**
@@ -946,19 +1045,7 @@ function operator_commands_wrapper_pattern(): string {
  *   The list with wrappers and their own flags removed.
  */
 function operator_commands_unwrapped(array $tokens): array {
-  $wrappers = operator_commands_wrapper_pattern();
-  for ($strip = 0; $strip < 8 && $tokens !== []; $strip++) {
-    $word = strtolower(basename(ltrim($tokens[0], "\x01")));
-    if (preg_match($wrappers, $word) !== 1) {
-      break;
-    }
-    array_shift($tokens);
-    // The wrapper's own flags and its numeric argument (`timeout 5`, `nice -n
-    // 10`), so the command it runs becomes the head.
-    while ($tokens !== [] && (str_starts_with($tokens[0], '-') || preg_match('/^\d+$/', $tokens[0]) === 1)) {
-      array_shift($tokens);
-    }
-  }
+  [$tokens] = operator_commands_strip_wrappers($tokens);
 
   return array_values($tokens);
 }
@@ -1067,7 +1154,30 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
       $endCommand();
       continue;
     }
-    if ($char === '(' || $char === ')' || $char === '{' || $char === '}') {
+    if ($char === '{' || $char === '}') {
+      // A BRACE INSIDE A WORD IS EXPANSION, not grouping. Splitting it off
+      // turned `…guard.ph{p,x}` into two tokens that no path regex matches,
+      // which is half of why brace expansion reached the guard file. A brace
+      // that STARTS a word is still shell grouping — `{ cd x; rm y; }` — and
+      // is still separated.
+      // Shell GROUPING is `{ cmd; }` — the brace is followed by whitespace.
+      // `{a,b}/x` is expansion, and splitting it left `rm
+      // {.claude/hooks,foo}/droost-workflow-guard.php` as tokens no path
+      // regex could match.
+      $next = $command[$i + 1] ?? ' ';
+      if ($current === '' && $char === '{' && preg_match('/\s/', $next) === 1) {
+        $endToken();
+        continue;
+      }
+      if ($current === '' && $char === '}') {
+        $endToken();
+        continue;
+      }
+      $current .= $char;
+      $started = TRUE;
+      continue;
+    }
+    if ($char === '(' || $char === ')') {
       // Grouping punctuation is not part of a word: `(cd x && …)` has `cd` as
       // the head of its first command, and treating `(cd` as one token meant
       // the subshell's `cd` was never seen.
@@ -1104,8 +1214,13 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
   // `echo`, which is not a runner, so it was dropped as prose — and `sh` on the
   // other side of the pipe had no argument for anything to look at. The
   // unquoted spelling was already caught; the quoted one ran.
+  // WRAPPERS HERE TOO. This was a third copy of the list and had neither
+  // `env` nor `command`, so `echo "drush …bypass" | env sh` was permitted
+  // while `| sh` was refused — and `env` is the canonical way to pipe into
+  // a shell with a modified environment.
   $piped = preg_match(
-    '/\|\s*(?:\S*\/)?(?:sh|bash|zsh|dash|ksh|fish|php|python3?|perl|ruby|node|xargs)\b/',
+    '/\|\s*(?:(?:' . operator_commands_wrapper_words() . ')\s+(?:-\S+\s+|\S+=\S*\s+|\d+[smhd]?\s+)*)*'
+    . '(?:\S*\/)?(?:' . operator_commands_interpreter_words() . ')\b/',
     $command,
   ) === 1;
 
@@ -1127,9 +1242,10 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
   // `setsid`, `stdbuf`, `su -c`, `git -c alias.z='!drush …' z`. Growing the
   // allowlist loses that race, so the wrappers are STRIPPED first and whatever
   // is left is judged.
-  $wrappers = operator_commands_wrapper_pattern();
-  $runner = '/^(?:sudo|command|env)?$|^(?:\/\S+\/)?(?:sh|bash|zsh|dash|ksh|fish|eval'
-    . '|php|python3?|perl|node|ruby|expect|xargs|nohup|timeout|script)$/';
+  // The wrappers are stripped first, so the runner test never sees one — the
+  // `sudo|command|env` alternation the old pattern carried was unreachable
+  // past that strip and is gone with it.
+  $runner = '/^(?:\/\S+\/)?(?:' . operator_commands_interpreter_words() . ')$/';
   $verbs = '/droost:workflow:(gate-waive|baseline|bypass|effort)\b'
     . '|(?<![\w-])(dwfgw|dwfbl|dwfby|dwfe)\b|droost-workflow\s+baseline\b'
     . '|(?:droost:gate|(?<![\w-])dgate)\b/';
@@ -1138,19 +1254,7 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
     // The subcommand forms — `ddev exec …`, `lando ssh …`, `docker exec …` —
     // plus anything that runs a string it was handed.
     // Strip leading wrappers and their own flags before asking what this is.
-    $bare = $tokens;
-    $stripped = 0;
-    for ($strip = 0; $strip < 8 && $bare !== []; $strip++) {
-      $word = strtolower(basename($bare[0]));
-      if (preg_match($wrappers, $word) !== 1) {
-        break;
-      }
-      array_shift($bare);
-      $stripped++;
-      while ($bare !== [] && str_starts_with($bare[0], '-')) {
-        array_shift($bare);
-      }
-    }
+    [$bare, $stripped] = operator_commands_strip_wrappers($tokens);
     // A wrapper's whole job is to run what follows, so when stripping one
     // leaves a single multi-word token, that token IS the command line —
     // `watch -n1 'drush …'` and `flock /tmp/l -c '…'` hand over a string
@@ -1185,9 +1289,18 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
     // cannot read is not "allow". Refusing here is narrow — a variable in an
     // ARGUMENT (`cp "$f" /tmp`, `cd "$ROOT"`) is untouched, and only a variable
     // standing where the program name goes is refused.
-    $opaque = str_starts_with(ltrim($bare[0] ?? '', '"\'({'), '$');
+    $first = ltrim($bare[0] ?? '', '"\'({');
+    $opaque = str_starts_with($first, '$') || str_contains($first, '`');
+    // A SCRIPT RUN DIRECTLY IS STILL A SCRIPT. The read tier was gated on the
+    // head being an interpreter, so `bash do.sh` was read and `./do.sh` was
+    // not — and `./do.sh` is the more idiomatic spelling of exactly the
+    // attack that tier was built for: one Write, then one allowed Bash call.
+    // `source do.sh` and `. do.sh` ran it in the current shell and were not
+    // read either.
+    $selfExecuting = preg_match('#^\\.{0,2}/|^[^/]+\\.(?:sh|bash|zsh|php|py|pl|rb)$#', $head) === 1;
     $runs = $wrapped
       || $opaque
+      || $selfExecuting
       || preg_match($runner, $head) === 1
       || ($head === 'ssh')
       || (in_array($head, ['ddev', 'lando', 'fin', 'docker', 'docker-compose', 'podman'], TRUE)
@@ -1203,7 +1316,9 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
     // PHP as a shell script invents refusals out of string literals.
     $inners = [];
     if ($runs && $depth < 2) {
-      foreach (array_slice($bare, 1) as $argument) {
+      // The HEAD too, for `./do.sh` — there the script is the program, not an
+      // argument to one.
+      foreach ($selfExecuting ? $bare : array_slice($bare, 1) as $argument) {
         $file = ltrim($argument, "\x01");
         if ($file === '' || str_starts_with($file, '-') || preg_match('/\s/', $file) === 1) {
           continue;
@@ -1212,8 +1327,28 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
           continue;
         }
         $path = str_starts_with($file, '/') ? $file : (getcwd() ?: '.') . '/' . $file;
-        if (!is_file($path) || is_link($path) || (int) @filesize($path) > 65536) {
+        if (!is_file($path)) {
           continue;
+        }
+        // A SCRIPT THIS GUARD CANNOT READ IS ONE IT MAY NOT PERMIT. These
+        // four skips were silent `continue`s, and each was a working bypass
+        // one Write away: a 72KB script with the verb on the last line, a
+        // symlinked script, a script under vendor/, and a script that only
+        // `source`s another. The file's own doctrine already says the answer
+        // — "a command it cannot read is not a command it may permit" — and
+        // this tier was the one place not following it.
+        if (is_link($path) || (int) @filesize($path) > 65536) {
+          fwrite(STDERR, sprintf(
+            'This runs a script droost cannot read — %s is %s. What it does '
+            . 'cannot be judged from here, and the operator-only verbs and '
+            . 'this guard\'s own file are exactly what that hides. Run the '
+            . 'commands directly, or keep the script under 64KB and not a '
+            . 'symlink so it can be read. (Refused: %s)',
+            $file,
+            is_link($path) ? 'a symlink' : 'larger than 64KB',
+            trim($command),
+          ));
+          exit(2);
         }
         $script = (string) @file_get_contents($path, FALSE, NULL, 0, 65536);
         if ($script === '' || str_contains($script, "\0")) {
@@ -1316,7 +1451,19 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
   $payload = is_array($payload) ? $payload : [];
   $input = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
   $command = $input['command'] ?? '';
-  if (!is_string($command) || $command === '') {
+  // DATA HEREDOCS DROPPED HERE TOO. Only the verb tier called this, so a
+  // heredoc body was prose to one wall and code to the other — and the
+  // opaque-head check then fired on any body line starting with `$`:
+  //
+  //   cat > x.php <<'PHP'   with  $x = 1;
+  //   gh pr create --body-file - <<'EOF'  with  $ drush droost:workflow:gate-waive phpcs
+  //
+  // The second is F-EMT-11 returning through the other door: a pull-request
+  // body quoting the waiver this guard's own refusal tells the agent to show
+  // the operator. Writing a PHP file with a heredoc is routine here, and a
+  // guard that refuses that is a guard somebody deletes.
+  $command = is_string($command) ? operator_commands_scan_text($command) : '';
+  if ($command === '') {
     return;
   }
 
@@ -1416,12 +1563,33 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // guard and `find .claude -type f -delete` wiped the directory, because
     // find is not a destructive verb and its targets are not globs — so
     // neither wall was looking. The action flags are the whole difference.
+    // AND BY WHAT THE ACTION DOES. `-exec` runs a program, and the program
+    // decides: `find . -name "*.php" -exec php -l {} \;` lints every file in
+    // the project and `-exec vendor/bin/phpcs {} +` is the canonical phpcs
+    // invocation — both were refused, and both are typed daily. `-delete`,
+    // and an `-exec` of something that writes, are the cases that matter.
     if ($verb === 'find'
-      && operator_commands_flagged($tokens, ['-delete', '-exec', '-execdir', '-ok', '-okdir'])
+      && find_action_writes($tokens)
       && find_could_reach_enforcement($tokens)) {
+      // ONLY THE SEARCH PATHS. Everything after `-exec` is the PROGRAM find
+      // runs and its arguments, not somewhere it looks — and walking those as
+      // if they were search paths refused two commands people type daily:
+      //
+      //   find . -name "*.php" -exec php -l {} \;
+      //   find web/modules/custom -name "*.php" -exec vendor/bin/phpcs {} +
+      //
+      // the second being the canonical phpcs invocation, which droost's own
+      // gates run. find's search paths come before its first `-` expression.
+      $searchPaths = [];
       foreach ($tokens as $token) {
+        if (str_starts_with(ltrim($token, "\x01"), '-')) {
+          break;
+        }
+        $searchPaths[] = $token;
+      }
+      foreach (array_slice($searchPaths, 1) as $token) {
         $where = ltrim($token, "\x01");
-        if ($where === '' || str_starts_with($where, '-')) {
+        if ($where === '') {
           continue;
         }
         $under = wildcard_directory_refusal(
@@ -1493,9 +1661,34 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       // expands the same patterns against the same disk, and every name it
       // returns is judged as if it had been typed. What the shell will do is
       // knowable here, and guessing at the pattern was the mistake.
-      $meta = preg_match('/[*?\[]/', $operand) === 1;
+      // `{` TOO. The shell expands braces before it expands globs, and this
+      // set had only `*`, `?` and `[` — so `rm
+      // .claude/hooks/droost-workflow-guard.ph{p,x}` reached neither the
+      // `glob()` tier nor the directory rule, and deleted the guard. The
+      // tokeniser also treats `{`/`}` as grouping, so the operand arrives
+      // split and the literal-path regexes cannot match it either: two
+      // independent mechanisms both missed it.
+      $meta = preg_match('/[*?\[{]/', $operand) === 1;
       if ($meta) {
         $pattern = str_starts_with($operand, '/') ? $operand : $cwd . '/' . $operand;
+        // Brace expansion happens whether or not the names exist, so the
+        // branches are judged as literal paths too — `glob()` returns nothing
+        // for a name that is not on disk yet, and `rm {a,b}/guard.php` is
+        // about to create the absence it is being judged for.
+        foreach (operator_commands_brace_branches($pattern) as $branch) {
+          if (preg_match('/[*?\[]/', $branch) === 1) {
+            continue;
+          }
+          $refusedBranch = enforcement_refusal($branch, $root, $stateDir);
+          if ($refusedBranch !== '') {
+            fwrite(STDERR, sprintf(
+              '%s A brace expansion in this command produces it. (Refused: %s)',
+              $refusedBranch,
+              trim($command),
+            ));
+            exit(2);
+          }
+        }
         foreach (glob($pattern, GLOB_BRACE) ?: [] as $expanded) {
           $refused = enforcement_refusal($expanded, $root, $stateDir);
           if ($refused !== '') {
@@ -1964,6 +2157,97 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
 }
 
 /**
+ * Every literal path a brace expansion can produce.
+ *
+ * `glob()` with GLOB_BRACE answers only for names that EXIST, and a command
+ * that removes a file is about to create the absence it is being judged for.
+ * So the branches are enumerated directly: `rm {a,b}/guard.php` names two
+ * paths whether or not either is on disk.
+ *
+ * Bounded, because `{a,b}{c,d}{e,f}…` multiplies: past 64 branches the
+ * command is not something a person typed and the directory rule answers it.
+ *
+ * @param string $pattern
+ *   The operand, absolute.
+ *
+ * @return list<string>
+ *   The literal paths, or the pattern unchanged when it holds no braces.
+ */
+function operator_commands_brace_branches(string $pattern): array {
+  if (!str_contains($pattern, '{')) {
+    return [$pattern];
+  }
+  $out = [$pattern];
+  for ($round = 0; $round < 6; $round++) {
+    $next = [];
+    $grew = FALSE;
+    foreach ($out as $one) {
+      if (preg_match('/^(.*?)\{([^{}]*)\}(.*)$/s', $one, $m) !== 1) {
+        $next[] = $one;
+        continue;
+      }
+      $grew = TRUE;
+      foreach (explode(',', $m[2]) as $branch) {
+        $next[] = $m[1] . $branch . $m[3];
+      }
+    }
+    $out = array_slice($next, 0, 64);
+    if (!$grew) {
+      break;
+    }
+  }
+
+  return array_values($out);
+}
+
+/**
+ * Whether a `find` command's action changes anything.
+ *
+ * `-delete` always does. `-exec`/`-ok` depend on the PROGRAM they run, and
+ * judging them all as writes refused two commands people type every day —
+ * `find . -name "*.php" -exec php -l {} \;` and `find src -name "*.php" -exec
+ * vendor/bin/phpcs {} +`, the second being the canonical phpcs invocation
+ * that droost's own gates run.
+ *
+ * The read list is the same one the shell tier uses for a bare command, plus
+ * the analysers, because "what does this program do to a file it is handed"
+ * is one question and should have one answer.
+ *
+ * @param list<string> $tokens
+ *   The invocation's tokens.
+ *
+ * @return bool
+ *   TRUE when the action can change or remove what it matches.
+ */
+function find_action_writes(array $tokens): bool {
+  if (operator_commands_flagged($tokens, ['-delete'])) {
+    return TRUE;
+  }
+  $reads = [
+    'cat', 'head', 'tail', 'less', 'more', 'file', 'wc', 'stat', 'ls', 'echo',
+    'grep', 'egrep', 'rg', 'md5', 'shasum', 'md5sum', 'sha1sum', 'sha256sum',
+    'php', 'phpcs', 'phpstan', 'psalm', 'eslint', 'stylelint', 'prettier',
+    'jq', 'realpath', 'readlink', 'dirname', 'basename', 'printf',
+  ];
+  $writes = FALSE;
+  foreach ($tokens as $index => $token) {
+    if (!in_array(ltrim($token, "\x01"), ['-exec', '-execdir', '-ok', '-okdir'], TRUE)) {
+      continue;
+    }
+    $program = strtolower(basename(ltrim($tokens[$index + 1] ?? '', "\x01")));
+    // `php -l` reads; `php -r "unlink(…)"` does not, and nothing here can
+    // tell them apart — so an interpreter handed a `-r`/`-e` script counts
+    // as a write, the same way the shell tier treats one.
+    $script = in_array(strtolower(ltrim($tokens[$index + 2] ?? '', "\x01")), ['-r', '-e', '-c'], TRUE);
+    if ($program === '' || $script || !in_array($program, $reads, TRUE)) {
+      $writes = TRUE;
+    }
+  }
+
+  return $writes;
+}
+
+/**
  * Whether a `find` command's own filters could reach enforcement.
  *
  * `find . -name droost-workflow-guard.php -delete` deletes the guard, and
@@ -1990,7 +2274,7 @@ function find_could_reach_enforcement(array $tokens): bool {
     if (preg_match('/^-(i?name|i?path|i?wholename|i?regex)$/', $token) === 1) {
       $next = ltrim($tokens[$index + 1] ?? '', "\x01");
       if ($next !== '') {
-        $patterns[] = $next;
+        $patterns[] = [$token, $next];
       }
     }
   }
@@ -2014,10 +2298,31 @@ function find_could_reach_enforcement(array $tokens): bool {
     'phpstan',
     'phpunit',
   ];
-  foreach ($patterns as $pattern) {
+  foreach ($patterns as [$flag, $pattern]) {
+    // `-regex` IS NOT A GLOB. fnmatch was applied to it, which is the wrong
+    // language entirely — `find . -iregex '.*GUARD.*' -delete` matched
+    // nothing here and deleted the guard. And `-iname` is case-INSENSITIVE to
+    // find while fnmatch is case-sensitive by default, so
+    // `-iname 'DROOST-WORKFLOW-GUARD.PHP'` said it could reach nothing and
+    // then deleted it.
+    $insensitive = str_starts_with($flag, '-i');
+    $isRegex = str_ends_with($flag, 'regex');
     foreach ($protected as $name) {
-      if (fnmatch($pattern, $name) || fnmatch($pattern, '.claude/hooks/' . $name)) {
-        return TRUE;
+      foreach ([$name, '.claude/hooks/' . $name, './' . $name] as $candidate) {
+        if ($isRegex) {
+          $delimited = '#^' . $pattern . '$#' . ($insensitive ? 'i' : '');
+          if (@preg_match($delimited, $candidate) === 1) {
+            return TRUE;
+          }
+          // An expression this guard cannot compile is one it cannot judge.
+          if (@preg_match($delimited, '') === FALSE) {
+            return TRUE;
+          }
+          continue;
+        }
+        if (fnmatch($pattern, $candidate, $insensitive ? FNM_CASEFOLD : 0)) {
+          return TRUE;
+        }
       }
     }
   }

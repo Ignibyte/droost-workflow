@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Pack;
 
+use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Evidence\CheckState;
+use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -353,6 +355,33 @@ final class PackGuardParityTest extends TestCase {
         symlink($root . '/decoy/.realgit', $root . '/lib/sub/.git');
       },
       'a real repository below' => static function (string $root): void {
+        mkdir($root . '/lib/sub/.git/objects', 0775, TRUE);
+        file_put_contents($root . '/lib/sub/.git/HEAD', "ref: refs/heads/main\n");
+      },
+      // THE SHAPE THE PARITY TEST COULD NOT SEE. Every shipped shape
+      // discriminated on the LEVER file, and the divergence that opened after
+      // it was about the RUN: the guard learned to remember a boundary and
+      // keep walking so an active run above it still wins, and
+      // `ArgvDispatcher::projectAbove()` kept breaking at the first boundary.
+      // So a `git init lib/sub` made the engine resolve `lib/sub` — where a
+      // `run` writes a SECOND record — while the guard enforced against the
+      // real root. A test written for a class of defect that cannot see the
+      // next instance of it is the gap this row closes.
+      'a real repository below, with a run above' => static function (string $root): void {
+        // A REAL record, written by the engine itself. A hand-rolled stub is
+        // refused on load ("no schema version — this is not a run state
+        // file"), which would make the engine error before it printed
+        // anything the comparison below can read — and the test would then be
+        // measuring the fixture rather than the resolvers.
+        $state = RunState::begin(
+          'r1',
+          '2026-09-14T00:00:00+00:00',
+          WorkflowConfig::load($root),
+          NULL,
+          NULL,
+          NULL,
+        );
+        (new RunStateStore($root))->save($state);
         mkdir($root . '/lib/sub/.git/objects', 0775, TRUE);
         file_put_contents($root . '/lib/sub/.git/HEAD', "ref: refs/heads/main\n");
       },

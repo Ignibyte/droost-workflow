@@ -109,6 +109,20 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       // wide open. A rule stated twice is a rule that will eventually be true
       // once, so the list is now one function — and these pin the words that
       // had drifted.
+      // A WRAPPER'S OWN ARGUMENT. There were two strippers and they disagreed
+      // about it: one ate `timeout`'s `5`, the other ate only flags. So the
+      // tokeniser's head became the literal `5`, the quoted payload was never
+      // re-scanned, and the verb tier dropped it as prose — one extra word
+      // took every wall at once. And `timeout` takes a unit suffix, which a
+      // bare `/^\d+$/` matched none of, so `timeout 5s` defeated both.
+      //
+      // The list had been unified a round earlier and the RULE had not.
+      'timeout 5 a runner' => 'timeout 5 ddev exec "drush droost:workflow:bypass x"',
+      'timeout 5s a runner' => 'timeout 5s ddev exec "drush droost:workflow:bypass x"',
+      'nice -n 10 a runner' => 'nice -n 10 ddev exec "drush droost:workflow:bypass x"',
+      'ionice with two flags' => 'ionice -c 2 -n 7 ddev exec "drush droost:workflow:bypass x"',
+      'timeout 5s rm -rf' => 'timeout 5s rm -rf droost/droost-workflow',
+      'timeout 1.5m rm -rf' => 'timeout 1.5m rm -rf droost/droost-workflow',
       'builtin eval a verb' => 'builtin eval "drush droost:workflow:bypass x"',
       'builtin eval a write' => 'builtin eval "echo x > .claude/hooks/droost-workflow-guard.php"',
       'builtin eval a removal' => 'builtin eval "rm -rf droost/droost-workflow"',
@@ -424,6 +438,180 @@ final class ShellSurfaceTest extends WorkflowTestCase {
     ] as $command) {
       [$exit] = $this->shell($root, $command);
       $this->assertSame(2, $exit, $command . ' arms a write gate');
+    }
+  }
+
+  /**
+   * A backtick substitution is a program name the guard cannot read.
+   *
+   * Round five closed `$VAR -c "…"` and `$(which sh) -c "…"`. The BACKTICK
+   * spelling of the second is the same shell feature and was permitted: the
+   * tokeniser treats a backtick as an ordinary character, so `` `echo `` and
+   * `` sh` `` arrive as two plain words, the head is not a runner, and the
+   * quoted payload is dropped as prose. A reviewer used it to overwrite this
+   * file and take `stop` from exit 2 to exit 0.
+   */
+  public function testBacktickProgramNamesAreRefused(): void {
+    $root = $this->lab();
+    foreach ([
+      '`echo sh` -c "drush droost:workflow:bypass x"',
+      '`which bash` -c "drush droost:workflow:bypass x"',
+      '`echo sh` -c "echo X > .claude/hooks/droost-workflow-guard.php"',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' cannot be read, so it cannot be allowed');
+    }
+  }
+
+  /**
+   * Brace expansion is expansion, and the shell does it first.
+   *
+   * The metacharacter set had `*`, `?` and `[` and not `{`, so
+   * `rm .claude/hooks/droost-workflow-guard.ph{p,x}` reached neither the
+   * `glob()` tier nor the directory rule — and the tokeniser treated braces as
+   * grouping, splitting the operand so the literal-path regexes could not
+   * match it either. Two independent mechanisms both missed it, and it deleted
+   * the guard and the run record.
+   */
+  public function testBraceExpansionIsExpanded(): void {
+    $root = $this->lab();
+    foreach ([
+      'rm .claude/hooks/droost-workflow-guard.ph{p,x}',
+      'rm droost/droost-workflow/run.jso{n,x}',
+      'rm {.claude/hooks,foo}/droost-workflow-guard.php',
+      'rm .cla{u,x}de/hooks/droost-workflow-guard.php',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' reaches enforcement');
+    }
+
+    // Shell GROUPING still works: the brace there is followed by a space.
+    foreach ([
+      '{ cd src && ls; }',
+      'rm src/{a,b}.bak',
+      'cp config/{dev,prod}.yml /tmp/',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' is ordinary: ' . $stderr);
+    }
+  }
+
+  /**
+   * Every list of interpreters is the same list.
+   *
+   * There were FOUR — the heredoc classifier's, the tokeniser's runner test,
+   * the pipe rule's, and the script read riding on the second — and every gap
+   * between them was a bypass. Each round of fixes taught one of them a word
+   * the others did not learn.
+   */
+  public function testEveryInterpreterListIsTheSameList(): void {
+    $root = $this->lab();
+    file_put_contents($root . '/do.sh', "#!/bin/sh\ndrush droost:workflow:bypass x\n");
+    chmod($root . '/do.sh', 0755);
+
+    foreach ([
+      // The pipe rule had neither `env` nor `command`.
+      'piped to env sh' => 'echo "drush droost:workflow:bypass x" | env sh',
+      'piped to command sh' => 'echo "drush droost:workflow:bypass x" | command sh',
+      // The heredoc classifier accepted only `sudo` and `env` in front.
+      'a wrapped heredoc' => "nohup bash <<EOF\ndrush droost:workflow:bypass x\nEOF",
+      'a timed heredoc' => "timeout 9 bash <<EOF\ndrush droost:workflow:bypass x\nEOF",
+      // The script read was gated on the head being a named interpreter.
+      'a script run directly' => './do.sh',
+      'a script sourced' => 'source do.sh',
+      'a script dotted' => '. do.sh',
+    ] as $label => $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $label . ' runs a command the guard can read');
+    }
+  }
+
+  /**
+   * A script the guard cannot read is refused, not skipped.
+   *
+   * The read tier had four silent `continue`s — over 64KB, a symlink, under
+   * vendor/, and a chain through `source` — and each was a working bypass one
+   * Write away. The file's own doctrine already answers this: a command it
+   * cannot read is not a command it may permit.
+   */
+  public function testScriptsTheGuardCannotReadAreRefused(): void {
+    $root = $this->lab();
+    file_put_contents($root . '/do.sh', "#!/bin/sh\ndrush droost:workflow:bypass x\n");
+    file_put_contents($root . '/big.sh', "#!/bin/sh\n" . str_repeat("# pad\n", 12000) . "echo hi\n");
+    symlink($root . '/do.sh', $root . '/link.sh');
+
+    foreach (['bash big.sh', 'bash link.sh'] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' cannot be read');
+      $this->assertStringContainsString('cannot read', $stderr, 'and it says so');
+    }
+  }
+
+  /**
+   * Find is judged by what its action DOES, not only by where it looks.
+   *
+   * `-iname` is case-insensitive to find and `fnmatch` is not, so
+   * `find . -iname 'DROOST-WORKFLOW-GUARD.PHP' -delete` said it could reach
+   * nothing and then deleted the guard; `-iregex` was matched with glob
+   * semantics, which is the wrong language entirely.
+   *
+   * And judging every `-exec` as a write refused two commands typed daily —
+   * `-exec php -l {}` and `-exec vendor/bin/phpcs {} +`, the second being the
+   * canonical phpcs invocation droost's own gates run.
+   */
+  public function testFindIsJudgedByWhatItsActionDoes(): void {
+    $root = $this->lab();
+    foreach ([
+      "find . -iname 'DROOST-WORKFLOW-GUARD.PHP' -delete",
+      "find .claude -iname 'RUN.JSON' -delete",
+      "find . -iregex '.*GUARD.*' -delete",
+      "find . -name '*.php' -exec rm {} +",
+      'find . -name "*.php" -exec php -r "unlink($argv[1]);" {} +',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' can reach and change enforcement');
+    }
+    foreach ([
+      'find . -name "*.php" -exec php -l {} \\;',
+      'find src -name "*.php" -exec vendor/bin/phpcs {} +',
+      'find . -name "*.php" -exec grep -l Money {} +',
+      'find . -name "*.tmp" -delete',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' reads, or cannot reach: ' . $stderr);
+    }
+  }
+
+  /**
+   * A data heredoc is data to BOTH walls.
+   *
+   * `operator_commands_scan_text()` drops a heredoc body fed to something that
+   * is not an interpreter, and only the verb tier called it — so a body was
+   * prose to one wall and code to the other, and the opaque-head check fired
+   * on any body line beginning with `$`. That refused writing a PHP file with
+   * a heredoc, which is routine here, and it refused a pull-request body
+   * quoting the waiver this guard's own refusal tells the agent to show the
+   * operator. F-EMT-11, returning through the other door.
+   */
+  public function testDataHeredocsAreDataToBothWalls(): void {
+    $root = $this->lab();
+    foreach ([
+      "cat > src/x.php <<'PHP'\n\$x = 1;\nPHP",
+      "cat > /tmp/notes.md <<'EOF'\n\$ drush cr\nEOF",
+      "gh pr create --body-file - <<'EOF'\n\$ drush droost:workflow:gate-waive phpcs\nEOF",
+      "git commit -F - <<'EOF'\n\$ drush cr was needed\nEOF",
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, 'a heredoc body is data: ' . $stderr);
+    }
+
+    // And fed to an interpreter it is a command line again, wrapped or not.
+    foreach ([
+      "bash <<'EOF'\ndrush droost:workflow:bypass x\nEOF",
+      "nohup bash <<'EOF'\ndrush droost:workflow:bypass x\nEOF",
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, 'an interpreter makes it code again');
     }
   }
 
