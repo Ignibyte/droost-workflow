@@ -253,6 +253,45 @@ final class ProjectRootOptionTest extends TestCase {
   }
 
   /**
+   * A repository boundary is one that git would recognise.
+   *
+   * The walk stops at a `.git`, and it asked `file_exists` — so ANY file with
+   * that name was a boundary, and `echo x > lib/sub/.git` moved the project
+   * root two levels down. The engine then read built-in defaults while the
+   * operator's levers sat unread in the directory above, and the guard, which
+   * has the same walk, stopped matching any protected path: one echo turned
+   * the enforcement off.
+   *
+   * `is_dir` alone is not the answer either, and that is why the naive check
+   * was there: a worktree and a submodule carry `.git` as a FILE, and refusing
+   * to see those walked straight out of them into somebody else's repository.
+   * A real one names a gitdir that exists. Both halves are asserted here,
+   * because fixing either direction alone has already broken the other.
+   */
+  public function testOnlyRealRepositoryBoundariesStopTheWalk(): void {
+    mkdir($this->root . '/lib/sub', 0775, TRUE);
+
+    file_put_contents($this->root . '/lib/sub/.git', "not a repository\n");
+    [, $planted] = $this->dispatch(['status'], $this->root . '/lib/sub');
+    $this->assertStringContainsString(
+      '"provenance": "file"',
+      $planted,
+      'a file called .git is not a repository, and does not move the root',
+    );
+
+    // A real worktree pointer does stop it: the levers above are somebody
+    // else's, and adopting them writes this run's record into their repository.
+    mkdir($this->root . '/lib/sub/.realgit', 0775, TRUE);
+    file_put_contents($this->root . '/lib/sub/.git', "gitdir: .realgit\n");
+    [, $worktree] = $this->dispatch(['status'], $this->root . '/lib/sub');
+    $this->assertStringNotContainsString(
+      '"provenance": "file"',
+      $worktree,
+      'a real boundary is still a boundary',
+    );
+  }
+
+  /**
    * But `init` never climbs: it is how a project comes into existence.
    *
    * Climbing there made `init` in an empty subdirectory adopt the parent and
