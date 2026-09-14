@@ -1341,4 +1341,74 @@ final class ShellSurfaceTest extends WorkflowTestCase {
     }
   }
 
+  /**
+   * The program a find runs through `-exec` is judged as its own command.
+   *
+   * The find tier answered "does the action write" and "does the MATCH reach
+   * enforcement", and neither asked what the -exec'd program does to a path
+   * it names ITSELF: `find . -name x -exec rm -rf droost/droost-workflow \;`
+   * removed the state directory under a verdict of ALLOW. The -exec'd command
+   * is now walked through the same per-invocation walls a top-level command
+   * meets, and a `sh -c "…"` payload is re-scanned like any runner's.
+   */
+  public function testTheExecdProgramIsJudged(): void {
+    $root = $this->lab();
+    foreach ([
+      'find . -name x -exec rm -rf droost/droost-workflow \\;',
+      'find . -exec mv droost/droost-workflow /tmp/dw \\;',
+      'find . -execdir rm -rf droost/droost-workflow \\;',
+      'find . -exec sh -c "rm -rf droost/droost-workflow" \\;',
+      'find . -exec bash -c "echo x > .claude/hooks/droost-workflow-guard.php" \\;',
+      'find . -exec perl -i -pe "s/hard/off/" droost/droost-workflow/run.json \\;',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' runs a program that reaches enforcement');
+    }
+    foreach ([
+      'find . -name "*.php" -exec php -l {} \\;',
+      'find src -name "*.php" -exec vendor/bin/phpcs {} +',
+      'find . -name "*.php" -exec grep -l Money {} +',
+      'find . -name "*.tmp" -exec rm {} \\;',
+      'find . -name "*.orig" -exec rm -f {} +',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' reaches nothing protected: ' . $stderr);
+    }
+  }
+
+  /**
+   * Code handed to an interpreter is not a command line the guard can read.
+   *
+   * `php -r 'file_put_contents(".claude/hooks/droost-workflow-guard.php","");'`
+   * empties the guard, and no shell parse sees the path: the payload is one
+   * opaque token, and a payload with no whitespace is never re-scanned. When
+   * an interpreter is handed inline code that names the enforcement itself,
+   * the guard refuses — the same rule the evidence store already applies to a
+   * whole command. Ordinary inline code is untouched.
+   */
+  public function testInterpreterInlineCodeNamingEnforcementIsRefused(): void {
+    $root = $this->lab();
+    foreach ([
+      'php -r \'file_put_contents(".claude/hooks/droost-workflow-guard.php","");\'',
+      'php -r \'unlink("droost/droost-workflow/run.json");\'',
+      'python3 -c \'open("droost/droost-workflow/run.json","w").write("{}")\'',
+      'perl -e \'open(F,">",".claude/hooks/droost-workflow-guard.php");\'',
+      'node -e \'require("fs").unlinkSync("droost/droost-workflow/evidence.sqlite")\'',
+      'ruby -e \'File.write("droost.workflow.yml","x")\'',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' writes the enforcement through code');
+    }
+    foreach ([
+      'php -r \'echo 1+1;\'',
+      'php -r \'file_put_contents("build/out.txt","ok");\'',
+      'python3 -c \'print(1)\'',
+      'node -e \'console.log(process.version)\'',
+      'php -l src/a.php',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' is ordinary: ' . $stderr);
+    }
+  }
+
 }

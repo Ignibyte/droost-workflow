@@ -624,7 +624,7 @@ function operator_commands_guard(string $stdin): void {
   // defeated every verb because quoting splits a word to a regex and joins it
   // to the shell, and `droost:gate allow_entity_write "on"` armed a write gate
   // because `"on"` is not `on`.
-  foreach (operator_commands_invocations($command) as $tokens) {
+  foreach (with_find_exec_commands(operator_commands_invocations($command)) as $tokens) {
     // A MULTI-WORD token is a quoted argument — a commit message, a PR body, a
     // sentence being echoed — and a verb inside one is prose, not an
     // invocation. `operator_commands_invocations()` has already recursed into
@@ -1746,7 +1746,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
   // rm` splits into two invocations and the xargs tier has to judge the
   // `find` that feeds the pipe; precomputed and indexed so the predecessor is
   // always available regardless of which `continue` this iteration takes.
-  $invocations = operator_commands_invocations($command);
+  $invocations = with_find_exec_commands(operator_commands_invocations($command));
   $unwrappedByIndex = array_map(
     static fn (array $one): array => operator_commands_unwrapped($one),
     $invocations,
@@ -1826,6 +1826,36 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     $plain = operator_commands_unwrapped($tokens);
     $verb = strtolower(basename($plain[0] ?? ''));
     $sub = strtolower($plain[1] ?? '');
+    // INTERPRETER CODE IS NOT SHELL, AND THIS GUARD CANNOT READ IT. `php -r
+    // 'file_put_contents(".claude/hooks/droost-workflow-guard.php","");'`
+    // empties the guard, `python3 -c 'open("droost/droost-workflow/run.json",
+    // "w")...'` rewrites the record, and no shell parse sees the path: the
+    // whole program is one token the tokeniser keeps opaque, and a payload
+    // with no whitespace is never re-scanned at all. The evidence-store rule
+    // below already refuses a WHOLE command that names `evidence.sqlite`; this
+    // is that rule for the rest of the enforcement, scoped to an interpreter
+    // handed inline code so it does not fire on prose that merely mentions a
+    // path. Naming an enforcement file in code you hand an interpreter is not
+    // something ordinary work does.
+    $inlineCode = operator_commands_inline_code($plain);
+    if ($inlineCode !== NULL && preg_match(
+      '#droost-workflow-guard\.php|\brun\.json|\bbypass\.json|evidence\.sqlite'
+      . '|settings\.local\.json|\bsettings\.json|settings\.droost\.php'
+      . '|droost\.workflow\.yml|\.claude/hooks|\.claude/(?:skills|agents|commands)'
+      . '|droost/droost-workflow|\.droost-workflow|droost/baseline#',
+      $inlineCode,
+    ) === 1) {
+      fwrite(STDERR, sprintf(
+        'This hands an interpreter code that names the enforcement itself — the '
+        . 'guard, the run record, the evidence store, the baseline or the '
+        . 'settings — and code is not a command line this guard can read, so '
+        . 'what it writes cannot be checked. Do the work through the pipeline, '
+        . 'or if a file genuinely must change, that is the OPERATOR\'s at a '
+        . 'terminal. (Refused: %s)',
+        trim($command),
+      ));
+      exit(2);
+    }
     // THE CONTAINING DIRECTORIES, not only the files in them. Every rule below
     // names a file, so the cheapest way past all of them was to take away
     // what holds them: `mv droost/droost-workflow /tmp/dw` stashes the record,
@@ -2579,6 +2609,129 @@ function operator_commands_brace_branches(string $pattern): array {
  * @return bool
  *   TRUE when the action can change or remove what it matches.
  */
+/**
+ * The commands a find runs through `-exec`/`-execdir`/`-ok`/`-okdir`.
+ *
+ * Each is the program and its arguments up to the `;` or `+` terminator,
+ * with find's `{}` placeholder dropped — so `find . -exec rm -rf
+ * droost/droost-workflow {} \;` yields `[rm, -rf, droost/droost-workflow]`.
+ * The caller judges each as its own command, which is what it is: the find
+ * tier answers "does the action write" and "does the MATCH reach
+ * enforcement", and neither asks what the -exec'd program does to a path it
+ * names itself. `find . -name x -exec rm -rf droost/droost-workflow \;`
+ * removed the state directory under a verdict of ALLOW.
+ *
+ * @param list<string> $tokens
+ *   The find invocation's tokens.
+ *
+ * @return list<list<string>>
+ *   One token-list per -exec command.
+ */
+function find_exec_commands(array $tokens): array {
+  $out = [];
+  $count = count($tokens);
+  for ($i = 0; $i < $count; $i++) {
+    if (!in_array(ltrim($tokens[$i], "\x01"), ['-exec', '-execdir', '-ok', '-okdir'], TRUE)) {
+      continue;
+    }
+    $cmd = [];
+    $i++;
+    for (; $i < $count; $i++) {
+      $word = ltrim($tokens[$i], "\x01");
+      if ($word === ';' || $word === '+') {
+        break;
+      }
+      // `{}` is where find substitutes the matched path, not an operand the
+      // program names; the reach it opens is the matched files, which the
+      // find tier judges. What matters here is a path the program names
+      // ITSELF, like `rm -rf droost/droost-workflow`.
+      if ($word === '{}') {
+        continue;
+      }
+      $cmd[] = $tokens[$i];
+    }
+    if ($cmd !== []) {
+      $out[] = $cmd;
+    }
+  }
+
+  return $out;
+}
+
+/**
+ * The invocations of a command line, plus the commands its finds `-exec`.
+ *
+ * A `-exec`'d program is a command in its own right and is judged as one —
+ * the same per-invocation walls a top-level command meets. Appended after
+ * the real invocations so the tracked `cd` has already settled.
+ *
+ * @param list<list<string>> $invocations
+ *   The tokeniser's invocations.
+ *
+ * @return list<list<string>>
+ *   Those, followed by every -exec'd command.
+ */
+function with_find_exec_commands(array $invocations): array {
+  $extra = [];
+  foreach ($invocations as $one) {
+    $head = strtolower(basename(ltrim(operator_commands_unwrapped($one)[0] ?? '', "\x01")));
+    if ($head !== 'find') {
+      continue;
+    }
+    // `-exec sh -c "rm -rf droost/droost-workflow"` hands a runner a command
+    // line in a quoted token; the per-invocation loops already re-scan a
+    // runner's multi-word argument (the `bash -c '…> guard'` rule), so the
+    // appended `[sh, -c, "…"]` is judged through that — no re-scan is needed
+    // here, and adding one would be a second copy of it.
+    $extra = [...$extra, ...find_exec_commands($one)];
+  }
+
+  return [...$invocations, ...$extra];
+}
+
+/**
+ * The inline code an interpreter was handed, or NULL.
+ *
+ * `php -r '…'`, `perl -e '…'`, `python3 -c '…'`, `node -e '…'` run code this
+ * guard cannot read as a shell command line — `php -r
+ * 'file_put_contents(".claude/hooks/droost-workflow-guard.php","");'` empties
+ * the guard, and a payload with no whitespace is never even re-scanned as a
+ * command. Per interpreter, because the flag differs and `php -c` is a config
+ * file, not code.
+ *
+ * @param list<string> $plain
+ *   The invocation's unwrapped tokens.
+ *
+ * @return string|null
+ *   The code (all arguments after the flag, joined), or NULL when this is not
+ *   an interpreter handed inline code.
+ */
+function operator_commands_inline_code(array $plain): ?string {
+  $flags = [
+    'php' => ['-r'],
+    'perl' => ['-e', '-E'],
+    'ruby' => ['-e'],
+    'python' => ['-c'],
+    'python3' => ['-c'],
+    'node' => ['-e', '--eval', '-p', '--print'],
+  ];
+  $head = strtolower(basename(ltrim($plain[0] ?? '', "\x01")));
+  $want = $flags[$head] ?? NULL;
+  if ($want === NULL) {
+    return NULL;
+  }
+  foreach ($plain as $index => $token) {
+    $token = ltrim($token, "\x01");
+    if (in_array($token, $want, TRUE)) {
+      $rest = array_slice($plain, $index + 1);
+
+      return implode(' ', array_map(static fn (string $t): string => ltrim($t, "\x01"), $rest));
+    }
+  }
+
+  return NULL;
+}
+
 function find_action_writes(array $tokens): bool {
   // `-fprint`, `-fls` and friends WRITE TO A NAMED FILE: `find . -fprint
   // .claude/hooks/droost-workflow-guard.php` truncates the guard.
