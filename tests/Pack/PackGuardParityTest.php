@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Pack;
 
+use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\State\RunStateStore;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -260,6 +261,48 @@ final class PackGuardParityTest extends TestCase {
     );
 
     return $code;
+  }
+
+  /**
+   * The states that hold a phase are the states the stop hook reports.
+   *
+   * Two lists, two files, no autoloader between them. `CheckState::
+   * blocksAdvance()` decides whether the ENGINE advances; the guard's
+   * `unresolved_checks()` hardcodes `state IN ('blocked','pending')` in SQL
+   * because it cannot load the enum. They agree today and nothing said so.
+   *
+   * Divergence here is the quiet kind: add an eighth state that blocks, and
+   * the engine holds the phase while the stop hook — asked whether anything is
+   * unresolved — finds no rows and lets the agent end its turn. The run is
+   * stuck and the one thing that would have said so is looking for the wrong
+   * word.
+   */
+  public function testTheGuardsBlockingStatesAreTheEnums(): void {
+    $blocking = [];
+    foreach (CheckState::cases() as $case) {
+      if ($case->blocksAdvance()) {
+        $blocking[] = $case->value;
+      }
+    }
+    sort($blocking);
+
+    $guard = (string) file_get_contents(dirname(__DIR__, 2) . '/pack/hooks/droost-workflow-guard.php');
+    $body = strstr($guard, 'function unresolved_checks');
+    $this->assertIsString($body, 'the guard still asks the store what is unresolved');
+    $this->assertSame(
+      1,
+      preg_match('/state IN \(([^)]+)\)/', $body, $match),
+      'and it still asks with a literal state list',
+    );
+    preg_match_all("/'([a-z_]+)'/", str_replace("\\'", "'", $match[1]), $names);
+    $asked = $names[1];
+    sort($asked);
+
+    $this->assertSame(
+      $blocking,
+      $asked,
+      'the guard reports exactly the states that stop the engine',
+    );
   }
 
 }
