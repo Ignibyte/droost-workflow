@@ -729,6 +729,40 @@ final class ConfigError extends \RuntimeException {
   }
 
   /**
+   * The notice recorded when a level's phpcs standard cannot run here.
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $preset
+   *   The level whose default asked for it.
+   * @param string $asked
+   *   The standard the level named.
+   * @param string $usable
+   *   The standard the project is held to instead.
+   *
+   * @return string
+   *   The notice.
+   */
+  public static function standardSubstitutedNotice(
+    string $source,
+    string $preset,
+    string $asked,
+    string $usable,
+  ): string {
+    return sprintf(
+      '%s: level "%s" asks phpcs for the "%s" standard, and nothing here can '
+      . 'run it — no drupal/coder in vendor/, no Drupal docroot, no module, '
+      . 'theme or profile declared at the root — so this project is held to '
+      . '"%s" instead. Install drupal/coder, or set gates.phpcs.standard '
+      . 'yourself, and this notice goes away.',
+      $source,
+      $preset,
+      $asked,
+      $usable,
+    );
+  }
+
+  /**
    * The notice recorded for the retired phases key.
    *
    * @param string $source

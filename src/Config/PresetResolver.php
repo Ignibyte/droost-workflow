@@ -74,8 +74,12 @@ final class PresetResolver {
 
   /**
    * The standard phpcs asks for unless a repo says otherwise.
+   *
+   * Drupal's, because droost is a Drupal tool — and `WorkflowConfig::load()`
+   * substitutes what phpcs ships with on a project that is not Drupal, with a
+   * notice, so a level's default can never fail a project that cannot run it.
    */
-  private const DEFAULT_STANDARD = 'Drupal,DrupalPractice';
+  private const DEFAULT_STANDARD = PhpcsStandard::DRUPAL;
 
   /**
    * Whether a name is a known preset — canonical or alias.

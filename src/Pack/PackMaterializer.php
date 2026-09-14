@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Pack;
 
+use Droost\Workflow\Config\PhpcsStandard;
 use Droost\Workflow\State\RunStateStore;
 use Droost\Workflow\Support\TypedArray;
 
@@ -639,15 +640,11 @@ final class PackMaterializer {
    *   The contents, with the standard adjusted if Drupal's is not installed.
    */
   private static function standardThisProjectHas(string $root, string $contents): string {
-    foreach ([
-      '/vendor/drupal/coder/coder_sniffer/Drupal/ruleset.xml',
-      '/vendor/drupal/coder/coder_sniffer/Drupal',
-      '/web/core/lib/Drupal.php',
-      '/core/lib/Drupal.php',
-    ] as $marker) {
-      if (file_exists(rtrim($root, '/') . $marker)) {
-        return $contents;
-      }
+    // ONE RULE. This kept its own marker list — coder and a docroot, and
+    // nothing a module checkout has — while the preset bases knew no rule at
+    // all. `PhpcsStandard` is the answer both now ask.
+    if (PhpcsStandard::drupalApplies($root)) {
+      return $contents;
     }
 
     // The note goes on its own LINE: `phpcs: { standard: … }` is a YAML flow

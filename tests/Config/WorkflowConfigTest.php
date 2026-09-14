@@ -272,6 +272,13 @@ class WorkflowConfigTest extends WorkflowTestCase {
     $root = $yaml === NULL
       ? $this->makeRoot()
       : $this->makeRootWithConfig($yaml);
+    // A Drupal project, so the level's phpcs standard applies as written and
+    // the comparison below is about the PRESET. On a plain PHP package the
+    // level's Drupal standard is substituted for one phpcs can run — see
+    // StandardTheProjectCanRunTest — and the built-in reference, which has
+    // no project to look at, would differ on that one lever.
+    mkdir($root . '/web/core/lib', 0755, TRUE);
+    file_put_contents($root . '/web/core/lib/Drupal.php', "<?php\n");
 
     $config = WorkflowConfig::load($root);
     $builtIn = WorkflowConfig::builtIn();

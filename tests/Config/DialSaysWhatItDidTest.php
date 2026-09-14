@@ -104,7 +104,13 @@ final class DialSaysWhatItDidTest extends WorkflowTestCase {
    * about every project init touches would be pure noise.
    */
   public function testNothingIsSaidWhenTheDialDecided(): void {
+    // On a Drupal project, so the level's phpcs standard applies and the
+    // only thing that could speak is the dial. (On a plain PHP package the
+    // level's Drupal standard is substituted, and THAT is announced — a
+    // different notice, tested in StandardTheProjectCanRunTest.)
     $bare = $this->makeRoot();
+    mkdir($bare . '/web/core/lib', 0755, TRUE);
+    file_put_contents($bare . '/web/core/lib/Drupal.php', "<?php\n");
     file_put_contents($bare . '/droost.workflow.yml', "preset: max\n");
     $this->assertSame([], WorkflowConfig::load($bare)->deprecations, 'a preset alone is silent');
 
@@ -131,6 +137,8 @@ final class DialSaysWhatItDidTest extends WorkflowTestCase {
     // diverges from them is doing the one thing custom is FOR. "custom says
     // soft, this file says hard" would be a sentence about nothing.
     $divergent = $this->makeRoot();
+    mkdir($divergent . '/web/core/lib', 0755, TRUE);
+    file_put_contents($divergent . '/web/core/lib/Drupal.php', "<?php\n");
     file_put_contents(
       $divergent . '/droost.workflow.yml',
       "preset: custom\nenforcement: hard\nseekers: { on: false }\n"

@@ -160,7 +160,7 @@ final class WorkflowConfig {
     // reads as "no file" and would hand back the built-in levers — the exact
     // silent substitution the checks below exist to refuse.
     if (!is_link($path) && !file_exists($path)) {
-      return self::fromArray([], '<built-in defaults>', Provenance::BuiltIn, $contributed);
+      return self::fromArray([], '<built-in defaults>', Provenance::BuiltIn, $contributed, $projectRoot);
     }
 
     // Everything below is the same principle: something IS there, so silently
@@ -196,7 +196,7 @@ final class WorkflowConfig {
       throw ConfigError::notMapping(self::FILENAME, 'a list');
     }
 
-    return self::fromArray($parsed, self::FILENAME, Provenance::File, $contributed);
+    return self::fromArray($parsed, self::FILENAME, Provenance::File, $contributed, $projectRoot);
   }
 
   /**
@@ -221,6 +221,9 @@ final class WorkflowConfig {
    * @param list<\Droost\Workflow\Config\ContributedGate>|null $contributed
    *   The gates enabled modules declare, or NULL when the caller has no
    *   catalog (see load()).
+   * @param string|null $projectRoot
+   *   The project the document is for, when there is one — what a level's
+   *   phpcs standard is checked against. NULL leaves the standard as asked.
    *
    * @return self
    *   The resolved configuration.
@@ -234,6 +237,7 @@ final class WorkflowConfig {
     string $source,
     Provenance $provenance = Provenance::File,
     ?array $contributed = NULL,
+    ?string $projectRoot = NULL,
   ): self {
     $root = TypedArray::authored($raw);
 
@@ -295,6 +299,28 @@ final class WorkflowConfig {
       $gates = self::scopeTrioLikeThePair(
         self::readGates($root, $source, $baseGates, $deprecations, $contributed),
       );
+      // A STANDARD THE PROJECT CAN RUN. The preset bases ask for Drupal's
+      // sniffs, and `init` alone knew to write PSR-12 instead on a project
+      // that is not Drupal — as a rewrite of the file, once. So the lever
+      // file's own advice, "to let a level decide a lever, DELETE that
+      // lever's line", handed a plain PHP package the preset's Drupal
+      // standard, and phpcs exited 16 with `the "Drupal" coding standard is
+      // not installed` on a mandatory gate. Only the LEVEL's word is
+      // substituted: a standard the file spells out is the operator's, and
+      // stands — phpcs will say what is missing.
+      if ($projectRoot !== NULL && isset($gates['phpcs']) && !self::fileSetsStandard($root)) {
+        $asked = (string) ($gates['phpcs']->options['standard'] ?? '');
+        $usable = PhpcsStandard::forProject($projectRoot, $asked);
+        if ($usable !== $asked) {
+          // `+` keeps the LEFT operand's keys, so the substitute wins.
+          $gates['phpcs'] = new GateSettings(
+            'phpcs',
+            $gates['phpcs']->on,
+            ['standard' => $usable] + $gates['phpcs']->options,
+          );
+          $deprecations[] = ConfigError::standardSubstitutedNotice($source, $base->name, $asked, $usable);
+        }
+      }
       $retries = $root->has('max_gate_retries')
         ? $root->intInRange('max_gate_retries', 0, self::MAX_RETRIES_CEILING)
         : $base->maxGateRetries;
@@ -821,6 +847,25 @@ final class WorkflowConfig {
       $gates[$name] = new GateSettings($name, TRUE, $options);
     }
     return $gates;
+  }
+
+  /**
+   * Whether the file itself spells out `gates.phpcs.standard`.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document.
+   *
+   * @return bool
+   *   TRUE when the operator wrote the standard down.
+   */
+  private static function fileSetsStandard(TypedArray $root): bool {
+    try {
+      return $root->optionalChild('gates')?->optionalChild('phpcs')?->has('standard') ?? FALSE;
+    }
+    catch (\Throwable) {
+      // `gates.phpcs: false` and other non-mapping spellings: not a standard.
+      return FALSE;
+    }
   }
 
   /**

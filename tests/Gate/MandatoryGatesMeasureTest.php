@@ -119,6 +119,19 @@ final class MandatoryGatesMeasureTest extends WorkflowTestCase {
       (string) (WorkflowConfig::load($drupal)->gates['phpcs']->options['standard'] ?? ''),
       'and a Drupal site still gets Drupal\'s',
     );
+
+    // A MODULE CHECKOUT has neither coder nor a docroot — coder lives at the
+    // site — and was written PSR-12, so a valid two-space Drupal class failed
+    // phpcs with seven errors as an AGENT fault. Drupal's standard with an
+    // honest environment fault ("install drupal/coder") beats a wrong one.
+    $module = $this->makeRoot();
+    file_put_contents($module . '/acme.info.yml', "name: Acme\ntype: module\ncore_version_requirement: ^10 || ^11\n");
+    (new PackMaterializer())->init($module);
+    $this->assertStringContainsString(
+      'Drupal',
+      (string) (WorkflowConfig::load($module)->gates['phpcs']->options['standard'] ?? ''),
+      'and a module checkout gets Drupal\'s — the repository shape droost itself is',
+    );
   }
 
   /**
