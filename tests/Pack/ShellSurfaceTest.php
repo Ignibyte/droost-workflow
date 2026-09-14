@@ -1093,4 +1093,172 @@ final class ShellSurfaceTest extends WorkflowTestCase {
     }
   }
 
+  /**
+   * A brace naming protected directories reaches them, one command, no cd.
+   *
+   * The file tier expands braces before judging; the directory-removal tier
+   * did not, so `rm -rf {droost,.claude}` — neither directory spelled
+   * literally — wiped the entire enforcement (run record, evidence store,
+   * baseline, guard, settings) in one ALLOWED command. `cd droost && rm -rf
+   * {droost-workflow,baseline}` did it after a cd.
+   */
+  public function testBraceExpansionDoesNotHideTheDirectoryRemoval(): void {
+    $root = $this->lab();
+    foreach ([
+      'rm -rf {droost,.claude}',
+      'rm -rf {droost/droost-workflow,droost/baseline}',
+      'cd droost && rm -rf {droost-workflow,baseline}',
+      'rm -rf .claude/{hooks,settings.json}',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' takes the enforcement');
+    }
+    foreach (['rm -rf {build,dist}', 'mv {a,b}.txt /tmp/'] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' is ordinary: ' . $stderr);
+    }
+  }
+
+  /**
+   * Under -exec, `-i` is inspect for php and EDIT IN PLACE for perl and ruby.
+   *
+   * One inspect-only list served every interpreter, and `-i` is php's phpinfo
+   * but perl's and ruby's in-place edit: `find … -exec perl -i -pe
+   * 's/.*​/<?php exit(0);/' {} +` was classed a read, and rewrote the guard
+   * into a stub that permits everything. `perl -c` (a syntax check) stays a
+   * read; `php -i` (phpinfo) stays a read.
+   */
+  public function testInterpreterInPlaceEditUnderExecWrites(): void {
+    $root = $this->lab();
+    foreach ([
+      "find .claude/hooks -name droost-workflow-guard.php -exec perl -i -pe 's/x/y/' {} +",
+      'find . -name run.json -exec ruby -i -pe "1" {} +',
+      'find . -name run.json -exec perl -i -pe "s/hard/off/" {} \\;',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' edits in place');
+    }
+    foreach ([
+      'find . -name "*.php" -exec perl -c {} \\;',
+      'find . -name "*.php" -exec php -l {} \\;',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' only checks syntax: ' . $stderr);
+    }
+  }
+
+  /**
+   * A leading `NAME=$(cmd)` assignment does not hide the runner.
+   *
+   * The tokeniser split `$(` on its parentheses, so `A=$(echo x) rm -rf
+   * droost/droost-workflow` arrived as `A=$`, `echo`, `x`, `rm`, …: the
+   * assignment strip took `A=$`, `echo` became the head, and the destructive
+   * tier's anchored regex never saw `rm`. `$(…)` is one word now. A literal
+   * assignment (`A=1`) was already handled; a computed one (`A=$(date)`) in
+   * front of ordinary work still is.
+   */
+  public function testAssignmentWithSubstitutionDoesNotHideTheVerb(): void {
+    $root = $this->lab();
+    foreach ([
+      'A=$(echo x) rm -rf droost/droost-workflow',
+      'A=$(echo x) rm -rf .claude/hooks',
+      'A=$(echo x) find . -delete',
+      'FOO=$(id -u) rm -rf droost/droost-workflow',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' is the same command with a computed variable set');
+    }
+    foreach (['A=$(date) make', 'FOO=$(git rev-parse HEAD) composer install'] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' is ordinary: ' . $stderr);
+    }
+  }
+
+  /**
+   * A wrapper before `find` does not shift its search path off the tier.
+   *
+   * `find_reaches_enforcement()` read search paths from index 1, assuming
+   * `find` was index 0 — so `env find -delete`, `X=1 find -delete`, `nice
+   * find -delete` made `find` itself the (non-existent) search path, the `.`
+   * default never applied, and GNU find with no path empties the tree.
+   */
+  public function testWrappersDoNotDropTheFindSearchPath(): void {
+    $root = $this->lab();
+    foreach ([
+      'env find -delete',
+      'command find -delete',
+      'X=1 find -delete',
+      'nice find -delete',
+      'time find -delete',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' still reaches enforcement');
+    }
+  }
+
+  /**
+   * A `… | xargs <writer>` pipe is judged by the command feeding it.
+   *
+   * `find . -name droost-workflow-guard.php | xargs rm` was two innocent
+   * halves — a find with no action, an rm with no operand — and the names
+   * travelled down the pipe and deleted the guard. The feeder is judged the
+   * way the operand loop judges it alone: a find by its filters, anything
+   * else by whether its operands reach a protected path. `ls *.log | xargs
+   * rm` reaches nothing and is cleanup; `ls .claude/hooks/* | xargs rm`
+   * reaches the guard.
+   */
+  public function testPipeToXargsIsJudgedByItsFeeder(): void {
+    $root = $this->lab();
+    foreach ([
+      'find . -name droost-workflow-guard.php | xargs rm',
+      'find . -name droost-workflow-guard.php -print0 | xargs -0 rm',
+      'find . -name run.json | xargs -n1 rm -f',
+      'ls .claude/hooks/* | xargs rm',
+      'ls .claude/hooks | xargs rm',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' reaches enforcement through the pipe');
+    }
+    foreach ([
+      'find . -name "*.tmp" | xargs rm',
+      'ls *.log | xargs rm',
+      'cat filelist | xargs rm',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' reaches nothing protected: ' . $stderr);
+    }
+  }
+
+  /**
+   * Searching the codebase for the operator verbs is not running them.
+   *
+   * The verb tier matched the verb anywhere on the line and never read the
+   * head, so `grep -rn droost:workflow:bypass web/modules`, `rg
+   * droost:workflow:gate-waive` and `git log --grep=…bypass` were refused —
+   * and searching for the verb is exactly how an agent grounds a proposal to
+   * the operator. A searcher carries the verb as a pattern; only a droost
+   * surface runs it, so `drush …bypass` is still refused.
+   */
+  public function testSearchingForTheOperatorVerbsIsAllowed(): void {
+    $root = $this->lab();
+    foreach ([
+      'grep -rn droost:workflow:bypass web/modules',
+      'grep -rn droost:workflow:bypass .',
+      'rg droost:workflow:gate-waive',
+      'grep -R dwfby .',
+      'git log --grep=droost:workflow:bypass',
+      'git grep droost:workflow:bypass',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' searches, it does not run: ' . $stderr);
+    }
+    foreach ([
+      'drush droost:workflow:bypass evil',
+      'grep x file; drush droost:workflow:bypass evil',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' runs the verb and is refused');
+    }
+  }
+
 }
