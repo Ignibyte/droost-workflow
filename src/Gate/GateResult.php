@@ -68,6 +68,14 @@ final class GateResult {
    *   TRUE when the tool ran and examined nothing. Three paths return a
    *   pass over an empty scan; each said so only in prose, which the
    *   evidence boundary discarded.
+   * @param string|null $remedy
+   *   What an OPERATOR can do about an environment block. Built-in gates
+   *   could not carry one at all, so the guidance that tells a reader to
+   *   "show the OPERATOR the remedy below" pointed at an empty string.
+   * @param string|null $declaredFault
+   *   The fault this result knows it is, where the default is ambiguous.
+   *   Overrides `Unknown` only, so a gate cannot talk its way out of an
+   *   agent fault.
    */
   public function __construct(
     public readonly string $gate,
@@ -82,6 +90,32 @@ final class GateResult {
     public readonly ?int $inherited = NULL,
     public readonly ?int $new = NULL,
     public readonly bool $labelledPass = FALSE,
+    // WHAT AN OPERATOR CAN DO ABOUT IT. `Fault::Environment`'s guidance says
+    // "Show the OPERATOR the remedy below and ask them to run it", the stop
+    // hook prints that remedy only when it is non-empty, and no BUILT-IN gate
+    // could ever carry one: `EvidenceRecorder::remedy()` reads the gate's
+    // frozen levers, and the only writer of that key is a CONTRIBUTED gate's
+    // own declaration. So every environment block droost produced by itself
+    // pointed a reader at a remedy that was the empty string.
+    //
+    // The text already existed — `ShellGateExecutor::toolFailedHint()` writes
+    // a per-gate sentence, and it was going into the summary only. This is
+    // where it belongs as well, because the summary is what HAPPENED and the
+    // remedy is what to DO, and the two surfaces render them differently.
+    public readonly ?string $remedy = NULL,
+    // WHEN THE EXECUTOR KNOWS. `ErrorToolFailed` maps to `Fault::Unknown`
+    // because a crash is genuinely ambiguous in general — phpstan dying on PHP
+    // the agent wrote is the agent's, snyk dying unauthenticated is not. But
+    // the built-in executor produces `toolFailed()` only for the exit codes
+    // that mean "I could not load my configuration", and there is nothing
+    // ambiguous about those: the tool named a ruleset or a config file it
+    // could not read.
+    //
+    // `Unknown` is treated as `Agent`, whose guidance is "This is the work,
+    // not the setup … There is no waiver for it" — false about a broken
+    // ruleset, and the reason a live round lost an hour. A gate that knows
+    // says so, the same way a contributed gate's `faults:` map already does.
+    public readonly ?string $declaredFault = NULL,
   ) {}
 
   /**
@@ -181,6 +215,14 @@ final class GateResult {
       GateStatus::ErrorToolMissing,
       summary: 'could not run: ' . $invocation,
       invocation: $invocation,
+      remedy: sprintf(
+        'Install %1$s so the gate can run — `composer require --dev` or '
+        . '`npm install` it, whichever owns it in this project — or, if this '
+        . 'project genuinely does not use %1$s, ask the OPERATOR to turn the '
+        . 'gate off in droost.workflow.yml (`gates.%1$s.on: false`). An agent '
+        . 'cannot decide either of those.',
+        $gate,
+      ),
     );
   }
 
@@ -220,6 +262,8 @@ final class GateResult {
         $hint,
       ),
       invocation: $invocation,
+      remedy: $hint,
+      declaredFault: 'environment',
     );
   }
 

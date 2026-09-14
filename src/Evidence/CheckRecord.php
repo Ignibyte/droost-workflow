@@ -134,6 +134,13 @@ final class CheckRecord {
     $fault = $state === CheckState::Blocked
       ? Fault::faultFor($result->status, $result->exitCode, $declaredFaults)
       : Fault::None;
+    // The executor's own declaration, where it has one. It overrides only the
+    // AMBIGUOUS default — `Unknown` — so a gate cannot talk its way out of an
+    // agent fault, which is the shape this whole mechanism exists to refuse.
+    // The project's `faults:` lever, read above, still wins over both.
+    if ($fault === Fault::Unknown && $result->declaredFault !== NULL) {
+      $fault = Fault::tryFrom($result->declaredFault) ?? $fault;
+    }
 
     return new self(
       'gate',
@@ -141,7 +148,16 @@ final class CheckRecord {
       $state,
       $fault,
       $result->summary !== '' ? $result->summary : ($result->skipReason ?? ''),
-      $fault === Fault::Environment ? $remedy : NULL,
+      // THE GATE'S OWN ANSWER FIRST. `$remedy` here is read from the gate's
+      // frozen LEVERS, and only a contributed gate declares that key — so a
+      // built-in gate landing on an environment fault carried no remedy at
+      // all, while `Fault::Environment`'s guidance told the reader to "show
+      // the OPERATOR the remedy below". Below was empty, every time.
+      //
+      // `GateResult` now carries what the executor already knew (the missing
+      // binary, the ruleset that would not load), and the lever's value stays
+      // the override for a project that wants to say something else.
+      $fault === Fault::Environment ? ($remedy ?? $result->remedy) : NULL,
       $subjectHash,
       $result->exitCode,
       $result->invocation,

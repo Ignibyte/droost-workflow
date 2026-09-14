@@ -437,6 +437,28 @@ if ($mode === 'pre-tool-use') {
     $candidate = $resolved !== '' ? $resolved : $relative;
     $inState = $candidate !== ''
       && str_starts_with($candidate, trim($stateDir, '/') . '/');
+    // AND THE RUN'S OWN SPEC, WHEREVER IT LIVES. `--spec` accepts any path in
+    // the project, and this block exempted only the state directory — so a run
+    // begun with `--spec=docs/spec.md` could not have its spec edited during
+    // PLAN, which is the one phase whose whole job is writing it. The run then
+    // refused to advance ("docs/spec.md has no `## Tooling plan` section — add
+    // the section, then re-run") while refusing the edit that would add it,
+    // and it could not be moved either: re-declaring answers "a run has ONE
+    // spec; to work under a different one, reset and begin a new run".
+    //
+    // The only way out was to stop using the editing tools and reach for a
+    // shell, since this block governs Write and Edit and not Bash. An agent
+    // that obeyed the refusal was stuck and one that ignored it was fine,
+    // which is the worst way for a rule to be wrong.
+    //
+    // Read from the record rather than guessed, so it is exactly the document
+    // this run is held to and not any file that looks like one.
+    if (!$inState && $candidate !== '') {
+      $declared = $document['spec_path'] ?? NULL;
+      if (is_string($declared) && $declared !== '' && normalised_path($declared) === $candidate) {
+        $inState = TRUE;
+      }
+    }
   }
   // The lever file used to be exempted here too, and that clause was dead: a
   // run is under way by definition in this branch, and `baseline_dir_guard()`
@@ -2303,15 +2325,35 @@ function require_run_guard(string $root, string $mode, string $stdin, string $st
     && is_string($grant['granted_at'] ?? NULL) && $grant['granted_at'] !== '') {
     return;
   }
-  $message = sprintf(
-    'droost workflow: "%s" is custom code and there is no active run. Building '
-    . 'is governed by the pipeline. Do ONE of: (1) start a run with '
-    . '/droost:workflow:start — write the spec, then build inside the run; or '
-    . '(2) if this is a deliberate one-off, ask the OPERATOR to grant a bypass '
-    . 'with: drush droost:workflow:bypass "<reason>". Do NOT retry this edit or '
-    . 'grant the bypass yourself — surface the choice to the operator.',
-    $file,
-  );
+  // A RUN THAT ENDED IS NOT THE SAME AS NO RUN, and this said the same thing
+  // about both. On a run whose phase exhausted its budget, the two options it
+  // names are both dead ends: `/droost:workflow:start` refuses to clobber an
+  // existing run.json, and the bypass is the operator's. What actually works
+  // is `reset --force`, which the agent IS allowed to run and which this
+  // message never mentioned — so an agent following the instructions had
+  // nowhere to go, and one ignoring them did.
+  $ended = is_file($root . '/' . $stateDir . '/run.json');
+  $message = $ended
+    ? sprintf(
+      'droost workflow: "%s" is custom code, and this run has ENDED — its '
+      . 'record is still here but no phase is open, so there is nothing to '
+      . 'build inside. Starting a run will not help while that record stands: '
+      . 'clear it first with `droost-workflow reset --force` (it archives the '
+      . 'record under history/ rather than discarding it), then start the next '
+      . 'run and write its spec. If instead this edit genuinely belongs outside '
+      . 'the pipeline, that is the OPERATOR\'s call: show them '
+      . '`drush droost:workflow:bypass "<reason>"` and let them run it.',
+      $file,
+    )
+    : sprintf(
+      'droost workflow: "%s" is custom code and there is no active run. Building '
+      . 'is governed by the pipeline. Do ONE of: (1) start a run with '
+      . '/droost:workflow:start — write the spec, then build inside the run; or '
+      . '(2) if this is a deliberate one-off, ask the OPERATOR to grant a bypass '
+      . 'with: drush droost:workflow:bypass "<reason>". Do NOT retry this edit or '
+      . 'grant the bypass yourself — surface the choice to the operator.',
+      $file,
+    );
   if ($level === 'hard') {
     fwrite(STDERR, $message);
     exit(2);

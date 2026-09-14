@@ -125,7 +125,11 @@ final class GuardTest extends WorkflowTestCase {
     ]));
     [$exit, , $stderr] = $this->guard($terminal, 'pre-tool-use', $payload);
     $this->assertSame(2, $exit, 'a completed run is history, not a licence');
-    $this->assertStringContainsString('/droost:workflow:start', $stderr);
+    // The wall is what this test is for, and it still fires. What the refusal
+    // SAYS changed: it used to send an ended run to `/droost:workflow:start`,
+    // which refuses to clobber the record that is still sitting there. The way
+    // out is `reset --force`, which the agent may run.
+    $this->assertStringContainsString('reset --force', $stderr);
 
     // Ended the other ways: the final phase recorded passed; a failed phase.
     $done = $this->rootWithRun('complete', 'passed', 'hard');
@@ -477,7 +481,30 @@ final class GuardTest extends WorkflowTestCase {
     mkdir($root . '/modules/custom/acme', 0755, TRUE);
     symlink($root . '/modules/custom/acme', $root . '/droost/droost-workflow/out');
 
+    // THE RUN'S OWN SPEC, WHEREVER IT LIVES. `--spec` accepts any path in the
+    // project and this block exempted only the state directory, so a run begun
+    // with `--spec=docs/spec.md` could not have its spec edited during PLAN —
+    // the one phase whose whole job is writing it. The run then refused to
+    // advance ("docs/spec.md has no `## Tooling plan` section — add the
+    // section, then re-run") while refusing the edit that would add it, and
+    // re-declaring refuses too ("a run has ONE spec"). The only way out was to
+    // stop using the editing tools and reach for a shell, which this block
+    // does not govern: an agent that obeyed the refusal was stuck and one that
+    // ignored it was fine.
+    mkdir($root . '/docs', 0755, TRUE);
+    $record = (string) file_get_contents($root . '/droost/droost-workflow/run.json');
+    $decoded = json_decode($record, TRUE);
+    $this->assertIsArray($decoded);
+    $decoded['spec_path'] = 'docs/spec.md';
+    file_put_contents($root . '/droost/droost-workflow/run.json', (string) json_encode($decoded));
+
+    [$declared] = $this->guard($root, 'pre-tool-use', [
+      'tool_input' => ['file_path' => $root . '/docs/spec.md'],
+    ]);
+    $this->assertSame(0, $declared, 'the run\'s own spec is writable during plan');
+
     foreach ([
+      'a file beside it that is not the spec' => $root . '/docs/other.md',
       'an ordinary project file' => $root . '/modules/custom/acme/acme.module',
       'a climb out of the exemption' => $root . '/droost/droost-workflow/../../modules/custom/acme/acme.module',
       'the same segments somewhere else entirely' => '/tmp/droost/droost-workflow/../../etc/acme.module',
@@ -831,6 +858,52 @@ final class GuardTest extends WorkflowTestCase {
       10.0,
       $elapsed,
       'and the hook returns: a stop hook that never returns is a turn that never ends',
+    );
+  }
+
+  /**
+   * A run that ENDED is told the thing that actually works.
+   *
+   * The require_run refusal said the same sentence whether there had never
+   * been a run or one had just died, and on a run whose phase exhausted its
+   * budget both options it named were dead ends: `/droost:workflow:start`
+   * refuses to clobber an existing run.json, and the bypass is the operator's.
+   *
+   * What works is `reset --force`, which the agent IS allowed to run — probed
+   * by the reviewer who found this — and which the message never mentioned. So
+   * an agent following the instructions had nowhere to go, and one ignoring
+   * them did.
+   */
+  public function testEndedRunsAreToldHowToClearThem(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/modules/custom/acme', 0755, TRUE);
+    $edit = ['tool_input' => ['file_path' => $root . '/modules/custom/acme/acme.module']];
+
+    [$fresh, , $freshSaid] = $this->guard($root, 'pre-tool-use', $edit);
+    $this->assertSame(2, $fresh, 'custom code with no run is walled');
+    $this->assertStringContainsString('/droost:workflow:start', $freshSaid);
+
+    // Now a run whose record is present and whose phases are over.
+    mkdir($root . '/droost/droost-workflow', 0755, TRUE);
+    file_put_contents($root . '/droost/droost-workflow/run.json', (string) json_encode([
+      'run_id' => 'r1',
+      'current_phase' => NULL,
+      'phases' => ['code' => 'failed'],
+      'enforcement' => 'hard',
+    ]));
+
+    [$ended, , $endedSaid] = $this->guard($root, 'pre-tool-use', $edit);
+
+    $this->assertSame(2, $ended, 'still walled — the record standing is not permission');
+    $this->assertStringContainsString(
+      'reset --force',
+      $endedSaid,
+      'and it names the one command that clears the way, which the agent may run',
+    );
+    $this->assertStringNotContainsString(
+      '/droost:workflow:start',
+      $endedSaid,
+      'and not the one that refuses while that record stands',
     );
   }
 
