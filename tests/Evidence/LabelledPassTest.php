@@ -163,4 +163,47 @@ final class LabelledPassTest extends TestCase {
     }
   }
 
+  /**
+   * The whole seam: a labelled pass never counts as a gate that measured.
+   *
+   * Four producers now make one — an empty path set, phpcs exit 16, phpstan
+   * with no path, and a site-shell gate with no site — and the value crosses
+   * three components on its way to the only check that acts on it:
+   *
+   *     GateResult::labelledPass  ->  CheckRecord::fromGate (measured = FALSE)
+   *       ->  EvidenceStore::measuredGates (excluded)
+   *         ->  DeclarationAudit::mandatoryMeasured (names it)
+   *
+   * Every one of those is unit-tested on its own, and this project's defects
+   * live in the joins between things that each pass their own tests. Two did
+   * today: a producer nothing drove, and a check the caller never reached. So
+   * the join is driven whole.
+   */
+  public function testLabelledPassesTravelToTheCheckThatActsOnThem(): void {
+    $root = sys_get_temp_dir() . '/seam-' . bin2hex(random_bytes(6));
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    $store = new EvidenceStore($root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
+
+    foreach ([
+      GateResult::labelledPass('phpcs', 16, 1, 'nothing to check', 'phpcs'),
+      GateResult::labelledPass('phpstan', 1, 1, 'no path to analyse', 'phpstan'),
+      // One that really did look at something, so the assertion below is about
+      // the labelling rather than about everything being excluded.
+      GateResult::ran('phpunit', GateStatus::Passed, 0, 1, 'ok', [], 'phpunit'),
+    ] as $result) {
+      $store->record('r1', 'test', CheckRecord::fromGate($result));
+    }
+
+    $measured = $store->measuredGates('r1');
+    sort($measured);
+    $this->assertSame(['phpunit'], $measured, 'a pass that examined nothing is not a measurement');
+
+    $row = DeclarationAudit::mandatoryMeasured($measured, [], 'test');
+    $this->assertNotNull($row, 'and the check that exists to say so, says so');
+    $this->assertStringContainsString('phpcs, phpstan', $row->summary);
+
+    exec('rm -rf ' . escapeshellarg($root));
+  }
+
 }
