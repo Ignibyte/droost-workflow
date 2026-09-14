@@ -2797,9 +2797,28 @@ function require_run_guard(string $root, string $mode, string $stdin, string $st
     exit(2);
   }
   // soft: nudge once, then allow.
-  $marker = $root . '/.droost-workflow/.guard-warned-require-run';
+  //
+  // THE MARKER GOES WHERE THE RUN'S RECORD GOES. This spelled
+  // `.droost-workflow` — the LEGACY hidden directory — and created it, on a
+  // project that may never have had one. That is not a stray dotfile: the
+  // whole layout follows it. `RunStateStore::resolve()` and this file's own
+  // walk both answer "legacy when it exists and the visible one does not", so
+  // after a single nudge a project that had begun no run was permanently on
+  // the hidden layout. Driven end to end on a fresh repo: the same repo, same
+  // config, nudged and un-nudged, answers
+  //
+  //   no spec found under .droost-workflow       (nudged)
+  //   no spec found under droost/droost-workflow (not nudged)
+  //
+  // and the record, the evidence store and the bypass grant follow the spec.
+  // A warning that relocates the thing it is warning about is worse than no
+  // warning, and D57 moved this directory into sight on purpose.
+  //
+  // $stateDir is what the resolver already decided, so guard and engine cannot
+  // disagree and nothing is created anywhere the engine would not have.
+  $marker = $root . '/' . $stateDir . '/.guard-warned-require-run';
   if (!is_file($marker)) {
-    @mkdir($root . '/.droost-workflow', 0777, TRUE);
+    @mkdir($root . '/' . $stateDir, 0777, TRUE);
     @touch($marker);
     echo json_encode(['systemMessage' => $message . ' (require_run is soft: allowing this edit.)']);
   }

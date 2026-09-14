@@ -219,6 +219,77 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * The soft nudge does not move the project into the hidden directory.
+   *
+   * It spelled `.droost-workflow` and CREATED it. That is not a stray dotfile:
+   * `RunStateStore::resolve()` and this guard's own walk both answer "legacy
+   * when it exists and the visible one does not", so one nudge on a project
+   * that had begun no run put the whole layout there permanently — record,
+   * evidence store and bypass grant. Driven on a fresh repo with one config:
+   * nudged, the CLI answered "no spec found under .droost-workflow"; not
+   * nudged, "no spec found under droost/droost-workflow".
+   *
+   * D57 moved this directory into sight on purpose, and a warning that
+   * relocates the thing it is warning about is worse than no warning at all.
+   */
+  public function testTheSoftNudgeDoesNotRelocateTheProject(): void {
+    // A project that has never run droost: NEITHER directory exists yet, which
+    // is the case the resolver's tie-break is actually about. The usual
+    // fixture pre-creates the visible one and would hide half of this.
+    $root = $this->makeRoot();
+    file_put_contents($root . '/droost.workflow.yml', "require_run: soft\n");
+    [$exit, $stdout] = $this->guard($root, 'pre-tool-use', [
+      'tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module'],
+    ]);
+
+    $this->assertSame(0, $exit, 'soft still allows');
+    $this->assertStringContainsString('start', $stdout, 'and still nudges');
+    $this->assertDirectoryDoesNotExist(
+      $root . '/.droost-workflow',
+      'the legacy directory is not conjured by a warning',
+    );
+    $this->assertFileExists(
+      $root . '/droost/droost-workflow/.guard-warned-require-run',
+      'the marker lives where the run\'s own record lives',
+    );
+
+    // And it is still a marker: the second edit says nothing.
+    [$exit, $stdout] = $this->guard($root, 'pre-tool-use', [
+      'tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module'],
+    ]);
+    $this->assertSame(0, $exit);
+    $this->assertSame('', $stdout, 'nudged once per project, as before');
+  }
+
+  /**
+   * A project already on the legacy layout keeps its marker there.
+   *
+   * The counterweight: the fix is to ask the resolver, not to hard-code the
+   * other name. An existing hidden directory is somebody's real state, and
+   * writing the marker beside the NEW name there would nudge them a second
+   * time and leave a stray directory of its own.
+   */
+  public function testAlreadyHiddenProjectsKeepTheirOwnDirectory(): void {
+    $root = $this->makeRoot();
+    file_put_contents($root . '/droost.workflow.yml', "require_run: soft\n");
+    mkdir($root . '/.droost-workflow', 0775, TRUE);
+
+    [$exit] = $this->guard($root, 'pre-tool-use', [
+      'tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module'],
+    ]);
+
+    $this->assertSame(0, $exit);
+    $this->assertFileExists(
+      $root . '/.droost-workflow/.guard-warned-require-run',
+      'the resolver said legacy, so the marker went to legacy',
+    );
+    $this->assertDirectoryDoesNotExist(
+      $root . '/droost/droost-workflow',
+      'and nothing was created beside it',
+    );
+  }
+
+  /**
    * Hard enforcement blocks project edits during plan; the spec passes.
    */
   public function testHardBlocksEditsDuringPlanExceptTheSpec(): void {
