@@ -9,6 +9,7 @@ use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Evidence\CheckRecord;
 use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\Evidence\DeclarationAudit;
+use Droost\Workflow\Evidence\WorkType;
 use Droost\Workflow\Evidence\Fault;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -485,6 +486,62 @@ final class DeclarationAuditTest extends TestCase {
     );
 
     exec('rm -rf ' . escapeshellarg($root));
+  }
+
+  /**
+   * The audit answers for exactly the phases the facade asks it about.
+   *
+   * These two lists live in different files and drifted: the audit's condition
+   * named `complete`, and `WorkflowFacade::auditDeclarations()` has never
+   * called it there. A branch no run could enter READ as an enforced rule —
+   * "coverage is checked at complete" was in the source, in a condition, in
+   * front of anybody reviewing it, and no run has ever evaluated it.
+   *
+   * Dead code cannot be caught by testing behaviour, because it has none. So
+   * this reads the facade's phase list out of its source and asks the audit
+   * about every phase there is: the ones the facade names must produce rows,
+   * and the ones it does not must produce none. Adding `complete` back to
+   * either side without the other now fails here.
+   */
+  public function testTheAuditAnswersForThePhasesTheFacadeAsksAbout(): void {
+    $facade = (string) file_get_contents(dirname(__DIR__, 2) . '/src/WorkflowFacade.php');
+    $body = strstr($facade, 'private function auditDeclarations(RunOutcome $outcome');
+    $this->assertIsString($body, 'the facade still has the method that decides this');
+    $this->assertSame(
+      1,
+      preg_match('/!in_array\(\$phase, \[([^\]]+)\], TRUE\)/', $body, $match),
+      'and it still decides with an in_array over a phase list',
+    );
+    preg_match_all('/Phase::(\w+)/', $match[1], $names);
+    $asked = array_map(static fn (string $name): string => strtolower($name), $names[1]);
+    sort($asked);
+    $this->assertNotSame([], $asked, 'the facade names at least one phase');
+
+    // A declaration of every kind, so the audit has something to say wherever
+    // it is willing to speak. An empty fixture would make "no rows" the answer
+    // everywhere and the assertion vacuous.
+    $audit = new DeclarationAudit(
+      ['src/A.php'],
+      ['ThingTest'],
+      ['src/A.php'],
+      WorkType::Code,
+      [],
+      [],
+    );
+
+    $answered = [];
+    foreach (['plan', 'code', 'test', 'complete'] as $phase) {
+      if ($audit->checks($phase) !== []) {
+        $answered[] = $phase;
+      }
+    }
+    sort($answered);
+
+    $this->assertSame(
+      $asked,
+      $answered,
+      'every phase the facade audits gets rows, and no phase it skips has a rule pretending to run',
+    );
   }
 
 }

@@ -682,6 +682,11 @@ final class GuardTest extends WorkflowTestCase {
       'the lever file' => 'droost.workflow.yml',
       'a skill brief' => '.claude/skills/workflow-code/SKILL.md',
       'an agent brief' => '.claude/agents/workflow-seeker.md',
+      // A slash command is the same thing wearing a different extension: it
+      // is instructions the agent invokes on itself. Skills and agents were
+      // refused and commands were not, and the scope audit exempts the whole
+      // of `.claude/` — so nothing at all was watching this one.
+      'a slash command' => '.claude/commands/droost/workflow/continue.md',
     ];
 
     // With no run: the wall is shut, project setup is open.

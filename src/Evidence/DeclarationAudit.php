@@ -87,6 +87,12 @@ final class DeclarationAudit {
     '.droost-workflow/',
     // Everything `droost-workflow init` writes, plus the lever file the briefs
     // tell the agent to edit.
+    //
+    // This exemption is only safe because the GUARD refuses the parts of
+    // `.claude/` that matter while a run is under way — the hook, both
+    // settings files, and the skills, agents and commands the run is being
+    // held to. The two rules are load-bearing together: loosen either and
+    // an agent can rewrite its own brief mid-run with nothing saying so.
     '.claude/',
     'droost.workflow.yml',
     // Init appends its ignore rule here.
@@ -265,8 +271,17 @@ final class DeclarationAudit {
         implode(', ', $undeclared),
       );
 
+    // WHICH PHASES REACH HERE IS DECIDED BY THE CALLER, and this condition has
+    // to agree with it or it is fiction. `WorkflowFacade::auditDeclarations()`
+    // calls this at code and test only, so the `'complete'` this used to name
+    // was a branch no run could enter — a rule that looked enforced, read as
+    // enforced, and was not. Asking at complete would add nothing anyway: the
+    // test phase has already asked, and a run that reached complete answered.
+    //
+    // NULL means "no phase named", which is how the audit is exercised
+    // directly; both questions are then due.
     $scopeIsDue = $phase === NULL || $phase === 'code';
-    $coverageIsDue = $phase === NULL || $phase === 'test' || $phase === 'complete';
+    $coverageIsDue = $phase === NULL || $phase === 'test';
     $checks = [];
     if ($scopeIsDue) {
       $checks[] = new CheckRecord(

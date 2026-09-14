@@ -1647,7 +1647,14 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
       . 'effort dial is the operator\'s decision rather than the agent\'s. '
       . 'Before a run, it is an ordinary file.';
   }
-  if (preg_match('#(^|/)\.claude/(skills|agents)/#', $relative) === 1) {
+  // COMMANDS too. Skills and agents were refused and `.claude/commands/` was
+  // not, and a slash command is the same thing wearing a different extension:
+  // it is instructions the agent invokes on itself. The scope audit exempts the
+  // whole of `.claude/` (init writes thirty-one files there, and blaming the
+  // agent for droost's own install is an inversion that has shipped three
+  // times), so this wall was the ONLY thing watching that directory — and it
+  // was not watching all of it.
+  if (preg_match('#(^|/)\.claude/(skills|agents|commands)/#', $relative) === 1) {
     return 'That is one of the briefs this run is being held to, and a run is '
       . 'under way. Rewriting your own instructions mid-run is not the same act '
       . 'as improving them: do it before a run, or ask the operator. '
