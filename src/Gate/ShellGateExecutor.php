@@ -152,6 +152,19 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   private const DRUPAL_MARKER = 'core/lib/Drupal.php';
 
   /**
+   * The config files by which phpstan and phpcs name their own subject.
+   *
+   * When one exists the tool is handed no path and reads its own; the argv
+   * and the recorded subject both defer to it, from these same lists.
+   */
+  private const PHPSTAN_CONFIGS = ['phpstan.neon', 'phpstan.neon.dist', 'phpstan.dist.neon'];
+
+  /**
+   * The phpcs rulesets, in the order phpcs itself looks for them.
+   */
+  private const PHPCS_CONFIGS = ['phpcs.xml.dist', 'phpcs.xml'];
+
+  /**
    * Where a Drupal site's own code lives inside its docroot.
    */
   private const DRUPAL_OWN_TREES = ['modules/custom', 'themes/custom', 'profiles/custom'];
@@ -271,14 +284,40 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    * {@inheritdoc}
    */
   public function execute(GateSettings $gate, string $projectRoot): GateResult {
-    return $this->withLastOutput($this->run($gate, $projectRoot, NULL));
+    return $this->withSubjects($gate, $projectRoot, $this->withLastOutput($this->run($gate, $projectRoot, NULL)));
   }
 
   /**
    * {@inheritdoc}
    */
   public function executeWithBaseline(GateSettings $gate, string $projectRoot, BaselineContext $context): GateResult {
-    return $this->withLastOutput($this->run($gate, $projectRoot, $context));
+    return $this->withSubjects($gate, $projectRoot, $this->withLastOutput($this->run($gate, $projectRoot, $context)));
+  }
+
+  /**
+   * A verdict that says what the tool was pointed at, when a tool ran.
+   *
+   * Only a result with an invocation: an off gate, a missing binary or a
+   * surface with no site measured nothing, and a subject on those would let
+   * the evidence document re-check the fingerprint of a verdict that was
+   * never about the code.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate.
+   * @param string $projectRoot
+   *   The repository.
+   * @param \Droost\Workflow\Gate\GateResult $result
+   *   The verdict.
+   *
+   * @return \Droost\Workflow\Gate\GateResult
+   *   The verdict, with its subjects.
+   */
+  private function withSubjects(GateSettings $gate, string $projectRoot, GateResult $result): GateResult {
+    if ($result->invocation === NULL) {
+      return $result;
+    }
+
+    return $result->withSubjects($this->subjectsFor($gate, rtrim($projectRoot, '/')));
   }
 
   /**
@@ -1535,11 +1574,29 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     if (trim((string) ($gate->options['paths'] ?? '')) !== '') {
       return [];
     }
-    foreach (['phpstan.neon', 'phpstan.neon.dist', 'phpstan.dist.neon'] as $config) {
-      if (is_file(rtrim($root, '/') . '/' . $config)) {
-        return [];
-      }
+    if ($this->configuresItself($root, self::PHPSTAN_CONFIGS)) {
+      return [];
     }
+
+    return $this->ownCodePaths($root, $gate);
+  }
+
+  /**
+   * The project's own code, as top-level directories and root-level files.
+   *
+   * The scan `defaultPhpPaths()` performs once nothing else has named the
+   * subject — split out so the SUBJECT a verdict records can be computed by
+   * the same rule that built the argv, whether or not a config file exists.
+   *
+   * @param string $root
+   *   The project root.
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate, for what it can analyse.
+   *
+   * @return list<string>
+   *   Project-relative paths holding something the gate can analyse.
+   */
+  private function ownCodePaths(string $root, GateSettings $gate): array {
     $base = rtrim($root, '/');
     $extensions = self::ANALYSABLE[$gate->name] ?? ['php'];
     $rootIsDocroot = self::isDrupalDocroot($base);
@@ -1595,6 +1652,58 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     sort($found);
 
     return $found;
+  }
+
+  /**
+   * What a gate was pointed at, project-relative, for the record.
+   *
+   * The `paths` lever when the operator set one, narrowed to what exists;
+   * otherwise the same default the argv was built from. A gate that
+   * discovers its own subject from a config file this cannot read — a
+   * `phpstan.neon`, a ruleset with `<file>` entries — has no answer here,
+   * and the record says so rather than guessing. The front-end trio have
+   * only the lever.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate.
+   * @param string $root
+   *   The project root.
+   *
+   * @return list<string>
+   *   The subjects, or empty when unknown.
+   */
+  private function subjectsFor(GateSettings $gate, string $root): array {
+    $scoped = $this->scopedPaths($gate, $root);
+    if ($scoped !== NULL) {
+      return $scoped;
+    }
+
+    return match ($gate->name) {
+      'phpstan' => $this->configuresItself($root, self::PHPSTAN_CONFIGS) ? [] : $this->ownCodePaths($root, $gate),
+      'phpcs' => $this->configuresItself($root, self::PHPCS_CONFIGS) ? [] : $this->ownCodePaths($root, $gate),
+      default => [],
+    };
+  }
+
+  /**
+   * Whether the project carries one of a tool's own config files.
+   *
+   * @param string $root
+   *   The project root.
+   * @param list<string> $candidates
+   *   The file names the tool looks for.
+   *
+   * @return bool
+   *   TRUE when one exists.
+   */
+  private function configuresItself(string $root, array $candidates): bool {
+    foreach ($candidates as $config) {
+      if (is_file(rtrim($root, '/') . '/' . $config)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
   /**

@@ -64,7 +64,14 @@ final class EvidenceRecorder {
           $phase,
           CheckRecord::fromGate(
             $result,
-            SubjectHasher::hash($this->projectRoot, SubjectHasher::fromLever($levers['paths'] ?? NULL)),
+            // The lever when the operator set one; otherwise what the executor
+            // says it handed the tool. The lever alone left every gate on a
+            // stock project unfingerprinted, and a green that cannot expire
+            // is the failure the whole mechanism exists to prevent.
+            SubjectHasher::hash(
+              $this->projectRoot,
+              SubjectHasher::fromLever($levers['paths'] ?? NULL) ?: $result->subjects,
+            ),
             self::declaredFaults($levers),
             self::remedy($levers),
           ),

@@ -76,6 +76,11 @@ final class GateResult {
    *   The fault this result knows it is, where the default is ambiguous.
    *   Overrides `Unknown` only, so a gate cannot talk its way out of an
    *   agent fault.
+   * @param list<string> $subjects
+   *   What the tool was pointed at, project-relative: the `paths` lever
+   *   narrowed to what exists, or the default the argv was built from.
+   *   Empty when the tool reads its own config and the subject cannot be
+   *   known here, or when nothing ran.
    */
   public function __construct(
     public readonly string $gate,
@@ -116,6 +121,16 @@ final class GateResult {
     // ruleset, and the reason a live round lost an hour. A gate that knows
     // says so, the same way a contributed gate's `faults:` map already does.
     public readonly ?string $declaredFault = NULL,
+    // WHAT THE GATE WAS POINTED AT, project-relative. A green is meant to
+    // expire when the code it was green about moves, and the fingerprint
+    // came from the `paths` LEVER alone — which the default levers for the
+    // mandatory trio do not carry. So on a stock project nothing was
+    // fingerprinted, the evidence document's "Still true?" column read
+    // `unknown` for every gate, and its note blamed "config files this
+    // record never sees" while the recorded invocation fifteen lines below
+    // named `src tests` exactly. The executor knows what it handed over; it
+    // says so here, and the recorder hashes it when the lever is silent.
+    public readonly array $subjects = [],
   ) {}
 
   /**
@@ -130,19 +145,67 @@ final class GateResult {
    *   A new result carrying both counts.
    */
   public function withBaselineCounts(int $inherited, int $new): self {
-    return new self(
-      $this->gate,
-      $this->status,
-      $this->exitCode,
-      $this->durationMs,
-      $this->summary,
-      $this->findings,
-      $this->truncated,
-      $this->skipReason,
-      $this->invocation,
-      $inherited,
-      $new,
+    // EVERY FIELD, BY NAME. This rebuilt the result from eleven positional
+    // arguments and stopped there, so a baseline-partitioned verdict lost its
+    // `remedy`, its `labelledPass` and its `declaredFault` on the way out —
+    // the exact "one field, N rebuild sites, the inline ones drop it" trap
+    // the run record's own docblock warns about. A field added below the
+    // eleventh was silently NULL on every project with an adopted baseline.
+    return $this->rebuilt(inherited: $inherited, new: $new);
+  }
+
+  /**
+   * This result with what the gate was pointed at recorded.
+   *
+   * @param list<string> $subjects
+   *   Project-relative paths the tool was handed.
+   *
+   * @return self
+   *   The result.
+   */
+  public function withSubjects(array $subjects): self {
+    return $this->rebuilt(subjects: $subjects);
+  }
+
+  /**
+   * A copy of this result with some fields replaced, and every other kept.
+   *
+   * The one place the constructor is called with the whole field list, so a
+   * field added to the class is carried by every `with…()` rather than by the
+   * ones somebody remembered to update.
+   *
+   * @param int|null $inherited
+   *   Baseline-inherited count, when replacing it.
+   * @param int|null $new
+   *   New-finding count, when replacing it.
+   * @param list<string>|null $subjects
+   *   The subjects, when replacing them.
+   *
+   * @return self
+   *   The copy.
+   */
+  private function rebuilt(?int $inherited = NULL, ?int $new = NULL, ?array $subjects = NULL): self {
+    $copy = new self(
+      gate: $this->gate,
+      status: $this->status,
+      exitCode: $this->exitCode,
+      durationMs: $this->durationMs,
+      summary: $this->summary,
+      findings: $this->findings,
+      truncated: $this->truncated,
+      skipReason: $this->skipReason,
+      invocation: $this->invocation,
+      inherited: $inherited ?? $this->inherited,
+      new: $new ?? $this->new,
+      labelledPass: $this->labelledPass,
+      remedy: $this->remedy,
+      declaredFault: $this->declaredFault,
+      subjects: $subjects ?? $this->subjects,
     );
+    $copy->stdout = $this->stdout;
+    $copy->stderr = $this->stderr;
+
+    return $copy;
   }
 
   /**

@@ -267,6 +267,41 @@ final class MandatoryGatesMeasureTest extends WorkflowTestCase {
   }
 
   /**
+   * A verdict records what the tool was pointed at.
+   *
+   * A green is meant to expire when the code it was green about moves, and
+   * the fingerprint came from the `paths` LEVER alone — which the default
+   * levers do not carry. So on a stock project nothing was fingerprinted and
+   * every "Still true?" read `unknown`, while the recorded invocation named
+   * `src tests` on the same page. The executor knows what it handed over.
+   */
+  public function testTheResultRecordsWhatItWasPointedAt(): void {
+    $root = $this->projectWithTools();
+    mkdir($root . '/src', 0755, TRUE);
+    mkdir($root . '/tests', 0755, TRUE);
+    file_put_contents($root . '/src/Money.php', "<?php\n");
+    file_put_contents($root . '/tests/MoneyTest.php', "<?php\n");
+    $executor = new ShellGateExecutor(static fn (): array => [0, '{}', ''], static fn (): int => 0);
+
+    $default = $executor->execute(new GateSettings('phpstan', TRUE, ['level' => 6]), $root);
+    $this->assertSame(['src', 'tests'], $default->subjects, 'the default subject is recorded');
+
+    $lever = $executor->execute(new GateSettings('phpstan', TRUE, ['paths' => 'src']), $root);
+    $this->assertSame(['src'], $lever->subjects, 'a lever records itself');
+
+    file_put_contents($root . '/phpstan.neon', "parameters:\n  paths:\n    - src\n");
+    $configured = $executor->execute(new GateSettings('phpstan', TRUE, ['level' => 6]), $root);
+    $this->assertSame(
+      [],
+      $configured->subjects,
+      'a tool reading its own config has a subject this cannot see, and says so rather than guessing',
+    );
+
+    $absent = $executor->execute(new GateSettings('eslint', TRUE), $this->makeRoot());
+    $this->assertSame([], $absent->subjects, 'a tool that never ran measured nothing');
+  }
+
+  /**
    * A Drupal site laid out the way composer scaffolds one.
    *
    * @return string

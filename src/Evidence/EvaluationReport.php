@@ -752,11 +752,16 @@ final class EvaluationReport {
    * How many verdicts could be re-measured for expiry, and how many had moved.
    *
    * Said out loud because the quiet failure is a column of `unknown` that reads
-   * like a column of ticks. A gate's fingerprint comes from its `paths` lever,
-   * and the DEFAULT levers for phpcs and phpstan carry no `paths` at all —
-   * those tools are pointed by phpcs.xml.dist and phpstan.neon, which the run
-   * record never sees. So for a stock project this mechanism currently judges
-   * almost nothing, and a reader is entitled to know that rather than infer it.
+   * like a column of ticks. A gate's fingerprint comes from what it was
+   * pointed at — its `paths` lever, or the paths the executor records having
+   * handed the tool when the lever is absent. A gate that discovers its own
+   * subject from a config file this record cannot read (a `phpstan.neon`, a
+   * ruleset with `<file>` entries) has no fingerprint, and the row says so.
+   *
+   * The earlier text here blamed "config files this record never sees" for
+   * EVERY unknown, while the invocation table fifteen lines below printed
+   * `src tests` — a document telling its reader it cannot know something it
+   * prints on the same page.
    *
    * @param list<list<string>> $rows
    *   The rendered gate rows; the expiry cell is the last of each.
@@ -778,11 +783,13 @@ final class EvaluationReport {
     }
 
     if ($checkable === 0) {
-      return "\n**No verdict here could be checked for expiry.** A gate's\n"
-        . "fingerprint comes from its `paths` lever, and the default levers for\n"
-        . "the mandatory trio carry none — phpcs and phpstan are pointed by\n"
-        . "their own config files, which this record never sees. Treat every\n"
-        . "green above as unverified against the tree as it now stands.\n";
+      return "\n**No verdict here could be checked for expiry.** No gate recorded\n"
+        . "a subject: each was off, could not run here, or discovers its own\n"
+        . "paths from a config file this record cannot read (a `phpstan.neon`,\n"
+        . "a ruleset with `<file>` entries). A gate that ran against paths\n"
+        . "droost chose records them, and a `paths` lever records itself.\n"
+        . "Treat every green above as unverified against the tree as it now\n"
+        . "stands.\n";
     }
 
     return sprintf(
