@@ -419,6 +419,16 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         $gate->name,
         $invocation
         . ' (no phpunit.xml or phpunit.xml.dist at the project root)',
+        sprintf(
+          'phpunit IS installed — what is missing is its configuration, so '
+          . '`composer require --dev phpunit/phpunit` will change nothing. '
+          . 'Write a phpunit.xml (or phpunit.xml.dist) at the project root '
+          . 'naming the bootstrap and the test suites; on a Drupal site '
+          . '`drush droost:workflow:install` writes one for you. If this '
+          . 'project has no suite yet, that is the OPERATOR\'s call: '
+          . '`gates.%s.on: false` in droost.workflow.yml.',
+          $gate->name,
+        ),
       );
     }
 
@@ -932,7 +942,11 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     $elapsed = $this->tick() - $started;
 
     if ($exit === 127) {
-      return GateResult::toolMissing($gate->name, $cmd);
+      // The program the gate's own `cmd` names, not a program called
+      // <name>: the default remedy would send an operator to
+      // `composer require --dev custom:acme_audit`, which fetches nothing and
+      // is not even a package name.
+      return GateResult::toolMissing($gate->name, $cmd, $this->ownCommandRemedy($gate));
     }
 
     // A contributed gate declared what its verdict means; a failure repeats
@@ -951,6 +965,51 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $summary,
       $this->findings($stdout),
       $cmd,
+    );
+  }
+
+  /**
+   * What to do when a gate's own command names a program the shell cannot find.
+   *
+   * Custom and contributed gates both run a `cmd`, and the lever that chose it
+   * sits in a different place for each — the operator's own file for a custom
+   * gate, the declaring module's code for a contributed one. Sending an
+   * operator to edit a key their lever file does not have is the same failure
+   * as sending them to install a package that does not exist.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate whose command exited 127.
+   *
+   * @return string
+   *   The remedy.
+   */
+  private function ownCommandRemedy(GateSettings $gate): string {
+    if (GateSettings::isContributed($gate->name)) {
+      return sprintf(
+        'The %1$s gate runs a command the module that declares it chose, and '
+        . 'the shell could not find the program that command names (exit '
+        . '127). That command is not in droost.workflow.yml and cannot be '
+        . 'corrected there — install the program the module needs (the '
+        . 'summary above shows the command as it ran), or ask the OPERATOR to '
+        . 'turn the gate off with `gates.contributed.%2$s.on: false`.',
+        $gate->name,
+        substr($gate->name, strlen(GateSettings::MODULE_PREFIX)),
+      );
+    }
+
+    $key = GateSettings::isCustom($gate->name)
+      ? 'gates.custom.' . substr($gate->name, strlen(GateSettings::CUSTOM_PREFIX))
+      : 'gates.' . $gate->name;
+
+    return sprintf(
+      'The %1$s gate runs a command this project declared, and the shell '
+      . 'could not find the program that command names (exit 127). Nothing '
+      . 'called "%1$s" is installable, so `composer require --dev` on it '
+      . 'fetches nothing — read `%2$s.cmd` in droost.workflow.yml, install '
+      . 'the program it actually names, or ask the OPERATOR to correct that '
+      . 'lever or turn the gate off with `%2$s.on: false`.',
+      $gate->name,
+      $key,
     );
   }
 
@@ -1150,6 +1209,13 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         $gate->name,
         $invocation . ' — the suite passed but no coverage was measured; '
         . 'a code coverage driver (xdebug or pcov) is not installed',
+        'A coverage driver is a PHP EXTENSION, so no composer or npm install '
+        . 'reaches it: ask the OPERATOR to enable xdebug or pcov for the PHP '
+        . 'binary that runs the suite (`pecl install pcov`, then '
+        . '`extension=pcov` and `pcov.enabled=1` in php.ini; `php -m | grep '
+        . '-iE "xdebug|pcov"` confirms it). If this project does not measure '
+        . 'coverage, `gates.coverage.on: false` in droost.workflow.yml. The '
+        . 'suite itself is fine — re-running it reports the same thing.',
       );
     }
 

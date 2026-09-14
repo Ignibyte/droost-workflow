@@ -260,6 +260,7 @@ final class GateRunner {
         return GateResult::toolMissing(
           $name,
           sprintf('%s (no site driver implements it)', $name),
+          SiteGateRemedy::wrongDriver($name),
         );
       }
       if ($consults && $this->driver instanceof BaselineAwareSiteDriverInterface) {

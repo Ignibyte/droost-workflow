@@ -901,10 +901,25 @@ class ModeEngineTest extends WorkflowTestCase {
       static fn ($result): bool => $result->gate === 'evidence_record',
     );
     $this->assertCount(1, $named, 'the report names the evidence store as what failed');
+    $blocked = reset($named);
     $this->assertStringContainsString(
       'no record',
-      reset($named)->summary,
+      $blocked->summary,
       'and says the gates ran while none of it was kept',
+    );
+    // `Fault::Environment` tells the reader to go and read the remedy, and
+    // `GateResult::ran()` had no way to carry one — so this block, the one
+    // built by hand rather than by `toolMissing()`, sent them to an empty
+    // string.
+    $this->assertStringContainsString(
+      'evidence.sqlite',
+      (string) $blocked->remedy,
+      'the remedy names the actual file, so the operator checks the right one',
+    );
+    $this->assertStringContainsString(
+      'ls -l',
+      (string) $blocked->remedy,
+      'and something they can type to find out who owns it',
     );
   }
 

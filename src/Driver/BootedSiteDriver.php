@@ -8,6 +8,7 @@ use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\SiteDriverInterface;
+use Droost\Workflow\Gate\SiteGateRemedy;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 
@@ -73,6 +74,7 @@ final class BootedSiteDriver implements SiteDriverInterface {
       return GateResult::toolMissing(
         $gate->name,
         sprintf('%s (this driver only runs rendered_check)', $gate->name),
+        SiteGateRemedy::wrongDriver($gate->name),
       );
     }
 

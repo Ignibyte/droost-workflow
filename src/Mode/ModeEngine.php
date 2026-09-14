@@ -163,6 +163,14 @@ final class ModeEngine {
         ),
         [],
         'evidence store',
+        sprintf(
+          'Nothing here is the agent\'s to fix. Make the run\'s own record '
+          . 'writable by whoever runs the phase — `ls -l %s` shows who owns '
+          . 'it now; a restored backup, a container UID mismatch and a '
+          . 'mistyped chmod all produce this — then run the phase again. The '
+          . 'gates above all ran; only the keeping of them failed.',
+          EvidenceStore::pathFor($projectRoot),
+        ),
       ));
 
       // Through recordFailure, not around it — and the augmented report back

@@ -198,10 +198,31 @@ final class GateResult {
   /**
    * A gate whose tool is not installed.
    *
+   * ONE SENTENCE FOR FOUR DIFFERENT FAULTS. This constructor is the only way
+   * into `blocked/environment`, so eight call sites reach it, and every one of
+   * them printed "install %s — `composer require --dev` or `npm install` it".
+   * On four of them that is wrong, and wrong in the expensive direction: it
+   * names an action that cannot work, on the one surface whose entire job is
+   * to tell an operator what to type.
+   *
+   * phpunit with no `phpunit.xml` is installed. A contributed gate's `cmd`
+   * exiting 127 names a program that has nothing to do with the gate's name —
+   * `composer require --dev` on it installs nothing. A suite that passed but
+   * measured no coverage needs a PHP EXTENSION, not a composer package. And a
+   * gate that reached a site driver which does not implement it is not
+   * installable at all.
+   *
+   * So the remedy is the caller's to supply, the way `toolFailed()` already
+   * takes its `$hint` — and the sentence above stays as the default, because
+   * for a binary that is genuinely absent it is the right one.
+   *
    * @param string $gate
    *   The gate name.
    * @param string $invocation
    *   The command that could not be run.
+   * @param string|null $remedy
+   *   What to actually do about it, when the caller knows something more
+   *   specific than "install it". NULL takes the install-or-turn-it-off text.
    *
    * @return self
    *   The result.
@@ -209,13 +230,14 @@ final class GateResult {
   public static function toolMissing(
     string $gate,
     string $invocation,
+    ?string $remedy = NULL,
   ): self {
     return new self(
       $gate,
       GateStatus::ErrorToolMissing,
       summary: 'could not run: ' . $invocation,
       invocation: $invocation,
-      remedy: sprintf(
+      remedy: $remedy ?? sprintf(
         'Install %1$s so the gate can run — `composer require --dev` or '
         . '`npm install` it, whichever owns it in this project — or, if this '
         . 'project genuinely does not use %1$s, ask the OPERATOR to turn the '
@@ -339,6 +361,11 @@ final class GateResult {
    *   Every finding, before capping.
    * @param string $invocation
    *   The command that ran.
+   * @param string|null $remedy
+   *   For an environment block, what to type. `Fault::Environment`'s guidance
+   *   tells the reader to go and read this, and a caller building such a
+   *   result here had no way to write one — so the one gate that does,
+   *   `evidence_record`, sent the reader to an empty string.
    *
    * @return self
    *   The result, with findings capped.
@@ -351,6 +378,7 @@ final class GateResult {
     string $summary,
     array $findings,
     string $invocation,
+    ?string $remedy = NULL,
   ): self {
     return new self(
       $gate,
@@ -362,6 +390,7 @@ final class GateResult {
       count($findings) > self::FINDINGS_CAP,
       NULL,
       $invocation,
+      remedy: $remedy,
     );
   }
 
