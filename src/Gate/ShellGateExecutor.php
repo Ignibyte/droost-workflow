@@ -188,9 +188,23 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
 
   /**
    * The same exclusion as a phpcs `--ignore` pattern list.
+   *
+   * DERIVED, not written out again. This was a hand-kept union of
+   * `VENDORED_DIRS` and `DROOST_OWN_DIRS` spelled as globs, so the two lists
+   * that phpstan excludes by predicate and the string phpcs excludes by flag
+   * could drift the moment either grew — add a directory to a constant and
+   * phpstan would stop analysing it while phpcs went on reporting it. One
+   * list, two renderings.
+   *
+   * @return string
+   *   A phpcs `--ignore` value.
    */
-  private const VENDORED_IGNORE = '*/node_modules/*,*/vendor/*,*/.claude/*,'
-    . '*/droost/droost-workflow/*,*/droost/baseline/*,*/.droost-workflow/*';
+  private static function vendoredIgnore(): string {
+    return implode(',', array_map(
+      static fn (string $dir): string => '*/' . $dir . '/*',
+      [...self::VENDORED_DIRS, ...self::DROOST_OWN_DIRS],
+    ));
+  }
 
   /**
    * Shell gates whose tool being absent means "no site", not "broken setup".
@@ -1438,7 +1452,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         $binary,
         '-q',
         '--report=json',
-        '--ignore=' . self::VENDORED_IGNORE,
+        '--ignore=' . self::vendoredIgnore(),
       ] : [
         $binary,
         '-q',
@@ -1479,7 +1493,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         // committed), and the Drupal standard sniffs JS and CSS — so the gate
         // walked vendored JavaScript and reported on it (round 24, R24-F3).
         // Vendored trees are never the project's code; exclude them always.
-        '--ignore=' . self::VENDORED_IGNORE,
+        '--ignore=' . self::vendoredIgnore(),
       ],
       'phpstan' => [
         $binary,

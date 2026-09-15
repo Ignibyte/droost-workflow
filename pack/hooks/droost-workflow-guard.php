@@ -3598,7 +3598,13 @@ function require_run_guard(string $root, string $mode, string $stdin, string $st
   // of the same path cannot slip past the wall.
   $path = strtolower(str_replace('\\', '/', $file));
   $path = (string) preg_replace(['#/(?:\./)+#', '#//+#'], '/', $path);
-  if (preg_match('#(^|/)(modules|themes)/custom/#', $path) !== 1) {
+  // PROFILES TOO. The gate executor has always analysed `profiles/custom`
+  // as the project's own code (DRUPAL_OWN_TREES), and this wall did not
+  // cover it — so an install profile, which is PHP that builds the whole
+  // site, could be written with no run at all while the module beside it
+  // could not. Three lists said "custom code" and one of them meant
+  // something narrower.
+  if (preg_match('#(^|/)(modules|themes|profiles)/custom/#', $path) !== 1) {
     return;
   }
   // An operator-granted bypass stands the wall down; its visibility lives in

@@ -106,7 +106,11 @@ enum WorkType: string {
       // A bundle and some fields are configuration. Substantial PHP under a
       // custom module is a different ticket wearing this one's label — a
       // .theme or an .info.yml alongside is the obvious thing, not a lie.
-      self::ContentModel, self::Content => ['#(^|/)modules/custom/.*\\.php$#'],
+      // An install profile is PHP that builds a site; it is code by the same
+      // rule a module is, and `ShellGateExecutor` has always analysed it as
+      // the project's own. Themes stay out on purpose — the `.theme` beside
+      // a bundle is the obvious thing, not a lie.
+      self::ContentModel, self::Content => ['#(^|/)(modules|profiles)/custom/.*\\.php$#'],
       // Broad by nature: nothing contradicts them, and pretending otherwise
       // teaches agents to declare `mixed` for everything, which is the same as
       // declaring nothing.

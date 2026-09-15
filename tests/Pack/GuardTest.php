@@ -45,6 +45,30 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * An install profile is custom code, and the wall covers it.
+   *
+   * Three lists spelled "the project's own Drupal code" and one meant
+   * something narrower: the gate executor analyses `profiles/custom`, and
+   * this wall matched only `modules` and `themes` — so an install profile,
+   * which is PHP that builds the entire site, could be written with no run
+   * at all while the module beside it could not.
+   */
+  public function testTheWallCoversCustomProfiles(): void {
+    $root = $this->makeRoot();
+    foreach ([
+      'web/profiles/custom/acme/acme.profile',
+      'web/profiles/custom/acme/src/Installer.php',
+      'profiles/custom/acme/acme.install',
+    ] as $path) {
+      [$exit, , $stderr] = $this->guard($root, 'pre-tool-use', [
+        'tool_input' => ['file_path' => $path],
+      ]);
+      $this->assertSame(2, $exit, $path . ' is custom code and needs a run');
+      $this->assertStringContainsString('/droost:workflow:start', $stderr);
+    }
+  }
+
+  /**
    * The wall is narrow: non-custom paths are never walled.
    */
   public function testRequireRunIgnoresNonCustomPaths(): void {

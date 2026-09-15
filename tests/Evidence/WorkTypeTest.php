@@ -88,6 +88,33 @@ final class WorkTypeTest extends TestCase {
   }
 
   /**
+   * An install profile is PHP under custom code, by the same rule a module is.
+   *
+   * `ShellGateExecutor` has always analysed `profiles/custom` as the
+   * project's own code while this asked about `modules/custom` alone, so the
+   * identical claim was contradicted in one tree and believed in the other.
+   * Themes stay out deliberately: a `.theme` beside a bundle is the obvious
+   * thing, not a lie.
+   */
+  public function testDeclaringContentModelAndWritingProfilePhpIsBlocked(): void {
+    $audit = new DeclarationAudit(
+      ['web/profiles/custom/acme'],
+      [],
+      [
+        'web/profiles/custom/acme/a.php',
+        'web/profiles/custom/acme/B.php',
+        'web/profiles/custom/acme/C.php',
+      ],
+      WorkType::ContentModel,
+      ['config_clean', 'rendered_check'],
+    );
+
+    $check = $this->check($audit, 'work_type');
+    $this->assertSame(CheckState::Blocked, $check->state);
+    $this->assertSame(Fault::Agent, $check->fault);
+  }
+
+  /**
    * One file that is the WHOLE diff is not a stray file.
    *
    * The proportion rule required more than one contradicting file, so a run
