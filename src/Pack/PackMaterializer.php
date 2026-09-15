@@ -119,6 +119,19 @@ final class PackMaterializer {
     }
 
     $report = $this->installConfig($root, $report);
+    // The one thing a host that is not Claude Code actually receives, and the
+    // one surface every host auto-loads. Written here rather than only by
+    // droost's drush installer, which is where it lived until 2026-09-15 — so
+    // the documented CLI route produced an installed pipeline that no agent
+    // was ever told about. That is eval T01's headline miss, shipped as the
+    // default for every non-Drupal consumer.
+    $agents = AgentsBlock::write($root, AgentsBlock::paragraphs());
+    if ($agents === 'failed') {
+      throw PackError::unwritable(AgentsBlock::FILE, 'the write did not complete');
+    }
+    $report = $agents === 'kept'
+      ? $report->withKept(AgentsBlock::FILE)
+      : $report->withWritten(AgentsBlock::FILE);
     $report = $this->wireClaudeSettings($root, $report);
     return $this->ensureGitignore($root, $report);
   }
