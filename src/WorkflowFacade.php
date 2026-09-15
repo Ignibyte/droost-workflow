@@ -43,6 +43,8 @@ use Droost\Workflow\Spec\SpecContract;
 use Droost\Workflow\Spec\SpecError;
 use Droost\Workflow\Pack\InitReport;
 use Droost\Workflow\Pack\PackMaterializer;
+use Droost\Workflow\Pack\PackRemover;
+use Droost\Workflow\Pack\RemoveReport;
 use Droost\Workflow\State\PhaseStatus;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
@@ -144,6 +146,24 @@ final class WorkflowFacade {
    */
   public function init(string $projectRoot, array $takeUpstream = []): InitReport {
     return (new PackMaterializer())->init($projectRoot, $takeUpstream);
+  }
+
+  /**
+   * Takes the pack back out, leaving the project's own work in place.
+   *
+   * The half `init` never had. Without it, a project that removed droost kept
+   * three guard hooks wired in settings.json, running a guard that reads a
+   * lever file for a module no longer installed — and the only way out was to
+   * hand-edit the JSON, which the guard refuses.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return \Droost\Workflow\Pack\RemoveReport
+   *   What went, what stayed, and what was left for the operator.
+   */
+  public function uninstall(string $projectRoot): RemoveReport {
+    return (new PackRemover())->uninstall($projectRoot);
   }
 
   /**

@@ -185,6 +185,7 @@ final class ArgvDispatcher {
         'declare-changes' => $this->declareChanges($projectRoot, $argv),
         'reset' => $this->reset($projectRoot, $argv),
         'baseline' => $this->baseline($projectRoot, $argv),
+        'uninstall' => $this->uninstall($projectRoot),
         'bypass' => $this->bypass($projectRoot, $argv),
         'gate-waive' => $this->gateWaive($projectRoot, $argv),
         'effort' => $this->effort($projectRoot, $argv),
@@ -855,6 +856,20 @@ final class ArgvDispatcher {
   }
 
   /**
+   * Takes the pack back out.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function uninstall(string $projectRoot): int {
+    $this->say($this->facade($projectRoot)->uninstall($projectRoot)->summary());
+    return self::EXIT_OK;
+  }
+
+  /**
    * Grants or clears the require_run bypass. The operator's, not the agent's.
    *
    * @param string $projectRoot
@@ -1057,7 +1072,13 @@ final class ArgvDispatcher {
     $this->say(<<<'TXT'
     droost-workflow — the phased, gated pipeline, standalone.
 
-      init             install the .claude pack and a default lever file
+      init             install the pack (AGENTS.md on every host, plus
+                       .claude/ for Claude Code) and a default lever file
+      uninstall        take it back out: the pack's files, its guard hooks
+                       in settings.json and its AGENTS.md block. KEEPS
+                       droost.workflow.yml and the state directory — your
+                       intent, and this project's run records — and names
+                       them so you can remove them deliberately
       status           what this repo resolves to, and where a run has got to
       run              start a run, or advance it by one phase
                    (--spec=<path> declares which spec governs the run)
