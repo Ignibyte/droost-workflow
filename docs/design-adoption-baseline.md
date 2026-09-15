@@ -165,4 +165,5 @@ record failing test ids as inherited failures.)
    and the lever all use it.
 
 Status after these: DESIGNED AND DECIDED; build order P1 → P4 as §10, after
-the `droost_ui_patterns` extraction (done 2026-09-07).
+the `droost_ui_patterns` extraction (done 2026-09-07; the module was renamed
+to `droost_ui_kit` in 2026-09-15).
