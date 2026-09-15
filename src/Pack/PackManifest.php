@@ -208,4 +208,28 @@ final class PackManifest {
     return $dirs;
   }
 
+  /**
+   * Whether this project already has a lever file, so init must keep it.
+   *
+   * `is_link` as well as `file_exists`, because a DANGLING symlink at the
+   * path is still the user's decision about that path: file_exists() follows
+   * the link and reports FALSE, and writing over it would replace whatever
+   * they meant to point at.
+   *
+   * Named here because three places asked the same question in the same two
+   * clauses — this package's installConfig() and, across the repository
+   * boundary, droost's own WorkflowInstaller and its setup command. One of
+   * the three drifting is the shape that has cost this project most.
+   *
+   * @param string $root
+   *   The project root.
+   *
+   * @return bool
+   *   TRUE when a lever file is present and must be left alone.
+   */
+  public static function hasConfigFile(string $root): bool {
+    $path = rtrim($root, '/') . '/' . self::CONFIG_FILE;
+    return file_exists($path) || is_link($path);
+  }
+
 }

@@ -50,16 +50,17 @@ final class EvaluationReport {
   /**
    * The tools that answer a question about a codebase.
    *
-   * Copied from `GroundingResolver::KNOWLEDGE_TOOLS` in the droost_workflow
-   * Drupal module (droost/modules/droost_workflow/src/Gate/). Duplicated on
-   * purpose: that class needs Drupal's database connection to resolve a
-   * citation against the symbol graph, and this package boots no Drupal — a
-   * `use` statement here would make the standalone `droost-workflow` binary
-   * depend on a module it must be able to run without.
+   * THE canonical list, and the only one. droost's `GroundingResolver` — which
+   * needs Drupal's database to resolve a citation against the symbol graph —
+   * imports this constant; the dependency runs that way and only that way,
+   * because droost requires this package and this package must boot without
+   * Drupal. Never import anything of droost's here.
    *
-   * The two lists are a pair. If one gains a tool, so must the other, or a run
-   * that grounded itself through the new tool will render as a run that asked
-   * the codebase nothing.
+   * It was a copy on each side until 2026-09-15, with a docblock asking the
+   * next reader to keep them in step. Two lists nobody could diff from either
+   * side is the shape that has cost this project most: had they drifted, a run
+   * that grounded itself through the new tool would have rendered as a run
+   * that asked the codebase nothing.
    */
   public const array KNOWLEDGE_TOOLS = [
     'droost_search',

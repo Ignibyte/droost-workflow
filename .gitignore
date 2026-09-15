@@ -1,5 +1,10 @@
 /vendor/
 /composer.phar
+# A library pins nothing for its consumers: the lock would be this
+# repository's resolution, not theirs. Committed until 2026-09-15, by
+# which time it pinned droost/engine 0.5.2 against a ~0.6.0 constraint —
+# so `composer validate --strict`, which CI runs, exited 2.
+/composer.lock
 /.phpunit.cache/
 /.phpunit.result.cache
 .DS_Store

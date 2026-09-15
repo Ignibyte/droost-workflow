@@ -9,6 +9,20 @@ parameters:
     - tests
   excludePaths:
     - vendor/*
+    # pack/hooks/droost-workflow-guard.php is DELIBERATELY not analysed,
+    # and this is the reason rather than an omission. It is an
+    # autoloader-free procedural script whose tokeniser drives its state
+    # through by-reference closure captures ($tokens, $started, $current
+    # in operator_commands_invocations). PHPStan does not follow that:
+    # it reports 27 errors, of which the load-bearing ones claim
+    # `$tokens !== []` is always false and `$word === '-c'` can never be
+    # true. Both are wrong — $started is set TRUE at five points in the
+    # loop, and 114 guard tests / 2279 assertions pass, which they could
+    # not if the tokeniser returned nothing. Including the file would
+    # mean a baseline of 27 false entries, and a baseline is where a
+    # real future error goes to hide. phpcs DOES cover it (see
+    # phpcs.xml.dist), and ShellSurfaceTest is its behavioural pin.
+    - pack/hooks/droost-workflow-guard.php
   # P6.7 retired the caveat that used to live here. This package had a
   # `modules/droost_workflow_mcp` submodule whose two Tool plugins could not be
   # analysed locally — their types come from drupal/droost, mcp_server and

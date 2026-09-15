@@ -11,11 +11,31 @@
   <rule ref="Drupal"/>
   <rule ref="DrupalPractice"/>
 
+  <!-- fnmatch() in the guard: the discouragement is ANSWERED, not ignored.
+       Drupal discourages it because it is not present in every PHP build, and
+       in this file that mattered more than usual: a call to a missing function
+       is a fatal, and a guard that crashes is read by the host as ALLOW. So
+       `guard_fnmatch()` calls it only behind `function_exists()` and otherwise
+       translates the glob itself — verified equivalent to fnmatch over 756
+       pattern/subject pairs, which is how the unterminated-bracket divergence
+       was found. Keeping the warning would mean the shipped guard could never
+       pass this ruleset, which is how the file came to be outside it. -->
+  <rule ref="Drupal.Functions.DiscouragedFunctions.Discouraged">
+    <exclude-pattern>pack/hooks/droost-workflow-guard\.php</exclude-pattern>
+  </rule>
+
   <arg name="extensions" value="php,module,inc,install,yml"/>
   <arg value="s"/>
 
   <file>src</file>
   <file>tests</file>
+  <!-- THE PACK IS SHIPPED CODE. The 187K guard hook is the enforcement
+       every consumer runs, and it sat outside this scope until
+       2026-09-15 — so the one file in this package that a project
+       executes on every tool call was the one file nothing linted. It
+       carried 3 errors and 11 warnings, one of which (fnmatch) was a
+       fail-open path on a platform without that function. -->
+  <file>pack</file>
 
   <exclude-pattern>vendor/*</exclude-pattern>
   <exclude-pattern>.droost-workflow/*</exclude-pattern>

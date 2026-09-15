@@ -581,7 +581,7 @@ final class PackMaterializer {
 
     // Never refresh a lever file. It is version-controlled intent that
     // somebody wrote; re-running init must not quietly reset their gates.
-    if (file_exists($to) || is_link($to)) {
+    if (PackManifest::hasConfigFile($root)) {
       return $report->withKept($destination);
     }
 

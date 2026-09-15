@@ -166,7 +166,8 @@ if (!is_file($root . '/droost/droost-workflow/run.json')) {
 // tried resolves in the agent's favour. So every way this file can die has to
 // land on 2, and two of them did not.
 //
-// A NUL byte in `file_path` was the live one. `preg_match()` and `file_exists()`
+// A NUL byte in `file_path` was the live one. `preg_match()` and
+// `file_exists()`
 // throw ValueError on a NUL in PHP 8, nothing here caught it, and
 // `{"tool_input":{"file_path":"a\u0000b"}}` exited 255 — the protected-path
 // check never ran. A fatal error anywhere else in the file lands the same way.
@@ -601,7 +602,8 @@ function operator_commands_guard(string $stdin): void {
   // after this hook has already answered.
   //
   // Substitution is refused only where it can hide an operator verb: inside an
-  // invocation of drush or droost-workflow. `cd $(git rev-parse --show-toplevel)`
+  // invocation of drush or droost-workflow. `cd $(git rev-parse
+  // --show-toplevel)`
   // and `git commit -m "$(cat msg)"` are ordinary work and stay ordinary. That
   // narrowness is the point — a guard that refused every `$(` would be switched
   // off within a day, and a guard switched off enforces nothing.
@@ -869,17 +871,18 @@ function operator_commands_arms_write_gate(array $tokens): bool {
  * all:
  *
  *     drush php:eval "\Drupal::configFactory()
- *       ->getEditable('droost.settings')->set('allow_entity_write', TRUE)->save();"
+ *       ->getEditable('droost.settings')
+ *       ->set('allow_entity_write', TRUE)->save();"
  *
  * Same config object, same key, same effect, and it was permitted. The shape to
  * match is not a verb but the three things that have to be present for the
  * write to mean anything: droost's settings, an allow_* key, and a truthy.
  *
- * @param string $line
- *   The invocation's text.
+ * @param list<string> $tokens
+ *   The invocation's tokens.
  *
  * @return bool
- *   TRUE when the line writes a droost allow_* switch on.
+ *   TRUE when the invocation writes a droost allow_* switch on.
  */
 function operator_commands_php_arms_write_gate(array $tokens): bool {
   // Flattened from the tokens rather than matched against PHP source, because
@@ -1360,7 +1363,8 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
     // cannot read is not "allow". Refusing here is narrow — a variable in an
     // ARGUMENT (`cp "$f" /tmp`, `cd "$ROOT"`) is untouched, and only a variable
     // standing where the program name goes is refused.
-    // ONE PREDICATE. This was a second copy of `operator_commands_opaque_head()`
+    // ONE PREDICATE. This was a second copy of
+    // `operator_commands_opaque_head()`
     // with a different strip set — this one took literal quotes and not the
     // tokeniser's quote marker, that one the reverse — and no test could tell
     // the two apart: remove the backtick clause from EITHER alone and the suite
@@ -1797,7 +1801,8 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
   // opaque-head check then fired on any body line starting with `$`:
   //
   //   cat > x.php <<'PHP'   with  $x = 1;
-  //   gh pr create --body-file - <<'EOF'  with  $ drush droost:workflow:gate-waive phpcs
+  //   gh pr create --body-file - <<'EOF'  with
+  //   $ drush droost:workflow:gate-waive phpcs
   //
   // The second is F-EMT-11 returning through the other door: a pull-request
   // body quoting the waiver this guard's own refusal tells the agent to show
@@ -1921,7 +1926,8 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // path. Naming an enforcement file in code you hand an interpreter is not
     // something ordinary work does.
     // AND ONLY WHEN IT WRITES. Naming the path was enough on its own, which
-    // refused READING the record — `python3 -c "json.load(open('…/run.json'))"`,
+    // refused READING the record —
+    // `python3 -c "json.load(open('…/run.json'))"`,
     // a subject inspecting its own run, came back as "code that names the
     // enforcement". Reading the record is ordinary and the whole pack
     // encourages it; the attack this rule exists for is a WRITE
@@ -2066,7 +2072,8 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
         }
       }
     }
-    // PARENTHESISED. `&&` binds tighter than `||`, so `!$writesTo && in_array(…)
+    // PARENTHESISED. `&&` binds tighter than `||`, so
+    // `!$writesTo && in_array(…)
     // || ($verb === 'git' && …)` left the git branch answering on its own —
     // and `git diff --output=.claude/hooks/droost-workflow-guard.php` was read
     // as a read while it truncated the guard. The write check has to govern
@@ -2217,7 +2224,8 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     foreach ($tokens as $token) {
       if (preg_match('/^(--output|--out|--outfile|--write|--dest|--destination|--report-file|-o|-O|of)=(.+)$/i', $token, $flag) === 1) {
         // `of=` is dd's. It also defeated the `(^|/)` anchor every protected
-        // path is written with, so `dd of=.claude/hooks/droost-workflow-guard.php`
+        // path is written with, so
+        // `dd of=.claude/hooks/droost-workflow-guard.php`
         // matched nothing at all and overwrote the guard.
         //
         // `--report-file` is phpcs's, and `operator_commands_write_flag()`
@@ -2593,7 +2601,8 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
       . 'things. If the guard is wrong, the OPERATOR reinstalls it with '
       . '`droost-workflow init`, which takes the shipped version.';
   }
-  // `settings.local.json` too. It was unprotected while `settings.json` was, and
+  // `settings.local.json` too. It was unprotected while `settings.json`
+  // was, and
   // Claude Code reads both — so the wall's own wiring could be overridden from
   // a file beside the one the wall defends, which is the same disarm with an
   // extra dot in the name.
@@ -2802,6 +2811,7 @@ function operator_commands_brace_branches(string $pattern): array {
  * @return bool
  *   TRUE when the action can change or remove what it matches.
  */
+
 /**
  * The commands a find runs through `-exec`/`-execdir`/`-ok`/`-okdir`.
  *
@@ -3100,6 +3110,21 @@ function operator_commands_inline_code(array $plain, string $cwd = ''): ?string 
   return NULL;
 }
 
+/**
+ * Whether a find invocation's own actions write.
+ *
+ * As opposed to the command it hands to -exec, which is judged separately.
+ *
+ * `-delete` removes what it matched, and `-fprint`/`-fls` and friends write
+ * to a file they name themselves — `find . -fprint <guard>` truncates the
+ * guard without running anything.
+ *
+ * @param list<string> $tokens
+ *   The find invocation's tokens.
+ *
+ * @return bool
+ *   TRUE when an action writes.
+ */
 function find_action_writes(array $tokens): bool {
   // `-fprint`, `-fls` and friends WRITE TO A NAMED FILE: `find . -fprint
   // .claude/hooks/droost-workflow-guard.php` truncates the guard.
@@ -3115,7 +3140,8 @@ function find_action_writes(array $tokens): bool {
   $interpreter = '/^(?:' . operator_commands_interpreter_words() . ')$/';
   // WHICH FLAGS ONLY INSPECT DEPENDS ON THE INTERPRETER. One list served all
   // of them, and `-i` — php's phpinfo — is perl's and ruby's EDIT IN PLACE:
-  // `find .claude/hooks -name …guard.php -exec perl -i -pe 's/.*/<?php exit(0);/' {} +`
+  // `find .claude/hooks -name …guard.php
+  // -exec perl -i -pe 's/.*/<?php exit(0);/' {} +`
   // was a read, and rewrote the guard into a stub that permits everything.
   // Meanwhile `perl -c` (a syntax check) was a write, because `-c` is sh's
   // "run this string". An interpreter not listed here inspects nothing: every
@@ -3575,12 +3601,84 @@ function find_filters_match(array $filters, string $printed): bool {
     $subject = str_ends_with($flag, 'name') && !str_ends_with($flag, 'wholename')
       ? basename($printed)
       : $printed;
-    if (!fnmatch($pattern, $subject, $insensitive ? FNM_CASEFOLD : 0)) {
+    if (!guard_fnmatch($pattern, $subject, $insensitive)) {
       return FALSE;
     }
   }
 
   return TRUE;
+}
+
+/**
+ * Shell-glob match, on every platform this guard might run on.
+ *
+ * `fnmatch()` IS NOT ALWAYS THERE — which is why Drupal's own standard
+ * discourages it, and why that warning mattered here more than it does in
+ * ordinary code. This file is an autoloader-free hook whose contract is
+ * "exit 2 refuses, 0 allows, ANYTHING ELSE is a crash the host reads as
+ * allow". A call to a function the build does not define is a fatal Error, so
+ * on such a platform every `find -name` reach check would have failed OPEN —
+ * the one direction an enforcement must never fail in.
+ *
+ * The fallback translates the glob itself: `*` and `?` become their regex
+ * equivalents and cross `/` (no FNM_PATHNAME, matching the call site), a
+ * bracket expression becomes a character class, `\` escapes the next
+ * character as fnmatch's default does, and everything else is quoted.
+ *
+ * @param string $pattern
+ *   The shell glob.
+ * @param string $subject
+ *   The string to match.
+ * @param bool $insensitive
+ *   Whether to fold case (find's `-iname` and friends).
+ *
+ * @return bool
+ *   TRUE when the glob matches.
+ */
+function guard_fnmatch(string $pattern, string $subject, bool $insensitive): bool {
+  if (function_exists('fnmatch')) {
+    return fnmatch($pattern, $subject, $insensitive ? FNM_CASEFOLD : 0);
+  }
+  $regex = '';
+  $length = strlen($pattern);
+  for ($index = 0; $index < $length; $index++) {
+    $char = $pattern[$index];
+    if ($char === '\\' && $index + 1 < $length) {
+      $regex .= preg_quote($pattern[++$index], '#');
+      continue;
+    }
+    if ($char === '*') {
+      $regex .= '.*';
+      continue;
+    }
+    if ($char === '?') {
+      $regex .= '.';
+      continue;
+    }
+    if ($char === '[') {
+      $close = strpos($pattern, ']', $index + 1);
+      // AN UNTERMINATED BRACKET MATCHES NOTHING — fnmatch's grammar, not an
+      // edge case worth guessing at. Quoting the `[` as a literal instead
+      // made `fnmatch('x[', 'x[')` answer TRUE here and FALSE there, which a
+      // differential run over 756 pattern/subject pairs caught. Two
+      // implementations of one rule that disagree is the defect this whole
+      // codebase keeps paying for; the fallback follows fnmatch or it is not
+      // a fallback.
+      if ($close === FALSE) {
+        return FALSE;
+      }
+      $class = substr($pattern, $index + 1, $close - $index - 1);
+      // `!` is the shell's negation; `^` is the regex's.
+      if (str_starts_with($class, '!')) {
+        $class = '^' . substr($class, 1);
+      }
+      $regex .= '[' . str_replace('#', '\#', $class) . ']';
+      $index = $close;
+      continue;
+    }
+    $regex .= preg_quote($char, '#');
+  }
+  return @preg_match('#^' . $regex . '$#' . ($insensitive ? 'i' : ''), $subject) === 1;
 }
 
 /**
