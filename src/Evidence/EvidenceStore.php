@@ -1562,6 +1562,25 @@ final class EvidenceStore {
   }
 
   /**
+   * How many tool calls this run has already ingested.
+   *
+   * The watermark for moving droost's append-only `tool-calls.jsonl` into the
+   * store without doubling rows when a phase is recorded more than once.
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return int
+   *   The count.
+   */
+  public function toolCallCount(string $runId): int {
+    $statement = $this->connection()->prepare('SELECT COUNT(*) FROM tool_call WHERE run_id = ?');
+    $statement->execute([$runId]);
+
+    return (int) $statement->fetchColumn();
+  }
+
+  /**
    * This row's link in the chain, from the previous row's.
    *
    * TAMPER-EVIDENCE, NOT TAMPER-PROOFING, and the difference is worth being

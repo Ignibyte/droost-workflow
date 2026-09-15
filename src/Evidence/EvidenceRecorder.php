@@ -56,6 +56,7 @@ final class EvidenceRecorder {
         'base_commit' => $state->baseCommit,
         'spec_path' => $state->specPath,
       ]);
+      $this->ingestToolCalls($store, $state->runId, $phase);
       $emitted = [];
       foreach ($report->results as $result) {
         $levers = $state->resolvedGates[$result->gate] ?? [];
@@ -108,6 +109,62 @@ final class EvidenceRecorder {
    */
   public function lastError(): ?string {
     return $this->lastError;
+  }
+
+  /**
+   * Moves droost's tool-call ledger into the store, tagged with the phase.
+   *
+   * THE LEDGER WAS NEVER IN THE DATABASE. `EvidenceStore::recordToolCall()`
+   * existed, the `tool_call` table existed, and nothing in production ever
+   * called it — so §4a of every generated evaluation said "The ledger is
+   * empty for this run. Not one droost tool was called", while
+   * `droost/droost-workflow/tool-calls.jsonl` sat beside it holding the real
+   * calls. Measured on a live round: twelve calls in the file, an empty table,
+   * and a document reporting that the run had asked the codebase nothing.
+   *
+   * §4a's own text calls the ledger "the only place in the system that is not
+   * the subject's own account", and the observability chain counts it as the
+   * link that corroborates the spec's grounding claims. A link that is always
+   * dark corroborates nothing.
+   *
+   * The file is written by the Drupal side (the MCP surface) and carries no
+   * phase; the recorder knows the phase, which is the whole reason the column
+   * exists. Rows already ingested are skipped by count — the file is
+   * append-only for the life of a run, and `reset` archives it with the rest
+   * of the state — so re-recording a phase does not double it.
+   *
+   * @param \Droost\Workflow\Evidence\EvidenceStore $store
+   *   The store.
+   * @param string $runId
+   *   The run.
+   * @param string $phase
+   *   The phase these calls are being attributed to.
+   */
+  private function ingestToolCalls(EvidenceStore $store, string $runId, string $phase): void {
+    foreach (['droost/droost-workflow', '.droost-workflow'] as $dir) {
+      $path = rtrim($this->projectRoot, '/') . '/' . $dir . '/tool-calls.jsonl';
+      if (!is_file($path)) {
+        continue;
+      }
+      $lines = array_values(array_filter(
+        preg_split('/\R/', (string) @file_get_contents($path)) ?: [],
+        static fn (string $line): bool => trim($line) !== '',
+      ));
+      foreach (array_slice($lines, $store->toolCallCount($runId)) as $line) {
+        $row = json_decode($line, TRUE);
+        if (!is_array($row) || !is_string($row['tool'] ?? NULL)) {
+          continue;
+        }
+        $store->recordToolCall(
+          $runId,
+          $phase,
+          $row['tool'],
+          is_string($row['outcome'] ?? NULL) ? $row['outcome'] : 'unknown',
+          is_string($row['at'] ?? NULL) ? $row['at'] : NULL,
+        );
+      }
+      return;
+    }
   }
 
   /**
