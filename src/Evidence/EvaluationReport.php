@@ -242,6 +242,7 @@ final class EvaluationReport {
       $this->buildVerdictStub(),
       $this->scoreStub(),
       "---\n",
+      $this->enforcementObserved($runId),
       $this->observabilityStub(),
       "---\n",
       $this->findings($runId),
@@ -483,11 +484,12 @@ final class EvaluationReport {
       . "- **Subject, driver and elapsed** are facts about the harness that ran\n"
       . "  the round, not about the run. Nothing writes them to the store, so\n"
       . "  they are captured by hand from the template's §2.\n"
-      . "- **Enforcement is the REQUESTED value.** `{requested, effective,\n"
-      . "  reason}` is computed at read time and never persisted, so no\n"
-      . "  archived round — this one included — can say whether its discipline\n"
-      . "  actually held. That blind spot is the template's §7.3, and it is\n"
-      . "  still dark.\n"
+      . "- **Enforcement in §1 is the REQUESTED value**, and `{requested,\n"
+      . "  effective, reason}` is still computed at read time and never\n"
+      . "  persisted — `effective` is inferred from the declared host, which is\n"
+      . "  a claim about a claim. What the hook was OBSERVED doing is now §7a,\n"
+      . "  written by the guard about itself. Read the two together: §1 for what\n"
+      . "  was asked, §7a for what was there.\n"
       . "- **Operator interventions** leave a trace in the record only where an\n"
       . "  operator unblocked a check; see the `unblocked by the operator` rows\n"
       . "  in §4. Everything else an operator did during the round is invisible\n"
@@ -1647,6 +1649,76 @@ final class EvaluationReport {
    * @return string
    *   The stub.
    */
+  private function enforcementObserved(string $runId): string {
+    $calls = $this->store->guardCalls($runId);
+    $run = $this->rows('SELECT * FROM run WHERE run_id = ?', [$runId])[0] ?? [];
+    $requested = self::text($run, 'enforcement') ?? '— not recorded —';
+    $head = "## 7a. Enforcement — was the hook there, and did it fire\n\n";
+
+    if ($calls === []) {
+      // THE FINDING, not an absence of one. Until this section existed the
+      // answer was simply unavailable, and an unavailable answer reads as a
+      // clean one.
+      return $head
+        . "**No guard invocation was recorded for this run.** The enforcement\n"
+        . "level " . self::code($requested) . " is what the run ASKED for; this\n"
+        . "section is what was observed, and it observed nothing.\n\n"
+        . "Two readings, and they are not equally likely. Either the hook never\n"
+        . "ran — an unwired `settings.json`, a host with no pre-tool hook, a\n"
+        . "stale copy that died on load — in which case every phase in this\n"
+        . "document passed with no wall behind it. Or the hook ran on a droost\n"
+        . "build older than the ledger, which records nothing to ingest. Settle\n"
+        . "it before quoting any verdict above: a run is only as disciplined as\n"
+        . "the enforcement that was actually present.\n";
+    }
+
+    $total = 0;
+    $refusals = 0;
+    $lines = [];
+    foreach ($calls as $call) {
+      $total += $call['calls'];
+      if ($call['verdict'] === 'refuse') {
+        $refusals += $call['calls'];
+      }
+      $lines[] = sprintf(
+        '| %s | %s | %s | %d |',
+        self::code($call['mode']),
+        $call['verdict'],
+        $call['rule'] === NULL ? '—' : self::code($call['rule']),
+        $call['calls'],
+      );
+    }
+
+    return $head
+      . "Rows the GUARD wrote about itself, ingested at phase close. This is the\n"
+      . "one thing the record could not show before: `enforcement` in §1 is the\n"
+      . "level somebody requested, and the status document's `effective` is\n"
+      . "inferred from the host the session declared — a claim about a claim.\n"
+      . "These are invocations.\n\n"
+      . "| Mode | Verdict | Rule | Calls |\n|---|---|---|---|\n"
+      . implode("\n", $lines) . "\n\n"
+      . sprintf(
+        "**%d invocation(s), %d refusal(s).** The hook was demonstrably live,\n"
+        . "so %s in §1 describes something that was actually there.\n",
+        $total,
+        $refusals,
+        self::code($requested),
+      )
+      . "\n**A verdict of `invoked` is not a verdict.** The guard has 26 exit\n"
+      . "paths and no single chokepoint, so a row says `invoked` unless it came\n"
+      . "from one of the two branches that are centralised — the operator-only\n"
+      . "commands, and the require_run wall. It means \"the hook ran; this row\n"
+      . "does not say what it decided\", which is why the refusal count above is\n"
+      . "a FLOOR and not a total. Counting `invoked` as an allow would turn a\n"
+      . "gap into evidence.\n";
+  }
+
+  /**
+   * Section 7 — the observability chain, which is the evaluator's to walk.
+   *
+   * @return string
+   *   The stub.
+   */
   private function observabilityStub(): string {
     return "## 7. Observability — the entire chain\n\n"
       . "**Not generated.** The chain's links are observed while the round runs\n"
@@ -1658,8 +1730,10 @@ final class EvaluationReport {
       . "Fill §7.1, §7.2 and §7.3 from `.claude/templates/evaluation.md`. Two of\n"
       . "its blind spots are now lit and should be answered from above rather\n"
       . "than listed as dark: knowledge-layer usage is §4a, and tool refusals\n"
-      . "are the refusal count in §4a. Enforcement effectiveness is still dark\n"
-      . "— see §1.\n";
+      . "are the refusal count in §4a. Enforcement effectiveness — the largest\n"
+      . "of them, and dark in every round to date — is §7a: whether the hook\n"
+      . "was there at all is now a row rather than an assumption. Its refusal\n"
+      . "count is a floor, for the reason §7a gives.\n";
   }
 
   /**

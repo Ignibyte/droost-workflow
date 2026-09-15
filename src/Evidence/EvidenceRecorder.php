@@ -57,6 +57,7 @@ final class EvidenceRecorder {
         'spec_path' => $state->specPath,
       ]);
       $this->ingestToolCalls($store, $state->runId, $phase);
+      $this->ingestGuardCalls($store, $state->runId, $phase);
       $emitted = [];
       foreach ($report->results as $result) {
         $levers = $state->resolvedGates[$result->gate] ?? [];
@@ -160,6 +161,67 @@ final class EvidenceRecorder {
           $phase,
           $row['tool'],
           is_string($row['outcome'] ?? NULL) ? $row['outcome'] : 'unknown',
+          is_string($row['at'] ?? NULL) ? $row['at'] : NULL,
+        );
+      }
+      return;
+    }
+  }
+
+  /**
+   * Moves the guard's append-only invocation ledger into the store.
+   *
+   * THE ANSWER TO "DID ENFORCEMENT HOLD", which no column could give before.
+   * `run.json` carries the level somebody REQUESTED and the status document
+   * infers `effective` from the host the session DECLARED — so a run could
+   * report `hard`, pass every phase and render a clean evaluation with the
+   * hook never invoked once, and nothing would contradict it. Every
+   * evaluation to date lists this as a blind spot, and names it the largest.
+   *
+   * The guard writes the ledger itself, because it is the only thing that
+   * knows it ran; it stays a strictly read-only READER of this database (see
+   * its `unresolved_checks()`), which is why this is a jsonl ingest rather
+   * than a write from the hook. Same shape as the tool-call ledger above, for
+   * the same reason.
+   *
+   * @param \Droost\Workflow\Evidence\EvidenceStore $store
+   *   The store.
+   * @param string $runId
+   *   The run. Lines carrying any other run — the guard fires outside runs
+   *   too, which is the require_run wall's whole job — are not this run's and
+   *   are left where they are.
+   * @param string $phase
+   *   The phase to attribute them to; the ledger cannot know it.
+   */
+  private function ingestGuardCalls(EvidenceStore $store, string $runId, string $phase): void {
+    foreach (['droost/droost-workflow', '.droost-workflow'] as $dir) {
+      $path = rtrim($this->projectRoot, '/') . '/' . $dir . '/guard-calls.jsonl';
+      if (!is_file($path)) {
+        continue;
+      }
+      $lines = array_values(array_filter(
+        preg_split('/\R/', (string) @file_get_contents($path)) ?: [],
+        static fn (string $line): bool => trim($line) !== '',
+      ));
+      // ONLY THIS RUN'S. The guard fires outside runs too — that is the whole
+      // point of the require_run wall — and those lines carry a null run, or a
+      // previous one. Attributing them here would credit this run with a wall
+      // that fired before it existed, which is the sort of number that makes a
+      // record worth less than none.
+      $mine = [];
+      foreach ($lines as $line) {
+        $row = json_decode($line, TRUE);
+        if (is_array($row) && ($row['run'] ?? NULL) === $runId) {
+          $mine[] = $row;
+        }
+      }
+      foreach (array_slice($mine, $store->guardCallCount($runId)) as $row) {
+        $store->recordGuardCall(
+          $runId,
+          $phase,
+          is_string($row['mode'] ?? NULL) && $row['mode'] !== '' ? $row['mode'] : 'unknown',
+          is_string($row['verdict'] ?? NULL) && $row['verdict'] !== '' ? $row['verdict'] : 'invoked',
+          is_string($row['rule'] ?? NULL) && $row['rule'] !== '' ? $row['rule'] : NULL,
           is_string($row['at'] ?? NULL) ? $row['at'] : NULL,
         );
       }

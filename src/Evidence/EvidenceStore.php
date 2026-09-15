@@ -294,6 +294,31 @@ final class EvidenceStore {
       );
       CREATE INDEX IF NOT EXISTS tool_call_by_run ON tool_call (run_id, phase, tool);
 
+      -- DID THE ENFORCEMENT ACTUALLY RUN. Every other column in this database
+      -- describes what the pipeline decided; none of them could say whether
+      -- the hook that holds the discipline was ever invoked. `enforcement` in
+      -- the run record is the level somebody REQUESTED, and `effective` is
+      -- inferred from the host the session DECLARED — a claim about a claim.
+      -- So a run could report `hard` with the hook unwired and no row would
+      -- contradict it, which made the one thing the whole discipline rests on
+      -- the one thing the record could not show.
+      --
+      -- The guard appends these itself, as an append-only JSONL the engine
+      -- ingests at phase close (the tool-call ledger's shape, for the same
+      -- reason: the hook reads this database strictly read-only and must not
+      -- become a writer of it). No command text — the verdict and the rule
+      -- that produced it, which is what an evaluator needs and carries none of
+      -- the agent's content.
+      CREATE TABLE IF NOT EXISTS guard_call (
+        run_id   TEXT NOT NULL,
+        phase    TEXT,
+        mode     TEXT NOT NULL,
+        verdict  TEXT NOT NULL,
+        rule     TEXT,
+        at       TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS guard_call_by_run ON guard_call (run_id, phase, mode);
+
       CREATE TABLE IF NOT EXISTS grounding_row (
         run_id    TEXT NOT NULL,
         phase     TEXT NOT NULL,
@@ -1559,6 +1584,97 @@ final class EvidenceStore {
     $this->connection()
       ->prepare('INSERT INTO tool_call (run_id, phase, tool, outcome, at) VALUES (?, ?, ?, ?, ?)')
       ->execute([$runId, $phase, $tool, $outcome, $at ?? date('c')]);
+  }
+
+  /**
+   * Records one invocation of the enforcement hook.
+   *
+   * Written by the engine from the guard's own append-only ledger, never by
+   * the guard: it reads this database strictly read-only and must not become a
+   * writer of it.
+   *
+   * @param string $runId
+   *   The run the guard saw when it fired.
+   * @param string|null $phase
+   *   The phase open at ingest, or NULL when none was.
+   * @param string $mode
+   *   Which hook fired: pre-tool-use, operator-commands or stop.
+   * @param string $verdict
+   *   What it decided: allow, refuse or nudge.
+   * @param string|null $rule
+   *   For a refusal, the tag naming which rule produced it.
+   * @param string|null $at
+   *   When, ISO-8601. Defaults to now.
+   */
+  public function recordGuardCall(
+    string $runId,
+    ?string $phase,
+    string $mode,
+    string $verdict,
+    ?string $rule = NULL,
+    ?string $at = NULL,
+  ): void {
+    $this->connection()
+      ->prepare('INSERT INTO guard_call (run_id, phase, mode, verdict, rule, at) VALUES (?, ?, ?, ?, ?, ?)')
+      ->execute([$runId, $phase, $mode, $verdict, $rule, $at ?? date('c')]);
+  }
+
+  /**
+   * How many guard invocations this run has already ingested.
+   *
+   * The watermark for moving the guard's append-only `guard-calls.jsonl` into
+   * the store, the same way `toolCallCount()` serves the tool-call ledger, so
+   * recording a phase twice does not double the rows.
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return int
+   *   The count.
+   */
+  public function guardCallCount(string $runId): int {
+    $statement = $this->connection()->prepare('SELECT COUNT(*) FROM guard_call WHERE run_id = ?');
+    $statement->execute([$runId]);
+
+    return (int) $statement->fetchColumn();
+  }
+
+  /**
+   * What the enforcement hook was observed doing, this run.
+   *
+   * The answer to "did the discipline hold", from rows rather than from the
+   * level somebody asked for. Zero invocations on a run that requested `hard`
+   * is the finding, not an absence of one.
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return array<int, array{mode: string, verdict: string, rule: string|null, calls: int}>
+   *   One row per mode/verdict/rule combination, most frequent first.
+   */
+  public function guardCalls(string $runId): array {
+    $statement = $this->connection()->prepare(
+      'SELECT mode, verdict, rule, COUNT(*) AS calls FROM guard_call WHERE run_id = ? '
+      . 'GROUP BY mode, verdict, rule ORDER BY calls DESC, mode, verdict',
+    );
+    $statement->execute([$runId]);
+    /** @var list<array<string, mixed>> $rows */
+    $rows = $statement->fetchAll();
+    $out = [];
+    foreach ($rows as $row) {
+      $mode = $row['mode'] ?? NULL;
+      $verdict = $row['verdict'] ?? NULL;
+      $rule = $row['rule'] ?? NULL;
+      $calls = $row['calls'] ?? NULL;
+      $out[] = [
+        'mode' => is_string($mode) ? $mode : '',
+        'verdict' => is_string($verdict) ? $verdict : '',
+        'rule' => is_string($rule) && $rule !== '' ? $rule : NULL,
+        'calls' => is_numeric($calls) ? (int) $calls : 0,
+      ];
+    }
+
+    return $out;
   }
 
   /**

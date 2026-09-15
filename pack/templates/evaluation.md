@@ -61,7 +61,7 @@ preset frozen into **this** run — a lever's meaning changes with it.
 |---|---|---|---|---|---|---|---|
 | `mode` | | | `.levers.mode` | | | `.run.effective_mode` | |
 | `preset` | | | `.levers.preset` | | | `.run.preset` (frozen) | |
-| `enforcement` | | | `.levers.enforcement` | | | **live only — §7.3** | |
+| `enforcement` | | | `.levers.enforcement` | | | requested: the lever. OBSERVED: §7a of the generated evaluation (`guard_call` rows) | |
 | `require_run` | | | `.levers.require_run` | | | guard refusal on a custom write | |
 | `max_gate_retries` | | | `.levers.max_gate_retries` | | | `.run.feedback_attempts` | |
 | `seekers` | | | **no pre-run probe** | | | `.run.seeker_history` | |
@@ -317,7 +317,7 @@ is a false claim of coverage.
 
 | Blind spot | Why it is dark | Consequence for this round |
 |---|---|---|
-| Enforcement effectiveness | `run.json` stores the **requested** value only; `{requested, effective, reason}` is computed at read time and never persisted | No archived round can say whether its discipline held |
+| ~~Enforcement effectiveness~~ | **NO LONGER BLIND, as of 2026-09-15, and it was the largest one here.** The guard appends one line per invocation to `guard-calls.jsonl`, ingested at phase close, so whether the hook was THERE is a row. `run.json` still stores only the **requested** level and `{requested, effective, reason}` is still computed at read time — `effective` infers from the declared host, a claim about a claim — which is why the two must be read together. | Read §7a of the generated evaluation. **No rows on a round claiming `hard` is the finding**: either the hook never ran, or it ran on a build older than the ledger. Its refusal count is a FLOOR — the guard has 26 exit paths and only two are centralised, so most rows say `invoked`, meaning "it ran; this row does not say what it decided" |
 | ~~Knowledge-layer usage~~ | **NO LONGER BLIND.** Every tool result appends to `tool-calls.jsonl`, so "was the codebase asked" is a fact with a count, not a doctrine. | Report it in §4a rather than listing it here |
 | ~~Write-gate decisions~~ | **NO LONGER BLIND** for tool refusals: a gate refusal returns through `fail()` and lands in the ledger with `outcome: fail`. Drush-surface arming is still unlogged. | Count refusals in §4a |
 | Search quality | With no embedding backend, conceptual queries return **empty-but-successful** | Indistinguishable from "nothing exists" |

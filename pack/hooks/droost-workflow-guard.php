@@ -222,6 +222,69 @@ register_shutdown_function(static function () use ($crashExit): void {
   }
 });
 
+// THE ONE THING THE RECORD COULD NOT SHOW: that this hook ran at all.
+//
+// `run.json` carries the enforcement level somebody REQUESTED, and the status
+// document's `effective` is inferred from the host the session DECLARED — a
+// claim derived from a claim. So a run could report `enforcement: hard`, pass
+// every phase, and render a clean evaluation while this file was never invoked
+// once: settings.json edited, a host that ignores hooks, a stale copy that
+// crashed on load. Nothing anywhere contradicted it. Every evaluation written
+// so far has had to list "whether enforcement held" as a blind spot, and it
+// was the largest one, because it is the thing the entire discipline rests on.
+//
+// One append per invocation, and it cannot be wrong about the only question it
+// answers: a shutdown function runs however this script leaves — normal exit,
+// `exit(2)`, an uncaught throw, a fatal. A run whose store holds no guard rows
+// while claiming `hard` is now a finding rather than an unknown.
+//
+// VERDICTS ARE NOT CLAIMED HERE. There are 26 exit sites and no chokepoint, so
+// a row says `invoked` unless a branch that IS centralised has set something
+// better. `invoked` means exactly "the hook ran; this row does not say what it
+// decided" — a refusal count derived from rows that default to "allow" would
+// be worse than no count, because it would read as evidence.
+//
+// JSONL, ingested by the engine at phase close, rather than a write to the
+// evidence store: this file reads that database strictly read-only (see
+// `unresolved_checks()`) and must not become a writer of it. The tool-call
+// ledger has the same shape for the same reason. The state directory is
+// already a protected path, so the agent cannot edit what this writes.
+$GLOBALS['workflow_guard_verdict'] = 'invoked';
+$GLOBALS['workflow_guard_rule'] = NULL;
+register_shutdown_function(static function () use ($root, $stateDir): void {
+  $directory = $root . '/' . $stateDir;
+  // Only where the run state already lives. Creating the directory to record
+  // that the hook fired would make this file a writer on every project that
+  // has never run anything, and `mkdir droost/droost-workflow` is itself a
+  // move this guard treats as significant.
+  if (!is_dir($directory)) {
+    return;
+  }
+  $run = NULL;
+  $record = @file_get_contents($directory . '/run.json');
+  if (is_string($record)) {
+    $decoded = json_decode($record, TRUE);
+    if (is_array($decoded) && is_string($decoded['run_id'] ?? NULL)) {
+      $run = $decoded['run_id'];
+    }
+  }
+  $line = json_encode([
+    'run' => $run,
+    'mode' => $GLOBALS['workflow_guard_mode'] ?? '',
+    'verdict' => $GLOBALS['workflow_guard_verdict'] ?? 'invoked',
+    'rule' => $GLOBALS['workflow_guard_rule'] ?? NULL,
+    'at' => date('c'),
+  ], JSON_UNESCAPED_SLASHES);
+  if ($line === FALSE) {
+    return;
+  }
+  // Silenced and unchecked on purpose. A hook that failed because it could not
+  // write its own diary would turn a full disk into an agent that cannot act;
+  // the record is worth having and worth nothing if it can block the thing it
+  // is recording. LOCK_EX because several tool calls can overlap.
+  @file_put_contents($directory . '/guard-calls.jsonl', $line . "\n", FILE_APPEND | LOCK_EX);
+});
+
 // The payload is read ONCE: several branches below consult it, and a stream
 // read twice is empty the second time.
 $stdin = (string) stream_get_contents(STDIN);
@@ -725,6 +788,11 @@ function operator_commands_guard(string $stdin): void {
       $cli => 'droost-workflow ' . $which,
       default => 'droost:workflow:' . $which,
     };
+    // One of the two branches that ARE centralised, so this row can say what
+    // it decided instead of only that the hook ran. The rule tag is the verb,
+    // which is what an evaluator wants to see counted.
+    $GLOBALS['workflow_guard_verdict'] = 'refuse';
+    $GLOBALS['workflow_guard_rule'] = 'operator-command:' . $which;
     // The RUNNABLE command, which is not the same string as the verb's name.
     // A drush verb is not a command without `drush` in front of it, and the
     // hand-over line is the whole point of this refusal: printing
@@ -4044,6 +4112,12 @@ function require_run_guard(string $root, string $mode, string $stdin, string $st
       $file,
     );
   if ($level === 'hard') {
+    // The second centralised branch, so the wall's firings are countable. This
+    // is the one an evaluator most wants a number for: it is the moment the
+    // pipeline actually stopped ungoverned work, and until now the only trace
+    // was a sentence in a transcript nobody could query.
+    $GLOBALS['workflow_guard_verdict'] = 'refuse';
+    $GLOBALS['workflow_guard_rule'] = 'require-run';
     fwrite(STDERR, $message);
     exit(2);
   }
@@ -4067,6 +4141,8 @@ function require_run_guard(string $root, string $mode, string $stdin, string $st
   //
   // $stateDir is what the resolver already decided, so guard and engine cannot
   // disagree and nothing is created anywhere the engine would not have.
+  $GLOBALS['workflow_guard_verdict'] = 'nudge';
+  $GLOBALS['workflow_guard_rule'] = 'require-run:soft';
   $marker = $root . '/' . $stateDir . '/.guard-warned-require-run';
   if (!is_file($marker)) {
     @mkdir($root . '/' . $stateDir, 0777, TRUE);
