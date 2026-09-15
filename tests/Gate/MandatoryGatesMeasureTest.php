@@ -341,6 +341,49 @@ final class MandatoryGatesMeasureTest extends WorkflowTestCase {
   }
 
   /**
+   * On a Drupal site, phpcs judges the site's own code and never core.
+   *
+   * PHPStan was scoped to the project's own trees; phpcs was left at `.`
+   * with a vendored `--ignore` that knows nothing about Drupal, so on a site
+   * it walked `<docroot>/core` and reported style errors in Drupal's own
+   * files — against a README that promises the gates never judge core. Two
+   * gates, one question, two answers. Driven on both docroot spellings,
+   * because the one that exposed it was `html/`.
+   */
+  public function testPhpcsOnTheSiteNeverJudgesCore(): void {
+    foreach (['web', 'html'] as $docroot) {
+      $root = $this->makeRoot();
+      mkdir($root . '/' . $docroot . '/core/lib', 0755, TRUE);
+      file_put_contents($root . '/' . $docroot . '/core/lib/Drupal.php', "<?php\n");
+      mkdir($root . '/' . $docroot . '/modules/custom/acme', 0755, TRUE);
+      file_put_contents($root . '/' . $docroot . '/modules/custom/acme/acme.module', "<?php\n");
+
+      $method = new \ReflectionMethod(ShellGateExecutor::class, 'argvFor');
+      $executor = new ShellGateExecutor(
+        static fn (): array => [0, '', ''],
+        static fn (): int => 0,
+      );
+      $argv = $method->invoke(
+        $executor,
+        new GateSettings('phpcs', TRUE, ['standard' => 'Drupal,DrupalPractice']),
+        '/bin/phpcs',
+        $root,
+      );
+      $this->assertIsArray($argv);
+
+      $this->assertNotContains('.', $argv, $docroot . ': `.` is the whole site, core included');
+      $this->assertContains($docroot . '/modules/custom', $argv, $docroot . ': the site\'s own code is the subject');
+      foreach ($argv as $argument) {
+        $this->assertNotSame(
+          $docroot . '/core',
+          $argument,
+          $docroot . ': core is never handed to a gate',
+        );
+      }
+    }
+  }
+
+  /**
    * A project root with the mandatory binaries present.
    *
    * @return string

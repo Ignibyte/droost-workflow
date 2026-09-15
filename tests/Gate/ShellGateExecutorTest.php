@@ -1006,6 +1006,10 @@ class ShellGateExecutorTest extends WorkflowTestCase {
     // because a standard without a path is not a scan.
     $argv = $method->invoke($executor, $gate, '/bin/phpcs', $root);
     $this->assertIsArray($argv);
+    // A plain project with nothing of its own still gets the project root:
+    // the guarantee is that phpcs is told WHERE to look, because a standard
+    // with no path is not a scan. On a Drupal site it is told the custom
+    // trees instead — `.` there means core, which the gates never judge.
     $this->assertContains('.', $argv, 'phpcs is told what to look at');
     $this->assertNotSame([], array_filter($argv, static fn (mixed $a): bool => is_string($a) && str_starts_with($a, '--standard=')));
 

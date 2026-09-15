@@ -8,6 +8,7 @@ use Droost\Workflow\Baseline\BaselineAwareExecutorInterface;
 use Droost\Workflow\Baseline\BaselineContext;
 use Droost\Workflow\Baseline\FindingParsers;
 use Droost\Workflow\Config\GateSettings;
+use Droost\Workflow\Config\PhpcsStandard;
 
 /**
  * Runs a gate by spawning the consuming repo's own tool.
@@ -1422,7 +1423,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     // test, and phpcs does not re-run there, so the run could not be recovered
     // from its own levers.
     $ownRuleset = NULL;
-    foreach (['phpcs.xml.dist', 'phpcs.xml'] as $candidate) {
+    foreach (self::PHPCS_CONFIGS as $candidate) {
       if (is_file(rtrim($root, '/') . '/' . $candidate)) {
         $ownRuleset = $candidate;
         break;
@@ -1442,11 +1443,23 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         $binary,
         '-q',
         '--report=json',
-        // The project root, because a `--standard` with no path is not a scan:
-        // phpcs exits 16 and the gate records a labeled pass over nothing. A
-        // `paths` lever replaces this below; the vendored ignore keeps it from
-        // walking dependencies.
-        '.',
+        // THE PROJECT'S OWN CODE — the same subject phpstan gets, by the same
+        // rule. This was `.` plus a vendored `--ignore`, which does not
+        // exclude Drupal: on a site, phpcs walked `<docroot>/core` and
+        // reported style errors in Drupal's own files, against a README that
+        // promises the gates never judge core. phpstan had exactly this bug
+        // and was fixed by scoping to the project's own trees (157b358);
+        // phpcs kept `.` because it has an `--ignore` flag, and the ignore
+        // list was never taught about core, contrib or a docroot. Two gates,
+        // one question, two answers — so they ask one function now.
+        //
+        // Off a Drupal site the old `.` is kept when the scan finds nothing,
+        // so the guarantee that phpcs is always told WHERE to look survives;
+        // on a site it is not, because `.` there means core. A site with no
+        // custom code of its own has genuinely nothing for this gate, and
+        // `foundNothingToCheck()` already records that as the labelled
+        // non-measurement it is rather than a green.
+        ...$this->phpcsSubject($root, $gate),
         '--standard=' . (is_string($standard) ? $standard : 'Drupal'),
         // PHP_CodeSniffer 4 dropped the JS/CSS tokenizers and with them the
         // wider default extension set: left alone it now checks `php` only.
@@ -1574,11 +1587,46 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     if (trim((string) ($gate->options['paths'] ?? '')) !== '') {
       return [];
     }
-    if ($this->configuresItself($root, self::PHPSTAN_CONFIGS)) {
+    // THE GATE'S OWN CONFIG FILE, not phpstan's for both. This asked
+    // `PHPSTAN_CONFIGS` whatever the gate was, which was invisible while only
+    // phpstan called it — and it is the wrong question for phpcs, whose
+    // ruleset is `phpcs.xml[.dist]`.
+    if ($this->configuresItself($root, $gate->name === 'phpcs' ? self::PHPCS_CONFIGS : self::PHPSTAN_CONFIGS)) {
       return [];
     }
 
     return $this->ownCodePaths($root, $gate);
+  }
+
+  /**
+   * What phpcs is pointed at when no ruleset and no lever name a subject.
+   *
+   * The project's own code — the same answer phpstan gets — and `.` only
+   * where that scan finds nothing AND the project is not Drupal. On a Drupal
+   * site `.` means core, which is the thing the README promises the gates
+   * never judge; off one it is the long-standing behaviour and the vendored
+   * `--ignore` covers it.
+   *
+   * @param string $root
+   *   The project root.
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The phpcs gate.
+   *
+   * @return list<string>
+   *   Paths for argv, possibly empty when something else names the subject.
+   */
+  private function phpcsSubject(string $root, GateSettings $gate): array {
+    $own = $this->defaultPhpPaths($root, $gate);
+    if ($own !== []) {
+      return $own;
+    }
+    if (trim((string) ($gate->options['paths'] ?? '')) !== ''
+      || $this->configuresItself($root, self::PHPCS_CONFIGS)
+      || PhpcsStandard::drupalApplies($root)) {
+      return [];
+    }
+
+    return ['.'];
   }
 
   /**
