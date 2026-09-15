@@ -1361,7 +1361,14 @@ final class WorkflowFacade {
       $writeTo = trim($writeTo) === ''
         ? 'droost/evidence/' . $runId . '.md'
         : trim($writeTo);
-      $target = rtrim($projectRoot, '/') . '/' . ltrim($writeTo, '/');
+      // AN ABSOLUTE PATH IS ABSOLUTE. `ltrim($writeTo, '/')` turned
+      // `--write=/tmp/round.md` into `<root>/tmp/round.md` — a file created
+      // somewhere nobody asked for, while the result reported the path that
+      // had been passed, so the report was not merely wrong about the
+      // location, it named a file that did not exist.
+      $target = str_starts_with($writeTo, '/')
+        ? $writeTo
+        : rtrim($projectRoot, '/') . '/' . $writeTo;
       $directory = dirname($target);
       if (!is_dir($directory) && !@mkdir($directory, 0775, TRUE) && !is_dir($directory)) {
         throw StateError::unwritable($target, 'the directory to hold it could not be created');
@@ -1369,7 +1376,8 @@ final class WorkflowFacade {
       if (@file_put_contents($target, $markdown) === FALSE) {
         throw StateError::unwritable($target, 'the file could not be written');
       }
-      $written = $writeTo;
+      // WHERE IT WENT, not what was asked for.
+      $written = $target;
     }
 
     return ['markdown' => $markdown, 'run_id' => $runId, 'written_to' => $written];
