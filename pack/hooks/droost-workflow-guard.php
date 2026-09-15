@@ -1903,11 +1903,35 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // anything. `$plain` is already unwrapped, so its head IS the verb.
     if (preg_match($destructive, ltrim($plain[0] ?? '', "\x01")) === 1) {
       $protectedDirs = enforcement_protected_dirs($stateDir);
-      foreach ($tokens as $operand) {
+      // A COPY READS ITS SOURCE. This judged every operand, so `cp -Rp
+      // droost/droost-workflow <somewhere>` was refused as though it removed
+      // the directory — and that is ARCHIVING the run state, which is what
+      // the eval harness does when it collects a finished round, and what
+      // `reset --force` promises in this very message ("archives rather than
+      // discards"). The rule's own words are "moving or removing it disarms
+      // every one of them"; a copy does neither, and the original stays
+      // exactly where the enforcement expects it.
+      //
+      // So for the copying verbs only the DESTINATION is judged — the last
+      // operand, as every one of them defines it. `mv` keeps every operand,
+      // because its source does not survive.
+      $copyLike = in_array(
+        strtolower(basename(ltrim($plain[0] ?? '', "\x01"))),
+        ['cp', 'rsync', 'install'],
+        TRUE,
+      );
+      $candidates = [];
+      foreach (array_slice($tokens, 1) as $operand) {
         $operand = ltrim($operand, "\x01");
         if ($operand === '' || str_starts_with($operand, '-')) {
           continue;
         }
+        $candidates[] = $operand;
+      }
+      if ($copyLike && $candidates !== []) {
+        $candidates = [end($candidates)];
+      }
+      foreach ($candidates as $operand) {
         // BRACE-EXPANDED. `rm -rf {droost,.claude}` names two directories in
         // one operand, neither spelled literally, and wiped the entire
         // enforcement tree in one allowed command; `cd droost && rm -rf
