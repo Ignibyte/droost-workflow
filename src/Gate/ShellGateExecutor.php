@@ -1613,6 +1613,61 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   }
 
   /**
+   * The candidates git does not ignore.
+   *
+   * A DIRECTORY THE PROJECT IGNORES IS NOT THE PROJECT'S CODE, and the
+   * project has already said which those are. `notTheProjectsCode()` knows
+   * `vendor/`, `node_modules/` and droost's own installed directories by
+   * name, which covers the common shapes and nothing else — so a staging or
+   * build directory got analysed as though somebody had written it for this
+   * repository.
+   *
+   * Measured on a live round. kchockey stages the droost packages under test
+   * into `droost-packages/` to feed a composer path repo, and gitignores it.
+   * phpcs found it, walked droost's OWN SOURCE, and the code phase failed on
+   * 112 style errors inside the staged copy of droost's own `PresetResolver` —
+   * recorded as the agent's fault, blocking a ticket that had not touched a
+   * line of it. A tool judging the tool's own source is the category error
+   * `DROOST_OWN_DIRS` was written to stop; this is the same error arriving
+   * through a directory that list could not have known about.
+   *
+   * Asking git is better than growing the list, because the answer is the
+   * project's own and needs no maintenance here. A repository that is not a
+   * git checkout, or a git that cannot answer, loses nothing: everything is
+   * kept, which is what happened before.
+   *
+   * @param string $base
+   *   The project root.
+   * @param list<string> $candidates
+   *   Project-relative paths.
+   *
+   * @return list<string>
+   *   Those of them git does not ignore.
+   */
+  private function notIgnoredByGit(string $base, array $candidates): array {
+    if ($candidates === [] || !is_dir($base . '/.git')) {
+      return $candidates;
+    }
+    $kept = [];
+    foreach ($candidates as $candidate) {
+      // One call per candidate: `check-ignore` exits 0 when the path IS
+      // ignored, 1 when it is not, and 128 when it cannot answer at all —
+      // and only a clean 0 is taken as "ignored", so a git that errors keeps
+      // the path rather than silently narrowing what the gates examine.
+      [$exit] = ($this->runner)(
+        ['git', 'check-ignore', '-q', '--', $candidate],
+        $base,
+        15,
+      );
+      if ($exit !== 0) {
+        $kept[] = $candidate;
+      }
+    }
+
+    return $kept;
+  }
+
+  /**
    * What phpcs is pointed at when no ruleset and no lever name a subject.
    *
    * The project's own code — the same answer phpstan gets — and `.` only
@@ -1711,6 +1766,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         $found[] = $candidate;
       }
     }
+    $found = $this->notIgnoredByGit($base, $found);
     sort($found);
 
     return $found;

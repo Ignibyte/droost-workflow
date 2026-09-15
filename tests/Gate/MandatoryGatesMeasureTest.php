@@ -341,6 +341,45 @@ final class MandatoryGatesMeasureTest extends WorkflowTestCase {
   }
 
   /**
+   * A directory the project ignores is not the project's code.
+   *
+   * `notTheProjectsCode()` knows `vendor/`, `node_modules/` and droost's own
+   * installed directories BY NAME, which covers the common shapes and nothing
+   * else. Measured on a live round: kchockey stages the droost packages under
+   * test into a gitignored `droost-packages/` to feed a composer path repo,
+   * phpcs found it and walked droost's OWN SOURCE, and the code phase failed
+   * on 112 style errors in `droost-packages/workflow/src/Config/
+   * PresetResolver.php` — recorded as the agent's fault, blocking a ticket
+   * that had not touched a line of it.
+   *
+   * Asking git beats growing the list: the answer is the project's own.
+   */
+  public function testGitIgnoredDirectoriesAreNotAnalysed(): void {
+    $root = $this->projectWithTools();
+    mkdir($root . '/.git', 0755, TRUE);
+    foreach (['src', 'staged/inner'] as $dir) {
+      mkdir($root . '/' . $dir, 0755, TRUE);
+      file_put_contents($root . '/' . $dir . '/Thing.php', "<?php\n");
+    }
+
+    // The runner stands in for git: `check-ignore -q` exits 0 for an ignored
+    // path, 1 for one that is tracked.
+    $executor = new ShellGateExecutor(
+      static function (array $argv): array {
+        $ignored = $argv[0] === 'git' && in_array('staged', $argv, TRUE);
+        return [$ignored ? 0 : 1, '', ''];
+      },
+      static fn (): int => 0,
+    );
+    $method = new \ReflectionMethod(ShellGateExecutor::class, 'argvFor');
+    $argv = $method->invoke($executor, new GateSettings('phpstan', TRUE, ['level' => 1]), '/bin/phpstan', $root);
+
+    $this->assertIsArray($argv);
+    $this->assertContains('src', $argv, 'the project\'s own code is analysed');
+    $this->assertNotContains('staged', $argv, 'and what the project ignores is not');
+  }
+
+  /**
    * On a Drupal site, phpcs judges the site's own code and never core.
    *
    * PHPStan was scoped to the project's own trees; phpcs was left at `.`
