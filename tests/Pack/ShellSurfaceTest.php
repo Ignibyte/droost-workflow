@@ -1599,11 +1599,25 @@ final class ShellSurfaceTest extends WorkflowTestCase {
     chmod($root . '/bin/tool', 0755);
     file_put_contents($root . '/build.sh', "#!/usr/bin/env bash\nset -e\nphpcs src\n");
     chmod($root . '/build.sh', 0755);
+    // A source file that MENTIONS an operator verb, the way a gate's own
+    // remedy message does.
+    file_put_contents(
+      $root . '/mentions.php',
+      "<?php\n// Remedy: ask the operator for `drush droost:workflow:baseline`.\n",
+    );
     foreach ([
       'python3 decode.py',
       './decode.py',
       'bin/tool --version',
       './build.sh',
+      // AN INTERPRETER GIVEN CODE IS GIVEN DATA. `perl -pi -e '<code>' FILE`
+      // edits FILE; the file is the subject, not a second program. Every
+      // non-flag argument was opened and judged as a script, so a source file
+      // that merely MENTIONS an operator verb — in a string, a comment, a
+      // remedy message — could not be edited. Hit while editing the gate
+      // whose own remedy names `droost:workflow:baseline`.
+      'perl -pi -e \'s/a/b/\' mentions.php',
+      'python3 -c \'print(open("mentions.php").read())\' ',
     ] as $command) {
       [$exit, , $stderr] = $this->shell($root, $command);
       $this->assertSame(0, $exit, $command . ' is ordinary: ' . $stderr);

@@ -1408,6 +1408,16 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
         && in_array($second, ['exec', 'ssh', 'run'], TRUE))
       || ($head === 'drush' && str_starts_with($second, 'php'));
     $runs = $takesCommandString || $selfExecuting;
+    // AN INTERPRETER GIVEN CODE IS GIVEN DATA, not more scripts. `perl -pi -e
+    // '<code>' FILE` edits FILE; `python3 -c '<code>' data.json` reads it.
+    // The read tier below treated every non-flag argument as a script the
+    // command RUNS, so it opened the input file and judged its contents —
+    // and a source file that merely MENTIONS an operator verb (in a string,
+    // in a comment, in a remedy message) made editing it impossible. Hit
+    // while editing the gate whose remedy names `droost:workflow:baseline`.
+    // When the invocation carries inline code, the code is the program and
+    // the files are its subject.
+    $inlineCodeHeld = operator_commands_inline_code($bare) !== NULL;
     // A SCRIPT FILE IS A COMMAND LINE THE GUARD CAN READ. `bash script.sh`
     // hid the operator's verb in a file, and the guard judged the two words in
     // front of it. It is a file on disk, inside the project, written moments
@@ -1417,7 +1427,7 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
     // `node_modules/` is a tool's source, not a command line, and reading
     // PHP as a shell script invents refusals out of string literals.
     $inners = [];
-    if ($runs && $depth < 2) {
+    if ($runs && !$inlineCodeHeld && $depth < 2) {
       // The HEAD too, for `./do.sh` — there the script is the program, not an
       // argument to one.
       foreach ($selfExecuting ? $bare : array_slice($bare, 1) as $argument) {
@@ -1536,7 +1546,6 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
     // for the spelling nobody uses. The inner scan still runs, because an
     // operator verb inside the code is worth catching; the token is KEPT as
     // well, so the code can also be read as code.
-    $inlineCodeHeld = operator_commands_inline_code($bare) !== NULL;
     $kept = [];
     foreach ($tokens as $token) {
       // WHATEVER is in it. This also required the token to carry an operator
