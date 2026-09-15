@@ -1570,6 +1570,48 @@ final class ShellSurfaceTest extends WorkflowTestCase {
   }
 
   /**
+   * A script is read in its own language, not pretended to be shell.
+   *
+   * This tier exists to catch an operator verb hidden in a file. It did that
+   * by tokenising the file AS A SHELL COMMAND LINE whatever language it was
+   * in, and the tokens that fall out of reading Python or PHP that way are
+   * nonsense the path and glob rules then judge. Caught inside a live run: a
+   * subject decoding a string wrote `'=' * (-len(s) % 4)`, and Python's
+   * multiplication operator was read as a shell wildcard "expanding onto" the
+   * lever file. The same defect refused `bin/droost-workflow init` — a PHP
+   * CLI — and so refused the command that reinstalls this guard.
+   */
+  public function testTheScriptIsReadInItsOwnLanguage(): void {
+    $root = $this->lab();
+    mkdir($root . '/bin', 0755, TRUE);
+    file_put_contents(
+      $root . '/decode.py',
+      "import base64\ns = 'abc'\ns += '=' * (-len(s) % 4)\nprint(s)\n",
+    );
+    file_put_contents($root . '/bin/tool', "#!/usr/bin/env php\n<?php\nforeach (glob('*.php') as \$f) { echo \$f; }\n");
+    chmod($root . '/bin/tool', 0755);
+    file_put_contents($root . '/build.sh', "#!/usr/bin/env bash\nset -e\nphpcs src\n");
+    chmod($root . '/build.sh', 0755);
+    foreach ([
+      'python3 decode.py',
+      './decode.py',
+      'bin/tool --version',
+      './build.sh',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' is ordinary: ' . $stderr);
+    }
+
+    // What the tier is FOR still holds, in either kind of file.
+    file_put_contents($root . '/evil.sh', "#!/usr/bin/env bash\ndrush droost:workflow:bypass \"x\"\n");
+    file_put_contents($root . '/evil.py', "import os\nos.system('drush droost:workflow:gate-waive phpcs')\n");
+    foreach (['bash evil.sh', './evil.sh', 'python3 evil.py'] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' hides an operator verb in a file');
+    }
+  }
+
+  /**
    * A program awk or sed runs is code, and code that writes is a write.
    *
    * Neither spells a redirect the operand loop can see and neither is a

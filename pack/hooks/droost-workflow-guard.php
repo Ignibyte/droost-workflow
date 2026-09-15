@@ -1487,6 +1487,41 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
         if ($script === '' || str_contains($script, "\0")) {
           continue;
         }
+        // SHELL IS TOKENISED AS SHELL. EVERY OTHER LANGUAGE IS READ AS TEXT.
+        //
+        // This tier exists to catch an operator verb hidden in a file —
+        // `bash do.sh` where do.sh holds `drush droost:workflow:bypass`. It
+        // did that by tokenising the file AS A SHELL COMMAND LINE, whatever
+        // language it was in, and the tokens that come out of reading Python
+        // or PHP that way are nonsense that the path and glob rules then
+        // judge. Measured inside a live run: a subject decoding a string
+        // wrote `'=' * (-len(s) % 4)`, and the `*` — Python's multiplication
+        // operator — was read as a shell wildcard "expanding onto" the lever
+        // file. Moving the code into a `.py` did not help, because the guard
+        // then read the .py the same way. The same defect refused
+        // `bin/droost-workflow init`, a PHP CLI, and so refused the command
+        // that reinstalls this guard.
+        //
+        // A non-shell file is scanned for the operator verbs instead, which
+        // is the whole reason to open it. Its syntax is not shell and is not
+        // pretended to be.
+        $extension = strtolower((string) pathinfo($path, PATHINFO_EXTENSION));
+        $isShell = in_array($extension, ['sh', 'bash', 'zsh', 'ksh'], TRUE)
+          || preg_match('#^\#!\S*/(?:env\s+)?(?:ba|z|k|da)?sh\b#', $script) === 1;
+        if (!$isShell) {
+          if (preg_match($verbs, $script) === 1) {
+            fwrite(STDERR, sprintf(
+              'This runs %s, and that file contains one of the operator-only '
+              . 'verbs. Putting the command in a file does not make it the '
+              . 'agent\'s to run — show the OPERATOR the command and the '
+              . 'reason, and let them run it. (Refused: %s)',
+              $file,
+              trim($command),
+            ));
+            exit(2);
+          }
+          continue;
+        }
         foreach (operator_commands_invocations($script, $depth + 1) as $line) {
           $inners[] = $line;
         }
