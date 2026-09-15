@@ -670,7 +670,14 @@ function operator_commands_guard(string $stdin): void {
       continue;
     }
     $which = NULL;
-    if (preg_match('/droost:workflow:gate-waive\b|(?<![\w-])dwfgw\b/', $line) === 1) {
+    // BOTH SPELLINGS, for all three. These matched the drush verb only,
+    // and the standalone binary grew the same three commands on 2026-09-15 —
+    // so `droost-workflow bypass "x"` would have granted the operator's
+    // bypass from the agent's own shell, past a wall that refuses the drush
+    // spelling of the identical act. A verb is the same act whichever surface
+    // spells it.
+    if (preg_match('/droost:workflow:gate-waive\b|(?<![\w-])dwfgw\b'
+      . '|droost-workflow\s+gate-waive\b/', $line) === 1) {
       $which = 'gate-waive';
     }
     elseif (preg_match('/(?:droost:workflow:baseline|(?<![\w-])dwfbl|droost-workflow\s+baseline)\b/', $line) === 1
@@ -681,11 +688,13 @@ function operator_commands_guard(string $stdin): void {
       // to baseline; the write is the operator's.
       $which = 'baseline';
     }
-    elseif (preg_match('/droost:workflow:bypass\b|(?<![\w-])dwfby\b/', $line) === 1
+    elseif (preg_match('/droost:workflow:bypass\b|(?<![\w-])dwfby\b'
+      . '|droost-workflow\s+bypass\b/', $line) === 1
       && !operator_commands_flagged($tokens, ['--off'])) {
       $which = 'bypass';
     }
-    elseif (preg_match('/(?:droost:workflow:effort|(?<![\w-])dwfe)\b/', $line) === 1
+    elseif (preg_match('/(?:droost:workflow:effort|(?<![\w-])dwfe'
+      . '|droost-workflow\s+effort)\b/', $line) === 1
       && !operator_commands_flagged($tokens, ['--preview'])
       && array_intersect($tokens, ['custom', 'low', 'medium', 'high', 'xhigh', 'max', 'factory', 'light']) !== []) {
       // Moving the dial is the operator's act whichever way it goes — down is
@@ -706,15 +715,32 @@ function operator_commands_guard(string $stdin): void {
     if ($which === NULL) {
       continue;
     }
-    $name = str_starts_with($which, 'gate (') ? 'droost:gate' : 'droost:workflow:' . $which;
+    $gate = str_starts_with($which, 'gate (');
+    // Name it back in the spelling that was USED. Every one of these verbs
+    // now exists on two surfaces, and telling an operator to run the drush
+    // command on a project with no Drupal is advice they cannot take.
+    $cli = !$gate && preg_match('/droost-workflow\s+' . preg_quote($which, '/') . '\b/', $line) === 1;
+    $name = match (TRUE) {
+      $gate => 'droost:gate',
+      $cli => 'droost-workflow ' . $which,
+      default => 'droost:workflow:' . $which,
+    };
+    // The RUNNABLE command, which is not the same string as the verb's name.
+    // A drush verb is not a command without `drush` in front of it, and the
+    // hand-over line is the whole point of this refusal: printing
+    // `! droost:workflow:gate-waive …` gives the operator something their
+    // shell does not have. The standalone binary IS the command, so it stands
+    // alone. Caught by GuardTest, which pins the hand-over's exact shape.
+    $handover = $cli ? $name : 'drush ' . $name;
     fwrite(STDERR, sprintf(
       '%1$s is the OPERATOR\'s command — an agent may propose it, never run it. '
       . 'Show the operator the exact command with your reason and ask them to '
-      . 'run it in THEIR terminal (in Claude Code: `! drush %1$s …`), then '
+      . 'run it in THEIR terminal (in Claude Code: `! %2$s …`), then '
       . 'continue once they say it is done. The record must carry a human\'s '
-      . 'decision, not yours.%2$s',
+      . 'decision, not yours.%3$s',
       $name,
-      str_starts_with($which, 'gate (') ? ' (Disarming a gate — `off` — needs no operator; only arming does.)' : '',
+      $handover,
+      $gate ? ' (Disarming a gate — `off` — needs no operator; only arming does.)' : '',
     ));
     exit(2);
   }
@@ -2954,7 +2980,8 @@ function guard_run_is_live(string $root, string $stateDir): bool {
  */
 function operator_verb_pattern(): string {
   return '/droost:workflow:(gate-waive|baseline|bypass|effort)\b'
-    . '|(?<![\w-])(dwfgw|dwfbl|dwfby|dwfe)\b|droost-workflow\s+baseline\b'
+    . '|(?<![\w-])(dwfgw|dwfbl|dwfby|dwfe)\b'
+    . '|droost-workflow\s+(baseline|gate-waive|bypass|effort)\b'
     . '|(?:droost:gate|(?<![\w-])dgate)\b/';
 }
 

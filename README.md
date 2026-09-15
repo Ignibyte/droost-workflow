@@ -509,18 +509,24 @@ hook, and it refuses the operator's commands from the agent's shell, plus any
 agent edit under `droost/baseline/`, under `droost/droost-workflow/`, or to the
 guard itself. There are five, and each is a loosening somebody has to own:
 
+Each verb has TWO spellings — the drush one and the standalone binary's — and
+the guard refuses both. It has to: `droost-workflow bypass "x"` and
+`drush droost:workflow:bypass "x"` are the same act, and a wall that knows only
+one of them is not a wall. The refusal names the spelling that was used, so the
+command it hands the operator is one they can actually run.
+
 | Refused from the agent's shell | What is still the agent's to run |
 |---|---|
-| `droost:workflow:gate-waive` | — nothing; a waiver is always the operator's |
-| `droost:workflow:baseline` (writing) | `--status` and `--measure`, which only read |
-| `droost:workflow:bypass` | `bypass --off`, which tightens |
-| `droost:workflow:effort <level>` | bare `effort` (reports) and `effort <level> --preview` (prices it) |
+| `droost:workflow:gate-waive`, `droost-workflow gate-waive` | — nothing; a waiver is always the operator's |
+| `droost:workflow:baseline`, `droost-workflow baseline` (writing) | `--status` and `--measure`, which only read |
+| `droost:workflow:bypass`, `droost-workflow bypass` | `bypass --off`, which tightens |
+| `droost:workflow:effort <level>`, `droost-workflow effort <level>` | bare `effort` (reports) and `effort <level> --preview` (prices it) |
 | arming a write gate — `droost:gate allow_* on`, or the `config:set droost.settings allow_* true` form | disarming the same gate, which tightens |
 
 The pattern is the same in each row: the reading and the tightening are the
 agent's, the loosening is not. An agent that needs one proposes it — the
 refusal prints the exact command to hand over, and in Claude Code the operator
-runs it with `! drush …` so it lands in the same transcript. On a host without pre-tool hooks the status document's
+runs it with `! drush …` (or `! droost-workflow …`) so it lands in the same transcript. On a host without pre-tool hooks the status document's
 run half says so — `enforcement.effective: advisory` — because the gates still
 hold the run server-side but nothing stops an out-of-phase edit, and a report
 must not claim a discipline the host never had.

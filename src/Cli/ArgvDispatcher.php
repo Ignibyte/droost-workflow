@@ -8,6 +8,8 @@ use Droost\Workflow\Evidence\UnreachableChecks;
 use Droost\Workflow\Baseline\BaselineError;
 use Droost\Workflow\Config\ConfigError;
 use Droost\Workflow\Config\DrushCatalogResolver;
+use Droost\Workflow\Config\EffortSwitch;
+use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Evidence\EvidenceError;
 use Droost\Workflow\Gate\NullSiteDriver;
@@ -183,6 +185,9 @@ final class ArgvDispatcher {
         'declare-changes' => $this->declareChanges($projectRoot, $argv),
         'reset' => $this->reset($projectRoot, $argv),
         'baseline' => $this->baseline($projectRoot, $argv),
+        'bypass' => $this->bypass($projectRoot, $argv),
+        'gate-waive' => $this->gateWaive($projectRoot, $argv),
+        'effort' => $this->effort($projectRoot, $argv),
         'evidence' => $this->evidence($projectRoot, $argv),
         default => $this->unknown($verb),
       };
@@ -850,6 +855,187 @@ final class ArgvDispatcher {
   }
 
   /**
+   * Grants or clears the require_run bypass. The operator's, not the agent's.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The arguments; `--off` clears instead of granting.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function bypass(string $projectRoot, array $argv): int {
+    $flags = array_slice($argv, 1);
+    $facade = $this->facade($projectRoot);
+    // Clearing re-arms the wall. A tightening needs no operator terminal,
+    // for the same reason disarming a write gate does not: nobody has to be
+    // protected from more enforcement.
+    if (in_array('--off', $flags, TRUE)) {
+      $this->say($facade->clearBypass($projectRoot)
+        ? 'require_run bypass cleared — the wall is armed again.'
+        : 'no bypass was granted — the wall was already armed.');
+      return self::EXIT_OK;
+    }
+    $reason = '';
+    foreach ($flags as $flag) {
+      if (!str_starts_with($flag, '--')) {
+        $reason = $flag;
+        break;
+      }
+    }
+    if (trim($reason) === '') {
+      $this->fail('Usage: droost-workflow bypass "<why>" — the reason goes on the record. `--off` re-arms the wall.');
+      return self::EXIT_USAGE;
+    }
+    if (!$this->operatorTerminal()) {
+      $this->fail($this->noTerminalRefusal('bypass'));
+      return self::EXIT_USAGE;
+    }
+    $written = $facade->grantBypass($projectRoot, $reason);
+    $this->say(sprintf(
+      'require_run bypass GRANTED (%s): %s. Ungoverned custom-code edits are '
+      . 'allowed until you run: droost-workflow bypass --off',
+      $written,
+      trim($reason),
+    ));
+    $this->say(
+      'NOTE: this drops the WHOLE require_run wall. To waive one blocking gate '
+      . 'for the current run instead — the usual intent — use: '
+      . 'droost-workflow gate-waive <gate> "<reason>".',
+    );
+    return self::EXIT_OK;
+  }
+
+  /**
+   * Waives one gate for the rest of the current run. The operator's.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The arguments: the gate, then the reason.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function gateWaive(string $projectRoot, array $argv): int {
+    $operands = array_values(array_filter(
+      array_slice($argv, 1),
+      static fn (string $word): bool => !str_starts_with($word, '--'),
+    ));
+    $gate = $operands[0] ?? '';
+    $reason = $operands[1] ?? '';
+    if (trim($gate) === '' || trim($reason) === '') {
+      $this->fail('Usage: droost-workflow gate-waive <gate> "<reason>" — both are required; the reason goes on the record.');
+      return self::EXIT_USAGE;
+    }
+    if (!$this->operatorTerminal()) {
+      $this->fail($this->noTerminalRefusal('gate-waive'));
+      return self::EXIT_USAGE;
+    }
+    $state = $this->facade($projectRoot)->waiveGate($projectRoot, $gate, $reason);
+    $this->say(sprintf(
+      'Gate "%s" WAIVED for run %s: %s. It renders as "waived" (never a pass) '
+      . 'in every remaining phase and in the report; the waiver dies with the run.',
+      $gate,
+      $state->runId,
+      trim($reason),
+    ));
+    return self::EXIT_OK;
+  }
+
+  /**
+   * Reports the effort level, previews a move, or writes one.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The arguments: an optional level, and `--preview`.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function effort(string $projectRoot, array $argv): int {
+    $flags = array_slice($argv, 1);
+    $level = '';
+    foreach ($flags as $flag) {
+      if (!str_starts_with($flag, '--')) {
+        $level = $flag;
+        break;
+      }
+    }
+    // Reading is nobody's privilege, and neither is pricing a move: a bare
+    // `effort` and `effort <level> --preview` write nothing, so the agent is
+    // meant to run them — grounding the level it proposes is the point.
+    if ($level === '') {
+      $this->say($this->leverSummary($projectRoot));
+      return self::EXIT_OK;
+    }
+    if (in_array('--preview', $flags, TRUE)) {
+      $change = EffortSwitch::preview($projectRoot, $level);
+      $this->say($change->moved()
+        ? sprintf('preview: %s → %s would change, for the next run:', $change->previous, $change->level)
+        : sprintf('preview: already %s — a move changes nothing', $change->level));
+      foreach ($change->delta() as $line) {
+        $this->say('  ' . $line);
+      }
+      return self::EXIT_OK;
+    }
+    if (!$this->operatorTerminal()) {
+      $this->fail($this->noTerminalRefusal('effort'));
+      return self::EXIT_USAGE;
+    }
+    $change = EffortSwitch::apply($projectRoot, $level);
+    $this->say($change->moved()
+      ? sprintf('effort: %s → %s written to %s', $change->previous, $change->level, WorkflowConfig::FILENAME)
+      : sprintf('effort: already %s — nothing to write', $change->level));
+    if ($change->alias !== NULL) {
+      $this->say(sprintf('  ("%s" is an alias of %s; the file teaches the canonical name)', $change->alias, $change->level));
+    }
+    $this->say('');
+    $this->say($this->leverSummary($projectRoot));
+    return self::EXIT_OK;
+  }
+
+  /**
+   * Whether a person is typing this into a terminal.
+   *
+   * The same second line of defence the drush surface has, in the same words,
+   * because the two surfaces now offer the same three operator verbs and a
+   * rule that holds on one and not the other is not a rule. The guard hook is
+   * the first line: it refuses these verbs from the agent's Bash tool. Not
+   * tamper-proof — a PTY can be faked — but it turns "the agent ran it in
+   * passing" into "the agent went out of its way", which the seeker's
+   * discipline lens then catches.
+   *
+   * @return bool
+   *   TRUE when STDIN is an interactive terminal.
+   */
+  private function operatorTerminal(): bool {
+    return defined('STDIN') && stream_isatty(STDIN);
+  }
+
+  /**
+   * The refusal for an operator command issued without a terminal.
+   *
+   * @param string $command
+   *   The verb.
+   *
+   * @return string
+   *   The message.
+   */
+  private function noTerminalRefusal(string $command): string {
+    return sprintf(
+      'droost-workflow %1$s is the operator\'s command and this shell has no '
+      . 'terminal (an agent\'s tool shell, a pipe, a script). It records a '
+      . 'HUMAN\'s decision, so a human types it: run `droost-workflow %1$s …` '
+      . 'in your own terminal (`! droost-workflow %1$s …` from inside Claude '
+      . 'Code).',
+      $command,
+    );
+  }
+
+  /**
    * Reports an unknown verb.
    *
    * @param string $verb
@@ -898,6 +1084,22 @@ final class ArgvDispatcher {
                        longer describes the code reads EXPIRED.
       reset [--force]  clear a finished run (archives its record to
                        the state dir's history/); --force abandons a live one
+
+    The OPERATOR's three. Each one loosens what a run is held to, so each
+    refuses to run without an interactive terminal, and the pack's guard hook
+    refuses them from the agent's shell. Reading is nobody's privilege: a bare
+    `effort`, and `effort <level> --preview`, write nothing and are for the
+    agent to run when it wants to ground a level it means to propose.
+
+      bypass "<why>"   drop the require_run wall until cleared (--off re-arms
+                       it, and needs no terminal — a tightening needs nobody)
+      gate-waive <gate> "<why>"
+                       waive ONE gate for the rest of this run; it renders as
+                       "waived", never as a pass, and dies with the run. The
+                       mandatory trio carries no waiver
+      effort [<level>] report the level, or write it: low | medium | high |
+                       xhigh | max | custom. --preview prices the move without
+                       writing. A run in progress keeps the level it froze at
       baseline         write the adoption baseline (droost/baseline/): the
                        debt the tree carries today, inherited from then on.
                        --measure shows the bill without writing; --status

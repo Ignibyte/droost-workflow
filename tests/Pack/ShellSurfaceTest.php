@@ -1697,4 +1697,72 @@ final class ShellSurfaceTest extends WorkflowTestCase {
     }
   }
 
+  /**
+   * An operator verb is refused in BOTH its spellings.
+   *
+   * The three operator commands existed only on the drush surface until
+   * 2026-09-15, so the guard's branches matched only `droost:workflow:<verb>`.
+   * Giving the standalone binary the same three verbs — which a project
+   * without Drupal needs, or an exhausted gate leaves `reset` as its only
+   * exit — would have opened the widest hole this file has ever had:
+   * `droost-workflow bypass "x"` granting the operator's bypass from the
+   * agent's own shell, past a wall that refuses the drush spelling of the
+   * identical act.
+   *
+   * One act, two spellings, one verdict.
+   */
+  public function testTheOperatorVerbsAreRefusedOnBothSurfaces(): void {
+    $root = $this->lab();
+    foreach ([
+      'drush droost:workflow:bypass "hotfix"',
+      'vendor/bin/droost-workflow bypass "hotfix"',
+      './vendor/bin/droost-workflow bypass hotfix',
+      'drush droost:workflow:gate-waive config_clean "no config workflow"',
+      'vendor/bin/droost-workflow gate-waive config_clean "no config workflow"',
+      'drush droost:workflow:effort low',
+      'vendor/bin/droost-workflow effort low',
+      'droost-workflow effort max',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' is the operator\'s: ' . $stderr);
+      $this->assertStringContainsString(
+        'OPERATOR',
+        $stderr,
+        $command . ' is refused as an operator command, not for another reason',
+      );
+    }
+
+    // The read-only halves stay the agent's on both surfaces, for the same
+    // reason they always were: grounding a proposal is the behaviour we want,
+    // and a wall in front of `--preview` teaches an agent to propose blind.
+    foreach ([
+      'vendor/bin/droost-workflow effort',
+      'vendor/bin/droost-workflow effort max --preview',
+      'vendor/bin/droost-workflow bypass --off',
+      'vendor/bin/droost-workflow baseline --status',
+      'vendor/bin/droost-workflow baseline --measure',
+      'vendor/bin/droost-workflow status',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' writes nothing and is anyone\'s: ' . $stderr);
+    }
+  }
+
+  /**
+   * And the CLI spelling is what the refusal tells the operator to run.
+   *
+   * Naming the drush command to a project that has no Drupal is advice
+   * nobody can act on, and the refusal's whole job is to hand over something
+   * runnable.
+   */
+  public function testTheRefusalNamesTheSurfaceThatWasUsed(): void {
+    $root = $this->lab();
+    [, , $cli] = $this->shell($root, 'vendor/bin/droost-workflow bypass "x"');
+    $this->assertStringContainsString('droost-workflow bypass', $cli);
+    $this->assertStringNotContainsString('droost:workflow:bypass', $cli);
+
+    [, , $drush] = $this->shell($root, 'drush droost:workflow:bypass "x"');
+    $this->assertStringContainsString('droost:workflow:bypass', $drush);
+  }
+
 }

@@ -2189,6 +2189,105 @@ final class WorkflowFacade {
   }
 
   /**
+   * Grants the require_run bypass: the operator's escape from the wall.
+   *
+   * THE GUARD'S READ CONTRACT LIVES HERE, once. It honours a grant only when
+   * `reason` and `granted_at` are both non-empty strings — "a hand-rolled or
+   * corrupt marker is not a grant" — and that shape was written by the drush
+   * command alone until 2026-09-15, so a project without Drupal had no way to
+   * produce it. An exhausted gate then left `reset` as the only exit, on a
+   * package whose whole claim is that it needs no Drupal.
+   *
+   * Writes the RESOLVED state directory, which is the same rule the guard
+   * resolves by. Getting that wrong has bitten twice: a grant written to the
+   * legacy hidden directory on a project whose run state had moved was simply
+   * never seen, and the wall turned back on over a decision a human had made.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $reason
+   *   Why the bypass is granted. Recorded, and required.
+   *
+   * @return string
+   *   The path written, project-relative.
+   *
+   * @throws \InvalidArgumentException
+   *   When the reason is empty.
+   * @throws \Droost\Workflow\State\StateError
+   *   When the grant cannot be written.
+   */
+  public function grantBypass(string $projectRoot, string $reason): string {
+    if (trim($reason) === '') {
+      throw new \InvalidArgumentException(
+        'a bypass requires a reason — an unexplained bypass is indistinguishable from tampering',
+      );
+    }
+    $relative = RunStateStore::resolveStateDir($projectRoot);
+    $directory = rtrim($projectRoot, '/') . '/' . $relative;
+    if (!is_dir($directory) && !@mkdir($directory, 0777, TRUE) && !is_dir($directory)) {
+      throw StateError::unwritable($relative, 'the directory could not be created');
+    }
+    $encoded = json_encode([
+      'reason' => trim($reason),
+      'granted_at' => $this->now(),
+      'granted_by' => 'terminal',
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    if (@file_put_contents($directory . '/bypass.json', $encoded) !== strlen($encoded)) {
+      throw StateError::unwritable($relative . '/bypass.json', 'the write did not complete');
+    }
+    return $relative . '/bypass.json';
+  }
+
+  /**
+   * Clears the bypass, re-arming the wall.
+   *
+   * Not an operator-only act the way granting is: removing a bypass tightens,
+   * and a tightening needs nobody's permission.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return bool
+   *   TRUE when a grant was removed, FALSE when there was none.
+   */
+  public function clearBypass(string $projectRoot): bool {
+    $path = rtrim($projectRoot, '/') . '/'
+      . RunStateStore::resolveStateDir($projectRoot) . '/bypass.json';
+    if (!is_file($path)) {
+      return FALSE;
+    }
+    return @unlink($path);
+  }
+
+  /**
+   * Whether a bypass is active, and on what recorded grounds.
+   *
+   * Judged by the GUARD'S rule, not by the file's existence: a marker missing
+   * either required field is not a grant, and reporting it as one would tell
+   * an operator the wall is down when it is up.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return array{active: bool, reason?: string, granted_at?: string}
+   *   The state.
+   */
+  public function bypassState(string $projectRoot): array {
+    $path = rtrim($projectRoot, '/') . '/'
+      . RunStateStore::resolveStateDir($projectRoot) . '/bypass.json';
+    if (!is_file($path)) {
+      return ['active' => FALSE];
+    }
+    $grant = json_decode((string) file_get_contents($path), TRUE);
+    $reason = is_array($grant) && is_string($grant['reason'] ?? NULL) ? $grant['reason'] : '';
+    $at = is_array($grant) && is_string($grant['granted_at'] ?? NULL) ? $grant['granted_at'] : '';
+    if ($reason === '' || $at === '') {
+      return ['active' => FALSE];
+    }
+    return ['active' => TRUE, 'reason' => $reason, 'granted_at' => $at];
+  }
+
+  /**
    * The current time, from the injected clock.
    *
    * @return string

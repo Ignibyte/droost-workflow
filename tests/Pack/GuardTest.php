@@ -451,7 +451,19 @@ final class GuardTest extends WorkflowTestCase {
         ]);
         $this->assertSame(2, $exit, $command . ' must be refused');
         $this->assertStringContainsString("OPERATOR's command", $stderr);
-        $this->assertStringContainsString('! drush droost:workflow:', $stderr);
+        // THE HAND-OVER MUST BE RUNNABLE ON THE SURFACE THAT WAS USED. This
+        // asserted `! drush droost:workflow:` for every refusal, including
+        // `vendor/bin/droost-workflow baseline --refresh` — so the one thing
+        // the message exists to do, hand the operator a command, gave a
+        // standalone user a drush invocation their project may not have. The
+        // blanket assertion is what let that pass; per-surface is stricter.
+        $this->assertStringContainsString(
+          str_contains($command, 'droost-workflow ')
+            ? '! droost-workflow '
+            : '! drush droost:workflow:',
+          $stderr,
+          $command . ': the refusal hands over a command this surface can run',
+        );
       }
     }
 
