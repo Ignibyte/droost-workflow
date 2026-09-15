@@ -60,7 +60,7 @@ final class EvidenceStore {
    * build does not know about costs it nothing. A store written by an older one
    * is migrated up in place.
    */
-  public const int SCHEMA_VERSION = 5;
+  public const int SCHEMA_VERSION = 6;
 
   /**
    * Stamped into the file when, and only when, it has rows that predate v4.
@@ -214,6 +214,7 @@ final class EvidenceStore {
         3 => $this->migrateToV3($pdo),
         4 => $this->migrateToV4($pdo),
         5 => $this->migrateToV5($pdo),
+        6 => $this->migrateToV6($pdo),
         default => NULL,
       };
       // Stamped per rung, so an interrupted upgrade resumes where it stopped
@@ -2027,6 +2028,34 @@ final class EvidenceStore {
       // very value a forger would set.
       $pdo->exec('PRAGMA application_id = ' . self::LEGACY_MARK);
     }
+  }
+
+  /**
+   * V6 — the guard's own invocation ledger.
+   *
+   * ADDING IT TO THE BASE SCHEMA WAS NOT ENOUGH, and the gap is worth the
+   * comment. `migrate()` returns immediately when `user_version` already
+   * equals `SCHEMA_VERSION`, so a table added only to V1's DDL reaches every
+   * NEW store and no existing one — and every test in this suite builds a
+   * fresh store, so all of them passed while the live database on the dogfood
+   * site threw "no such table: guard_call" the first time anything read it. A
+   * schema change is two edits, and the second one is this.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   */
+  private function migrateToV6(\PDO $pdo): void {
+    $pdo->exec(<<<'SQL'
+      CREATE TABLE IF NOT EXISTS guard_call (
+        run_id   TEXT NOT NULL,
+        phase    TEXT,
+        mode     TEXT NOT NULL,
+        verdict  TEXT NOT NULL,
+        rule     TEXT,
+        at       TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS guard_call_by_run ON guard_call (run_id, phase, mode);
+    SQL);
   }
 
   /**

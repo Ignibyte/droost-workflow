@@ -119,6 +119,37 @@ final class SchemaMigrationTest extends TestCase {
   }
 
   /**
+   * An EXISTING store gains the guard ledger, not just a fresh one.
+   *
+   * THIS IS THE CASE EVERY OTHER TEST IN THIS SUITE MISSES, and it cost a live
+   * failure to notice. `guard_call` was added to V1's DDL and `SCHEMA_VERSION`
+   * was not bumped — so `migrate()` returned immediately on any store already
+   * stamped at the current version, the table was never created, and the first
+   * read threw "no such table: guard_call". Every test here builds a store from
+   * nothing, where the base DDL runs and the bug cannot appear; the dogfood
+   * site's four-month-old database found it in one command.
+   *
+   * A schema change is two edits. This test is what makes the second one
+   * non-optional.
+   */
+  public function testAnOlderStoreGainsTheGuardLedger(): void {
+    // A store at the version before the ledger existed, with the table gone.
+    (new EvidenceStore($this->root))->upsertRun('r1', ['preset' => 'low']);
+    $pdo = $this->raw();
+    $pdo->exec('DROP TABLE IF EXISTS guard_call');
+    $pdo->exec('PRAGMA user_version = 5');
+    unset($pdo);
+
+    $upgraded = new EvidenceStore($this->root);
+    // Reading is enough: the connection migrates before it answers.
+    $this->assertSame([], $upgraded->guardCalls('r1'), 'the table is there and empty');
+    $this->assertSame(EvidenceStore::SCHEMA_VERSION, $this->version(), 'the rung ran');
+
+    $upgraded->recordGuardCall('r1', 'code', 'pre-tool-use', 'refuse', 'require-run');
+    $this->assertSame(1, $upgraded->guardCallCount('r1'), 'and it takes rows');
+  }
+
+  /**
    * A store written by a NEWER build refuses, and says what to do.
    *
    * Never a downgrade: the newer build's rows are not this build's to
