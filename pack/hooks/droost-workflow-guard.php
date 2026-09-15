@@ -2193,7 +2193,18 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       elseif ($operand === '*' || $operand === './*' || $operand === '.*') {
         $globDir = '.';
       }
-      if ($globDir !== NULL) {
+      // ONLY WHERE THE EXPANSION COULD DESTROY SOMETHING. This rule is about
+      // a glob the shell expands into names the guard never sees — its own
+      // message says it cannot tell "a tidy-up from the one move that removes
+      // the enforcement" — so it belongs to verbs that remove and to writes.
+      // It fired for ANY non-reading verb, which includes reading a script:
+      // `bin/droost-workflow` is a PHP CLI with globs in it, so running the
+      // installer came back as "a shell command expands a wildcard across the
+      // project root", and the guard could not be re-materialised because the
+      // guard refused the command that materialises it.
+      $globDestroys = $writesTo
+        || preg_match($destructive, ltrim($plain[0] ?? '', "\x01")) === 1;
+      if ($globDir !== NULL && $globDestroys) {
         $globRefusal = wildcard_directory_refusal(
           $globDir === '.' || $globDir === '' ? $cwd : (str_starts_with($globDir, '/') ? $globDir : $cwd . '/' . $globDir),
           $root,
