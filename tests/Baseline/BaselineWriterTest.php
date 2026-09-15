@@ -238,7 +238,7 @@ final class BaselineWriterTest extends WorkflowTestCase {
    * A tool that could not run is "not measured", never zero findings.
    *
    * The first real site to measure at xhigh got "eslint would inherit 0"
-   * while eslint was crashing on core's scaffolded config (F-EMT-9b). A
+   * while eslint was crashing on core's scaffolded config (F-ADOPT-9b). A
    * baseline that records a clean bill for a tool that never read a file
    * makes the tool's first real run fail on debt the record denies.
    */
@@ -358,7 +358,7 @@ final class BaselineWriterTest extends WorkflowTestCase {
             return [0, '', ''];
 
           case 'eslint':
-            // The live crash (F-EMT-9b): core's scaffolded config extends
+            // The live crash (F-ADOPT-9b): core's scaffolded config extends
             // plugins the project never installed; eslint exits 2 with a
             // banner and reads nothing.
             return [

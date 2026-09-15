@@ -228,7 +228,7 @@ final class StaleVerdictTest extends TestCase {
     $this->assertSame(3, $store->blockedAttempts('r1', 'plan'), 'three blocks on a check still blocked count three');
 
     $store->record('r1', 'plan', new CheckRecord(
-      'check', 'ticket_id', CheckState::Satisfied, Fault::None, 'DSBX-1',
+      'check', 'ticket_id', CheckState::Satisfied, Fault::None, 'PROJ-1',
     ));
     $this->assertSame(
       0,

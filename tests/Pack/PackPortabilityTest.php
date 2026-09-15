@@ -15,7 +15,16 @@ use Droost\Workflow\Tests\WorkflowTestCase;
  * ticket keys — kept turning up as "examples" while that site was the only
  * one, and an example with a real id is a leak of someone's tracker
  * configuration into a public repository. Finding ids from that site's
- * ledger (F-EMT-n) are allowed: they name a fixed defect, not a site.
+ * ledger are allowed as `F-ADOPT-n`: they name a fixed defect, not a site.
+ *
+ * THE SCAN COVERS THE WHOLE REPOSITORY, and it did not always. It read
+ * `README.md`, `pack/` and `src/` — so `docs/` and `tests/` were free to
+ * carry what the pack could not, and on 2026-09-15 a sweep found exactly
+ * that: a client's name and quantified codebase metrics in
+ * `docs/design-adoption-baseline.md`, its proprietary pipeline named in
+ * `docs/design.md`, and live Jira keys as fixtures in three tests. A rule
+ * enforced over part of a repository is a rule that tells you where to put
+ * the thing it forbids.
  */
 final class PackPortabilityTest extends WorkflowTestCase {
 
@@ -30,11 +39,17 @@ final class PackPortabilityTest extends WorkflowTestCase {
     '/4946788355/',
     '/littler/i',
     '/edgemgmt/i',
+    '/myunited/i',
     // The second dogfood site. Its theme directory and a test class name
     // shipped as the declare-changes example in the plan skill (2026-09-15).
     '/kchockey/i',
-    '/(?<!F-)EMT-\d/',
-    '/\[EMT\]/',
+    // The project keys themselves, not just ticket-shaped uses of them.
+    // Anchored on word boundaries because `EMT` unanchored matches `itemType`
+    // and every id in the engine would read as a leak.
+    '/\bEMT\b/',
+    '/\bLCR\b/',
+    '/\bEDG\b/',
+    '/\bDSBX\b/',
     '/release\/1\.9/',
   ];
 
@@ -44,15 +59,17 @@ final class PackPortabilityTest extends WorkflowTestCase {
   public function testNoSiteIdentifiersShip(): void {
     $root = dirname(__DIR__, 2);
     $files = [$root . '/README.md'];
-    foreach (['pack', 'src'] as $dir) {
+    foreach (['pack', 'src', 'docs', 'tests', 'bin'] as $dir) {
       $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root . '/' . $dir, \FilesystemIterator::SKIP_DOTS));
       foreach ($iterator as $file) {
-        if ($file instanceof \SplFileInfo && $file->isFile()) {
+        // This file quotes every forbidden name in order to forbid it.
+        if ($file instanceof \SplFileInfo && $file->isFile()
+          && $file->getPathname() !== __FILE__) {
           $files[] = $file->getPathname();
         }
       }
     }
-    $this->assertGreaterThan(20, count($files), 'the scan saw the pack and the engine');
+    $this->assertGreaterThan(150, count($files), 'the scan saw the whole repository');
     $hits = [];
     foreach ($files as $path) {
       $text = (string) file_get_contents($path);

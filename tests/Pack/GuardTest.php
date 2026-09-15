@@ -523,7 +523,7 @@ final class GuardTest extends WorkflowTestCase {
    *
    * The guard's own refusal tells the agent to show the operator the exact
    * command; a live run did so in a pull-request body written through
-   * `cat > file <<'EOF'` and was refused for it (F-EMT-11). A heredoc fed
+   * `cat > file <<'EOF'` and was refused for it (F-ADOPT-11). A heredoc fed
    * to something that is not an interpreter is text for a human and is not
    * scanned. One piped into a shell — or a real command after the heredoc —
    * still is.
@@ -2093,8 +2093,8 @@ final class GuardTest extends WorkflowTestCase {
    * run drush droost:workflow:gate-waive phpcs"`, a commit message mentioning a
    * bypass, a pull-request body naming the effort dial: all blocked.
    *
-   * A previous round fixed exactly this for heredoc bodies (F-EMT-11, a PR body
-   * quoting a waiver) and the same mistake came back through a different door —
+   * A previous round fixed exactly this for heredoc bodies (F-ADOPT-11, a PR
+   * body quoting a waiver) and the same mistake came back through a door —
    * a tokeniser that recursed into any multi-word token carrying a verb. Only
    * something that will EXECUTE its argument makes one a command line, and only
    * then is the thing inside an invocation rather than prose.

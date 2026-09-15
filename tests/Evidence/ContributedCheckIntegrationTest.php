@@ -129,8 +129,8 @@ final class ContributedCheckIntegrationTest extends WorkflowTestCase {
     $outcome = $this->facade($this->adjudicator([
       new CheckRecord(
         'check', 'jira_transitioned', CheckState::Blocked, Fault::Environment,
-        'EMT-354 is still In Progress',
-        'drush droost:jira:transition EMT-354 "In Review"',
+        'PROJ-354 is still In Progress',
+        'drush droost:jira:transition PROJ-354 "In Review"',
       ),
     ], $calls))->run($root, $spec);
 
@@ -155,7 +155,7 @@ final class ContributedCheckIntegrationTest extends WorkflowTestCase {
 
     $outcome = $this->facade($this->adjudicator([
       new CheckRecord(
-        'check', 'jira_transitioned', CheckState::Satisfied, Fault::None, 'EMT-354 is In Review',
+        'check', 'jira_transitioned', CheckState::Satisfied, Fault::None, 'PROJ-354 is In Review',
       ),
     ], $calls))->run($root, $spec);
 
@@ -176,7 +176,7 @@ final class ContributedCheckIntegrationTest extends WorkflowTestCase {
     $calls = [];
 
     $this->facade($this->adjudicator([
-      new CheckRecord('check', 'work_item', CheckState::Satisfied, Fault::None, 'EMT-354'),
+      new CheckRecord('check', 'work_item', CheckState::Satisfied, Fault::None, 'PROJ-354'),
       new CheckRecord('check', 'notes_written', CheckState::Satisfied, Fault::None, 'notes present'),
     ], $calls))->run($root, $spec);
 
@@ -340,8 +340,8 @@ final class ContributedCheckIntegrationTest extends WorkflowTestCase {
     $held = $this->facade($this->adjudicator([
       new CheckRecord(
         'check', 'jira_transitioned', CheckState::Blocked, Fault::Environment,
-        'EMT-354 is still In Progress',
-        'drush droost:jira:transition EMT-354 "In Review"',
+        'PROJ-354 is still In Progress',
+        'drush droost:jira:transition PROJ-354 "In Review"',
       ),
     ], $calls))->run($root, $spec);
     $this->assertSame(Outcome::Blocked, $held->outcome, 'the provider holds the phase');

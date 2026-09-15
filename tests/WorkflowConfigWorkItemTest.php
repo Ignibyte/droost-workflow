@@ -28,7 +28,7 @@ final class WorkflowConfigWorkItemTest extends WorkflowTestCase {
 preset: custom
 work_item:
   provider: jira
-  projects: [EMT, LCR]
+  projects: [PROJ, OTHER]
   track_map:
     Bug: bugfix
     Story: standard
@@ -45,7 +45,7 @@ YAML;
     $work = $config->workItem;
     $this->assertInstanceOf(WorkItemSettings::class, $work);
     $this->assertSame('jira', $work->provider);
-    $this->assertSame(['EMT', 'LCR'], $work->projects);
+    $this->assertSame(['PROJ', 'OTHER'], $work->projects);
     $this->assertSame(
       ['Bug' => 'bugfix', 'Story' => 'standard'],
       $work->trackMap,
@@ -66,15 +66,15 @@ YAML;
    *
    * The field map is the keystone of a provider-agnostic bridge: the site
    * names a field, the map holds the tracker's id and format, and no module
-   * ever hardcodes another team's `customfield_11330`.
+   * ever hardcodes another team's `customfield_10001`.
    */
   public function testProjectConfigKeysParse(): void {
     $yaml = <<<'YAML'
 preset: custom
 work_item:
   provider: jira
-  cloud_id: 46ee8f13-8379-4206-9b1f-f446940f1db1
-  projects: [EMT]
+  cloud_id: 00000000-0000-4000-8000-000000000000
+  projects: [PROJ]
   eligible_types: [Story, Task, Bug, Sub-Story]
   branch:
     prefixes: { feature: feature, bugfix: bugfix, release: release }
@@ -84,9 +84,9 @@ work_item:
     in_review: "121"
     done: 31
   fields:
-    developer_notes: { id: customfield_11330, format: adf }
-    testing_notes: { id: customfield_12335, format: adf }
-    developer_id: { id: customfield_12317, format: user }
+    developer_notes: { id: customfield_10001, format: adf }
+    testing_notes: { id: customfield_10002, format: adf }
+    developer_id: { id: customfield_10003, format: user }
     fix_version: { id: fixVersions }
   track_map:
     Bug: bugfix
@@ -96,7 +96,7 @@ work_item:
 YAML;
     $work = WorkflowConfig::load($this->makeRootWithConfig($yaml))->workItem;
     $this->assertInstanceOf(WorkItemSettings::class, $work);
-    $this->assertSame('46ee8f13-8379-4206-9b1f-f446940f1db1', $work->cloudId);
+    $this->assertSame('00000000-0000-4000-8000-000000000000', $work->cloudId);
     $this->assertSame(['Story', 'Task', 'Bug', 'Sub-Story'], $work->eligibleTypes);
     $this->assertSame(['feature' => 'feature', 'bugfix' => 'bugfix', 'release' => 'release'], $work->branchPrefixes);
     $this->assertSame('development', $work->branchBase);
@@ -106,7 +106,7 @@ YAML;
       'ids written as numbers or strings both read back as strings',
     );
     $this->assertSame(
-      ['id' => 'customfield_11330', 'format' => 'adf'],
+      ['id' => 'customfield_10001', 'format' => 'adf'],
       $work->fields['developer_notes'],
     );
     $this->assertSame(
@@ -116,7 +116,7 @@ YAML;
     );
     // A writeback target that names a mapped field resolves to its id; one
     // that does not is returned as written.
-    $this->assertSame('customfield_11330', $work->fieldId('developer_notes'));
+    $this->assertSame('customfield_10001', $work->fieldId('developer_notes'));
     $this->assertSame('description', $work->fieldId('description'));
     // Status carries the whole block, so the wiring reads in a diff.
     $array = $work->toArray();

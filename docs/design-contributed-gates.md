@@ -133,7 +133,7 @@ not claim a discipline the host never had.
 ## 7. Not built, on record
 
 - **Pack pieces contributed by modules** (skills, agents, hooks): only
-  droost_workflow's pack is materialized. The Jira intake command on EMT was
+  droost_workflow's pack is materialized. A downstream Jira intake command was
   placed by hand.
 - **PHP-executed contributed gates** (a plugin `run()` the site driver
   dispatches): command gates cover Snyk and Semgrep; the seam is the next one

@@ -2,7 +2,7 @@
 
 Status: **BUILT P1–P3 2026-09-08** (engine `d6b5884` core, `7c4bd9c` writer and ratchet, `1a099c5` guard; droost `835bc70` live surface) — one deviation from the text below: the directory is **`droost/baseline/`**, beside `droost/wiki`, not `droost/workflow/baseline/`, because the run-state directory is gitignored and a baseline must be committed and reviewed. **P4 DONE 2026-09-08:** T27 rounds 1 and 2 ACCEPTED live on the clean room (`phpstan passed — 0 new, 26 inherited` both times, baseline byte-identical, no ignores; droost `scripts/evals/RESULTS.md` round 31). Decided 2026-09-07 (§11). Owner-directed: *"we will have to
 figure out a baseline effort because so many code bases out there will be this
-exact way."* Source finding: the EMT dogfood ledger (droost `docs/EMT-DOGFOOD-
+exact way."* Source finding: the adopter dogfood ledger (droost `docs/ADOPTER-DOGFOOD-
 LEDGER.md`, product finding 2) and T26's 26 pre-existing phpstan-max errors.
 
 ## 1. The problem
@@ -10,15 +10,15 @@ LEDGER.md`, product finding 2) and T26's 26 pre-existing phpstan-max errors.
 Droost's mandatory gates — phpcs, phpstan, config_clean, and at the upper
 levels the front-end trio — run over the project's measured paths, whole. On a
 legacy project that means adopting droost fails on debt the run never touched.
-EMT, the first real adopter: 45 JS phpcs errors, 123 level-6 phpstan errors and
+The first real adopter: 45 JS phpcs errors, 123 level-6 phpstan errors and
 2 config-drift items, none from the change under review. T26, a greenfield at
 `max`, met the same shape in miniature: 26 pre-existing phpstan-max errors in
 test files that had been built at level 6.
 
-The EMT workaround was three hand moves droost neither guided nor recorded: a
+That adopter's workaround was three hand moves droost neither guided nor recorded: a
 PHP-only phpcs ruleset, a committed phpstan baseline, a config reset. That is
 the wall every legacy adopter will hit, and most codebases droost meets will be
-EMT, not a greenfield. drup-pipeline never hit it because it gated only the
+legacy, not greenfield. The enterprise twin never hit it because it gated only the
 files a change touched — one answer, with a hole (§8).
 
 ## 2. The doctrine this must not break
@@ -78,7 +78,7 @@ hidden) applied to the one artefact an adopter must be able to review:
   the agent shell (like `effort --preview`).
 - `droost:workflow:install --preset=<level>` on a tree with debt prints the
   bill and names the baseline command. It does NOT run it. This is the guided
-  adoption flow the EMT ledger asked for.
+  adoption flow the adopter ledger asked for.
 
 ## 6. Run-time rules
 
@@ -111,7 +111,7 @@ Dropping below the floor fails. `--refresh` raises the floor to the current
 value and never lowers it. The level's threshold is reached by ratcheting,
 not declared.
 
-## 8. Change scope — the drup-pipeline answer, and why it is second
+## 8. Change scope — the enterprise twin's answer, and why it is second
 
 Recording `base_commit` (HEAD at run begin) in `run.json` is cheap and useful
 on its own: the seeker's "cumulative diff" gets a stated base and reports can
@@ -119,7 +119,7 @@ list the run's changed files. Gating ONLY changed files is then one flag away
 (`scope: changed`). But it has the hole the baseline closes: a touched legacy
 file surfaces all of its debt (the boy-scout wall), and phpstan on a file
 subset loses cross-file type errors. So P1 records the base commit and reports
-changed files; `scope: changed` is offered for repos that want drup-pipeline's
+changed files; `scope: changed` is offered for repos that want the twin's
 behaviour; the default legacy story is the baseline.
 
 ## 9. What does NOT get a baseline
@@ -149,7 +149,7 @@ record failing test ids as inherited failures.)
   adopted at `high`. Install prints the bill; the operator baselines; a run
   that adds one new error fails naming it new; a run that fixes an inherited
   one shows the ratchet; the agent's attempt at `--refresh` is refused by
-  name. Run on the clean room, then on EMT for real.
+  name. Run on the clean room, then on a real adopter.
 
 ## 11. Decisions — taken by the owner 2026-09-07
 

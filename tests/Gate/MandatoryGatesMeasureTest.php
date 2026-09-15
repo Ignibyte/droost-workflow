@@ -345,8 +345,8 @@ final class MandatoryGatesMeasureTest extends WorkflowTestCase {
    *
    * `notTheProjectsCode()` knows `vendor/`, `node_modules/` and droost's own
    * installed directories BY NAME, which covers the common shapes and nothing
-   * else. Measured on a live round: kchockey stages the droost packages under
-   * test into a gitignored `droost-packages/` to feed a composer path repo,
+   * else. Measured on a live round: the subject staged the droost packages
+   * under test into a gitignored `droost-packages/` to feed a path repo,
    * phpcs found it and walked droost's OWN SOURCE, and the code phase failed
    * on 112 style errors in `droost-packages/workflow/src/Config/
    * PresetResolver.php` — recorded as the agent's fault, blocking a ticket

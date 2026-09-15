@@ -52,9 +52,9 @@ final class DeclarationAuditTest extends TestCase {
    */
   public function testUndeclaredFilesBlockAsScopeCreep(): void {
     $audit = new DeclarationAudit(
-      ['web/themes/custom/kchockey'],
+      ['web/themes/custom/myhockey'],
       [],
-      ['web/themes/custom/kchockey/css/tokens.css', 'web/modules/custom/sneaky/sneaky.module'],
+      ['web/themes/custom/myhockey/css/tokens.css', 'web/modules/custom/sneaky/sneaky.module'],
     );
 
     $this->assertSame(['web/modules/custom/sneaky/sneaky.module'], $audit->undeclared());
@@ -72,11 +72,11 @@ final class DeclarationAuditTest extends TestCase {
    */
   public function testDeclaredDirectoryCoversWhatIsUnderIt(): void {
     $audit = new DeclarationAudit(
-      ['web/themes/custom/kchockey'],
+      ['web/themes/custom/myhockey'],
       [],
       [
-        'web/themes/custom/kchockey/kchockey.info.yml',
-        'web/themes/custom/kchockey/components/navbar/navbar.twig',
+        'web/themes/custom/myhockey/myhockey.info.yml',
+        'web/themes/custom/myhockey/components/navbar/navbar.twig',
       ],
     );
 
@@ -116,7 +116,7 @@ final class DeclarationAuditTest extends TestCase {
    * plan skill's own worked example as the trigger.
    *
    * The old test passed because it handed `ranTests` a fabricated
-   * `Drupal\Tests\kchockey\Unit\RinkTest::testItRenders` that production
+   * `Drupal\Tests\myhockey\Unit\RinkTest::testItRenders` that production
    * cannot produce. A fixture that invents its input proves nothing about the
    * path it claims to cover.
    *

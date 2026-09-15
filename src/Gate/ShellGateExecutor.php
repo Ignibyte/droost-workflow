@@ -82,7 +82,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    * themselves. The front-end trio do NOT: handed a directory, stylelint and
    * prettier treat every file under it as their own language — a module's
    * .yml, .php and .twig all parsed as CSS, each raising a CssSyntaxError
-   * (caught live on the EMT dogfood). So for these the scope is expanded to
+   * (caught live on the adopter dogfood). So for these the scope is expanded to
    * the matching files before invocation, and the tool sees only what it owns.
    */
   private const FILE_SCOPED = ['eslint', 'stylelint', 'prettier'];
@@ -561,7 +561,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     if ($exit === self::EXIT_KILLED) {
       // The runner killed the tool at the gate's timeout. Not a verdict on
       // the code either: nothing was judged. The line names the lever that
-      // raises it, because the number is the whole finding (F-EMT-23: a
+      // raises it, because the number is the whole finding (F-ADOPT-23: a
       // fixed ten minutes lost the race against infection every time).
       return GateResult::toolFailed(
         $gate->name,
@@ -1535,7 +1535,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       // A `config` lever pins the project's own file and turns discovery
       // off (see frontEndConfigArgs()) — without it, on a Drupal site, the
       // cascade reaches core's scaffolded .eslintrc.json and eslint crashes
-      // before it reads a file (F-EMT-9).
+      // before it reads a file (F-ADOPT-9).
       'eslint' => [$binary, '--format=json', ...$this->frontEndConfigArgs($gate, $root)],
       'stylelint' => [$binary, '--formatter=json', ...$this->frontEndConfigArgs($gate, $root)],
       'prettier' => [$binary, '--check', ...$this->frontEndConfigArgs($gate, $root)],

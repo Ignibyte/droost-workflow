@@ -43,7 +43,7 @@ enum GateStatus: string {
   // Misconfigured the other way: the tool is installed and could not run — a
   // config it cannot load, a crash before it read a file. Fails closed like a
   // missing tool, and is never rendered as findings: a crash is a fact about
-  // the environment, not a verdict on the code. Found live (F-EMT-9): eslint
+  // the environment, not a verdict on the code. Found live (F-ADOPT-9): eslint
   // at xhigh walked up to Drupal core's scaffolded .eslintrc.json, whose
   // plugins only core's own yarn install provides, and the phase read the
   // exit-2 crash as a failing lint.

@@ -149,7 +149,7 @@ final class GateSettings {
    * Every gate that spawns a tool takes `timeout` (seconds): how long the
    * tool may run before the executor kills it. The executor's default is
    * ten minutes, which a mutation run over one kernel-test-heavy module
-   * already exceeds (F-EMT-23) — the slow tiers carry longer defaults from
+   * already exceeds (F-ADOPT-23) — the slow tiers carry longer defaults from
    * xhigh up, and a repo raises any of them here. The two gates the site
    * driver answers (rendered_check, config_clean) spawn nothing and take
    * none.
@@ -168,7 +168,7 @@ final class GateSettings {
     // nothing but argv. `config` pins the project's own file instead and
     // turns discovery off — on a Drupal site discovery reaches core's
     // scaffolded .eslintrc.json, which extends plugins only core's own yarn
-    // install provides, and eslint crashes before it reads a file (F-EMT-9).
+    // install provides, and eslint crashes before it reads a file (F-ADOPT-9).
     // A project's package.json lint script names the file to point at.
     'eslint' => ['paths' => 'paths', 'config' => 'string', 'timeout' => 'seconds'],
     'stylelint' => ['paths' => 'paths', 'config' => 'string', 'timeout' => 'seconds'],

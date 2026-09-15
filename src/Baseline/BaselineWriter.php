@@ -100,7 +100,7 @@ final class BaselineWriter {
         // A crash is not zero findings. Recorded as zero, the baseline would
         // claim a clean bill for a tool that never read a file, and the
         // tool's first real run would then fail on debt the record says does
-        // not exist (F-EMT-9b: eslint at exit 2 measured as "would inherit
+        // not exist (F-ADOPT-9b: eslint at exit 2 measured as "would inherit
         // 0" on the first site that tried).
         $skipped[$gate] = sprintf(
           '%s could not run (exit %d) — %s',

@@ -224,7 +224,7 @@ final class PresetResolver {
    * The two slow tiers carry their own time: mutation may run thirty
    * minutes and coverage fifteen before the executor kills them — a
    * mutation run over one kernel-test-heavy Drupal module already needs
-   * more than the executor's ten-minute default (F-EMT-23).
+   * more than the executor's ten-minute default (F-ADOPT-23).
    *
    * @return \Droost\Workflow\Config\Preset
    *   The base lever set.

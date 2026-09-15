@@ -588,8 +588,8 @@ exit(0);
  * writing FOR a human, and quoting the operator's command there is exactly
  * what this guard's own refusal asks it to do ("show the operator the exact
  * command"). A live run was refused for putting `drush
- * droost:workflow:gate-waive …` in a pull-request body (F-EMT-11). Such bodies
- * are dropped before matching. A heredoc piped into a shell or a language
+ * droost:workflow:gate-waive …` in a pull-request body (F-ADOPT-11). Such
+ * bodies are dropped before matching. A heredoc piped into a shell or a language
  * runtime (`bash <<EOF`, `ddev exec … <<EOF`, `drush php:script - <<EOF`) is
  * still code and stays in the scan, as does everything outside heredocs.
  *
@@ -700,8 +700,8 @@ function operator_commands_guard(string $stdin): void {
     // hotfix"` was refused, and so was `echo "ask the operator to run drush
     // droost:workflow:gate-waive phpcs"` — which is the guard's OWN refusal
     // message being followed. A previous round fixed this once for heredoc
-    // bodies (F-EMT-11, a pull-request body quoting a waiver); the same mistake
-    // came back through a different door.
+    // bodies (F-ADOPT-11, a pull-request body quoting a waiver); the same
+    // mistake came back through a different door.
     $line = implode(' ', array_filter(
       $tokens,
       static fn (string $token): bool => preg_match('/\s/', $token) !== 1,
@@ -1404,8 +1404,8 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
   //
   // The second is the guard's OWN refusal message being followed — it tells the
   // agent to show the operator the exact command — and a previous round already
-  // fixed this once, for heredoc bodies (F-EMT-11, a pull-request body quoting
-  // a waiver). Quoting a command to a human is not running it, and only
+  // fixed this once, for heredoc bodies (F-ADOPT-11, a pull-request body
+  // quoting a waiver). Quoting a command to a human is not running it, and only
   // something that will EXECUTE its argument makes it a command line again.
   // PREFIX WRAPPERS. `$head` is token 0, so anything in front of the runner hid
   // it: `nice bash -c …`, `time bash -c …`, `watch -n1 …`, `flock … -c …`,
@@ -1898,7 +1898,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
   //   gh pr create --body-file - <<'EOF'  with
   //   $ drush droost:workflow:gate-waive phpcs
   //
-  // The second is F-EMT-11 returning through the other door: a pull-request
+  // The second is F-ADOPT-11 returning through the other door: a pull-request
   // body quoting the waiver this guard's own refusal tells the agent to show
   // the operator. Writing a PHP file with a heredoc is routine here, and a
   // guard that refuses that is a guard somebody deletes.

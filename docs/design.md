@@ -1,7 +1,7 @@
 # Droost Workflow — design sketch (Track F)
 
 The open-source, **agent-first** work pipeline the Druplit worker (and any droost surface)
-runs to build or change a Drupal site. A **clean-room sibling** of `littler/drup-pipeline`
+runs to build or change a Drupal site. A **clean-room sibling** of a proprietary enterprise pipeline
 — same structural DNA (phased · gated · EARS-grounded · droost-powered), rebuilt for an
 **autonomous agent** and stripped of the enterprise-dev ceremony (no Jira/Confluence, no
 deploy/release track).
@@ -129,7 +129,7 @@ the gate either auto-advancing on pass or pausing for a human answer.
 ## Clean-room / open-source
 
 A **fresh** implementation of the *pattern* (phases / gates / EARS / droost-partial / funnel),
-original content — **not** a copy of Littler's proprietary `drup-pipeline` text. Different use
+original content — **not** a copy of that proprietary pipeline's text. Different use
 case (autonomous site-build vs human enterprise dev), so it's a **sibling, not a fork**.
 
 ## Build order (Track F sub-steps)

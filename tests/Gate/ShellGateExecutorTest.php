@@ -76,7 +76,7 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   /**
    * A tool killed at the timeout could not run — and the line names the lever.
    *
-   * F-EMT-23: infection over one kernel-test-heavy module lost the race
+   * F-ADOPT-23: infection over one kernel-test-heavy module lost the race
    * against a fixed ten minutes every time; the verdict used to be a bare
    * exit 124 with nothing to act on.
    */
@@ -501,7 +501,7 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
-   * A tool that crashes is "could not run", never a failing lint (F-EMT-9).
+   * A tool that crashes is "could not run", never a failing lint (F-ADOPT-9).
    *
    * Live at xhigh on a Drupal site: eslint walked up to core's scaffolded
    * .eslintrc.json, could not load the plugins it extends, exited 2 with a
@@ -667,7 +667,7 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   /**
    * The front-end trio are handed concrete files, never a bare directory.
    *
-   * A real defect caught live (EMT dogfood): stylelint given the directory
+   * A real defect caught live (adopter dogfood): stylelint given the directory
    * `web/modules/custom` globbed EVERY file under it — .info.yml, .install,
    * .php, .twig — and parsed each as CSS, raising a CssSyntaxError on all of
    * them. The tool must see only the files it owns; phpcs/phpstan keep taking

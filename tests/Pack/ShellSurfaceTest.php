@@ -653,7 +653,7 @@ final class ShellSurfaceTest extends WorkflowTestCase {
    * on any body line beginning with `$`. That refused writing a PHP file with
    * a heredoc, which is routine here, and it refused a pull-request body
    * quoting the waiver this guard's own refusal tells the agent to show the
-   * operator. F-EMT-11, returning through the other door.
+   * operator. F-ADOPT-11, returning through the other door.
    */
   public function testDataHeredocsAreDataToBothWalls(): void {
     $root = $this->lab();

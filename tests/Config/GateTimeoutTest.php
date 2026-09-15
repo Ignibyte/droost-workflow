@@ -10,7 +10,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The per-gate `timeout` lever (F-EMT-23).
+ * The per-gate `timeout` lever (F-ADOPT-23).
  *
  * A mutation run over one kernel-test-heavy Drupal module needs more than
  * the executor's ten-minute default, and the only answer used to be a
