@@ -44,8 +44,16 @@ mode: agentic
 # written out, and an explicit key beats the preset — so setting `preset: max`
 # here still leaves `enforcement: soft`, still leaves mutation, playwright and
 # coverage off, and still leaves max_gate_retries at 2. To let a level decide
-# a lever, DELETE that lever's line. `droost-workflow status` names every key
-# that is overriding the level you asked for, under `deprecations`.
+# a lever, DELETE that lever's line.
+#
+# `droost-workflow status`, under `deprecations`, names the SWITCHES a named
+# level cannot reach past a value spelled here — mode, enforcement, seekers,
+# max_gate_retries, and any gate the level runs that this file turns off. It
+# does NOT list a gate's own TUNING (a `phpstan.level`, a `phpcs.standard`, a
+# `paths`): that is yours, it always wins, and it is visible in this file. So
+# at `preset: low` with `phpstan: { level: 6 }` still written below, the
+# analyser runs at 6 and status says nothing about it — delete the `level:`
+# line to let the level decide.
 preset: custom
 
 # hard | soft | off
