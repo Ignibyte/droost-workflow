@@ -1824,18 +1824,20 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // treated as a write, which is the right way round to be wrong.
     $plain = operator_commands_unwrapped($tokens);
     $writesTo = FALSE;
+    $redirectsOnly = TRUE;
     foreach ($tokens as $token) {
       if (str_starts_with($token, "\x01")) {
         $writesTo = TRUE;
-        break;
+        continue;
       }
-      // A flag can redirect as surely as `>`. `git diff --output=<path>`
-      // truncates and fills its target, and `git diff` is on the read list —
-      // so the guard's own file was a legal destination for a "read". The
-      // program is passed so a flag that means something else FOR IT (grep's
-      // `-o`) is not read as a destination.
+      // A flag retargets an OPERAND, which a redirect does not: `git diff
+      // --output=<path>` truncates and fills its target, and `git diff` is on
+      // the read list — so the guard's own file was a legal destination for a
+      // "read". The program is passed so a flag that means something else FOR
+      // IT (grep's `-o`) is not read as a destination.
       if (operator_commands_write_flag($token, $plain[0] ?? '')) {
         $writesTo = TRUE;
+        $redirectsOnly = FALSE;
         break;
       }
     }
@@ -2047,7 +2049,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
         exit(2);
       }
     }
-    $reading = !$writesTo && (in_array($verb, [
+    $isReader = (in_array($verb, [
       'cat', 'less', 'more', 'head', 'tail', 'ls', 'stat', 'file', 'wc',
       'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'diff', 'md5', 'shasum',
       'md5sum', 'sha1sum', 'sha256sum', 'cmp', 'realpath', 'readlink', 'jq',
@@ -2065,9 +2067,19 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       // latter. `checkout`, `restore`, `reset`, `stash`, `rm`, `mv` and
       // `clean` all DO write the working tree and stay out of this list.
       || ($verb === 'git' && in_array($sub, ['diff', 'log', 'show', 'status', 'blame', 'grep', 'add', 'commit'], TRUE)));
+    $reading = !$writesTo && $isReader;
     if ($reading) {
       continue;
     }
+    // A READER WHOSE ONLY WRITE IS A REDIRECT. `2>/dev/null` is the commonest
+    // idiom in shell, and it set `$writesTo`, which switched the exemption
+    // above off — after which every path the command merely READ was judged a
+    // write target. `grep -rn allow_entity_write web/sites 2>/dev/null` came
+    // back as "that file IS the write-gate arming". The redirect's TARGET
+    // still has to be judged (`cat x > guard` is how the guard gets
+    // overwritten), so it is not the exemption that changes: the operands the
+    // reader reads are skipped, and the `\x01` target is not.
+    $readerRedirectOnly = $isReader && $writesTo && $redirectsOnly;
     // A flag's VALUE is an operand. Every token starting with `-` was skipped
     // as "a flag, not a path", which is true of `-q` and false of
     // `--output=.claude/hooks/droost-workflow-guard.php` — so the one form
@@ -2097,6 +2109,12 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     }
     foreach ($operands as $operand) {
       if ($operand === '' || str_starts_with($operand, '-')) {
+        continue;
+      }
+      // The reader's own operands, when the only write on the line is a
+      // redirect: it is READING these. The redirect target keeps its `\x01`
+      // and is judged below like any other write.
+      if ($readerRedirectOnly && !str_starts_with($operand, "\x01")) {
         continue;
       }
       // Resolved against the tracked cwd, then judged exactly as a Write is.

@@ -1505,6 +1505,18 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       'grep -o "phases" .claude/hooks/droost-workflow-guard.php',
       'cd docs && sed -n \'1p\' run.json',
       'cd docs && awk \'{print}\' run.json',
+      // A REDIRECT TO /dev/null IS NOT A WRITE TO THE OPERANDS. `2>` marked
+      // the whole command "writing", which switched off the read exemption,
+      // after which every path it merely READ was judged a write target. So
+      // the commonest idiom in shell turned any read into a refusal:
+      // `grep -rn x . 2>/dev/null` answered "that file IS the write-gate
+      // arming". The redirect's own target is judged separately, which is
+      // what the refusals below prove.
+      'grep -rn "settings.droost.php" . 2>/dev/null',
+      'grep -rn allow_entity_write web/sites 2>/dev/null',
+      'cat droost/droost-workflow/run.json 2>/dev/null',
+      'ls -la .claude/hooks 2>/dev/null',
+      'find src -name "*.php" 2>/dev/null',
     ] as $command) {
       [$exit, , $stderr] = $this->shell($root, $command);
       $this->assertSame(0, $exit, $command . ' only reads: ' . $stderr);
