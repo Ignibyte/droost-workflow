@@ -362,13 +362,11 @@ final class MandatoryGatesMeasureTest extends WorkflowTestCase {
       file_put_contents($root . '/' . $dir . '/Thing.php', "<?php\n");
     }
 
-    // The runner stands in for git: `check-ignore -q` exits 0 for an ignored
-    // path, 1 for one that is tracked.
+    // Read as TEXT, not asked of git: ddev does not mount `.git` into the
+    // container the gates run in, so a rule that needs git is not there.
+    file_put_contents($root . '/.gitignore', "# staging\n/staged/\n*.log\n!keep\n");
     $executor = new ShellGateExecutor(
-      static function (array $argv): array {
-        $ignored = $argv[0] === 'git' && in_array('staged', $argv, TRUE);
-        return [$ignored ? 0 : 1, '', ''];
-      },
+      static fn (): array => [0, '', ''],
       static fn (): int => 0,
     );
     $method = new \ReflectionMethod(ShellGateExecutor::class, 'argvFor');

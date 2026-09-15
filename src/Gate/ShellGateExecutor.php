@@ -1645,26 +1645,61 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   Those of them git does not ignore.
    */
   private function notIgnoredByGit(string $base, array $candidates): array {
-    if ($candidates === [] || !is_dir($base . '/.git')) {
+    $ignored = self::ignoredNames($base);
+    if ($candidates === [] || $ignored === []) {
       return $candidates;
     }
-    $kept = [];
-    foreach ($candidates as $candidate) {
-      // One call per candidate: `check-ignore` exits 0 when the path IS
-      // ignored, 1 when it is not, and 128 when it cannot answer at all —
-      // and only a clean 0 is taken as "ignored", so a git that errors keeps
-      // the path rather than silently narrowing what the gates examine.
-      [$exit] = ($this->runner)(
-        ['git', 'check-ignore', '-q', '--', $candidate],
-        $base,
-        15,
-      );
-      if ($exit !== 0) {
-        $kept[] = $candidate;
+
+    return array_values(array_filter(
+      $candidates,
+      static fn (string $candidate): bool => !in_array($candidate, $ignored, TRUE),
+    ));
+  }
+
+  /**
+   * The top-level names `.gitignore` excludes, read as text.
+   *
+   * NOT `git check-ignore`, which was the first attempt and cannot work where
+   * this runs: ddev does not mount `.git` into the web container, so inside
+   * the container there is no repository, `is_dir('.git')` is false and — the
+   * part that made it look fine — `check-ignore` exits 0 anyway, which reads
+   * as "ignored" while actually meaning "no repo to ask". The gates run in
+   * the container. A rule that needs git is a rule that is not there.
+   *
+   * Only EXACT names are honoured — `droost-packages`, `/droost-packages`,
+   * `droost-packages/` — and never a glob or a negation. A conservative
+   * reader can only fail by keeping something, which is the behaviour this
+   * had before; a clever one could silently stop analysing real code.
+   *
+   * @param string $base
+   *   The project root.
+   *
+   * @return list<string>
+   *   Top-level names the project ignores.
+   */
+  private static function ignoredNames(string $base): array {
+    $file = rtrim($base, '/') . '/.gitignore';
+    if (!is_file($file)) {
+      return [];
+    }
+    $names = [];
+    foreach (preg_split('/\R/', (string) @file_get_contents($file)) ?: [] as $line) {
+      $line = trim($line);
+      if ($line === '' || str_starts_with($line, '#') || str_starts_with($line, '!')) {
+        continue;
+      }
+      // A pattern with a glob, or one naming something nested, is left to
+      // git. This is about the top-level directories the scan walks.
+      if (preg_match('/[*?\[\]]/', $line) === 1) {
+        continue;
+      }
+      $name = trim($line, '/');
+      if ($name !== '' && !str_contains($name, '/')) {
+        $names[] = $name;
       }
     }
 
-    return $kept;
+    return array_values(array_unique($names));
   }
 
   /**
