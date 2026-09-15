@@ -1423,6 +1423,13 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       'php -r \'echo 1+1;\'',
       'php -r \'file_put_contents("build/out.txt", "ok");\'',
       'php -r \'echo strlen("a long string with spaces");\'',
+      // READING the record is ordinary, and the pack encourages it. Naming
+      // the path was enough on its own, so a subject inspecting its own run
+      // — inside the run — was refused as "code that names the enforcement".
+      // The attack this rule exists for is a WRITE.
+      'python3 -c \'import json; d = json.load(open("droost/droost-workflow/run.json")); print(d)\'',
+      'php -r \'$d = json_decode(file_get_contents("droost/droost-workflow/run.json"), TRUE); print_r($d);\'',
+      'node -e \'console.log(require("./droost/droost-workflow/run.json").current_phase)\'',
       'python3 -c \'print(1 + 1)\'',
       'node -e \'console.log(process.version)\'',
       'php -l src/a.php',

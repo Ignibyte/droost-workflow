@@ -1319,9 +1319,7 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
   // `sudo|command|env` alternation the old pattern carried was unreachable
   // past that strip and is gone with it.
   $runner = '/^(?:\/\S+\/)?(?:' . operator_commands_interpreter_words() . ')$/';
-  $verbs = '/droost:workflow:(gate-waive|baseline|bypass|effort)\b'
-    . '|(?<![\w-])(dwfgw|dwfbl|dwfby|dwfe)\b|droost-workflow\s+baseline\b'
-    . '|(?:droost:gate|(?<![\w-])dgate)\b/';
+  $verbs = operator_verb_pattern();
   $resolved = [];
   foreach ($invocations as $tokens) {
     // The subcommand forms — `ddev exec …`, `lando ssh …`, `docker exec …` —
@@ -1553,12 +1551,22 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
         // where its `--off` is not an argument — so `ddev exec "drush …
         // --off"` was refused by the outer while the inner would have allowed
         // it. The command that runs is the inner one; the outer is `ddev exec`.
+        // INTERPRETER CODE IS NOT RE-SCANNED AS SHELL. Tokenising Python or
+        // PHP as a command line produces tokens no shell would ever make, and
+        // the path rules then judge them: `python3 -c "json.load(open(
+        // 'droost/droost-workflow/run.json'))"` — a subject READING its own
+        // run record — came out as an operand naming the record and was
+        // refused as rewriting the referee. The code is judged as code
+        // instead, by the inline-code rules in the path tier, exactly as a
+        // `.py` file is judged as Python rather than as shell.
+        if ($inlineCodeHeld) {
+          $kept[] = $token;
+          continue;
+        }
         foreach (operator_commands_invocations($token, $depth + 1) as $inner) {
           $inners[] = $inner;
         }
-        if (!$inlineCodeHeld) {
-          continue;
-        }
+        continue;
       }
       $kept[] = $token;
     }
@@ -1903,8 +1911,37 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // handed inline code so it does not fire on prose that merely mentions a
     // path. Naming an enforcement file in code you hand an interpreter is not
     // something ordinary work does.
+    // AND ONLY WHEN IT WRITES. Naming the path was enough on its own, which
+    // refused READING the record — `python3 -c "json.load(open('…/run.json'))"`,
+    // a subject inspecting its own run, came back as "code that names the
+    // enforcement". Reading the record is ordinary and the whole pack
+    // encourages it; the attack this rule exists for is a WRITE
+    // (`file_put_contents(<guard>, "")`). So the code must both name an
+    // enforcement path and carry something that writes.
+    //
+    // This is a text heuristic over code, which is the shape that keeps
+    // producing false positives here — but the alternative is refusing every
+    // read, and the rule is already only a wall against LITERAL spellings:
+    // a path assembled from two halves slips it either way, so requiring a
+    // literal write beside a literal path gives up very little.
     $inlineCode = operator_commands_inline_code($plain, $cwd);
-    if ($inlineCode !== NULL && preg_match(enforcement_path_markers(), $inlineCode) === 1) {
+    // The verb hidden in a PROGRAM rather than in a file. The code is no
+    // longer re-scanned as shell (tokenising Python as a command line is how
+    // reading the run record got refused), so the verbs are looked for in the
+    // text, the same way the script reader looks for them in a `.py`.
+    if ($inlineCode !== NULL && preg_match(operator_verb_pattern(), $inlineCode) === 1) {
+      fwrite(STDERR, sprintf(
+        'This hands an interpreter code carrying one of the operator-only '
+        . 'verbs. Putting the command inside a program does not make it the '
+        . 'agent\'s to run — show the OPERATOR the command and the reason, '
+        . 'and let them run it. (Refused: %s)',
+        trim($command),
+      ));
+      exit(2);
+    }
+    if ($inlineCode !== NULL
+      && preg_match(enforcement_path_markers(), $inlineCode) === 1
+      && code_writes($inlineCode)) {
       fwrite(STDERR, sprintf(
         'This hands an interpreter code that names the enforcement itself — the '
         . 'guard, the run record, the evidence store, the baseline or the '
@@ -2883,6 +2920,68 @@ function guard_run_is_live(string $root, string $stateDir): bool {
   }
 
   return $document['current_phase'] !== NULL && $document['current_phase'] !== '';
+}
+
+/**
+ * The operator-only verbs, as one pattern.
+ *
+ * Asked by the tokeniser (is this quoted payload a command line worth
+ * re-scanning), by the script reader (is the verb hidden in a file) and by
+ * the inline-code rule (is it hidden in a program). One function, because
+ * three copies of a list is how a verb gets learned by two of them.
+ *
+ * @return string
+ *   A PCRE pattern.
+ */
+function operator_verb_pattern(): string {
+  return '/droost:workflow:(gate-waive|baseline|bypass|effort)\b'
+    . '|(?<![\w-])(dwfgw|dwfbl|dwfby|dwfe)\b|droost-workflow\s+baseline\b'
+    . '|(?:droost:gate|(?<![\w-])dgate)\b/';
+}
+
+/**
+ * Whether a piece of interpreter code does something that WRITES.
+ *
+ * Naming an enforcement path was once enough on its own to refuse, which
+ * refused READING the run record — a subject inspecting its own run with
+ * `python3 -c "json.load(open('…/run.json'))"` was told it was writing the
+ * enforcement. Reading the record is ordinary and the pack encourages it;
+ * the attack the rule exists for is `file_put_contents(<guard>, "")`.
+ *
+ * A text heuristic over code, which is the shape that keeps producing false
+ * positives in this file — but the alternative is refusing every read, and
+ * the rule it guards is already only a wall against LITERAL spellings: a path
+ * assembled from two halves slips it either way. Requiring a literal write
+ * beside a literal path gives up very little and hands back every read.
+ *
+ * @param string $code
+ *   The inline program.
+ *
+ * @return bool
+ *   TRUE when something in it writes, renames, truncates or deletes.
+ */
+function code_writes(string $code): bool {
+  $calls = '/\b(?:file_put_contents|fwrite|fputs|ftruncate|unlink|rename|copy|rmdir|mkdir|touch|chmod'
+    . '|writeFileSync|writeFile|appendFileSync|appendFile|unlinkSync|rmSync|renameSync|createWriteStream'
+    . '|remove|rmtree|truncate|write_text|write_bytes|shutil)\s*\(/i';
+  if (preg_match($calls, $code) === 1) {
+    return TRUE;
+  }
+  // `open(path, "w")` — the MODE is what makes it a write — and Perl's
+  // two-argument `open(FH, ">path")`.
+  if (preg_match('/open\s*\(.*,\s*[\'"][rwax+b]*[wax][rwax+b]*[\'"]/is', $code) === 1
+    || preg_match('/open\s*\([^,)]*[\'"]\s*>+/s', $code) === 1) {
+    return TRUE;
+  }
+  // Ruby's File verbs, and a redirect inside an awk program (`print > "…"`).
+  if (preg_match('/File\.(?:write|delete|rename|open|new)/i', $code) === 1
+    || preg_match('/>\s*[\'"]/', $code) === 1) {
+    return TRUE;
+  }
+
+  // sed's `w <path>` command, which writes the pattern space to a file and is
+  // how `sed -n "w…guard.php" src/a.php` overwrote this guard.
+  return preg_match('/(?:^|[;{}\s])w\s*[\/.\w-]*[\/.]\S/', $code) === 1;
 }
 
 /**
