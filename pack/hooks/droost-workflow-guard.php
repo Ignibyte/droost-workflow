@@ -2498,11 +2498,23 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
       . 'close it again with `bypass --off`.';
   }
 
-  // The second tier applies only while a run is under way.
-  if (!is_file($root . '/' . $stateDir . '/run.json')) {
+  // The second tier applies only while a run is under way — which is not the
+  // same as "a run.json exists". A FINISHED run leaves its record behind with
+  // `current_phase: null`; that file is the run's history, and the phase
+  // skills say so in as many words. Arming on the file's existence meant a
+  // run completed weeks ago went on refusing every lever edit with "a run is
+  // under way", and the only way out was a `reset` nobody needed. Proven on a
+  // walk that could not change `preset:` anywhere because of a run finished
+  // the previous month.
+  if (!guard_run_is_live($root, $stateDir)) {
     return '';
   }
-  if (preg_match('#(^|/)droost\.workflow\.yml$#', $relative) === 1) {
+  // ANCHORED, not "any path ending in the name". The lever file that governs
+  // a run is the one at the project root — `WorkflowConfig::load()` reads
+  // exactly `<root>/droost.workflow.yml` — but the pattern matched the
+  // basename anywhere, so a `pack/droost.workflow.yml` shipped inside another
+  // checkout was refused on the strength of an unrelated repository's run.
+  if (preg_match('#^droost\.workflow\.yml$#', $relative) === 1) {
     return 'The lever file sets what this run is held to, and a run is under '
       . 'way. Its levers were frozen when the run began, so editing it now '
       . 'cannot change THIS run — but it changes the next one, and moving the '
@@ -2706,6 +2718,43 @@ function with_find_exec_commands(array $invocations): array {
   }
 
   return [...$invocations, ...$extra];
+}
+
+/**
+ * Whether a run is actually under way, rather than merely recorded.
+ *
+ * `run.json` is BOTH the live record and the finished one: a completed run
+ * leaves it with `current_phase: null`, which is how every reader in the
+ * pack tells the two apart. Asking `is_file()` conflated them and left a
+ * finished run enforcing itself forever.
+ *
+ * Fails CLOSED: a file that exists but cannot be read or parsed is treated
+ * as live, because the alternative is that corrupting the record disarms the
+ * enforcement.
+ *
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The run-state directory, relative to the root.
+ *
+ * @return bool
+ *   TRUE while a phase is active.
+ */
+function guard_run_is_live(string $root, string $stateDir): bool {
+  $path = $root . '/' . $stateDir . '/run.json';
+  if (!is_file($path)) {
+    return FALSE;
+  }
+  $raw = @file_get_contents($path);
+  if (!is_string($raw) || trim($raw) === '') {
+    return TRUE;
+  }
+  $document = json_decode($raw, TRUE);
+  if (!is_array($document) || !array_key_exists('current_phase', $document)) {
+    return TRUE;
+  }
+
+  return $document['current_phase'] !== NULL && $document['current_phase'] !== '';
 }
 
 /**

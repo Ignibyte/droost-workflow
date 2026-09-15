@@ -1433,6 +1433,52 @@ final class ShellSurfaceTest extends WorkflowTestCase {
   }
 
   /**
+   * A FINISHED run does not go on enforcing itself.
+   *
+   * `run.json` is both the live record and the finished one — a completed run
+   * leaves it with `current_phase: null`, which is how the phase skills tell
+   * a reader the run is over. The run-scoped tier armed on the file EXISTING,
+   * so a run completed weeks earlier still refused every lever edit with "a
+   * run is under way", and a `reset` nobody needed was the only way out. The
+   * always-on tier is untouched: the guard, the state directory and the
+   * bypass grant are refused run or no run.
+   */
+  public function testTheFinishedRunStopsEnforcingItself(): void {
+    $root = $this->lab();
+    file_put_contents($root . '/droost.workflow.yml', "preset: high\n");
+    $record = $root . '/droost/droost-workflow/run.json';
+
+    // While the run is live, the lever file is the operator's.
+    [$live] = $this->shell($root, 'echo "preset: low" > droost.workflow.yml');
+    $this->assertSame(2, $live, 'a live run freezes the dial');
+
+    // Finished: the record remains, and it is history.
+    file_put_contents($record, (string) json_encode([
+      'current_phase' => NULL,
+      'phases' => ['code' => 'passed'],
+      'enforcement' => 'hard',
+    ]));
+    [$done, , $stderr] = $this->shell($root, 'echo "preset: low" > droost.workflow.yml');
+    $this->assertSame(0, $done, 'a finished run is not a run under way: ' . $stderr);
+
+    // What is always protected stays protected, with no run at all.
+    foreach ([
+      'echo x > .claude/hooks/droost-workflow-guard.php',
+      'rm -rf droost/droost-workflow',
+      'echo "{}" > droost/droost-workflow/bypass.json',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' is refused whether or not a run is live');
+    }
+
+    // A record that cannot be read fails CLOSED — corrupting it must not be
+    // a way to disarm the run-scoped tier.
+    file_put_contents($record, '{ this is not json');
+    [$corrupt] = $this->shell($root, 'echo "preset: low" > droost.workflow.yml');
+    $this->assertSame(2, $corrupt, 'an unreadable record is treated as live');
+  }
+
+  /**
    * A program awk or sed runs is code, and code that writes is a write.
    *
    * Neither spells a redirect the operand loop can see and neither is a
