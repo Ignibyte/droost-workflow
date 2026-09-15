@@ -1531,6 +1531,15 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       // so refusing this refused the harness that measures the tool.
       'cp -Rp droost/droost-workflow /tmp/round-bundle',
       'rsync -a droost/droost-workflow/ /tmp/round-bundle/',
+      // A SCRIPT'S ARGUMENT IS DATA. `bash -c "…"` is handed a command line;
+      // `./deploy.sh "some message"` is handed an argument the script decides
+      // the meaning of, and it is usually text. Every `./x.sh` counted as a
+      // runner, so its arguments were re-scanned as shell and judged on their
+      // contents — telling the eval harness's subject that a change to the
+      // guard was the operator's was refused as rewriting the guard. It is a
+      // sentence.
+      './dogfood.sh say "the change to .claude/hooks/droost-workflow-guard.php is mine"',
+      './deploy.sh "rm -rf droost/droost-workflow was yesterday\'s bug"',
       'grep -rn "settings.droost.php" . 2>/dev/null',
       'grep -rn allow_entity_write web/sites 2>/dev/null',
       'cat droost/droost-workflow/run.json 2>/dev/null',

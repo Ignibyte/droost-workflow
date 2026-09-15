@@ -1388,14 +1388,28 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
     $project = guard_named_root() !== '' ? guard_named_root() : (getcwd() ?: '');
     $selfExecuting = preg_match('#^\\.{1,2}/|^[^/]+\\.(?:sh|bash|zsh|php|py|pl|rb)$#', $head) === 1
       || (str_starts_with($headRaw, '/') && $project !== '' && resolved_relative($headRaw, $project) !== '');
-    $runs = $wrapped
+    // A SCRIPT'S ARGUMENTS ARE DATA; a `-c` STRING IS A COMMAND LINE. These
+    // are two different questions and were one answer. `bash -c "…"`, `eval
+    // "…"` and `ddev exec "…"` are handed a command line and run it, so their
+    // quoted argument must be re-scanned. `./deploy.sh "some message"` is
+    // handed an ARGUMENT — the script decides what it means, and it is
+    // usually text. Treating every `./x.sh` as a runner re-scanned its
+    // arguments as shell, so any project script taking a message was judged
+    // on the message's contents: telling the eval harness's subject
+    //
+    //   ./dogfood.sh say "the change to .claude/hooks/…guard.php is mine"
+    //
+    // was refused as an attempt to rewrite the guard. It is a sentence. The
+    // script itself is still READ below, which is the tier that catches a
+    // verb hidden in a file — that protection is untouched.
+    $takesCommandString = $wrapped
       || $opaque
-      || $selfExecuting
       || preg_match($runner, $head) === 1
       || ($head === 'ssh')
       || (in_array($head, ['ddev', 'lando', 'fin', 'docker', 'docker-compose', 'podman'], TRUE)
         && in_array($second, ['exec', 'ssh', 'run'], TRUE))
       || ($head === 'drush' && str_starts_with($second, 'php'));
+    $runs = $takesCommandString || $selfExecuting;
     // A SCRIPT FILE IS A COMMAND LINE THE GUARD CAN READ. `bash script.sh`
     // hid the operator's verb in a file, and the guard judged the two words in
     // front of it. It is a file on disk, inside the project, written moments
@@ -1498,7 +1512,7 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
       // whole thing as one multi-word token that no path check can match, and
       // the guard overwrote itself. `$runs` is the gate; what the runner was
       // handed is a command line either way.
-      if (($runs || $piped) && preg_match('/\s/', $token) === 1) {
+      if (($takesCommandString || $piped) && preg_match('/\s/', $token) === 1) {
         // The nested line REPLACES the argument that carried it. Keeping both
         // meant the outer invocation still held the verb — as one long token,
         // where its `--off` is not an argument — so `ddev exec "drush …
