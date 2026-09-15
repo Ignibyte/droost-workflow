@@ -1893,7 +1893,15 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // left to be discovered.
     $destructive = '/^\\\\?(?:\/\S+\/)?'
       . '(?:rm|unlink|rmdir|mv|cp|ln|install|rsync|shred|truncate|dd|mktemp)\b/';
-    if (preg_match($destructive, implode(' ', $plain)) === 1) {
+    // THE VERB, not the whole line. This matched the joined tokens, so a
+    // destructive WORD anywhere in an invocation armed the tier — as an
+    // argument, a filename, a commit message, or a variable's value. Reading
+    // a shell script is where it bit: `dogfood.sh` assigns
+    // `STATE="$SITE/droost/droost-workflow"` and elsewhere says `install`,
+    // and launching the eval harness came back as "a shell command acts on
+    // droost/droost-workflow itself". Nothing in that script removes
+    // anything. `$plain` is already unwrapped, so its head IS the verb.
+    if (preg_match($destructive, ltrim($plain[0] ?? '', "\x01")) === 1) {
       $protectedDirs = enforcement_protected_dirs($stateDir);
       foreach ($tokens as $operand) {
         $operand = ltrim($operand, "\x01");

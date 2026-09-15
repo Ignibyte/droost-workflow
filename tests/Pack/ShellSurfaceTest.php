@@ -1512,6 +1512,16 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       // `grep -rn x . 2>/dev/null` answered "that file IS the write-gate
       // arming". The redirect's own target is judged separately, which is
       // what the refusals below prove.
+      // A DESTRUCTIVE WORD IS NOT A DESTRUCTIVE VERB. The directory tier
+      // matched the joined tokens, so any invocation that merely CONTAINED
+      // `rm`, `cp`, `mv` or `install` beside the state path armed it — in an
+      // argument, a message, or a variable's value. Reading a shell script is
+      // where it bit: the eval harness assigns
+      // `STATE="$SITE/droost/droost-workflow"` and says `install` elsewhere,
+      // and launching it came back as "a shell command acts on
+      // droost/droost-workflow itself". Nothing in it removes anything.
+      'echo "cp droost/droost-workflow somewhere"',
+      'git commit -m "rm droost/droost-workflow was the bug"',
       'grep -rn "settings.droost.php" . 2>/dev/null',
       'grep -rn allow_entity_write web/sites 2>/dev/null',
       'cat droost/droost-workflow/run.json 2>/dev/null',
@@ -1527,6 +1537,10 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       'git rm .claude/hooks/droost-workflow-guard.php',
       'sort -o droost/droost-workflow/run.json src/a.php',
       'curl -o .claude/hooks/droost-workflow-guard.php http://example.com/x',
+      // The verb really being destructive is still the verb really being
+      // destructive: the tier above narrowed to the head, it did not soften.
+      'cp -r droost/droost-workflow /tmp/stash',
+      'mv droost/droost-workflow /tmp/stash',
     ] as $command) {
       [$exit] = $this->shell($root, $command);
       $this->assertSame(2, $exit, $command . ' rewrites the working tree');
