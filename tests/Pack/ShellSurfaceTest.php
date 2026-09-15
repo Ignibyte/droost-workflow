@@ -48,6 +48,8 @@ final class ShellSurfaceTest extends WorkflowTestCase {
     mkdir($root . '/droost/droost-workflow', 0755, TRUE);
     mkdir($root . '/vendor/bin', 0755, TRUE);
     mkdir($root . '/modules/custom/acme', 0755, TRUE);
+    mkdir($root . '/src', 0755, TRUE);
+    file_put_contents($root . '/src/a.php', "<?php\n");
     file_put_contents($root . '/.claude/settings.json', '{}');
     file_put_contents($root . '/.claude/hooks/droost-workflow-guard.php', '<?php');
     file_put_contents($root . '/vendor/bin/phpcs', '#!/bin/sh');
@@ -997,7 +999,6 @@ final class ShellSurfaceTest extends WorkflowTestCase {
    */
   public function testFindBelowTheEnforcementIsOrdinary(): void {
     $root = $this->lab();
-    mkdir($root . '/src', 0755, TRUE);
     file_put_contents($root . '/src/a.orig', 'x');
     foreach ([
       'find src -name "*.orig" -delete',
@@ -1350,26 +1351,36 @@ final class ShellSurfaceTest extends WorkflowTestCase {
    * removed the state directory under a verdict of ALLOW. The -exec'd command
    * is now walked through the same per-invocation walls a top-level command
    * meets, and a `sh -c "…"` payload is re-scanned like any runner's.
+   *
+   * EVERY SEARCH PATH HERE IS `src`, NOT `.`, and that is the point. With
+   * `find .` the find tier's own reach check answers first — the search
+   * covers the state directory — so the payload is refused for a reason that
+   * has nothing to do with the -exec'd program, and a version of this test
+   * written that way passed while `find src -exec rm -rf droost/…` deleted
+   * the state directory. A test that cannot fail for the reason it names is
+   * not evidence.
    */
   public function testTheExecdProgramIsJudged(): void {
     $root = $this->lab();
     foreach ([
-      'find . -name x -exec rm -rf droost/droost-workflow \\;',
-      'find . -exec mv droost/droost-workflow /tmp/dw \\;',
-      'find . -execdir rm -rf droost/droost-workflow \\;',
-      'find . -exec sh -c "rm -rf droost/droost-workflow" \\;',
-      'find . -exec bash -c "echo x > .claude/hooks/droost-workflow-guard.php" \\;',
-      'find . -exec perl -i -pe "s/hard/off/" droost/droost-workflow/run.json \\;',
+      'find src -name x -exec rm -rf droost/droost-workflow \\;',
+      'find src -exec mv droost/droost-workflow /tmp/dw \\;',
+      'find src -execdir rm -rf droost/droost-workflow \\;',
+      'find src -exec sh -c "rm -rf droost/droost-workflow" \\;',
+      'find src -exec bash -c "echo x > .claude/hooks/droost-workflow-guard.php" \\;',
+      'find src -exec sh -c "drush droost:workflow:bypass x" \\;',
+      'find src -exec perl -i -pe "s/hard/off/" droost/droost-workflow/run.json \\;',
     ] as $command) {
       [$exit] = $this->shell($root, $command);
       $this->assertSame(2, $exit, $command . ' runs a program that reaches enforcement');
     }
     foreach ([
-      'find . -name "*.php" -exec php -l {} \\;',
+      'find src -name "*.php" -exec php -l {} \\;',
       'find src -name "*.php" -exec vendor/bin/phpcs {} +',
-      'find . -name "*.php" -exec grep -l Money {} +',
-      'find . -name "*.tmp" -exec rm {} \\;',
-      'find . -name "*.orig" -exec rm -f {} +',
+      'find src -name "*.php" -exec grep -l Money {} +',
+      'find src -name "*.tmp" -exec rm {} \\;',
+      'find src -name "*.orig" -exec rm -f {} +',
+      'find src -exec sh -c "echo checking" \\;',
     ] as $command) {
       [$exit, , $stderr] = $this->shell($root, $command);
       $this->assertSame(0, $exit, $command . ' reaches nothing protected: ' . $stderr);
@@ -1395,19 +1406,94 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       'perl -e \'open(F,">",".claude/hooks/droost-workflow-guard.php");\'',
       'node -e \'require("fs").unlinkSync("droost/droost-workflow/evidence.sqlite")\'',
       'ruby -e \'File.write("droost.workflow.yml","x")\'',
+      // WITH A SPACE IN THE CODE — which is to say, all real code. A runner's
+      // multi-word argument was re-scanned AS SHELL and the original token
+      // dropped, so the inline-code rule saw nothing and only the unspaced
+      // spelling above was ever refused. One space took the whole tier off.
+      'php -r \'file_put_contents(".claude/hooks/droost-workflow-guard.php", "");\'',
+      'php -r \'$f = ".claude/hooks/droost-workflow-guard.php"; file_put_contents($f, "");\'',
+      'python3 -c \'open("droost/droost-workflow/run.json", "w").write("{}")\'',
+      'node -e \'require("fs").writeFileSync("droost/droost-workflow/run.json", "{}")\'',
+      'ruby -e \'File.write("droost/droost-workflow/run.json", "{}")\'',
     ] as $command) {
       [$exit] = $this->shell($root, $command);
       $this->assertSame(2, $exit, $command . ' writes the enforcement through code');
     }
     foreach ([
       'php -r \'echo 1+1;\'',
-      'php -r \'file_put_contents("build/out.txt","ok");\'',
-      'python3 -c \'print(1)\'',
+      'php -r \'file_put_contents("build/out.txt", "ok");\'',
+      'php -r \'echo strlen("a long string with spaces");\'',
+      'python3 -c \'print(1 + 1)\'',
       'node -e \'console.log(process.version)\'',
       'php -l src/a.php',
     ] as $command) {
       [$exit, , $stderr] = $this->shell($root, $command);
       $this->assertSame(0, $exit, $command . ' is ordinary: ' . $stderr);
+    }
+  }
+
+  /**
+   * A program awk or sed runs is code, and code that writes is a write.
+   *
+   * Neither spells a redirect the operand loop can see and neither is a
+   * destructive verb: `awk 'BEGIN{print > "…/run.json"}'` truncated the run
+   * record and `sed -n 'w…guard.php' src/a.php` overwrote this guard, both
+   * under a verdict of ALLOW. Their program is inline code in exactly the
+   * sense `php -r` is, and is read as such — while the FILES they read stay
+   * ordinary, which is what keeps `sed 's/a/b/' run.json` from being refused
+   * for looking at the record.
+   */
+  public function testAwkAndSedProgramsThatWriteAreRefused(): void {
+    $root = $this->lab();
+    foreach ([
+      'awk "BEGIN{print > \\"droost/droost-workflow/run.json\\"}"',
+      'awk \'BEGIN{print "" > ".claude/hooks/droost-workflow-guard.php"}\'',
+      'sed -n w.claude/hooks/droost-workflow-guard.php src/a.php',
+      'sed -n \'w droost/droost-workflow/run.json\' src/a.php',
+      'gawk \'{print > "droost/baseline/b.json"}\' src/a.php',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' writes the enforcement through its own program');
+    }
+    foreach ([
+      'awk \'{print $1}\' src/a.php',
+      'awk -F, \'{print $2}\' src/a.php',
+      'sed -n \'1,10p\' src/a.php',
+      'sed -n \'$p\' src/a.php',
+      'sed -i "" \'s/foo/bar/\' src/a.php',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' only reads, or only writes its own file: ' . $stderr);
+    }
+  }
+
+  /**
+   * A pipe is judged by the text its feeder emits, not by its operands.
+   *
+   * `pipe_feeder_reaches()` resolved each operand as a path, and `printf`'s
+   * operands are a format and its argument — neither is a path until printf
+   * has joined them. So `printf ".claude/hooks/%s" droost-workflow-guard.php
+   * | xargs rm` deleted this guard while the same path in one `echo` was
+   * refused.
+   */
+  public function testTextFedToXargsIsJudgedAsText(): void {
+    $root = $this->lab();
+    foreach ([
+      'printf ".claude/hooks/%s" droost-workflow-guard.php | xargs rm',
+      'printf "droost/droost-workflow/%s\\0" run.json | xargs -0 rm',
+      'echo .claude/hooks/droost-workflow-guard.php | xargs rm',
+      'printf "%s\\n" droost/droost-workflow/run.json | xargs rm -f',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' hands the enforcement to a writer');
+    }
+    foreach ([
+      'printf "%s\\n" build/out.txt | xargs rm -f',
+      'echo src/a.php | xargs wc -l',
+      'printf "hello %s\\n" world',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' reaches nothing protected: ' . $stderr);
     }
   }
 

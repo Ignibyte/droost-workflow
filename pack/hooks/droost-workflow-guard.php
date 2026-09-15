@@ -1479,6 +1479,17 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
         break;
       }
     }
+    // CODE IS NOT A COMMAND LINE, AND RE-SCANNING IT AS ONE ERASES IT.
+    // `php -r '<code>'` is a runner by `$runs`, so the code token — any code
+    // with a space in it — was REPLACED by whatever tokenising it as shell
+    // produced, and the inline-code rule below never saw the argument it
+    // exists to read. `php -r 'file_put_contents(".claude/hooks/droost-
+    // workflow-guard.php", "");'` emptied this guard, while the identical
+    // payload without that one space was refused — the rule was alive only
+    // for the spelling nobody uses. The inner scan still runs, because an
+    // operator verb inside the code is worth catching; the token is KEPT as
+    // well, so the code can also be read as code.
+    $inlineCodeHeld = operator_commands_inline_code($bare) !== NULL;
     $kept = [];
     foreach ($tokens as $token) {
       // WHATEVER is in it. This also required the token to carry an operator
@@ -1496,7 +1507,9 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
         foreach (operator_commands_invocations($token, $depth + 1) as $inner) {
           $inners[] = $inner;
         }
-        continue;
+        if (!$inlineCodeHeld) {
+          continue;
+        }
       }
       $kept[] = $token;
     }
@@ -1838,13 +1851,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // path. Naming an enforcement file in code you hand an interpreter is not
     // something ordinary work does.
     $inlineCode = operator_commands_inline_code($plain);
-    if ($inlineCode !== NULL && preg_match(
-      '#droost-workflow-guard\.php|\brun\.json|\bbypass\.json|evidence\.sqlite'
-      . '|settings\.local\.json|\bsettings\.json|settings\.droost\.php'
-      . '|droost\.workflow\.yml|\.claude/hooks|\.claude/(?:skills|agents|commands)'
-      . '|droost/droost-workflow|\.droost-workflow|droost/baseline#',
-      $inlineCode,
-    ) === 1) {
+    if ($inlineCode !== NULL && preg_match(enforcement_path_markers(), $inlineCode) === 1) {
       fwrite(STDERR, sprintf(
         'This hands an interpreter code that names the enforcement itself — the '
         . 'guard, the run record, the evidence store, the baseline or the '
@@ -2678,15 +2685,45 @@ function with_find_exec_commands(array $invocations): array {
     if ($head !== 'find') {
       continue;
     }
-    // `-exec sh -c "rm -rf droost/droost-workflow"` hands a runner a command
-    // line in a quoted token; the per-invocation loops already re-scan a
-    // runner's multi-word argument (the `bash -c '…> guard'` rule), so the
-    // appended `[sh, -c, "…"]` is judged through that — no re-scan is needed
-    // here, and adding one would be a second copy of it.
-    $extra = [...$extra, ...find_exec_commands($one)];
+    foreach (find_exec_commands($one) as $exec) {
+      $extra[] = $exec;
+      // `-exec sh -c "rm -rf droost/droost-workflow"` hands a RUNNER a command
+      // line in a quoted token. The tokeniser re-scans such a token for a
+      // command it PARSED — but it never parsed this one: it was assembled
+      // here, out of find's own arguments, after tokenising was over. So the
+      // re-scan has to happen here too. A previous round removed it as
+      // "redundant" on the strength of a test that used `find .`, where the
+      // find tier's own reach check answers first and hides that nothing ever
+      // judged the `rm`; with `find src` the same payload deleted the state
+      // directory under a verdict of ALLOW.
+      foreach ($exec as $word) {
+        $word = ltrim($word, "\x01");
+        if (preg_match('/\s/', $word) === 1) {
+          $extra = [...$extra, ...operator_commands_invocations($word)];
+        }
+      }
+    }
   }
 
   return [...$invocations, ...$extra];
+}
+
+/**
+ * The pattern that says a piece of TEXT names the enforcement.
+ *
+ * Asked by the interpreter-code rule and by the `printf … | xargs` feeder,
+ * which is the whole reason it is a function: those two started as one
+ * regex copied into the second place, and a copied rule is one that will
+ * eventually be true once.
+ *
+ * @return string
+ *   A PCRE pattern.
+ */
+function enforcement_path_markers(): string {
+  return '#droost-workflow-guard\.php|\brun\.json|\bbypass\.json|evidence\.sqlite'
+    . '|settings\.local\.json|\bsettings\.json|settings\.droost\.php'
+    . '|droost\.workflow\.yml|\.claude/hooks|\.claude/(?:skills|agents|commands)'
+    . '|droost/droost-workflow|\.droost-workflow|droost/baseline#';
 }
 
 /**
@@ -2716,6 +2753,38 @@ function operator_commands_inline_code(array $plain): ?string {
     'node' => ['-e', '--eval', '-p', '--print'],
   ];
   $head = strtolower(basename(ltrim($plain[0] ?? '', "\x01")));
+  // AWK AND SED WRITE THROUGH THEIR OWN PROGRAMS, not through the shell.
+  // `awk 'BEGIN{print > "droost/droost-workflow/run.json"}'` truncates the
+  // record, and `sed -n 'w.claude/hooks/droost-workflow-guard.php' src/a.php`
+  // overwrites this guard: no redirect, no destructive verb, nothing the
+  // operand loop can see. Their PROGRAM is code in exactly the sense `php -r`
+  // is. It is told apart from the input FILES the one way that holds without
+  // parsing each dialect — a file that exists is an input, and a program is
+  // not a file — so `sed 's/a/b/' droost/droost-workflow/run.json` READING
+  // the record stays ordinary.
+  if (in_array($head, ['awk', 'gawk', 'mawk', 'nawk', 'sed', 'ed', 'ex'], TRUE)) {
+    $valued = ['-f', '-v', '-F', '-e', '--expression', '--file', '-i'];
+    $program = [];
+    $takesNext = FALSE;
+    foreach (array_slice($plain, 1) as $token) {
+      $token = ltrim($token, "\x01");
+      if ($takesNext) {
+        $takesNext = FALSE;
+        $program[] = $token;
+        continue;
+      }
+      if (in_array($token, $valued, TRUE)) {
+        $takesNext = TRUE;
+        continue;
+      }
+      if ($token === '' || str_starts_with($token, '-') || is_file($token)) {
+        continue;
+      }
+      $program[] = $token;
+    }
+
+    return $program === [] ? NULL : implode(' ', $program);
+  }
   $want = $flags[$head] ?? NULL;
   if ($want === NULL) {
     return NULL;
@@ -2883,6 +2952,20 @@ function pipe_feeder_reaches(array $plain, string $cwd, string $root, string $st
   if ($head === 'find') {
     $reached = find_reaches_enforcement($plain, $cwd, $root, $stateDir);
     return $reached[0] ?? '';
+  }
+  // `printf`/`echo` FEED TEXT, not paths this loop can resolve. `printf
+  // ".claude/hooks/%s" droost-workflow-guard.php | xargs rm` deleted this
+  // guard: the operands are a format and its argument, and neither is a path
+  // until printf has joined them. What reaches xargs is the TEXT, so the text
+  // is what gets asked.
+  if (in_array($head, ['printf', 'echo'], TRUE)) {
+    $text = implode(' ', array_map(
+      static fn (string $t): string => ltrim($t, "\x01"),
+      array_slice($plain, 1),
+    ));
+    if (preg_match(enforcement_path_markers(), $text) === 1) {
+      return trim($text);
+    }
   }
   $protectedDirs = enforcement_protected_dirs($stateDir);
   foreach (array_slice($plain, 1) as $operand) {
