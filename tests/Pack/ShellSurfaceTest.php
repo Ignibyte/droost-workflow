@@ -1479,6 +1479,49 @@ final class ShellSurfaceTest extends WorkflowTestCase {
   }
 
   /**
+   * A read of a protected file is a read, whichever tool spells it.
+   *
+   * Every case here was refused while doing this round's own work, and each
+   * is a command that cannot change the file it names: `git add` and `git
+   * commit` read the working tree into the index and history; `test -f`
+   * only stats; `grep -o` means "print only the match", not "output to";
+   * and `sed -n '1p' run.json` after a `cd` was read as PROGRAM text naming
+   * the record, because the existence check looked in the guard's own
+   * directory rather than the one the command had moved to. The writes stay
+   * writes: `git checkout`/`restore`/`rm` DO rewrite the working tree, and
+   * `sort -o`/`curl -o` really do name a destination.
+   */
+  public function testReadsOfTheEnforcementAreReads(): void {
+    $root = $this->lab();
+    mkdir($root . '/docs', 0755, TRUE);
+    file_put_contents($root . '/docs/run.json', '{}');
+    foreach ([
+      'git add .claude/hooks/droost-workflow-guard.php',
+      'git commit -m "guard" .claude/hooks/droost-workflow-guard.php',
+      'git add -A && git commit -m "pack" -- .claude/hooks/droost-workflow-guard.php',
+      'test -f droost/droost-workflow/run.json && echo yes',
+      '[ -f droost/droost-workflow/run.json ] && echo yes',
+      'grep -o \'"current_phase"\' droost/droost-workflow/run.json',
+      'grep -o "phases" .claude/hooks/droost-workflow-guard.php',
+      'cd docs && sed -n \'1p\' run.json',
+      'cd docs && awk \'{print}\' run.json',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' only reads: ' . $stderr);
+    }
+    foreach ([
+      'git checkout -- .claude/hooks/droost-workflow-guard.php',
+      'git restore .claude/hooks/droost-workflow-guard.php',
+      'git rm .claude/hooks/droost-workflow-guard.php',
+      'sort -o droost/droost-workflow/run.json src/a.php',
+      'curl -o .claude/hooks/droost-workflow-guard.php http://example.com/x',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' rewrites the working tree');
+    }
+  }
+
+  /**
    * A program awk or sed runs is code, and code that writes is a write.
    *
    * Neither spells a redirect the operand loop can see and neither is a

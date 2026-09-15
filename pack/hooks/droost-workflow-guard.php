@@ -1822,6 +1822,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // Each invocation is judged on its OWN leading command, so `cat x; rm y`
     // still refuses the second half. A command that is not on this list is
     // treated as a write, which is the right way round to be wrong.
+    $plain = operator_commands_unwrapped($tokens);
     $writesTo = FALSE;
     foreach ($tokens as $token) {
       if (str_starts_with($token, "\x01")) {
@@ -1830,13 +1831,14 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       }
       // A flag can redirect as surely as `>`. `git diff --output=<path>`
       // truncates and fills its target, and `git diff` is on the read list —
-      // so the guard's own file was a legal destination for a "read".
-      if (operator_commands_write_flag($token)) {
+      // so the guard's own file was a legal destination for a "read". The
+      // program is passed so a flag that means something else FOR IT (grep's
+      // `-o`) is not read as a destination.
+      if (operator_commands_write_flag($token, $plain[0] ?? '')) {
         $writesTo = TRUE;
         break;
       }
     }
-    $plain = operator_commands_unwrapped($tokens);
     $verb = strtolower(basename($plain[0] ?? ''));
     $sub = strtolower($plain[1] ?? '');
     // INTERPRETER CODE IS NOT SHELL, AND THIS GUARD CANNOT READ IT. `php -r
@@ -1850,7 +1852,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // handed inline code so it does not fire on prose that merely mentions a
     // path. Naming an enforcement file in code you hand an interpreter is not
     // something ordinary work does.
-    $inlineCode = operator_commands_inline_code($plain);
+    $inlineCode = operator_commands_inline_code($plain, $cwd);
     if ($inlineCode !== NULL && preg_match(enforcement_path_markers(), $inlineCode) === 1) {
       fwrite(STDERR, sprintf(
         'This hands an interpreter code that names the enforcement itself — the '
@@ -2047,14 +2049,22 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     }
     $reading = !$writesTo && (in_array($verb, [
       'cat', 'less', 'more', 'head', 'tail', 'ls', 'stat', 'file', 'wc',
-      'grep', 'egrep', 'rg', 'diff', 'md5', 'shasum', 'md5sum', 'sha1sum',
-      'sha256sum', 'cmp', 'realpath', 'readlink', 'jq',
+      'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'diff', 'md5', 'shasum',
+      'md5sum', 'sha1sum', 'sha256sum', 'cmp', 'realpath', 'readlink', 'jq',
+      // `test -f run.json` and `[ -f run.json ]` only stat. Without them
+      // here, checking whether the record EXISTS was refused as editing it.
+      'test', '[',
       // NOT sqlite3. `sqlite3 db "select 1"` and `sqlite3 db "update …"`
       // differ only in a string this cannot parse, and the store is what
       // that string would be rewriting. Read it with `droost-workflow
       // evidence`, which renders the whole round.
     ], TRUE)
-      || ($verb === 'git' && in_array($sub, ['diff', 'log', 'show', 'status', 'blame'], TRUE)));
+      // `add` and `commit` READ the working tree — into the index, into
+      // history — and never write it, so staging the guard after `init` is
+      // recording the enforcement, not rewriting it; it was refused as the
+      // latter. `checkout`, `restore`, `reset`, `stash`, `rm`, `mv` and
+      // `clean` all DO write the working tree and stay out of this list.
+      || ($verb === 'git' && in_array($sub, ['diff', 'log', 'show', 'status', 'blame', 'grep', 'add', 'commit'], TRUE)));
     if ($reading) {
       continue;
     }
@@ -2787,12 +2797,16 @@ function enforcement_path_markers(): string {
  *
  * @param list<string> $plain
  *   The invocation's unwrapped tokens.
+ * @param string $cwd
+ *   The directory the command runs in, as tracked through `cd`, so an input
+ *   file is looked for where the command will look for it. Empty falls back
+ *   to this process's own.
  *
  * @return string|null
  *   The code (all arguments after the flag, joined), or NULL when this is not
  *   an interpreter handed inline code.
  */
-function operator_commands_inline_code(array $plain): ?string {
+function operator_commands_inline_code(array $plain, string $cwd = ''): ?string {
   $flags = [
     'php' => ['-r'],
     'perl' => ['-e', '-E'],
@@ -2826,7 +2840,17 @@ function operator_commands_inline_code(array $plain): ?string {
         $takesNext = TRUE;
         continue;
       }
-      if ($token === '' || str_starts_with($token, '-') || is_file($token)) {
+      // AGAINST THE TRACKED DIRECTORY, not this process's. The guard runs
+      // from the project root; after `cd sub && sed -n '1,5p' file`, `file`
+      // exists in `sub` and not here, so an input that "did not exist" was
+      // read as program text — and then refused for naming a path. Proven
+      // on the guard's own source: `cd <sibling> && sed -n '2040,2066p'
+      // pack/hooks/droost-workflow-guard.php` was refused as code that
+      // names the enforcement.
+      $where = str_starts_with($token, '/')
+        ? $token
+        : rtrim($cwd !== '' ? $cwd : (getcwd() ?: '.'), '/') . '/' . $token;
+      if ($token === '' || str_starts_with($token, '-') || is_file($where)) {
         continue;
       }
       $program[] = $token;
@@ -2912,7 +2936,7 @@ function find_action_writes(array $tokens): bool {
     // `-exec vendor/bin/phpcs --report-file=<guard> {} +` is phpcs writing a
     // file, and phpcs is on the read list.
     foreach ($arguments as $argument) {
-      if (operator_commands_write_flag($argument)) {
+      if (operator_commands_write_flag($argument, $program)) {
         return TRUE;
       }
     }
@@ -2932,11 +2956,21 @@ function find_action_writes(array $tokens): bool {
  *
  * @param string $token
  *   One argument.
+ * @param string $command
+ *   The program the argument belongs to, when known. `-o` is a destination
+ *   for `curl`, `sort`, `gcc` and `wget -O`, and is "only the matching part"
+ *   for every grep — so `grep -o '…' run.json` was refused as WRITING the
+ *   record. The searchers never write through `-o`.
  *
  * @return bool
  *   TRUE when it makes its command write.
  */
-function operator_commands_write_flag(string $token): bool {
+function operator_commands_write_flag(string $token, string $command = ''): bool {
+  if (preg_match('/^-[oO](=|$)/', $token) === 1
+    && in_array(strtolower(basename(ltrim($command, "\x01"))), ['grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack'], TRUE)) {
+    return FALSE;
+  }
+
   return preg_match(
     '/^(--output|--out|--outfile|--write|--dest|--destination|--report-file|--fix|-o|-O)(=|$)/i',
     $token,
