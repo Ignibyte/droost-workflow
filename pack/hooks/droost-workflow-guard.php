@@ -2226,8 +2226,16 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       // installer came back as "a shell command expands a wildcard across the
       // project root", and the guard could not be re-materialised because the
       // guard refused the command that materialises it.
-      $globDestroys = $writesTo
-        || preg_match($destructive, ltrim($plain[0] ?? '', "\x01")) === 1;
+      // A REDIRECT DOES NOT EXPAND A GLOB. `>` takes one target, so a
+      // redirect can never become "names the guard never sees" — only a
+      // destructive verb over an expansion can, which is what every test of
+      // this rule spells (`rm .claude/hooks/*`, `rm -r droost/*`). Including
+      // writes here meant any script with a `>> "$LOG"` in it armed the rule
+      // for every OTHER line's globs, and the guard reads a script before
+      // running it: `./dogfood.sh status` — which prints a pane and a run
+      // record — was refused for "expands a wildcard across the project
+      // root".
+      $globDestroys = preg_match($destructive, ltrim($plain[0] ?? '', "\x01")) === 1;
       if ($globDir !== NULL && $globDestroys) {
         $globRefusal = wildcard_directory_refusal(
           $globDir === '.' || $globDir === '' ? $cwd : (str_starts_with($globDir, '/') ? $globDir : $cwd . '/' . $globDir),
