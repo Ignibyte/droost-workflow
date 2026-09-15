@@ -79,7 +79,9 @@ max_gate_retries: 2
 able to read its own levers while the site is mid-build or broken; a plain
 Claude Code or Codex user reads the same file with no site at all; it is dev
 tooling and belongs with the code it gates; and it belongs in review, where
-loosening a gate shows up as a diff.
+loosening a gate shows up as a diff. (What each host does and does not get
+from `init` is set out under Install — the enforcement hook is Claude Code's
+alone, and that is a limitation, not a detail.)
 
 ### Presets — one dial for how hard the workflow verifies
 
@@ -504,8 +506,9 @@ is the point. Nearly every droost tool needs a running site, so a CLI run has
 real blind spots — and a run that hides them produces a report nobody should
 trust.
 
-The guard hook is the one host-specific piece: it is a Claude Code pre-tool
-hook, and it refuses the operator's commands from the agent's shell, plus any
+The guard hook is the one host-specific piece — the table under Install says
+what a host without it loses: it is a Claude Code pre-tool hook, and it
+refuses the operator's commands from the agent's shell, plus any
 agent edit under `droost/baseline/`, under `droost/droost-workflow/`, or to the
 guard itself. There are five, and each is a loosening somebody has to own:
 
@@ -555,6 +558,34 @@ it is the whole standalone surface:
 composer require --dev droost/workflow
 vendor/bin/droost-workflow init      # writes the pack + a default lever file
 ```
+
+### What `init` writes, and for which host
+
+Be precise about this, because "host-agnostic" is easy to claim and was
+overstated here until 2026-09-15. Two of the three surfaces are genuinely
+host-neutral; the third is Claude Code's, and there is no second
+implementation of it.
+
+| What | Who reads it |
+|---|---|
+| `AGENTS.md` — the pipeline's own block: that a run comes before a write, and that the discipline is enforced | **every host.** The cross-tool convention. `init` CREATES the file when a project has none, because an installed pipeline no agent is told about is the failure this block exists to prevent |
+| `droost.workflow.yml` — the levers | **every host**, and a person. A file rather than site config partly so a reader with no site can see what a run is held to |
+| `vendor/bin/droost-workflow` — the verbs, including the operator's three | **every host.** Anything that can run a command can drive a run |
+| `.claude/skills/workflow-*` — the phase procedures | Claude Code loads them by name; **any host can read them as prose**, and they are written to be read that way, which is why the procedure lives in the skill and not in the slash command |
+| `.claude/commands/droost/workflow/*` — three one-paragraph pointers | **Claude Code only** |
+| `.claude/hooks/droost-workflow-guard.php` + its `settings.json` wiring | **Claude Code only.** This is the enforcement, and it has no equivalent anywhere else |
+
+So a Codex or "other" user gets the doctrine, the levers, the CLI and the
+skills as readable prose — and **not** the enforcement. `declare-tasks
+codex|other|none` records which host is driving, and on a host with no
+pre-tool hook the status document says `enforcement.effective: advisory` in as
+many words: the gates still hold the run, because the engine runs them, but
+nothing stops an out-of-phase edit. A report must not claim a discipline the
+host never had.
+
+Porting the guard is the only work that would change that row, and nobody has
+done it. Said plainly here so the gap is a known limitation rather than
+something a reader discovers by reading `PackManifest`.
 
 **The Drupal surface ships with droost, not here.** `drupal/droost`'s
 `droost_workflow` submodule supplies the two things that genuinely need a

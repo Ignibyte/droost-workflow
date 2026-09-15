@@ -1096,7 +1096,11 @@ final class ArgvDispatcher {
       declare-browser  record the session's browser tier (playwright-mcp,
                        native, none)
       declare-tasks    record the host task surface this session can drive,
-                       one task per phase (claude-code, codex, other, none)
+                       one task per phase (claude-code, codex, other, none).
+                       It records, it does not enable: the enforcement hook is
+                       Claude Code's alone, so on any other host `status`
+                       reports enforcement.effective: advisory — the gates
+                       still hold the run, nothing stops an out-of-phase edit
       evidence         render the run's evaluation FROM the record, rather
                        than writing one about it: --run=<id> for an archived
                        run, --write[=<path>] to save it (default
