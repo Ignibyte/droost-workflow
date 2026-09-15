@@ -138,7 +138,10 @@ A green is not a measurement. Classify every one.
 ## 4-evidence. Read the store, not this form, where the store knows
 
 Since the evidence store landed, most of what follows is recorded rather than
-reconstructed, and `droost:workflow:evidence --export` renders it. Fill this
+reconstructed, and `drush droost:workflow:evidence --write` renders it — or
+`vendor/bin/droost-workflow evidence --write` where there is no Drupal to boot.
+Both take the flag bare (it lands at `droost/evidence/<run>.md`) or with a path,
+and both report the path they actually wrote. Fill this
 form by hand only for the parts a machine must not answer — §5, §6 and §8 —
 and for anything the store could not see.
 
@@ -262,17 +265,29 @@ A lever only means something if every link holds. Record what you observed at
 each, and where a link is dark say so — a dark link makes every verdict
 downstream of it provisional.
 
-| # | Link | Artefact | How observed | Held? |
+THE STORE IS THE RECORD. Links 5 to 7 used to read `gate_results` out of
+`run.json`; that is a subject-writable file and it now carries a slimmed
+summary for older readers, not the evidence. Every verdict, every attempt of
+it, and what the tool printed live in `droost/droost-workflow/evidence.sqlite`,
+written by droost from processes droost started. Read it with the evidence
+command — never by opening the file, which the guard refuses for the same
+reason the rows are trustworthy.
+
+| # | Link | Where it is recorded | How observed | Held? |
 |---|---|---|---|---|
 | 1 | Lever written | `droost.workflow.yml` | the file, in the diff | |
 | 2 | Lever resolved | resolver output | `droost-workflow status` → `.levers` | |
-| 3 | Frozen into the run | `run.json` | `.run.preset` etc. at begin | |
+| 3 | Frozen into the run | `run` row | `run.preset`, `.mode`, `.enforcement` | |
+| 3b | **Spec frozen** | `run.spec_hash` | non-empty, and `spec_frozen_at` set | |
 | 4 | Phase map derived | `run.json` | `.run.phase_gates[phase]` | |
-| 4b | **Tool actually called** | `tool-calls.jsonl` | the ledger — NOT the spec's claim | |
-| 5 | Gate invoked | the argv | `gate_results[…].invocation` | |
-| 6 | Tool ran | exit + duration | `exit_code`, `duration_ms > 0` | |
-| 7 | Verdict recorded | `gate_results` | status + summary + findings | |
-| 8 | Phase advanced | `phases` | **subject-written — corroborate with 7** | |
+| 4b | **Tool actually called** | `tool_call` | the ledger, WITH its phase — not the spec's claim | |
+| 4c | **Change declared** | `declaration` | `kind: file` / `kind: test` rows, before the diff | |
+| 5 | Gate invoked | `check_result.invocation` | the argv droost built, per attempt | |
+| 6 | Tool ran | `check_result` | `exit_code` set, `duration_ms > 0` | |
+| 7 | Verdict recorded | `check_result.state` | plus `.fault`, `.remedy`, and `finding` rows | |
+| 7b | **Verdict still current** | `check_result.subject_hash` | matches the subject as it stands NOW | |
+| 7c | **What the tool printed** | `transcript` | the raw stream, per attempt | |
+| 8 | Phase advanced | `phases` in `run.json` | **subject-written — corroborate with 7** | |
 | 9 | Artefact on disk | files / config | `git diff`, `config:status`, HTTP | |
 | 10 | Reported to a human | the report | `drush droost:workflow:report` | |
 
@@ -286,8 +301,10 @@ in disguise:
 
 | | Check | Result |
 |---|---|---|
-| I1 | For every phase with a **non-empty** configured gate set: `phases[p] == "passed"` ⟺ `gate_results[p]` non-empty. (`plan` is exempt — its gate set is empty by design and the spec is its gate.) | |
-| I2 | Every non-`off` gate has `duration_ms > 0` **and** a non-empty invocation | |
+| I1 | For every phase with a **non-empty** configured gate set: `phases[p] == "passed"` ⟺ that phase has `check_result` rows. (`plan` is exempt — its gate set is empty by design and the spec is its gate.) | |
+| I2 | Every non-`off` gate has `duration_ms > 0` **and** a non-empty `invocation` | |
+| I2b | No `check_result` row is green against a `subject_hash` the tree no longer matches — a green that outlived its subject is not a verdict about this code | |
+| I2c | Every `blocked` row carries a `fault` other than `none`, and an `environment` fault carries a `remedy` naming a command that exists on the surface it is offered on | |
 | I3 | `.run.browser` / `.run.tasks` are self-declared through unguarded, TTY-free commands — corroborate against the transcript | |
 | I4 | No refusal read as success. **`isError` is never set anywhere**, so every gate refusal is a protocol-level success — scan for refusal *text* | |
 | I5 | Baseline coherent: `baseline.on: false` alongside an existing `droost/baseline/` fails every consulting gate. Void, not a product failure | |
