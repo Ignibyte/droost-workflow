@@ -232,8 +232,12 @@ final class EvaluationReport {
       $this->gateVerdicts($runId, $checks),
       $this->toolLedger($runId),
       $this->grounding($runId),
-      $this->seekerFindings($runId),
+      // 4c BEFORE 4d. These were assembled the other way round, so a reader
+      // scrolling a 700-line document met §4d and then §4a…§4b…§4d…§4c — an
+      // evaluation whose own sections are out of order is a small thing that
+      // costs a reader trust in a large one.
       $this->transcripts($runId, $checks),
+      $this->seekerFindings($runId),
       $this->buildVerdictStub(),
       $this->scoreStub(),
       "---\n",

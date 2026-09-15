@@ -630,6 +630,12 @@ final class EvaluationReportTest extends TestCase {
     $report = (new EvaluationReport($store))->render('r1');
 
     $this->assertStringContainsString('## 4c. Transcripts — what the tool actually said', $report);
+    // And the sections ascend. They were assembled 4a, 4b, 4d, 4c.
+    $this->assertLessThan(
+      (int) strpos($report, '## 4d.'),
+      (int) strpos($report, '## 4c.'),
+      '4c comes before 4d',
+    );
     $this->assertStringContainsString('#### `phpstan` — `code`, attempt 1, `stdout` — BLOCKED', $report);
     $this->assertStringContainsString('Call to an undefined method', $report);
     $this->assertStringContainsString('#### `phpstan` — `code`, attempt 1, `stderr` — BLOCKED', $report);
