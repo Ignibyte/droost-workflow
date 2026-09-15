@@ -212,7 +212,7 @@ final class DeclarationAudit {
    * Files changed that nobody declared.
    *
    * A declared DIRECTORY covers the files under it: an agent that says it will
-   * work in `web/modules/custom/kchockey` has declared its scope, and making it
+   * work in `web/modules/custom/mymodule` has declared its scope, and making it
    * enumerate every file it will create would make the declaration a chore
    * nobody writes honestly.
    *

@@ -136,8 +136,8 @@ Then produce the spec:
 
    ```bash
    vendor/bin/droost-workflow declare-changes \
-     --files=web/themes/custom/kchockey,config/sync/system.site.yml \
-     --tests=KchockeySafeUrlTest \
+     --files=web/themes/custom/mytheme,config/sync/system.site.yml \
+     --tests=MyThemeSafeUrlTest \
      --type=theme
    ```
 

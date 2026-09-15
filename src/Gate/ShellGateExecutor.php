@@ -1622,9 +1622,10 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    * build directory got analysed as though somebody had written it for this
    * repository.
    *
-   * Measured on a live round. kchockey stages the droost packages under test
-   * into `droost-packages/` to feed a composer path repo, and gitignores it.
-   * phpcs found it, walked droost's OWN SOURCE, and the code phase failed on
+   * Measured on a live round. The subject project stages the droost packages
+   * under test into `droost-packages/` to feed a composer path repo, and
+   * gitignores it. phpcs found it, walked droost's OWN SOURCE, and the code
+   * phase failed on
    * 112 style errors inside the staged copy of droost's own `PresetResolver` —
    * recorded as the agent's fault, blocking a ticket that had not touched a
    * line of it. A tool judging the tool's own source is the category error

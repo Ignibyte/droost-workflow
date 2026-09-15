@@ -36,7 +36,7 @@ final class PackManifest {
   /**
    * The lever file, written to the project root only when absent.
    */
-  public const CONFIG_FILE = 'droost.workflow.yml';
+  public const string CONFIG_FILE = 'droost.workflow.yml';
 
   /**
    * Pack files, as source path => destination path under the project root.

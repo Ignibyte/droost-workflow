@@ -1,0 +1,13 @@
+# What packagist ships. The pack, the CLI and the engine are the product; the
+# rest is how this repository develops them. Before this file existed 56.8% of
+# the tarball was dev-only — tests, docs, the repo's own lint and phpunit
+# config — and every consumer received all of it.
+/.gitattributes export-ignore
+/.gitignore export-ignore
+/.github export-ignore
+/tests export-ignore
+/scripts export-ignore
+/docs export-ignore
+/phpunit.xml.dist export-ignore
+/phpcs.xml.dist export-ignore
+/phpstan.neon export-ignore

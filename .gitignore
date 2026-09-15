@@ -2,11 +2,9 @@
 /composer.phar
 /.phpunit.cache/
 /.phpunit.result.cache
-/.droost-workflow/
 .DS_Store
 
-# Droost workflow run state, specs and gate caches (droost/workflow init).
-droost/droost-workflow/
+# Tool caches.
 .phpcs-cache
 .php-cs-fixer.cache
 .eslintcache

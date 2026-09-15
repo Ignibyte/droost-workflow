@@ -30,6 +30,9 @@ final class PackPortabilityTest extends WorkflowTestCase {
     '/4946788355/',
     '/littler/i',
     '/edgemgmt/i',
+    // The second dogfood site. Its theme directory and a test class name
+    // shipped as the declare-changes example in the plan skill (2026-09-15).
+    '/kchockey/i',
     '/(?<!F-)EMT-\d/',
     '/\[EMT\]/',
     '/release\/1\.9/',
