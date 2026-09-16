@@ -1048,6 +1048,27 @@ final class WorkflowFacade {
     if (@rename($path, $target) === FALSE) {
       throw StateError::archiveFailed($target, 'the record could not be moved');
     }
+    // The two append-only ledgers go into history beside the run they belong
+    // to. They used to stay put: `tool-calls.jsonl` outlived every reset, its
+    // rows carried no run id, and the next run's ingest — a count watermark
+    // from zero — took the whole file as its own. Measured: round two of a
+    // pair opened holding round one's 51 tool calls, and grounding_check's
+    // "the plan named a tool that was never called" drift check was satisfied
+    // by the previous round having called it (F-6). Same base name as the
+    // record, same collision suffix, so history/<run>.* is one complete run.
+    foreach (['tool-calls.jsonl', 'guard-calls.jsonl'] as $ledger) {
+      $source = $stateDir . '/' . $ledger;
+      if (!is_file($source)) {
+        continue;
+      }
+      $archived = $history . '/' . $base . '.' . $ledger;
+      for ($n = 2; is_file($archived); $n++) {
+        $archived = $history . '/' . $base . '-' . $n . '.' . $ledger;
+      }
+      if (@rename($source, $archived) === FALSE) {
+        throw StateError::archiveFailed($archived, 'the ' . $ledger . ' ledger could not be moved');
+      }
+    }
     foreach (glob($stateDir . '/.guard-warned-*') ?: [] as $marker) {
       @unlink($marker);
     }

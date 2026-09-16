@@ -47,13 +47,16 @@ most common way a run fails before it starts:
 
 | Phase | Tier | Asked | Found | Evidence |
 |---|---|---|---|---|
-| plan | custom | what you asked of this project's own code | what you found | `the symbol or path` |
-| plan | contrib | the same, of a contributed module | | |
-| plan | core | the same, of core | | |
+| plan | custom | is there already a rink bundle? | nothing matched — no rink type on this site | `none: rink` |
+| plan | contrib | what does views give a filtered listing? | a page display with an exposed taxonomy filter | `Drupal\views\Plugin\views\filter\TaxonomyIndexTid` |
+| plan | core | how is a node bundle created? | the NodeType config entity | `Drupal\node\Entity\NodeType` |
 ```
 
 All three tiers at `plan`, or the gate names the ones you skipped and stops.
-The code phase adds its own three rows later; write only the `plan` rows now.
+Every `Evidence` cell must be a real citation — a class, a docroot-relative
+path (`modules/…`, never `web/modules/…`), or `none: <query>` — never a
+placeholder; an empty cell is refused. The code phase adds its own three rows
+later; write only the `plan` rows now.
 
 Both weights build on the researcher's findings, never on assumption. Where
 a finding is marked UNVERIFIED, the spec carries that marker forward.

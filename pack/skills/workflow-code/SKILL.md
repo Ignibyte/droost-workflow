@@ -21,9 +21,13 @@ Add rows tagged `code`. `Found` must carry what came back — "nothing matched"
 included. An empty cell is refused.
 
 Carry the `Evidence` column too, and keep it resolvable: a class the symbol
-graph or the brain holds, a file the index carries, or `none: <query>` for a
-search that really did come back empty. `grounding_check` re-runs each one,
-including the negative claims, and fails any tier that cites nothing.
+graph, the brain or the autoloader knows; a file the index carries or that
+exists on disk (docroot-relative — `modules/custom/…`, never `web/…`); or
+`none: <query>` for a search that really did come back empty. `grounding_check`
+re-runs each one. A cell that resolves nowhere is reported, not fatal; a tier
+that cites nothing that resolves fails; and a `plan` row's `none:` that your
+own build has just made true is recorded as superseded — write the `code` row
+that cites what you built instead.
 
 
 ## Your declaration is audited here

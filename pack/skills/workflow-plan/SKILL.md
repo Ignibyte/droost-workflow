@@ -42,23 +42,32 @@ This is a **contract, not advice**. The plan phase cannot end without a
 ```
 
 **The `Evidence` column is checked, and it is the point of the table.** The
-`grounding_check` gate resolves every cell against this site's own stores —
-the symbol graph for custom and contrib, the brain for core — and a `none:`
-claim is **re-run**, so it fails if the thing you said was absent is in fact
-there. Three forms resolve:
+`grounding_check` gate resolves every cell against this site — its stores
+first, then the site itself — and records **which one answered**. Three forms,
+each tried in this order:
 
 | Form | Example | Resolves when |
 |---|---|---|
-| a class, interface or trait | `Drupal\node\Entity\NodeType` | the FQCN is in the symbol graph or the brain |
-| an indexed file | `web/modules/contrib/views/views.module` | the file is in the search index |
-| a negative claim | `none: rink` | re-running the search still returns nothing |
+| a class, interface or trait | `Drupal\node\Entity\NodeType` | the symbol graph or the brain holds it, **or the autoloader can load it** — so any class this site can actually run resolves, core included. A trailing `::method` is fine |
+| a file | `modules/contrib/views/views.module` | the search index carries it, **or it exists on disk**. Paths are **docroot-relative**: `modules/custom/x/x.info.yml`, never `web/modules/…` — the `web/` (or whatever the docroot is called) is stripped either way, but write it the way the index does |
+| a negative claim | `none: rink` | re-running the lookup still returns nothing. **A `plan` row that your own `code` phase makes true is recorded as superseded, not failed** — building the thing you said was absent is the job |
 
-**Every tier you claim needs at least one citation that resolves.** Prose in
-`Found` is what you say about yourself; the citation is what the site can
-confirm. A table with no `Evidence` column is refused at CODE, where
+**A citation that resolves nowhere is reported, not fatal.** It appears on the
+gate's findings and in the evaluation, and the run goes on. What DOES stop you:
+
+- **a tier you claim with nothing that resolves** — you said you searched it,
+  so show one thing the site can confirm;
+- **the ledger showing no knowledge-tool call this run** — the gate reads
+  `tool-calls.jsonl` for THIS run, and a table with no droost lookups behind
+  it fails whatever it cites, because a citation can be copied out of a file;
+- **a droost tool your Tooling plan named that was never called.**
+
+Prose in `Found` is what you say about yourself; the citation is what the site
+can confirm. A table with no `Evidence` column is refused at CODE, where
 `grounding_check` runs — plan runs no gates, so a missing column will not stop
-you here and will stop you one phase later. It used to pass entirely, which
-is exactly the hole this column closes.
+you here and will stop you one phase later. It used to pass entirely, which is
+exactly the hole this column closes. (`strict_citations: true` on the gate
+restores the old rule where any unresolvable cell fails the phase.)
 
 **All three tiers, every phase that decides.** They answer different questions
 and are not interchangeable:
@@ -82,13 +91,22 @@ behind it was called six, and `droost_symbol`, `droost_graph`,
 `droost_module_patterns` and `droost_deprecations` were never called at all.
 A lookup that produces no row is a lookup nobody can tell you made.
 
-Ask the site before you assume:
+Ask the site before you assume. These ten are what the gate counts as
+knowledge calls — the ledger half of `grounding_check` — so a plan that used
+none of them fails however good its citations:
 
+- `droost_search` — what this codebase says, lexically and (if indexed)
+  semantically.
+- `droost_symbol` and `droost_graph` — a class, its callers and what it calls.
+- `droost_module_patterns` and `droost_deprecations` — how a module is
+  conventionally used, and what not to reach for.
+- `droost_module_docs` — what an installed module already gives you.
 - `droost_capabilities` — what this site can actually do right now.
 - `droost_architecture` — how it is put together.
 - `droost_entities` and `droost_routes` — what already exists.
-- `droost_module_docs` — what an installed module already gives you.
-- `droost_guidelines` — the conventions this project expects you to follow.
+
+And `droost_guidelines` — the conventions this project expects you to follow;
+read it, though the gate does not count it as a lookup.
 
 Then produce the spec:
 

@@ -163,6 +163,15 @@ final class GateSettings {
     'coverage' => ['min' => 'percent', 'timeout' => 'seconds'],
     'rendered_check' => ['routes' => 'string'],
     'config_clean' => [],
+    // `strict_citations` restores the old behaviour, in which a single
+    // Evidence cell the site's stores could not resolve failed the whole
+    // phase. Off by default since 0.9: a citation that resolves nowhere is now
+    // REPORTED on a passing gate, while a claimed tier with nothing resolving
+    // and a ledger with no knowledge calls still block. Two live rounds each
+    // built their ticket correctly and died on 13-14 citations that named
+    // real files the index simply did not carry (F-22); the forcing half of
+    // the gate never needed the citation half to be fatal.
+    'grounding_check' => ['strict_citations' => 'flag'],
     // The front-end lint trio takes `paths` for the same reason the static
     // PHP pair does: pointed at a directory, each tool discovers config with
     // nothing but argv. `config` pins the project's own file instead and

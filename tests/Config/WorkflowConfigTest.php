@@ -405,6 +405,10 @@ class WorkflowConfigTest extends WorkflowTestCase {
         ['gates' => ['phpunit' => ['min' => 1]]],
         'droost.workflow.yml: gate "phpunit" has no option "min" (accepts: on, required, timeout, mode)',
       ],
+      'grounding takes the strictness flag and nothing else' => [
+        ['gates' => ['grounding_check' => ['unresolved' => 'block']]],
+        'droost.workflow.yml: gate "grounding_check" has no option "unresolved" (accepts: on, strict_citations, mode)',
+      ],
       'unknown phase' => [
         ['phases' => ['plan', 'deploy', 'complete']],
         'droost.workflow.yml: unknown phase "deploy" (known: plan, code, '

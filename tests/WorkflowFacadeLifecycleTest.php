@@ -117,11 +117,50 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
   /**
    * Reset archives a finished run and clears the way — and only then.
    */
+  /**
+   * Two runs archived under one id keep both ledgers, suffixed like the record.
+   *
+   * The record already got `-2`, `-3` on collision; the ledgers follow it, so
+   * a history directory is never a record beside somebody else's calls.
+   */
+  public function testResetSuffixesCollidingLedgersLikeTheRecord(): void {
+    $root = $this->makeRootWithConfig("preset: custom\n");
+    $state = $root . '/droost/droost-workflow';
+    $executor = $this->allGatesPass();
+    $this->driveToCompletion($executor, $root);
+    $first = $this->facade($executor)->reset($root);
+    $base = substr($first, 0, -strlen('.json'));
+    // Plant a ledger under the FIRST archive's name, then put the finished
+    // record back and reset again, so the second reset collides on the record
+    // AND on the ledger. (Not a second drive: after a reset the spec resolver
+    // refuses to adopt the last ticket's spec in silence, which the test above
+    // pins — the collision is what is under test here, not a new run.)
+    file_put_contents($base . '.tool-calls.jsonl', "first\n");
+    copy($first, $state . '/run.json');
+    file_put_contents($state . '/tool-calls.jsonl', "second\n");
+
+    $second = $this->facade($executor)->reset($root);
+
+    $this->assertNotSame($first, $second);
+    $this->assertSame("first\n", file_get_contents($base . '.tool-calls.jsonl'), 'the earlier archive is untouched');
+    $this->assertSame(
+      "second\n",
+      file_get_contents(substr($second, 0, -strlen('.json')) . '.tool-calls.jsonl'),
+      'the later one lands under the suffixed name',
+    );
+  }
+
   public function testResetArchivesTheFinishedRun(): void {
     $root = $this->makeRootWithConfig("preset: custom\n");
     $executor = $this->allGatesPass();
     $this->driveToCompletion($executor, $root);
     touch($root . '/droost/droost-workflow/.guard-warned-require-run');
+    // The two append-only ledgers a run leaves behind. Before 0.9 they stayed
+    // where they were and the next run's ingest took the whole file as its own
+    // (F-6): round two of a live pair opened holding round one's 51 calls.
+    $state = $root . '/droost/droost-workflow';
+    file_put_contents($state . '/tool-calls.jsonl', json_encode(['tool' => 'droost_search', 'outcome' => 'ok']) . "\n");
+    file_put_contents($state . '/guard-calls.jsonl', json_encode(['mode' => 'pre-tool-use', 'verdict' => 'invoked']) . "\n");
 
     $archived = $this->facade($executor)->reset($root);
 
@@ -133,6 +172,16 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
     $this->assertFileDoesNotExist(
       $root . '/droost/droost-workflow/.guard-warned-require-run',
       'per-run warn-once markers do not outlive the run',
+    );
+    $base = substr($archived, 0, -strlen('.json'));
+    $this->assertFileDoesNotExist($state . '/tool-calls.jsonl', 'the tool ledger does not outlive the run');
+    $this->assertFileDoesNotExist($state . '/guard-calls.jsonl', 'nor does the guard ledger');
+    $this->assertFileExists($base . '.tool-calls.jsonl', 'it is archived beside the record, same base name');
+    $this->assertFileExists($base . '.guard-calls.jsonl');
+    $this->assertStringContainsString(
+      'droost_search',
+      (string) file_get_contents($base . '.tool-calls.jsonl'),
+      'moved, not truncated',
     );
 
     // And the next bare `run` does NOT quietly inherit this ticket's spec.

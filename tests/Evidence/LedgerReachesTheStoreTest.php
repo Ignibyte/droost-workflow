@@ -118,10 +118,78 @@ final class LedgerReachesTheStoreTest extends TestCase {
   }
 
   /**
+   * Another run's calls are not this run's, however many of them there are.
+   *
+   * The file is append-only across the checkout's life and `reset` used to
+   * leave it in place, so a count watermark from zero handed a new run every
+   * earlier run's calls (F-6). Rows carry the run since 0.9, and the ingest
+   * takes only the ones that name this run.
+   */
+  public function testAnotherRunsCallsAreNotIngested(): void {
+    $this->ledger([
+      ['tool' => 'droost_structure_create', 'outcome' => 'ok', 'at' => '2026-09-15T01:00:00+00:00', 'run' => 'r0', 'phase' => 'code'],
+      ['tool' => 'droost_entity_create', 'outcome' => 'ok', 'at' => '2026-09-15T01:00:01+00:00', 'run' => 'r0', 'phase' => 'code'],
+      ['tool' => 'droost_search', 'outcome' => 'ok', 'at' => '2026-09-15T02:00:00+00:00', 'run' => 'r1', 'phase' => 'plan'],
+      // A call made with no run open belongs to nobody.
+      ['tool' => 'droost_doctor', 'outcome' => 'ok', 'at' => '2026-09-15T02:00:01+00:00', 'run' => NULL, 'phase' => NULL],
+    ]);
+
+    $this->record('code');
+
+    $rows = $this->toolCalls();
+    $this->assertCount(1, $rows, 'only the row that names this run');
+    $this->assertSame('droost_search', $rows[0]['tool']);
+  }
+
+  /**
+   * A file written before rows carried a run is taken whole, as before.
+   *
+   * A site mid-upgrade has a ledger nothing can attribute; refusing it would
+   * report the run as having asked the codebase nothing, which is the exact
+   * lie §4a was written to stop. The rule is the presence of the key on ANY
+   * row: once one row names a run, the rows that do not are calls made with
+   * no run open, and are nobody's.
+   */
+  public function testALegacyFileWithNoRunOnAnyRowIsTakenWhole(): void {
+    $this->ledger([
+      ['tool' => 'droost_doctor', 'outcome' => 'ok', 'at' => '2026-09-15T01:00:00+00:00'],
+      ['tool' => 'droost_search', 'outcome' => 'ok', 'at' => '2026-09-15T01:00:01+00:00'],
+    ]);
+
+    $this->record('code');
+
+    $this->assertCount(2, $this->toolCalls(), 'unattributable rows are this run\'s, as they always were');
+  }
+
+  /**
+   * The watermark counts THIS run's rows, so a re-record does not double them
+   * and another run's rows do not shift the offset.
+   */
+  public function testTheWatermarkIsAgainstThisRunsRowsOnly(): void {
+    $this->ledger([
+      ['tool' => 'droost_symbol', 'outcome' => 'ok', 'at' => '2026-09-15T01:00:00+00:00', 'run' => 'r0', 'phase' => 'code'],
+      ['tool' => 'droost_search', 'outcome' => 'ok', 'at' => '2026-09-15T02:00:00+00:00', 'run' => 'r1', 'phase' => 'plan'],
+    ]);
+    $this->record('plan');
+    $this->record('plan');
+    $this->assertCount(1, $this->toolCalls(), 'a re-record does not double it');
+
+    $this->ledger([
+      ['tool' => 'droost_symbol', 'outcome' => 'ok', 'at' => '2026-09-15T01:00:00+00:00', 'run' => 'r0', 'phase' => 'code'],
+      ['tool' => 'droost_search', 'outcome' => 'ok', 'at' => '2026-09-15T02:00:00+00:00', 'run' => 'r1', 'phase' => 'plan'],
+      ['tool' => 'droost_graph', 'outcome' => 'ok', 'at' => '2026-09-15T03:00:00+00:00', 'run' => 'r1', 'phase' => 'code'],
+    ]);
+    $this->record('code');
+
+    $rows = $this->toolCalls();
+    $this->assertSame(['droost_graph', 'droost_search'], array_column($rows, 'tool'));
+  }
+
+  /**
    * Writes the ledger file.
    *
-   * @param list<array<string, string>> $calls
-   *   The rows.
+   * @param list<array<string, string|null>> $calls
+   *   The rows. `run` and `phase` are NULL for a call made with no run open.
    */
   private function ledger(array $calls): void {
     $body = '';

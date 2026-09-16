@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Droost\Workflow\Tests\Pack;
 
 use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\Evidence\EvaluationReport;
 use Droost\Workflow\Evidence\WorkType;
 use Droost\Workflow\Pack\PackManifest;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -475,6 +476,29 @@ class PackContentLintTest extends TestCase {
    * brief omits is one no agent will use; a type the brief invents throws on
    * the command line and teaches the agent to stop passing the flag at all.
    */
+  /**
+   * The plan brief names every tool the gate counts as a knowledge call.
+   *
+   * `grounding_check`'s ledger half fails a run whose tool-call ledger holds no
+   * KNOWLEDGE_TOOLS call. The brief's "ask the site" list named six of the ten
+   * and omitted the four it complained, three paragraphs up, were never called
+   * — `droost_symbol`, `droost_graph`, `droost_module_patterns`,
+   * `droost_deprecations` — plus `droost_search`. An agent following the list
+   * to the letter could satisfy every citation and still fail the gate it was
+   * never told existed. The constant is the contract; the brief has to match.
+   */
+  public function testThePlanBriefNamesEveryKnowledgeTool(): void {
+    $brief = (string) file_get_contents(dirname(__DIR__, 2) . '/pack/skills/workflow-plan/SKILL.md');
+
+    foreach (EvaluationReport::KNOWLEDGE_TOOLS as $tool) {
+      $this->assertStringContainsString(
+        '`' . $tool . '`',
+        $brief,
+        sprintf('the plan brief names the "%s" knowledge tool the gate counts', $tool),
+      );
+    }
+  }
+
   public function testThePlanBriefNamesEveryWorkTypeAndInventsNone(): void {
     $brief = (string) file_get_contents(dirname(__DIR__, 2) . '/pack/skills/workflow-plan/SKILL.md');
 

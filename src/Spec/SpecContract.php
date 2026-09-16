@@ -315,7 +315,7 @@ final class SpecContract {
    * @param string $spec
    *   The governing spec, project-relative.
    *
-   * @return array{rows: int, phases: array<string, list<string>>, unanswered: list<string>, uncited: list<string>, evidence: list<array{row: int, tier: string, cite: string}>}|null
+   * @return array{rows: int, phases: array<string, list<string>>, unanswered: list<string>, uncited: list<string>, evidence: list<array{row: int, phase: string, tier: string, cite: string}>}|null
    *   Rows counted, the tiers each phase reached, the rows whose Found cell is
    *   empty, the rows citing no evidence, and every citation for a site-side
    *   gate to RESOLVE. NULL when the spec has no grounding table at all.
@@ -384,7 +384,13 @@ final class SpecContract {
         $uncited[] = 'row ' . ($n + 1);
       }
       else {
-        $evidence[] = ['row' => $n + 1, 'tier' => $tier, 'cite' => $cite];
+        // The phase rides with the citation. A `none:` row is an assertion of
+        // absence, and the code phase's whole job is to end that absence — so
+        // the gate has to know WHEN the claim was made to judge it fairly, and
+        // this is the only place that knows. Without it, `none: rink` written
+        // at plan failed at code because the run had built `rink`, which is
+        // the run doing what it was asked (F-18).
+        $evidence[] = ['row' => $n + 1, 'phase' => $phase, 'tier' => $tier, 'cite' => $cite];
       }
     }
 

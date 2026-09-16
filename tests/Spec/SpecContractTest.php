@@ -523,6 +523,46 @@ MD
   }
 
   /**
+   * Each citation carries the phase of the row it came from.
+   *
+   * A `none:` row asserts absence, and the code phase's job is to end that
+   * absence — so the gate must know WHEN the claim was made. `none: rink`
+   * written at plan failed at code because the run had built `rink`, which is
+   * the run doing what it was asked (F-18). The parser is the only thing that
+   * knows the row's phase; the gate cannot recover it from the citation.
+   */
+  public function testEveryCitationCarriesItsPhase(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
+    file_put_contents($root . '/droost/droost-workflow/spec-test-run.md', <<<'MD'
+# Spec: test run
+
+## Tooling plan
+
+- hand-written (fixture)
+
+## Grounding
+
+| Phase | Tier | Asked | Found | Evidence |
+|---|---|---|---|---|
+| plan | custom | a rink bundle? | nothing | `none: rink` |
+| Code | core | how is a bundle made? | NodeType | `Drupal\node\Entity\NodeType` |
+| code | contrib | the formatter? | ComponentPerItem | — |
+
+## Realized
+
+Fixture capture.
+MD);
+
+    $grounding = SpecContract::grounding($root, 'droost/droost-workflow/spec-test-run.md');
+    $this->assertNotNull($grounding);
+    $this->assertCount(2, $grounding['evidence'], 'the placeholder cell is uncited, not evidence');
+    $this->assertSame('plan', $grounding['evidence'][0]['phase']);
+    $this->assertSame('none: rink', trim($grounding['evidence'][0]['cite'], '`'));
+    $this->assertSame('code', $grounding['evidence'][1]['phase'], 'the phase is lowercased like the tier');
+    $this->assertSame(['row 4'], $grounding['uncited']);
+  }
+
+  /**
    * An empty cell in fancy dress is still an empty cell.
    *
    * The two tables had each grown their own idea of what unfilled looks like.

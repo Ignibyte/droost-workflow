@@ -212,9 +212,9 @@ drush droost:workflow:report | grep -A3 grounding_check
 
 | Tier | Rows | Cited | Citations that resolved | Store that answered | Verdict |
 |---|---|---|---|---|---|
-| custom | | | | symbol graph | |
-| contrib | | | | symbol graph | |
-| core | | | | **brain** — core is not an indexed scope | |
+| custom | | | | symbol graph · search index · autoloader · filesystem | |
+| contrib | | | | symbol graph · search index · autoloader · filesystem | |
+| core | | | | brain · **autoloader** — core is not an indexed scope, so a class resolves through the brain (registered kinds) or the autoloader (anything the site can load) | |
 
 - **A tier with rows but no resolvable citation is not grounded.** Prose in
   `Found` is the agent's account of itself; the citation is what the site
@@ -228,11 +228,21 @@ drush droost:workflow:report | grep -A3 grounding_check
   exists; it can be copied out of a file. `grounding_check` also fails when the
   ledger records no knowledge-tool call at all — see §4a. Record both verdicts
   separately, or a run that cited well and looked up nothing scores as grounded.
-- **Core resolves against the brain, and only the brain.** `droost:search:index`
-  runs custom|contrib|themes|wiki; core is a scope nothing indexes by default,
-  so the symbol-graph table holds no `node`, `views` or `field` symbols at all.
-  If a round reports core citations resolving against the symbol graph, the
-  probe is wrong, not the finding.
+- **Which store answered is the fact this section exists to record.**
+  `droost:search:index` runs custom|contrib|themes|wiki; core is a scope
+  nothing indexes by default, so the symbol-graph table holds no `node`,
+  `views` or `field` symbols at all. A core citation therefore resolves
+  through the **brain** (registered kinds only) or the **autoloader** (any
+  class the site can load); a file the index does not carry resolves through
+  the **filesystem**. Count them: a round where most citations resolved on
+  disk rather than in a store is a round whose index did not cover what the
+  agent actually read — true grounding, and an index gap, at once. If a round
+  reports a core citation resolving against the symbol graph, the probe is
+  wrong, not the finding.
+- **A cell that resolves nowhere is a finding on a passing gate, not a
+  failure** (unless `strict_citations` is on). Read §8a for them by rule
+  `unresolved`; a `none-superseded` rule marks a plan-phase negative claim
+  that the code phase itself made true, which is the build doing its job.
 
 ## 5. Build verdict
 

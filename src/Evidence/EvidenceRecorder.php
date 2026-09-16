@@ -128,11 +128,23 @@ final class EvidenceRecorder {
    * link that corroborates the spec's grounding claims. A link that is always
    * dark corroborates nothing.
    *
-   * The file is written by the Drupal side (the MCP surface) and carries no
-   * phase; the recorder knows the phase, which is the whole reason the column
-   * exists. Rows already ingested are skipped by count — the file is
-   * append-only for the life of a run, and `reset` archives it with the rest
-   * of the state — so re-recording a phase does not double it.
+   * The file is written by the Drupal side (the MCP surface). Since 0.9 each
+   * row carries the run it was made under (or `null` for a call made with no
+   * run open); the recorder still supplies the phase, which the writer does
+   * not know. ONLY THIS RUN'S ROWS ARE TAKEN — the same rule
+   * ingestGuardCalls() below has always applied, and the same reason: a
+   * count watermark from zero on an append-only file attributed every earlier
+   * run's calls to the new one. Measured on a live pair of rounds, the second
+   * opened holding the first's 51 tool calls, and a drift check that reads
+   * this ledger was satisfied by a previous round having called the tool
+   * (F-6). Rows already ingested are then skipped by count WITHIN this run's
+   * rows, so re-recording a phase does not double it, and `reset` archives
+   * the file into history/ with the rest of the state.
+   *
+   * A file written before 0.9 has no `run` on any row and cannot be
+   * attributed; it is taken whole, as before, so a site mid-upgrade keeps its
+   * ledger. A file where SOME rows carry `run` is the new format, and rows
+   * without it are calls made with no run open — nobody's, and skipped.
    *
    * @param \Droost\Workflow\Evidence\EvidenceStore $store
    *   The store.
@@ -151,11 +163,22 @@ final class EvidenceRecorder {
         preg_split('/\R/', (string) @file_get_contents($path)) ?: [],
         static fn (string $line): bool => trim($line) !== '',
       ));
-      foreach (array_slice($lines, $store->toolCallCount($runId)) as $line) {
+      $rows = [];
+      $attributed = FALSE;
+      foreach ($lines as $line) {
         $row = json_decode($line, TRUE);
         if (!is_array($row) || !is_string($row['tool'] ?? NULL)) {
           continue;
         }
+        if (array_key_exists('run', $row)) {
+          $attributed = TRUE;
+        }
+        $rows[] = $row;
+      }
+      $mine = $attributed
+        ? array_values(array_filter($rows, static fn (array $row): bool => ($row['run'] ?? NULL) === $runId))
+        : $rows;
+      foreach (array_slice($mine, $store->toolCallCount($runId)) as $row) {
         $store->recordToolCall(
           $runId,
           $phase,
