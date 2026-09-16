@@ -356,6 +356,13 @@ final class GateRunner {
       $result->invocation,
       $result->inherited,
       $result->new,
+      labelledPass: $result->labelledPass,
+      remedy: $result->remedy,
+      declaredFault: $result->declaredFault,
+      subjects: $result->subjects,
+      // Kept, so the record can still say the tool never ran (F-KCH3: snyk
+      // absent from the PATH read as "recorded, unproven" for three phases).
+      demotedFrom: $result->status,
     );
   }
 

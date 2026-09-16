@@ -1046,7 +1046,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       // <name>: the default remedy would send an operator to
       // `composer require --dev custom:acme_audit`, which fetches nothing and
       // is not even a package name.
-      return GateResult::toolMissing($gate->name, $cmd, $this->ownCommandRemedy($gate));
+      return GateResult::toolMissing($gate->name, $cmd, $this->ownCommandRemedy($gate), $exit, $elapsed);
     }
 
     // A contributed gate declared what its verdict means; a failure repeats

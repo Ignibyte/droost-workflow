@@ -9,6 +9,8 @@ use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Gate\GateExecutorInterface;
+use Droost\Workflow\Evidence\CheckRecord;
+use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
@@ -133,6 +135,7 @@ final class GateModeTest extends WorkflowTestCase {
 
     $eslint = $this->resultFor($report, 'eslint');
     $this->assertSame(GateStatus::Reported, $eslint->status);
+    $this->assertSame(GateStatus::ErrorToolMissing, $eslint->demotedFrom, 'the record can still say the tool never ran (KCH-3: snyk read as unproven for three phases)');
     $this->assertStringContainsString('could not run', $eslint->summary);
     $this->assertSame(GateStatus::Passed, $this->resultFor($report, 'stylelint')->status, 'report mode changes nothing about a pass');
     $this->assertTrue($report->advance());
@@ -216,6 +219,34 @@ final class GateModeTest extends WorkflowTestCase {
       }
 
     };
+  }
+
+  /**
+   * A tool-missing result demoted to Reported is stored as NOT measured.
+   *
+   * Round KCH-3: snyk was absent from the container's PATH, report mode
+   * demoted the tool-missing to Reported, the check row read measured, and
+   * §4 said "unproven — no duration recorded". The fact was simpler and the
+   * row now carries it: the tool never ran.
+   */
+  public function testDemotedToolMissingIsRecordedAsUnmeasured(): void {
+    $missing = GateResult::toolMissing('module:snyk', 'snyk test', NULL, 127, 12);
+    $demoted = new GateResult(
+      $missing->gate,
+      GateStatus::Reported,
+      $missing->exitCode,
+      $missing->durationMs,
+      'report — ' . $missing->summary,
+      demotedFrom: $missing->status,
+    );
+
+    $row = CheckRecord::fromGate($demoted);
+
+    $this->assertSame(CheckState::Recorded, $row->state);
+    $this->assertFalse($row->measured, 'a tool that was never found measured nothing');
+    $this->assertSame(127, $row->exitCode);
+    $this->assertSame(12, $row->durationMs);
+    $this->assertTrue(CheckRecord::fromGate(new GateResult('phpcs', GateStatus::Passed, 0, 300, 'ok'))->measured, 'an ordinary pass is measured');
   }
 
 }

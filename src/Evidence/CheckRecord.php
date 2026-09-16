@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Droost\Workflow\Evidence;
 
 use Droost\Workflow\Gate\GateResult;
+use Droost\Workflow\Gate\GateStatus;
 
 /**
  * One adjudicated item of a phase's checklist, ready to be stored.
@@ -168,8 +169,14 @@ final class CheckRecord {
       $result->stderr,
       '',
       // What the executor knows and prose could not carry: a pass that examined
-      // nothing. Everything else that passed did look at something.
-      !$result->labelledPass,
+      // nothing, or a tool that never ran at all — including one report mode
+      // demoted, whose own status now reads Reported. Everything else that
+      // passed did look at something.
+      !$result->labelledPass && !in_array(
+        $result->demotedFrom ?? $result->status,
+        [GateStatus::ErrorToolMissing, GateStatus::ErrorToolFailed],
+        TRUE,
+      ),
     );
   }
 

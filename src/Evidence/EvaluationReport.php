@@ -685,7 +685,7 @@ final class EvaluationReport {
       $state = CheckState::tryFrom((string) (self::text($latest, 'state') ?? ''));
       $duration = self::number($latest, 'duration_ms');
       $recorded = $latest['measured'] ?? NULL;
-      $verdict = self::measurement($state, $duration, is_numeric($recorded) ? (int) $recorded : NULL);
+      $verdict = self::measurement($state, $duration, is_numeric($recorded) ? (int) $recorded : NULL, self::number($latest, 'exit_code'));
       if ($verdict === 'yes') {
         $measured++;
       }
@@ -1866,11 +1866,14 @@ final class EvaluationReport {
    * @param int|null $measured
    *   What the executor recorded: 0 when the tool ran and examined nothing,
    *   1 when it did, NULL for a row written before it could say.
+   * @param int|null $exitCode
+   *   The stored exit code, which tells a tool the shell could not find from
+   *   one the executor never spawned.
    *
    * @return string
    *   The cell.
    */
-  private static function measurement(?CheckState $state, ?int $durationMs, ?int $measured = NULL): string {
+  private static function measurement(?CheckState $state, ?int $durationMs, ?int $measured = NULL, ?int $exitCode = NULL): string {
     if ($state === NULL) {
       return 'no — the stored state is not one this build knows';
     }
@@ -1883,6 +1886,18 @@ final class EvaluationReport {
     // no tests — this said no and the blocking one said yes. Both read the same
     // recorded fact now, so they cannot drift again.
     if ($measured === 0) {
+      // Three things store measured = 0, and the exit code tells them apart
+      // without reading prose: the shell's 127 is a command it could not
+      // find; no exit code at all is a tool the executor refused to spawn (no
+      // binary, no config); anything else ran and looked at nothing. Round
+      // KCH-3 recorded snyk as "unproven" for three phases when the fact was
+      // the first of these.
+      if ($exitCode === 127) {
+        return 'no — the tool was not found on the PATH (exit 127); recorded, not blocking';
+      }
+      if ($exitCode === NULL) {
+        return 'no — the tool could not run (binary or config absent); recorded, not blocking';
+      }
       return 'no — the tool ran and examined nothing (a labeled pass)';
     }
     if ($durationMs === NULL) {

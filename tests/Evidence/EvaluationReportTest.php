@@ -139,6 +139,15 @@ final class EvaluationReportTest extends TestCase {
     $store->record('r1', 'test', new CheckRecord(
       'gate', 'module:snyk', CheckState::Recorded, Fault::None, '2 issues, mode: report', NULL, NULL, 1, 'snyk', NULL, 4200,
     ));
+    // Report mode demoted a tool the shell could not find (KCH-3's snyk): the
+    // row carries exit 127, a duration, and measured = FALSE.
+    $store->record('r1', 'test', new CheckRecord(
+      'gate', 'module:absent', CheckState::Recorded, Fault::None, 'report — could not run: absent', NULL, NULL, 127, 'absent', NULL, 9, [], '', '', '', FALSE,
+    ));
+    // And one the executor refused to spawn at all: no exit code to store.
+    $store->record('r1', 'test', new CheckRecord(
+      'gate', 'module:unspawned', CheckState::Recorded, Fault::None, 'report — could not run: unspawned', NULL, NULL, NULL, 'unspawned', NULL, NULL, [], '', '', '', FALSE,
+    ));
 
     $verdicts = $this->verdicts((new EvaluationReport($store))->render('r1'));
 
@@ -147,6 +156,15 @@ final class EvaluationReportTest extends TestCase {
       'no — the tool never spawned (`duration_ms: 0`)',
       $verdicts['phpstan'],
       'a pass that took no time is a tool that never ran',
+    );
+    $this->assertSame(
+      'no — the tool was not found on the PATH (exit 127); recorded, not blocking',
+      $verdicts['module:absent'],
+      'the shell\'s 127 is a fact, not an "unproven"',
+    );
+    $this->assertSame(
+      'no — the tool could not run (binary or config absent); recorded, not blocking',
+      $verdicts['module:unspawned'],
     );
     $this->assertSame('no — not applicable', $verdicts['playwright']);
     $this->assertSame(

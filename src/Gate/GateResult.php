@@ -81,6 +81,8 @@ final class GateResult {
    *   narrowed to what exists, or the default the argv was built from.
    *   Empty when the tool reads its own config and the subject cannot be
    *   known here, or when nothing ran.
+   * @param \Droost\Workflow\Gate\GateStatus|null $demotedFrom
+   *   The status report mode demoted this result from, when it did.
    */
   public function __construct(
     public readonly string $gate,
@@ -131,6 +133,16 @@ final class GateResult {
     // named `src tests` exactly. The executor knows what it handed over; it
     // says so here, and the recorder hashes it when the lever is silent.
     public readonly array $subjects = [],
+    // WHAT THIS RESULT WAS BEFORE REPORT MODE DEMOTED IT. A contributed gate
+    // in `mode: report` whose tool was not on the PATH came back `Reported`,
+    // and from there nothing downstream could tell "snyk ran and found
+    // nothing" from "snyk was never there": the check row read measured, the
+    // evaluation's column read "unproven — no duration recorded", and the
+    // truth — the tool could not run — survived only as prose in the summary.
+    // The original status rides along so the record can say what happened.
+    // In-process only: CheckRecord::fromGate reads it from the live result,
+    // and the wire shape toArray() agrees to stays as it is.
+    public readonly ?GateStatus $demotedFrom = NULL,
   ) {}
 
   /**
@@ -201,6 +213,7 @@ final class GateResult {
       remedy: $this->remedy,
       declaredFault: $this->declaredFault,
       subjects: $subjects ?? $this->subjects,
+      demotedFrom: $this->demotedFrom,
     );
     $copy->stdout = $this->stdout;
     $copy->stderr = $this->stderr;
@@ -286,6 +299,10 @@ final class GateResult {
    * @param string|null $remedy
    *   What to actually do about it, when the caller knows something more
    *   specific than "install it". NULL takes the install-or-turn-it-off text.
+   * @param int|null $exitCode
+   *   The shell's exit code when the gate got as far as spawning (127).
+   * @param int|null $durationMs
+   *   How long that took, when it did.
    *
    * @return self
    *   The result.
@@ -294,10 +311,17 @@ final class GateResult {
     string $gate,
     string $invocation,
     ?string $remedy = NULL,
+    ?int $exitCode = NULL,
+    ?int $durationMs = NULL,
   ): self {
     return new self(
       $gate,
       GateStatus::ErrorToolMissing,
+      // The shell's 127 and the time it took to say so, when the gate got as
+      // far as spawning. A result that carried neither read as "unproven" in
+      // the evaluation, where "the shell could not find it" was the fact.
+      exitCode: $exitCode,
+      durationMs: $durationMs,
       summary: 'could not run: ' . $invocation,
       invocation: $invocation,
       remedy: $remedy ?? sprintf(
