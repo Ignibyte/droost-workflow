@@ -191,7 +191,7 @@ final class ProjectRootOptionTest extends TestCase {
     foreach (['spec-aaa-other.md', 'spec-zzz-mine.md'] as $name) {
       file_put_contents(
         $this->root . '/droost/droost-workflow/' . $name,
-        "## Acceptance criteria\n\n## Tooling plan\n\n## Grounding\n",
+        "## Acceptance criteria\n\n## Tooling plan\n\n## Routes\n\nnone — fixture\n\n## Grounding\n",
       );
     }
     exec('git -C ' . escapeshellarg($this->root) . ' init -q 2>/dev/null');

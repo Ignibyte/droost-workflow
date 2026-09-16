@@ -223,15 +223,25 @@ Then produce the spec:
    later is allowed only as an appended column with nothing else touched, and
    a run that reached complete without one has lost a round to exactly that.
 
+5. **A `## Routes` section — REQUIRED; the engine refuses to leave plan
+   without it.** The paths this change adds or alters, one per line, as the
+   site serves them (`/camps`, `/camps/summer-skills` — never a node id).
+   `rendered_check` renders every one of them at test and at complete,
+   beside the front page, and the report names which source each route came
+   from. A change that touches no route writes `none — <why>`; that is
+   recorded as "the spec declared none", which is a different fact from
+   "nobody asked". Three live rounds rendered `/` alone while the ticket's
+   own page was the one that could fail — once it was a 500 mid-build.
+
 The spec's WEIGHT follows the run's preset — read the frozen, canonical name
 from run.json — and since 0.4 the weight is DEPTH, never format. The five-point
 dial collapses to two weights: a **`high`/`xhigh`/`max`** (or `custom`) run
 writes the full spec above to `droost/droost-workflow/spec-<slug>.md`. A
 **`medium`/`low`** run writes a shorter spec in the same EARS shape — what was
 asked, what will change, a handful of "When <trigger>, the <system> shall
-<response>" criteria, AND the `## Grounding` and `## Tooling plan` sections
-(the engine refuses to leave plan without them at every weight — grounding is
-the discipline the light spec trims depth from, not out) — to
+<response>" criteria, AND the `## Grounding`, `## Tooling plan` and
+`## Routes` sections (the engine refuses to leave plan without them at every
+weight — grounding is the discipline the light spec trims depth from, not out) — to
 `droost/droost-workflow/tmp-spec-<slug>.md`, presented back in chat at
 complete.
 One spec format everywhere is what the seeker checkpoint grades against;

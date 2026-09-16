@@ -85,7 +85,10 @@ final class FreshProcessSiteDriver implements SiteDriverInterface {
     }
     $root = rtrim($projectRoot, '/');
     $binary = $root . '/' . $this->drush;
-    $routes = self::routes($gate);
+    // The lever's routes and the spec's, with each one's source — the record
+    // says "/camps (spec)" rather than an unlabelled list (F-15).
+    $resolved = RenderedRoutes::resolve($gate, $root);
+    $routes = $resolved['routes'];
     // One comma-separated argument — the gate option's own shape — rather
     // than one argument per route: Drush maps a variadic PHP array
     // inconsistently, and a single string is unambiguous on both sides.
@@ -133,7 +136,7 @@ final class FreshProcessSiteDriver implements SiteDriverInterface {
       $answer['status'],
       $exit,
       $elapsed,
-      $answer['summary'],
+      $answer['summary'] . ' — ' . RenderedRoutes::describe($resolved),
       $answer['findings'],
       $invocation,
     );
@@ -187,30 +190,6 @@ final class FreshProcessSiteDriver implements SiteDriverInterface {
       ];
     }
     return NULL;
-  }
-
-  /**
-   * The routes to render: the `routes` option, or the front page.
-   *
-   * @param \Droost\Workflow\Config\GateSettings $gate
-   *   The gate.
-   *
-   * @return list<string>
-   *   Internal paths.
-   */
-  private static function routes(GateSettings $gate): array {
-    $option = $gate->option('routes');
-    if (!is_string($option) || trim($option) === '') {
-      return ['/'];
-    }
-    $routes = [];
-    foreach (explode(',', $option) as $route) {
-      $route = trim($route);
-      if ($route !== '') {
-        $routes[] = $route;
-      }
-    }
-    return $routes === [] ? ['/'] : $routes;
   }
 
   /**

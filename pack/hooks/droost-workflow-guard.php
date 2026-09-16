@@ -589,9 +589,10 @@ exit(0);
  * what this guard's own refusal asks it to do ("show the operator the exact
  * command"). A live run was refused for putting `drush
  * droost:workflow:gate-waive …` in a pull-request body (F-ADOPT-11). Such
- * bodies are dropped before matching. A heredoc piped into a shell or a language
- * runtime (`bash <<EOF`, `ddev exec … <<EOF`, `drush php:script - <<EOF`) is
- * still code and stays in the scan, as does everything outside heredocs.
+ * bodies are dropped before matching. A heredoc piped into a shell or a
+ * language runtime (`bash <<EOF`, `ddev exec … <<EOF`, `drush php:script -
+ * <<EOF`) is still code and stays in the scan, as does everything outside
+ * heredocs.
  *
  * @param string $command
  *   The command as the agent typed it.

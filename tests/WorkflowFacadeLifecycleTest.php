@@ -117,6 +117,7 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
   /**
    * Reset archives a finished run and clears the way — and only then.
    */
+
   /**
    * Two runs archived under one id keep both ledgers, suffixed like the record.
    *
@@ -150,6 +151,9 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
     );
   }
 
+  /**
+   * Reset archives the finished run's record and both ledgers to history/.
+   */
   public function testResetArchivesTheFinishedRun(): void {
     $root = $this->makeRootWithConfig("preset: custom\n");
     $executor = $this->allGatesPass();

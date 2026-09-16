@@ -146,7 +146,11 @@ final class ScopeBeforeJudgementTest extends WorkflowTestCase {
   private function specText(): string {
     return "# Scope\n\n## Tooling plan\n\n| Deliverable | Surface |\n|---|---|\n"
       . "| the thing | hand-written: no generator covers it |\n\n"
-      . "## Grounding\n\n| Phase | Tier | Question | Answer | Evidence |\n|---|---|---|---|---|\n"
+      . "## Routes
+
+none — fixture
+
+## Grounding\n\n| Phase | Tier | Question | Answer | Evidence |\n|---|---|---|---|---|\n"
       . "| plan | custom | named already? | nothing | `none: thing` |\n"
       . "| plan | contrib | the API? | ViewsData | `Drupal\\views\\ViewsData` |\n"
       . "| plan | core | the constructor? | NodeType | `Drupal\\node\\Entity\\NodeType` |\n"

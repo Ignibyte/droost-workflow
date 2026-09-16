@@ -476,6 +476,7 @@ class PackContentLintTest extends TestCase {
    * brief omits is one no agent will use; a type the brief invents throws on
    * the command line and teaches the agent to stop passing the flag at all.
    */
+
   /**
    * The plan brief names every tool the gate counts as a knowledge call.
    *
@@ -499,6 +500,9 @@ class PackContentLintTest extends TestCase {
     }
   }
 
+  /**
+   * The plan brief names every work type the store knows, and invents none.
+   */
   public function testThePlanBriefNamesEveryWorkTypeAndInventsNone(): void {
     $brief = (string) file_get_contents(dirname(__DIR__, 2) . '/pack/skills/workflow-plan/SKILL.md');
 

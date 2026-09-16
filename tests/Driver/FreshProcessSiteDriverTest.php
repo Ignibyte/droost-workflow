@@ -62,11 +62,57 @@ class FreshProcessSiteDriverTest extends TestCase {
     $result = $driver->run(new GateSettings('rendered_check', TRUE, ['routes' => '/, /user/login']), $this->root);
 
     $this->assertSame(GateStatus::Passed, $result->status);
-    $this->assertSame('2 route(s) rendered', $result->summary);
+    $this->assertSame('2 route(s) rendered — / (lever), /user/login (lever); no run spec to read', $result->summary, 'every route names its source, and the record says no spec was consulted');
     $this->assertSame([$this->root . '/vendor/bin/drush', 'droost:workflow:render-probe', '/,/user/login'], $seen['argv']);
     $this->assertSame($this->root, $seen['cwd']);
     $this->assertSame(FreshProcessSiteDriver::DEFAULT_TIMEOUT, $seen['timeout']);
     $this->assertStringContainsString('render-probe /,/user/login', (string) $result->invocation);
+  }
+
+  /**
+   * The run's spec names the ticket's routes; they are rendered and named.
+   *
+   * F-15: three rounds rendered `/` alone while the ticket's page went
+   * unrequested. The lever is the project's standing list, the spec is this
+   * ticket's, and the record says which is which.
+   */
+  public function testSpecRoutesJoinTheLeverAndNameTheirSource(): void {
+    RunWithSpec::open($this->root, "- /camps — the listing\n- /camps/summer-skills — one detail page\n");
+    $seen = [];
+    $answer = json_encode(['status' => 'passed', 'summary' => '3 route(s) rendered', 'findings' => []]);
+    $driver = new FreshProcessSiteDriver(
+      static function (array $argv) use (&$seen, $answer): array {
+        $seen = $argv;
+        return [0, $answer . "\n", ''];
+      },
+      static fn (): int => 0,
+    );
+
+    $result = $driver->run(new GateSettings('rendered_check', TRUE), $this->root);
+
+    $this->assertSame('/,/camps,/camps/summer-skills', $seen[2] ?? NULL, 'the probe is asked for the front page AND the ticket\'s pages');
+    $this->assertSame(
+      '3 route(s) rendered — / (default), /camps (spec), /camps/summer-skills (spec)',
+      $result->summary,
+    );
+    RunWithSpec::close($this->root);
+  }
+
+  /**
+   * A spec that declares `none` is rendered as the front page, and says so.
+   */
+  public function testSpecDeclaringNoneIsRecordedAsSuch(): void {
+    RunWithSpec::open($this->root, "none — an update hook, no page\n");
+    $answer = json_encode(['status' => 'passed', 'summary' => '1 route(s) rendered', 'findings' => []]);
+    $driver = new FreshProcessSiteDriver(
+      static fn (): array => [0, $answer . "\n", ''],
+      static fn (): int => 0,
+    );
+
+    $result = $driver->run(new GateSettings('rendered_check', TRUE), $this->root);
+
+    $this->assertSame('1 route(s) rendered — / (default); the spec declares no routes', $result->summary);
+    RunWithSpec::close($this->root);
   }
 
   /**
@@ -92,7 +138,7 @@ class FreshProcessSiteDriverTest extends TestCase {
     $result = $driver->run(new GateSettings('rendered_check', TRUE), $this->root);
 
     $this->assertSame(GateStatus::Failed, $result->status);
-    $this->assertSame('1 of 1 route(s) did not render', $result->summary);
+    $this->assertSame('1 of 1 route(s) did not render — / (default); no run spec to read', $result->summary);
     $this->assertSame([$finding], $result->findings);
   }
 

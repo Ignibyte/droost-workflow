@@ -56,9 +56,21 @@ final class LedgerReachesTheStoreTest extends TestCase {
    */
   public function testTheLedgerIsIngestedWithItsPhase(): void {
     $this->ledger([
-      ['tool' => 'droost_doctor', 'outcome' => 'ok', 'at' => '2026-09-15T01:00:00+00:00'],
-      ['tool' => 'droost_decide', 'outcome' => 'ok', 'at' => '2026-09-15T01:00:01+00:00'],
-      ['tool' => 'droost_scaffold', 'outcome' => 'refused', 'at' => '2026-09-15T01:00:02+00:00'],
+      [
+        'tool' => 'droost_doctor',
+        'outcome' => 'ok',
+        'at' => '2026-09-15T01:00:00+00:00',
+      ],
+      [
+        'tool' => 'droost_decide',
+        'outcome' => 'ok',
+        'at' => '2026-09-15T01:00:01+00:00',
+      ],
+      [
+        'tool' => 'droost_scaffold',
+        'outcome' => 'refused',
+        'at' => '2026-09-15T01:00:02+00:00',
+      ],
     ]);
 
     $this->record('code');
@@ -85,8 +97,16 @@ final class LedgerReachesTheStoreTest extends TestCase {
 
     // A call made LATER lands, and carries the phase it was seen in.
     $this->ledger([
-      ['tool' => 'droost_doctor', 'outcome' => 'ok', 'at' => '2026-09-15T01:00:00+00:00'],
-      ['tool' => 'droost_search', 'outcome' => 'ok', 'at' => '2026-09-15T02:00:00+00:00'],
+      [
+        'tool' => 'droost_doctor',
+        'outcome' => 'ok',
+        'at' => '2026-09-15T01:00:00+00:00',
+      ],
+      [
+        'tool' => 'droost_search',
+        'outcome' => 'ok',
+        'at' => '2026-09-15T02:00:00+00:00',
+      ],
     ]);
     $this->record('test');
 
@@ -127,12 +147,36 @@ final class LedgerReachesTheStoreTest extends TestCase {
    */
   public function testAnotherRunsCallsAreNotIngested(): void {
     $this->ledger([
-      ['tool' => 'droost_structure_create', 'outcome' => 'ok', 'at' => '2026-09-15T01:00:00+00:00', 'run' => 'r0', 'phase' => 'code'],
-      ['tool' => 'droost_entity_create', 'outcome' => 'ok', 'at' => '2026-09-15T01:00:01+00:00', 'run' => 'r0', 'phase' => 'code'],
-      ['tool' => 'droost_search', 'outcome' => 'ok', 'at' => '2026-09-15T02:00:00+00:00', 'run' => 'r1', 'phase' => 'plan'],
+      [
+        'tool' => 'droost_structure_create',
+        'outcome' => 'ok',
+        'at' => '2026-09-15T01:00:00+00:00',
+        'run' => 'r0',
+        'phase' => 'code',
+      ],
+      [
+        'tool' => 'droost_entity_create',
+        'outcome' => 'ok',
+        'at' => '2026-09-15T01:00:01+00:00',
+        'run' => 'r0',
+        'phase' => 'code',
+      ],
+      [
+        'tool' => 'droost_search',
+        'outcome' => 'ok',
+        'at' => '2026-09-15T02:00:00+00:00',
+        'run' => 'r1',
+        'phase' => 'plan',
+      ],
       // A call made with no run open is THIS run's: the plan phase grounds
       // before it opens the run, and reset has already archived the last one.
-      ['tool' => 'droost_doctor', 'outcome' => 'ok', 'at' => '2026-09-15T02:00:01+00:00', 'run' => NULL, 'phase' => NULL],
+      [
+        'tool' => 'droost_doctor',
+        'outcome' => 'ok',
+        'at' => '2026-09-15T02:00:01+00:00',
+        'run' => NULL,
+        'phase' => NULL,
+      ],
     ]);
 
     $this->record('code');
@@ -151,10 +195,18 @@ final class LedgerReachesTheStoreTest extends TestCase {
    * row: once one row names a run, the rows that do not are calls made with
    * no run open, and are nobody's.
    */
-  public function testALegacyFileWithNoRunOnAnyRowIsTakenWhole(): void {
+  public function testLegacyFileWithNoRunOnAnyRowIsTakenWhole(): void {
     $this->ledger([
-      ['tool' => 'droost_doctor', 'outcome' => 'ok', 'at' => '2026-09-15T01:00:00+00:00'],
-      ['tool' => 'droost_search', 'outcome' => 'ok', 'at' => '2026-09-15T01:00:01+00:00'],
+      [
+        'tool' => 'droost_doctor',
+        'outcome' => 'ok',
+        'at' => '2026-09-15T01:00:00+00:00',
+      ],
+      [
+        'tool' => 'droost_search',
+        'outcome' => 'ok',
+        'at' => '2026-09-15T01:00:01+00:00',
+      ],
     ]);
 
     $this->record('code');
@@ -163,22 +215,54 @@ final class LedgerReachesTheStoreTest extends TestCase {
   }
 
   /**
-   * The watermark counts THIS run's rows, so a re-record does not double them
-   * and another run's rows do not shift the offset.
+   * The watermark counts THIS run's rows only.
+   *
+   * So a re-record does not double them, and another run's rows do not shift
+   * the offset.
    */
   public function testTheWatermarkIsAgainstThisRunsRowsOnly(): void {
     $this->ledger([
-      ['tool' => 'droost_symbol', 'outcome' => 'ok', 'at' => '2026-09-15T01:00:00+00:00', 'run' => 'r0', 'phase' => 'code'],
-      ['tool' => 'droost_search', 'outcome' => 'ok', 'at' => '2026-09-15T02:00:00+00:00', 'run' => 'r1', 'phase' => 'plan'],
+      [
+        'tool' => 'droost_symbol',
+        'outcome' => 'ok',
+        'at' => '2026-09-15T01:00:00+00:00',
+        'run' => 'r0',
+        'phase' => 'code',
+      ],
+      [
+        'tool' => 'droost_search',
+        'outcome' => 'ok',
+        'at' => '2026-09-15T02:00:00+00:00',
+        'run' => 'r1',
+        'phase' => 'plan',
+      ],
     ]);
     $this->record('plan');
     $this->record('plan');
     $this->assertCount(1, $this->toolCalls(), 'a re-record does not double it');
 
     $this->ledger([
-      ['tool' => 'droost_symbol', 'outcome' => 'ok', 'at' => '2026-09-15T01:00:00+00:00', 'run' => 'r0', 'phase' => 'code'],
-      ['tool' => 'droost_search', 'outcome' => 'ok', 'at' => '2026-09-15T02:00:00+00:00', 'run' => 'r1', 'phase' => 'plan'],
-      ['tool' => 'droost_graph', 'outcome' => 'ok', 'at' => '2026-09-15T03:00:00+00:00', 'run' => 'r1', 'phase' => 'code'],
+      [
+        'tool' => 'droost_symbol',
+        'outcome' => 'ok',
+        'at' => '2026-09-15T01:00:00+00:00',
+        'run' => 'r0',
+        'phase' => 'code',
+      ],
+      [
+        'tool' => 'droost_search',
+        'outcome' => 'ok',
+        'at' => '2026-09-15T02:00:00+00:00',
+        'run' => 'r1',
+        'phase' => 'plan',
+      ],
+      [
+        'tool' => 'droost_graph',
+        'outcome' => 'ok',
+        'at' => '2026-09-15T03:00:00+00:00',
+        'run' => 'r1',
+        'phase' => 'code',
+      ],
     ]);
     $this->record('code');
 

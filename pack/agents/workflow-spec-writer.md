@@ -32,7 +32,7 @@ exists at every level:
 how we'll know — about ten lines. No EARS table; the discipline survives,
 the ceremony does not.
 
-**Two sections are NOT optional at either weight, because the plan gate reads
+**Three sections are NOT optional at either weight, because the plan gate reads
 them and refuses without them.** They are short, and leaving them out is the
 most common way a run fails before it starts:
 
@@ -50,7 +50,20 @@ most common way a run fails before it starts:
 | plan | custom | is there already a rink bundle? | nothing matched — no rink type on this site | `none: rink` |
 | plan | contrib | what does views give a filtered listing? | a page display with an exposed taxonomy filter | `Drupal\views\Plugin\views\filter\TaxonomyIndexTid` |
 | plan | core | how is a node bundle created? | the NodeType config entity | `Drupal\node\Entity\NodeType` |
+
+## Routes
+
+- /rinks — the listing page this ticket adds
+- /rinks/ice-house — one detail page, so the display renders with real content
 ```
+
+`## Routes` is what `rendered_check` renders at test and complete, beside the
+front page — the paths this change adds or alters, as the site serves them
+(`/camps`, never `/node/7`). A ticket that touches no route writes
+`none — <why>` instead; the gate then renders `/` and the record says the spec
+declared none. Leave it out, or leave it empty, and plan refuses. Every route
+you name here is a page the run must make render; name the ones the ticket is
+for, not every page on the site.
 
 All three tiers at `plan`, or the gate names the ones you skipped and stops.
 Every `Evidence` cell must be a real citation — a class, a docroot-relative

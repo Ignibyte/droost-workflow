@@ -22,7 +22,11 @@ use Droost\Workflow\WorkflowFacade;
  * A whole run, making every write the workflow itself demands.
  *
  * This test class exists because its absence let a deadlock ship under a green
- * suite of 659. The first cut of SpecFreeze froze `## Grounding` and
+ * suite of 659. The first cut of SpecFreeze froze `## Routes.
+ *
+ * none — fixture
+ *
+ * ## Grounding` and
  * `## Acceptance criteria` whole — and the workflow REQUIRES the code phase to
  * add grounding rows and the test phase to fill `Verified By`. Every run was
  * impossible: make the mandated write and the freeze refused; omit it and the
@@ -57,6 +61,10 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     | # | Construct | Surface |
     |---|---|---|
     | 1 | a bundle | `droost_structure_create` |
+
+    ## Routes
+
+    none — fixture
 
     ## Grounding
 

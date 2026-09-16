@@ -41,6 +41,10 @@ final class SpecFreezeTest extends TestCase {
     |---|---|---|
     | 1 | rink bundle | `droost_structure_create` |
 
+    ## Routes
+
+    none — fixture
+
     ## Grounding
 
     | Phase | Tier | Asked | Found | Evidence |
@@ -156,7 +160,11 @@ final class SpecFreezeTest extends TestCase {
    * forbade the only remedy the failure named.
    */
   public function testCitationMayBeCorrectedAfterTheGateRefusesIt(): void {
-    $plan = "## Grounding\n\n| Phase | Tier | Asked | Found | Evidence |\n"
+    $plan = "## Routes
+
+none — fixture
+
+## Grounding\n\n| Phase | Tier | Asked | Found | Evidence |\n"
       . "|---|---|---|---|---|\n| plan | core | how? | NodeType | `Drupal\\Made\\Up` |\n";
     $fixed = str_replace('`Drupal\Made\Up`', '`Drupal\node\Entity\NodeType`', $plan);
 
@@ -170,9 +178,17 @@ final class SpecFreezeTest extends TestCase {
    * plan gate never required it, so a spec can be frozen without one.
    */
   public function testTheEvidenceColumnMayBeAdded(): void {
-    $plan = "## Grounding\n\n| Phase | Tier | Asked | Found |\n|---|---|---|---|\n"
+    $plan = "## Routes
+
+none — fixture
+
+## Grounding\n\n| Phase | Tier | Asked | Found |\n|---|---|---|---|\n"
       . "| plan | core | how? | NodeType |\n";
-    $withColumn = "## Grounding\n\n| Phase | Tier | Asked | Found | Evidence |\n"
+    $withColumn = "## Routes
+
+none — fixture
+
+## Grounding\n\n| Phase | Tier | Asked | Found | Evidence |\n"
       . "|---|---|---|---|---|\n| plan | core | how? | NodeType | `Drupal\\node\\Entity\\NodeType` |\n";
 
     $this->assertSame([], SpecFreeze::breaches($withColumn, $plan));
@@ -187,7 +203,11 @@ final class SpecFreezeTest extends TestCase {
    * sentence.
    */
   public function testRewritingWhatWasAskedIsStillCaught(): void {
-    $plan = "## Grounding\n\n| Phase | Tier | Asked | Found | Evidence |\n"
+    $plan = "## Routes
+
+none — fixture
+
+## Grounding\n\n| Phase | Tier | Asked | Found | Evidence |\n"
       . "|---|---|---|---|---|\n| plan | core | how is a bundle made? | NodeType | `Drupal\\node\\Entity\\NodeType` |\n";
     $cheat = str_replace('how is a bundle made? | NodeType', 'anything at all? | nothing', $plan);
 
@@ -250,6 +270,26 @@ final class SpecFreezeTest extends TestCase {
       $before,
       SpecFreeze::fingerprint(str_replace('`droost_structure_create`', 'hand-written', $this->spec())),
     );
+  }
+
+  /**
+   * Routes are append-only: a planned route may not vanish before test.
+   *
+   * F-15's cheapest dodge would be naming the page at plan and deleting the
+   * line at code. Adding a page code discovered is legal; losing one is not.
+   */
+  public function testRoutesAreAppendOnly(): void {
+    $frozen = "# S\n\n## Tooling plan\n\n- x\n\n## Routes\n\n- /camps — listing\n- /camps/summer — detail\n";
+    $added = str_replace("- /camps/summer — detail\n", "- /camps/summer — detail\n- /camps/winter — found at code\n", $frozen);
+    $this->assertSame([], SpecFreeze::breaches($added, $frozen), 'a route added at code is not a breach');
+
+    $rebulleted = str_replace("- /camps", "* /camps", $frozen);
+    $this->assertSame([], SpecFreeze::breaches($rebulleted, $frozen), 'the list marker is not the promise');
+
+    $lost = str_replace("- /camps/summer — detail\n", '', $frozen);
+    $breaches = SpecFreeze::breaches($lost, $frozen);
+    $this->assertCount(1, $breaches);
+    $this->assertStringStartsWith('## Routes (1 route(s) removed or rewritten; frozen as "/camps/summer — detail")', $breaches[0]);
   }
 
 }

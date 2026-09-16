@@ -129,6 +129,30 @@ final class SpecError extends \RuntimeException {
   }
 
   /**
+   * The spec names no route for rendered_check, and does not say `none`.
+   *
+   * @param string $path
+   *   The spec.
+   * @param bool $present
+   *   Whether the section exists at all (empty) or is missing outright.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function routesUndeclared(string $path, bool $present): self {
+    return new self(sprintf(
+      '%s %s — rendered_check renders what this section names, at test and at '
+      . 'complete, beside the front page. List the paths this change adds or '
+      . 'alters, one per line, as the site serves them (`/camps`, never a '
+      . 'node id), or write `none — <why>` when the change touches no route. '
+      . 'Three live rounds rendered `/` while the ticket\'s own page was the '
+      . 'one that could have failed. Add it, then re-run.',
+      $path,
+      $present ? 'has a "## Routes" section that names no route and does not say none' : 'has no "## Routes" section',
+    ));
+  }
+
+  /**
    * The phase looked nothing up, or looked into too narrow a place.
    *
    * @param string $path

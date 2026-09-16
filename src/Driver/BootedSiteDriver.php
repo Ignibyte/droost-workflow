@@ -32,7 +32,7 @@ final class BootedSiteDriver implements SiteDriverInterface {
    *
    * @var list<string>
    */
-  public const DEFAULT_ROUTES = ['/'];
+  public const DEFAULT_ROUTES = [RenderedRoutes::DEFAULT];
 
   /**
    * Constructs a BootedSiteDriver.
@@ -78,7 +78,8 @@ final class BootedSiteDriver implements SiteDriverInterface {
       );
     }
 
-    $routes = $this->routes($gate);
+    $resolved = RenderedRoutes::resolve($gate, $projectRoot);
+    $routes = $resolved['routes'];
     $started = $this->tick();
     $findings = [];
 
@@ -91,15 +92,23 @@ final class BootedSiteDriver implements SiteDriverInterface {
 
     $elapsed = $this->tick() - $started;
     $failed = count($findings);
+    $summary = $failed === 0
+      ? sprintf('%d route(s) rendered', count($routes))
+      : sprintf('%d of %d route(s) did not render', $failed, count($routes));
+    // Where the routes came from, when a run's spec was consulted. Under the
+    // render-probe there is no run to read (the probe is handed the merged
+    // list and the docroot), and the fresh-process driver describes its own
+    // resolution — so this says nothing there rather than saying it twice.
+    if ($resolved['spec'] !== NULL) {
+      $summary .= ' — ' . RenderedRoutes::describe($resolved);
+    }
 
     return GateResult::ran(
       'rendered_check',
       $failed === 0 ? GateStatus::Passed : GateStatus::Failed,
       $failed === 0 ? 0 : 1,
       $elapsed,
-      $failed === 0
-        ? sprintf('%d route(s) rendered', count($routes))
-        : sprintf('%d of %d route(s) did not render', $failed, count($routes)),
+      $summary,
       $findings,
       'rendered_check: ' . implode(', ', $routes),
     );
@@ -188,27 +197,6 @@ final class BootedSiteDriver implements SiteDriverInterface {
       return ['route' => $path, 'status' => 200, 'problem' => 'empty body'];
     }
     return NULL;
-  }
-
-  /**
-   * The routes this gate checks.
-   *
-   * @param \Droost\Workflow\Config\GateSettings $gate
-   *   The gate's levers.
-   *
-   * @return list<string>
-   *   Internal paths.
-   */
-  private function routes(GateSettings $gate): array {
-    $configured = $gate->option('routes');
-    if (!is_string($configured) || trim($configured) === '') {
-      return self::DEFAULT_ROUTES;
-    }
-    $paths = array_values(array_filter(
-      array_map(trim(...), explode(',', $configured)),
-      static fn (string $p): bool => $p !== '',
-    ));
-    return $paths === [] ? self::DEFAULT_ROUTES : $paths;
   }
 
   /**

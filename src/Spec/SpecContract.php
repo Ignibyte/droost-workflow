@@ -71,6 +71,25 @@ final class SpecContract {
   public const ACCEPTANCE_HEADING = '## Acceptance criteria';
 
   /**
+   * The section naming the paths the ticket adds or changes.
+   *
+   * Rendered_check is the pipeline's artefacts-are-truth leg and is on at
+   * every preset — and for three live rounds it rendered `/` while the ticket
+   * built `/camps`, `/rinks`, `/private-lessons`. Mid-way through one code
+   * phase the front page was 200 and `/camps` was 500; the gate would have
+   * passed. Nothing connected the run's own route to the gate that exists to
+   * render it, because the only source of routes was a lever an operator
+   * writes once per project (F-15).
+   *
+   * So the spec names them. The plan gate requires the section, the drivers
+   * render the union of the lever's routes and the spec's, and the record
+   * says which source each route came from. A ticket that touches no route
+   * says so — `none — <why>` — so "declared none" is distinguishable from
+   * "nobody asked".
+   */
+  public const ROUTES_HEADING = '## Routes';
+
+  /**
    * The table column that ties each criterion to the test that proves it.
    *
    * The traceability link: filled at the test phase with the PHPUnit method
@@ -401,6 +420,61 @@ final class SpecContract {
       'uncited' => $uncited,
       'evidence' => $evidence,
     ];
+  }
+
+  /**
+   * The routes the spec declares for rendered_check to render.
+   *
+   * Reads the section under `## Routes`. A route is the first `/`-prefixed
+   * token on a list item or table row — backticks stripped, so `- /camps —
+   * the listing` is a path with a reason and `| /camps | listing |` is the
+   * same in table form. A line reading `none` (with an optional reason)
+   * declares that the ticket touches no route. Header and separator rows are
+   * not routes; nor is prose.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $spec
+   *   The governing spec, project-relative.
+   *
+   * @return array{routes: list<string>, none: bool}|null
+   *   The declared paths, deduplicated in order, and whether the section
+   *   declared none. NULL when the spec has no such section. A section that
+   *   is present but names neither a route nor `none` returns an empty list
+   *   with `none` FALSE — the caller decides that this is undeclared.
+   */
+  public static function routes(string $projectRoot, string $spec): ?array {
+    $text = self::read(rtrim($projectRoot, '/') . '/' . $spec);
+    if ($text === NULL) {
+      return NULL;
+    }
+    $heading = preg_quote(self::ROUTES_HEADING, '/');
+    if (preg_match('/^' . $heading . '\b[^\n]*\n(.*?)(?=^#{1,2} |\z)/msi', $text, $m) !== 1) {
+      return NULL;
+    }
+    $routes = [];
+    $none = FALSE;
+    foreach (preg_split('/\R/', $m[1]) ?: [] as $line) {
+      $line = trim($line);
+      if ($line === '' || preg_match('/^[\s\-:|]+$/', $line) === 1) {
+        continue;
+      }
+      // Strip the list marker or the table's leading pipe so the first cell
+      // is what gets read; a table's header row has no `/` and falls through.
+      $item = (string) preg_replace('/^(?:[-*+]|\d+[.)]|\|)\s*/', '', $line);
+      if (preg_match('/^`?none`?\b/i', $item) === 1) {
+        $none = TRUE;
+        continue;
+      }
+      if (preg_match('~`?(/[^\s`|]*)`?~', $item, $r) === 1) {
+        $route = rtrim($r[1], '`');
+        if (!in_array($route, $routes, TRUE)) {
+          $routes[] = $route;
+        }
+      }
+    }
+
+    return ['routes' => $routes, 'none' => $none];
   }
 
   /**

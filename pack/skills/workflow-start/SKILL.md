@@ -45,8 +45,9 @@ file to exist. So the sequence is:
    back to run them — a live run advanced its whole code phase through the
    binary with the site up, and config_clean never ran. This BEGINS the run
    (writes `droost/droost-workflow/run.json`), records WHICH document governs it,
-   and gates the plan phase — which requires the spec's `## Tooling plan`
-   section to be present before the run may leave plan. On a project holding
+   and gates the plan phase — which requires the spec's `## Tooling plan`,
+   `## Grounding` and `## Routes` sections to be present before the run may
+   leave plan. On a project holding
    several spec files the declaration is mandatory: the engine refuses to
    guess which document a run answers to. This is the step that makes the
    run real; only after it does anything below work.

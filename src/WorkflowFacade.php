@@ -732,6 +732,17 @@ final class WorkflowFacade {
         throw SpecError::groundingMissing($specPath, $name, $missing, FALSE, []);
       }
     }
+    // And the routes, once the plan has grounded. rendered_check is on at
+    // every preset and for three live rounds rendered only `/` while the
+    // ticket's own page — once a 500 mid-build — went unrequested (F-15).
+    // The lever is per project; the routes are per ticket; the spec is where
+    // per-ticket facts live, and `none — <why>` is an answer.
+    if ($specPath !== NULL && $phase === Phase::Plan) {
+      $routes = SpecContract::routes($projectRoot, $specPath);
+      if ($routes === NULL || ($routes['routes'] === [] && !$routes['none'])) {
+        throw SpecError::routesUndeclared($specPath, $routes !== NULL);
+      }
+    }
     if ($specPath !== NULL && $phase === Phase::Complete
       && !SpecContract::hasRealizedCapture($projectRoot, $specPath)) {
       throw SpecError::sectionMissing(

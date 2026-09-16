@@ -45,6 +45,70 @@ final class SpecContractTest extends WorkflowTestCase {
   }
 
   /**
+   * Leaving plan requires the routes, and the refusal names the fix (F-15).
+   *
+   * Three live rounds rendered `/` while the ticket built `/camps`, `/rinks`
+   * and `/private-lessons`; the gate that exists to render the run's page
+   * never asked for it, because nothing per-ticket named one.
+   */
+  public function testPlanRefusesWithoutRoutes(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
+    $spec = $root . '/droost/droost-workflow/spec-test-run.md';
+    $text = (string) file_get_contents($spec);
+    $text = (string) preg_replace('/^## Routes\n.*?(?=^## )/ms', '', $text);
+    $this->assertStringNotContainsString('## Routes', $text, 'the fixture is now silent about routes');
+    file_put_contents($spec, $text);
+
+    $this->expectException(SpecError::class);
+    $this->expectExceptionMessageMatches('/has no "## Routes" section.*none — <why>/s');
+    $this->facadeForCli()->run($root);
+  }
+
+  /**
+   * A routes section that names nothing and does not say `none` is refused.
+   *
+   * The heading alone would be the cheapest way past the gate; the refusal
+   * distinguishes "empty" from "missing" so the fix is obvious either way.
+   */
+  public function testPlanRefusesAnEmptyRoutesSection(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
+    $spec = $root . '/droost/droost-workflow/spec-test-run.md';
+    $text = (string) preg_replace('/^## Routes\n.*?(?=^## )/ms', "## Routes\n\nThe pages will be decided during code.\n\n", (string) file_get_contents($spec));
+    file_put_contents($spec, $text);
+
+    $this->expectException(SpecError::class);
+    $this->expectExceptionMessageMatches('/names no route and does not say none/');
+    $this->facadeForCli()->run($root);
+  }
+
+  /**
+   * The parser reads lists, tables and `none`, and only routes — not prose.
+   */
+  public function testRoutesParsesListsTablesAndNone(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0755, TRUE);
+    $write = static function (string $body) use ($root): string {
+      file_put_contents($root . '/droost/droost-workflow/spec-r.md', "# S\n\n## Routes\n\n" . $body . "\n## Tooling plan\n\n- x\n");
+      return 'droost/droost-workflow/spec-r.md';
+    };
+
+    $list = SpecContract::routes($root, $write("- /camps — the listing\n- `/camps/summer` — one detail page\n* /camps — again, deduplicated\n"));
+    $this->assertSame(['routes' => ['/camps', '/camps/summer'], 'none' => FALSE], $list);
+
+    $table = SpecContract::routes($root, $write("| Route | Why |\n|---|---|\n| /rinks | listing |\n| `/rinks/ice-house` | detail |\n"));
+    $this->assertSame(['/rinks', '/rinks/ice-house'], $table['routes'] ?? NULL, 'the header row is not a route');
+
+    $none = SpecContract::routes($root, $write("none — this ticket changes an update hook, no page\n"));
+    $this->assertSame(['routes' => [], 'none' => TRUE], $none);
+
+    $prose = SpecContract::routes($root, $write("We will decide the pages later.\n"));
+    $this->assertSame(['routes' => [], 'none' => FALSE], $prose, 'prose names nothing and is not none');
+
+    file_put_contents($root . '/droost/droost-workflow/spec-r.md', "# S\n\n## Tooling plan\n\n- x\n");
+    $this->assertNull(SpecContract::routes($root, 'droost/droost-workflow/spec-r.md'), 'no section is NULL, distinct from empty');
+  }
+
+  /**
    * With the section present, plan advances — the contract is satisfiable.
    */
   public function testPlanAdvancesWithTheToolingPlan(): void {
@@ -302,7 +366,11 @@ MD
       // Grounding is a contract at plan and code, so a spec a run may
       // actually advance carries it. These tests are about the criteria
       // contract, not this one; the section is here so they reach it.
-      . "## Grounding\n\n| Phase | Tier | Asked | Found |\n|---|---|---|---|\n"
+      . "## Routes
+
+none — fixture
+
+## Grounding\n\n| Phase | Tier | Asked | Found |\n|---|---|---|---|\n"
       . "| plan | custom | fixture | fixture |\n| plan | contrib | fixture | fixture |\n"
       . "| plan | core | fixture | fixture |\n| code | custom | fixture | fixture |\n"
       . "| code | contrib | fixture | fixture |\n| code | core | fixture | fixture |\n\n"
@@ -540,6 +608,10 @@ MD
 
 - hand-written (fixture)
 
+## Routes
+
+none — fixture
+
 ## Grounding
 
 | Phase | Tier | Asked | Found | Evidence |
@@ -606,7 +678,11 @@ MD);
    *   The spec path, project-relative.
    */
   private function writeGroundingSpec(string $root, array $rows): string {
-    $table = "## Grounding\n\n| Phase | Tier | Asked | Found |\n|---|---|---|---|\n";
+    $table = "## Routes
+
+none — fixture
+
+## Grounding\n\n| Phase | Tier | Asked | Found |\n|---|---|---|---|\n";
     foreach ($rows as $row) {
       $table .= '| ' . implode(' | ', $row) . " |\n";
     }
@@ -638,6 +714,10 @@ What the section will look like once it is written:
 
 - the rink list: views, via `drush generate`
 ```
+
+## Routes
+
+none — fixture
 
 ## Grounding
 

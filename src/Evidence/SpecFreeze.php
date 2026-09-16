@@ -39,6 +39,8 @@ namespace Droost\Workflow\Evidence;
  *   |                      | still be there, unchanged; code may add its own  |
  *   | `## Acceptance…`     | append-only, and each row compared WITHOUT its   |
  *   |                      | `Verified By` cell, which test fills by mandate  |
+ *   | `## Routes`          | append-only — every path the plan named is still |
+ *   |                      | there for test to render; code may add one       |
  *
  * `## Realized` is absent entirely: it does not exist at plan and complete is
  * required to write it.
@@ -64,6 +66,16 @@ final class SpecFreeze {
    * Acceptance criteria: append-only, minus the column the test phase fills.
    */
   public const string CRITERIA = '## Acceptance criteria';
+
+  /**
+   * Routes: append-only, because code may discover a page plan did not name.
+   *
+   * What may not happen is the plan's routes going missing before test
+   * renders them — that is the cheat this section exists to stop, and a
+   * route dropped at code is exactly a page nobody wants rendered. A list,
+   * not a table, so it is compared line by line rather than row by row.
+   */
+  public const string ROUTES = '## Routes';
 
   /**
    * Columns a LATER gate adjudicates, excluded from the frozen comparison.
@@ -94,7 +106,7 @@ final class SpecFreeze {
   /**
    * Every section this class has an opinion about.
    */
-  public const array FROZEN_SECTIONS = [self::TOOLING, self::GROUNDING, self::CRITERIA];
+  public const array FROZEN_SECTIONS = [self::TOOLING, self::GROUNDING, self::CRITERIA, self::ROUTES];
 
   /**
    * A fingerprint of the parts that may never change at all.
@@ -157,8 +169,56 @@ final class SpecFreeze {
         );
       }
     }
+    $lostRoutes = array_values(array_diff(
+      self::items($frozenText, self::ROUTES),
+      self::items($text, self::ROUTES),
+    ));
+    if ($lostRoutes !== []) {
+      $breaches[] = sprintf(
+        '%s (%d route(s) removed or rewritten; frozen as %s)',
+        self::ROUTES,
+        count($lostRoutes),
+        implode(', ', array_map(
+          static fn (string $line): string => '"' . mb_strimwidth($line, 0, 90, '…') . '"',
+          array_slice($lostRoutes, 0, 3),
+        )),
+      );
+    }
 
     return $breaches;
+  }
+
+  /**
+   * A list section's items, canonicalised for comparison.
+   *
+   * Every non-blank line that is not a table separator, whitespace collapsed
+   * and the list marker dropped — so re-bulleting or re-padding is not drift,
+   * and a route line reads the same whether it was `- /camps` or `* /camps`.
+   *
+   * @param string $text
+   *   The spec.
+   * @param string $heading
+   *   The section.
+   *
+   * @return list<string>
+   *   One canonical string per item.
+   */
+  private static function items(string $text, string $heading): array {
+    $body = self::body($text, $heading);
+    if ($body === '') {
+      return [];
+    }
+    $items = [];
+    foreach (preg_split('/\R/', $body) ?: [] as $line) {
+      $line = trim($line);
+      if ($line === '' || preg_match('/^[\s\-:|]+$/', $line) === 1) {
+        continue;
+      }
+      $line = (string) preg_replace('/^(?:[-*+]|\d+[.)])\s+/', '', $line);
+      $items[] = (string) preg_replace('/\s+/', ' ', $line);
+    }
+
+    return $items;
   }
 
   /**

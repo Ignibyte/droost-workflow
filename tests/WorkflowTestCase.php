@@ -76,6 +76,9 @@ abstract class WorkflowTestCase extends TestCase {
       mkdir($dir, 0755, TRUE);
     }
     $body = "# Spec: test run\n\n## Tooling plan\n\n- everything: hand-written (fixture)\n";
+    // And it names its routes — `none`, honestly, since a fixture builds no
+    // page. The plan gate refuses a spec that is silent about them (F-15).
+    $body .= "\n## Routes\n\nnone — fixture builds no page\n";
     // A well-formed spec grounds before it proposes, at plan and at code, in
     // all three tiers. The fixture carries it because the contract is not
     // optional — a test that advanced without it would be asserting against a

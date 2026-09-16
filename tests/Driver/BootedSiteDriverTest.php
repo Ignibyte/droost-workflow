@@ -40,6 +40,38 @@ class BootedSiteDriverTest extends TestCase {
   }
 
   /**
+   * The run's spec routes are rendered in-process too, and a broken one fails.
+   *
+   * The F-15 shape exactly: the front page is 200 and the ticket's page is
+   * 500. Before, the gate rendered `/` and passed. Now it asks for `/camps`.
+   */
+  public function testSpecRouteThatDoesNotRenderFailsTheGate(): void {
+    $root = sys_get_temp_dir() . '/droost-booted-' . uniqid();
+    mkdir($root, 0755, TRUE);
+    RunWithSpec::open($root, "- /camps — the listing\n");
+    $kernel = new class() implements HttpKernelInterface {
+
+      /**
+       * {@inheritdoc}
+       */
+      public function handle(Request $request, int $type = self::MAIN_REQUEST, bool $catch = TRUE): Response {
+        return $request->getPathInfo() === '/camps'
+          ? new Response('The website encountered an unexpected error.', 500)
+          : new Response('<html><body>ok</body></html>', 200);
+      }
+
+    };
+
+    $result = (new BootedSiteDriver($kernel, static fn (): int => 0))->run(new GateSettings('rendered_check', TRUE), $root);
+
+    $this->assertSame(GateStatus::Failed, $result->status);
+    $this->assertSame('1 of 2 route(s) did not render — / (default), /camps (spec)', $result->summary);
+    $this->assertSame(['route' => '/camps', 'status' => 500, 'problem' => 'not 200'], $result->findings[0]);
+    RunWithSpec::close($root);
+    @rmdir($root);
+  }
+
+  /**
    * A throwable during the render is the finding, WITH its origin.
    *
    * D70 round 2 recorded "threw Error: Call to a member function access() on

@@ -147,9 +147,12 @@ gates:
   # intended behaviour and the reason it ships on: the gate you most want is
   # the one whose absence must be visible in the report.
   #
-  # It takes one option: which internal paths to render, comma-separated.
+  # It takes one option: the PROJECT'S standing paths, comma-separated.
   #   rendered_check: { on: true, routes: "/,/pricing" }
-  # Omitted, the live surface renders "/".
+  # Omitted, that half is "/". The TICKET'S paths come from the run's spec —
+  # its `## Routes` section, which the plan gate requires — and the gate
+  # renders the union, naming each route's source in its summary. Three live
+  # rounds rendered "/" alone while the ticket's own page went unrequested.
   rendered_check: { on: true }
 
   # Your own commands as first-class gates — semgrep, behat, anything.
