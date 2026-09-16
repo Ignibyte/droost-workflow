@@ -169,4 +169,29 @@ final class DialSaysWhatItDidTest extends WorkflowTestCase {
     $this->assertStringContainsString('seekers.on', $notice, 'the adversarial review too');
   }
 
+  /**
+   * A gate OPTION set looser than the preset is named; tighter is not (F-11).
+   *
+   * `phpstan: { level: 1 }` under `preset: max` is the same loosening as
+   * switching phpstan off, one line lower down. A live site advertised max,
+   * ran phpstan at level 1, and the notice named six levers and not that one.
+   */
+  public function testLoosenedGateOptionIsNamedAndTightenedOneIsNot(): void {
+    $root = $this->makeRoot();
+    file_put_contents($root . '/droost.workflow.yml', "preset: max\ngates:\n  phpstan: { level: 1 }\n  phpcs: { standard: Drupal }\n  coverage: { min: 10 }\n");
+    $notice = implode(' ', WorkflowConfig::load($root)->deprecations);
+
+    $this->assertStringContainsString('gates.phpstan.level (max says max, this file says 1)', $notice);
+    $this->assertStringContainsString('gates.phpcs.standard (max says Drupal,DrupalPractice, this file drops DrupalPractice)', $notice);
+    $this->assertStringContainsString('gates.coverage.min (max says 80, this file says 10)', $notice);
+
+    $tighter = $this->makeRoot();
+    file_put_contents($tighter . '/droost.workflow.yml', "preset: low\ngates:\n  phpstan: { level: 9, paths: web/modules/custom }\n  phpcs: { standard: 'Drupal,DrupalPractice,Custom' }\n");
+    $this->assertSame([], WorkflowConfig::load($tighter)->deprecations, 'a tighter level, an added standard and a path set are tuning, not loosening');
+
+    $swapped = $this->makeRoot();
+    file_put_contents($swapped . '/droost.workflow.yml', "preset: max\ngates:\n  phpcs: { standard: PSR12 }\n");
+    $this->assertSame([], WorkflowConfig::load($swapped)->deprecations, 'a different standard is a different choice, not less of the same one');
+  }
+
 }

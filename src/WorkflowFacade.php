@@ -194,6 +194,11 @@ final class WorkflowFacade {
         // answerable from status alone.
         'phase_gates' => PhaseGateMap::forPhases($config->phaseNames()),
         'max_gate_retries' => $config->maxGateRetries,
+        // Whether the adversarial reviewer inspects the diff after the code
+        // gates pass. The single largest difference between `low` and
+        // `medium`, frozen into run.json at begin — and until now absent from
+        // the one command an operator reads BEFORE there is a run (F-12).
+        'seekers' => $config->seekers,
         // The work-item integration for status: how a run's ticket is fetched
         // and written back. NULL when the repo declares none.
         'work_item' => $config->workItem?->toArray(),

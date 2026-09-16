@@ -807,7 +807,144 @@ final class WorkflowConfig {
         );
       }
     }
+    // And a gate's OPTIONS, in the loosening direction only. `phpstan: { level:
+    // 1 }` under `preset: max` is the same loosening as switching phpstan off,
+    // written one line lower down — and on a live site the notice named six
+    // levers and not that one (F-11). Tuning stays out, as before: a path
+    // set, a timeout, a TIGHTER level or standard are the ordinary reasons to
+    // write this file, and would drown the line that matters.
+    foreach ($base->gates as $name => $preset) {
+      $resolved = $gates[$name] ?? NULL;
+      if ($resolved === NULL || !$preset->on || !$resolved->on) {
+        continue;
+      }
+      foreach (self::loosenedOptions($name, $base->name, $preset, $resolved) as $line) {
+        $differences[] = $line;
+      }
+    }
     return $differences === [] ? NULL : $differences;
+  }
+
+  /**
+   * Which of a gate's options this file set LOOSER than the preset's base.
+   *
+   * Two shapes of option can loosen. A threshold — phpstan's level, the
+   * mutation and coverage floors — loosens when the file's number is lower
+   * than the base's (phpstan's `max` ranks above every number). A standard
+   * list — phpcs's — loosens when the file keeps some of the base's standards
+   * and drops the rest; adding one is tightening, and a wholesale swap is a
+   * different standard rather than less of the same one. Neither is named.
+   *
+   * @param string $gate
+   *   The gate.
+   * @param string $preset
+   *   The base preset's name, for the sentence.
+   * @param \Droost\Workflow\Config\GateSettings $base
+   *   The preset's settings for the gate.
+   * @param \Droost\Workflow\Config\GateSettings $resolved
+   *   The file's.
+   *
+   * @return list<string>
+   *   One line per loosened option.
+   */
+  private static function loosenedOptions(string $gate, string $preset, GateSettings $base, GateSettings $resolved): array {
+    $lines = [];
+    foreach (self::THRESHOLDS[$gate] ?? [] as $option) {
+      $was = self::rank($base->option($option));
+      $now = self::rank($resolved->option($option));
+      if ($was !== NULL && $now !== NULL && $now < $was) {
+        $lines[] = sprintf(
+          'gates.%s.%s (%s says %s, this file says %s)',
+          $gate,
+          $option,
+          $preset,
+          self::scalar($base->option($option)),
+          self::scalar($resolved->option($option)),
+        );
+      }
+    }
+    if ($gate === 'phpcs') {
+      $was = self::standards($base->option('standard'));
+      $now = self::standards($resolved->option('standard'));
+      // An option the file never wrote resolves to nothing here and to the
+      // preset's value at run time — there is no loosening to name. And a
+      // list swapped WHOLESALE (`PSR12` on a project the level thinks is
+      // Drupal) is a different choice, not a smaller one: only keeping some
+      // of the preset's own standards while dropping the rest is loosening.
+      $dropped = $was === NULL || $now === NULL || array_intersect($was, $now) === []
+        ? []
+        : array_values(array_diff($was, $now));
+      if ($dropped !== []) {
+        $lines[] = sprintf(
+          'gates.phpcs.standard (%s says %s, this file drops %s)',
+          $preset,
+          implode(',', $was),
+          implode(',', $dropped),
+        );
+      }
+    }
+
+    return $lines;
+  }
+
+  /**
+   * The options where a lower number is a looser gate.
+   */
+  private const THRESHOLDS = [
+    'phpstan' => ['level'],
+    'mutation' => ['msi_min'],
+    'coverage' => ['min'],
+  ];
+
+  /**
+   * A threshold option as a comparable number; phpstan's `max` outranks all.
+   *
+   * @param mixed $value
+   *   The option.
+   *
+   * @return int|null
+   *   The rank, or NULL when the option is not a threshold this can read.
+   */
+  private static function rank(mixed $value): ?int {
+    if (is_int($value)) {
+      return $value;
+    }
+    if (is_string($value)) {
+      if (strtolower(trim($value)) === 'max') {
+        return PHP_INT_MAX;
+      }
+      return is_numeric($value) ? (int) $value : NULL;
+    }
+    return NULL;
+  }
+
+  /**
+   * A comma-separated standards option as a trimmed list.
+   *
+   * @param mixed $value
+   *   The option.
+   *
+   * @return list<string>|null
+   *   The standards named, in order; NULL when the option is not set.
+   */
+  private static function standards(mixed $value): ?array {
+    if (!is_string($value) || trim($value) === '') {
+      return NULL;
+    }
+    return array_values(array_filter(array_map(trim(...), explode(',', $value)), static fn (string $s): bool => $s !== ''));
+  }
+
+  /**
+   * A scalar option for a sentence.
+   *
+   * @param mixed $value
+   *   The option.
+   *
+   * @return string
+   *   Its spelling.
+   */
+  private static function scalar(mixed $value): string {
+    return is_scalar($value) ? (string) $value : '?';
   }
 
   /**
