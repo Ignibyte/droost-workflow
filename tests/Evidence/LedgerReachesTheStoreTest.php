@@ -130,15 +130,16 @@ final class LedgerReachesTheStoreTest extends TestCase {
       ['tool' => 'droost_structure_create', 'outcome' => 'ok', 'at' => '2026-09-15T01:00:00+00:00', 'run' => 'r0', 'phase' => 'code'],
       ['tool' => 'droost_entity_create', 'outcome' => 'ok', 'at' => '2026-09-15T01:00:01+00:00', 'run' => 'r0', 'phase' => 'code'],
       ['tool' => 'droost_search', 'outcome' => 'ok', 'at' => '2026-09-15T02:00:00+00:00', 'run' => 'r1', 'phase' => 'plan'],
-      // A call made with no run open belongs to nobody.
+      // A call made with no run open is THIS run's: the plan phase grounds
+      // before it opens the run, and reset has already archived the last one.
       ['tool' => 'droost_doctor', 'outcome' => 'ok', 'at' => '2026-09-15T02:00:01+00:00', 'run' => NULL, 'phase' => NULL],
     ]);
 
     $this->record('code');
 
     $rows = $this->toolCalls();
-    $this->assertCount(1, $rows, 'only the row that names this run');
-    $this->assertSame('droost_search', $rows[0]['tool']);
+    $this->assertCount(2, $rows, 'this run\'s row and the pre-open one; never r0\'s');
+    $this->assertSame(['droost_doctor', 'droost_search'], array_column($rows, 'tool'));
   }
 
   /**

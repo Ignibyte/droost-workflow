@@ -141,10 +141,15 @@ final class EvidenceRecorder {
    * rows, so re-recording a phase does not double it, and `reset` archives
    * the file into history/ with the rest of the state.
    *
-   * A file written before 0.9 has no `run` on any row and cannot be
+   * A file written before 0.9 has no `run` key on any row and cannot be
    * attributed; it is taken whole, as before, so a site mid-upgrade keeps its
-   * ledger. A file where SOME rows carry `run` is the new format, and rows
-   * without it are calls made with no run open — nobody's, and skipped.
+   * ledger. In the new format a row's `run` is NULL when no run was open —
+   * and those rows are THIS run's too. The plan phase grounds, writes the
+   * spec and only then opens the run, so every knowledge call that grounding
+   * makes lands before run.json exists; skipping them would report the run as
+   * having asked the codebase nothing, at the phase where it asked most.
+   * `reset` archives the file, so a NULL row can only belong to the run that
+   * opens next. Rows naming ANOTHER run are the ones excluded.
    *
    * @param \Droost\Workflow\Evidence\EvidenceStore $store
    *   The store.
@@ -176,7 +181,7 @@ final class EvidenceRecorder {
         $rows[] = $row;
       }
       $mine = $attributed
-        ? array_values(array_filter($rows, static fn (array $row): bool => ($row['run'] ?? NULL) === $runId))
+        ? array_values(array_filter($rows, static fn (array $row): bool => in_array($row['run'] ?? NULL, [$runId, NULL], TRUE)))
         : $rows;
       foreach (array_slice($mine, $store->toolCallCount($runId)) as $row) {
         $store->recordToolCall(
