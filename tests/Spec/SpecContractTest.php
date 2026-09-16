@@ -9,6 +9,7 @@ use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\NullSiteDriver;
+use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Spec\SpecContract;
 use Droost\Workflow\Spec\SpecError;
@@ -106,6 +107,42 @@ final class SpecContractTest extends WorkflowTestCase {
 
     file_put_contents($root . '/droost/droost-workflow/spec-r.md', "# S\n\n## Tooling plan\n\n- x\n");
     $this->assertNull(SpecContract::routes($root, 'droost/droost-workflow/spec-r.md'), 'no section is NULL, distinct from empty');
+  }
+
+  /**
+   * A bare `run` with no spec yet OPENS the run and waits; it does not fail.
+   *
+   * F-25: the plan phase grounds before it writes the spec, and until the run
+   * existed nothing could attribute that work — the ledger wrote `run: null`
+   * and the evidence store never saw the plan phase. Now the run exists
+   * first. The plan phase is not gated (there is no document to gate it
+   * against), a second bare `run` does not open a second run, and declaring
+   * the spec afterwards gates plan and advances as before.
+   */
+  public function testBareRunWithNoSpecOpensTheRunAndWaits(): void {
+    $root = $this->makeRoot();
+    file_put_contents($root . '/droost.workflow.yml', "preset: custom\nseekers: { on: false }\n");
+    $facade = $this->facadeForCli();
+
+    $opened = $facade->run($root);
+
+    $this->assertSame(Outcome::Blocked, $opened->outcome, 'waiting, not failed');
+    $this->assertSame('plan', $opened->state->currentPhase?->value, 'the plan phase is active and ungated');
+    $this->assertNull($opened->state->specPath);
+    $this->assertFileExists($root . '/droost/droost-workflow/run.json', 'the run exists before the plan work it will govern');
+    $this->assertCount(1, $opened->blocked);
+    $this->assertSame('spec', $opened->blocked[0]['check']);
+    $this->assertStringContainsString('## Routes', $opened->blocked[0]['remedy']);
+
+    $again = $facade->run($root);
+    $this->assertSame(Outcome::Blocked, $again->outcome);
+    $this->assertSame($opened->state->runId, $again->state->runId, 'one run, however many times it is asked');
+
+    $this->writeSpec($root);
+    $advanced = $facade->run($root, 'droost/droost-workflow/spec-test-run.md');
+    $this->assertSame('code', $advanced->state->currentPhase?->value, 'declaring the spec gates plan and advances');
+    $this->assertSame('droost/droost-workflow/spec-test-run.md', $advanced->state->specPath);
+    $this->assertSame($opened->state->runId, $advanced->state->runId);
   }
 
   /**

@@ -609,6 +609,22 @@ final class WorkflowFacade {
       }
     }
 
+    // A run with no spec yet is a run that has just OPENED, not one that has
+    // failed. The plan phase grounds before it writes the spec — dozens of
+    // knowledge-tool calls — and until the run exists nothing can attribute
+    // them: the ledger wrote `run: null`, the evidence store's tool_call table
+    // never saw the plan phase at all, and the per-run grounding filter nearly
+    // read the plan's own lookups as nobody's (F-25). So the order is: open
+    // the run, THEN ground, THEN declare the spec. A bare `run` here has done
+    // the first step; it says so and waits, and the plan phase is never gated
+    // without a document to gate it against.
+    if ($state->currentPhase === Phase::Plan
+      && $state->specPath === NULL
+      && ($spec === NULL || $spec === '')
+      && SpecContract::candidates($projectRoot) === []) {
+      return new RunOutcome(Outcome::Blocked, $state, NULL, NULL, [self::awaitingSpecRow($store)]);
+    }
+
     // The governing spec, resolved once and recorded: declared via --spec,
     // carried from the record, or adopted when exactly one candidate exists.
     // Recorded on the state so every later phase checks THE SAME document —
@@ -1643,6 +1659,39 @@ final class WorkflowFacade {
       NULL,
       self::blockingRows($outcome->state, $phase, $projectRoot),
     );
+  }
+
+  /**
+   * The one row a freshly opened run shows while its spec is unwritten.
+   *
+   * Synthetic rather than read from the store: no check has run, nothing has
+   * failed, and there is nothing to record except that the run is open and
+   * waiting. The shape matches blockingRows() so every surface prints it the
+   * same way.
+   *
+   * @param \Droost\Workflow\State\RunStateStore $store
+   *   The run's store, for the directory the spec belongs in.
+   *
+   * @return array<string, string>
+   *   The row.
+   */
+  private static function awaitingSpecRow(RunStateStore $store): array {
+    $dir = $store->label();
+
+    return [
+      'check' => 'spec',
+      'fault' => Fault::None->value,
+      'why' => 'the run is open and its plan phase is waiting for a spec. Ground '
+      . 'now — every knowledge-tool call from here belongs to this run — then '
+      . 'write the document.',
+      'remedy' => sprintf(
+        'Write %s/spec-<slug>.md (tmp-spec-<slug>.md at medium/low) with its '
+        . '`## Tooling plan`, `## Grounding` and `## Routes` sections, then '
+        . '`run --spec=<that path>` to gate the plan phase against it.',
+        rtrim($dir, '/'),
+      ),
+      'guidance' => '',
+    ];
   }
 
   /**

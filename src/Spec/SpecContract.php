@@ -193,11 +193,7 @@ final class SpecContract {
     // just written. Two live medium runs only survived it because begin() had
     // already recorded the path — re-resolution would have refused.
     $stateDir = RunStateStore::resolveStateDir($root);
-    $dir = $root . '/' . $stateDir;
-    $candidates = array_merge(
-      glob($dir . '/spec-*.md') ?: [],
-      glob($dir . '/tmp-spec-*.md') ?: [],
-    );
+    $candidates = self::candidates($root);
     if (count($candidates) === 1) {
       $only = self::relative($root, $candidates[0]);
       // THE TIDY STATE IS THE DANGEROUS ONE. `reset` archives run.json and
@@ -220,6 +216,28 @@ final class SpecContract {
       return $only;
     }
     throw SpecError::unresolvable($stateDir, count($candidates));
+  }
+
+  /**
+   * The spec files the state directory holds, in both shapes the pack writes.
+   *
+   * Public so the facade can ask "is there anything to adopt yet?" before
+   * asking resolve() to adopt it — a bare `run` on a project whose plan phase
+   * has not written its spec is a run OPENING, not a run failing (F-25).
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return list<string>
+   *   Absolute paths to `spec-*.md` and `tmp-spec-*.md` under the state dir.
+   */
+  public static function candidates(string $projectRoot): array {
+    $dir = rtrim($projectRoot, '/') . '/' . RunStateStore::resolveStateDir(rtrim($projectRoot, '/'));
+
+    return array_merge(
+      glob($dir . '/spec-*.md') ?: [],
+      glob($dir . '/tmp-spec-*.md') ?: [],
+    );
   }
 
   /**

@@ -26,32 +26,24 @@ Only when there is no run.json does a start proceed.
 
 ## The order that actually works
 
-The run is created by the FIRST invocation of the run surface, and everything
-that records against a run — the browser tier, seeker reports — needs that
-file to exist. So the sequence is:
+**Open the run first. Then plan. Then declare the spec.** Everything that
+records against a run — every knowledge-tool call the plan phase makes, the
+browser tier, the task surface, seeker reports — needs `run.json` to exist,
+and the plan phase is where the codebase gets asked the most. A run opened
+after the plan had already grounded could not attribute any of that work
+(F-25). So the sequence is:
 
-1. **Load the `workflow-plan` skill** and do the plan work: the spec comes
-   before any code. `workflow-researcher` grounds it in the real site or
-   repo; `workflow-spec-writer` drafts it at the preset's weight (a full EARS
-   spec at `high`/`xhigh`/`max`, a shorter same-shape spec at `medium`/`low`).
-   The spec file exists BEFORE code does, at every level of the dial.
-2. **Invoke the run surface, declaring the spec.** On a project with a
-   working site use the SITE-BACKED surface —
-   `drush droost:workflow:run --spec=droost/droost-workflow/spec-<slug>.md`
-   (or the droost MCP run tool, which takes the same option). The standalone
-   `vendor/bin/droost-workflow run --spec=…` is for a checkout with no site:
-   through it every site-dependent gate (`config_clean`, `rendered_check`)
-   comes back skipped with its reason, and an agentic run does not circle
-   back to run them — a live run advanced its whole code phase through the
-   binary with the site up, and config_clean never ran. This BEGINS the run
-   (writes `droost/droost-workflow/run.json`), records WHICH document governs it,
-   and gates the plan phase — which requires the spec's `## Tooling plan`,
-   `## Grounding` and `## Routes` sections to be present before the run may
-   leave plan. On a project holding
-   several spec files the declaration is mandatory: the engine refuses to
-   guess which document a run answers to. This is the step that makes the
-   run real; only after it does anything below work.
-3. **Declare your browser tier** — now that run.json exists:
+1. **Open the run** — on a project with a working site use the SITE-BACKED
+   surface, `drush droost:workflow:run` (or the droost MCP run tool). With no
+   spec written yet this BEGINS the run (writes `droost/droost-workflow/run.json`
+   with the plan phase active) and answers `outcome: blocked` with one row,
+   `spec`, saying the run is open and waiting for its document. That is not
+   a failure; it is the run existing before the work it will govern. Nothing
+   is gated yet. The standalone `vendor/bin/droost-workflow run` is for a
+   checkout with no site: through it every site-dependent gate
+   (`config_clean`, `rendered_check`) comes back skipped with its reason, and
+   an agentic run does not circle back to run them.
+2. **Declare your browser tier** — `run.json` exists now:
    ```
    drush droost:workflow:declare-browser playwright-mcp        # site-backed; or: native | none
    vendor/bin/droost-workflow declare-browser playwright-mcp   # the same verb on a checkout with no site
@@ -63,10 +55,8 @@ file to exist. So the sequence is:
      always runs. `none` is not a failure.
 
    The test phase branches on this, and the final report says which tier
-   actually ran. (This used to be documented as a step to run BEFORE the
-   first `run` — it cannot be: declare-browser records against a run that the
-   first `run` is what creates.)
-4. **Declare your task surface** — whether this session can show a human
+   actually ran.
+3. **Declare your task surface** — whether this session can show a human
    where the run is:
    ```
    drush droost:workflow:declare-tasks claude-code        # site-backed; or: codex | other | none
@@ -86,6 +76,23 @@ file to exist. So the sequence is:
    run is without reading a transcript or asking you. Do not create tasks for
    your own sub-steps at the same level as the phases; the phases are the
    spine, and anything finer belongs underneath them or nowhere.
+4. **Load the `workflow-plan` skill** and do the plan work: the spec comes
+   before any code. `workflow-researcher` grounds it in the real site or
+   repo — and every one of those calls is now this run's, in the ledger and
+   in the evidence store, under the plan phase; `workflow-spec-writer` drafts
+   the spec at the preset's weight (a full EARS spec at `high`/`xhigh`/`max`,
+   a shorter same-shape spec at `medium`/`low`), reading the frozen preset
+   from the `run.json` that now exists. The spec file exists BEFORE code
+   does, at every level of the dial. While the run is in plan the guard
+   permits writes only under `droost/droost-workflow/` — the spec is plan's
+   artefact; project files wait for code.
+5. **Declare the spec and gate the plan phase** —
+   `drush droost:workflow:run --spec=droost/droost-workflow/spec-<slug>.md`
+   (or the MCP run tool with the same option). This records WHICH document
+   governs the run and gates plan against it — the spec's `## Tooling plan`,
+   `## Grounding` and `## Routes` sections must be present before the run may
+   leave plan. On a project holding several spec files the declaration is
+   mandatory: the engine refuses to guess which document a run answers to.
 
 Then switch to **`/droost:workflow:continue`** to work code → test →
 complete. Everything about the phases, the mandatory trio, the seeker
