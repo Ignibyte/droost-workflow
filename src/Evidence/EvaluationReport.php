@@ -1597,9 +1597,13 @@ final class EvaluationReport {
       . "- **Half two is §4a, not this table.** A citation proves the symbol\n"
       . "  exists and can be copied out of a file. The ledger is what makes the\n"
       . "  lookup a fact.\n"
-      . "- **Core resolves against the brain, and only the brain.** Core is a\n"
-      . "  scope nothing indexes by default. A round reporting core citations\n"
-      . "  resolving against the symbol graph has a wrong probe, not a finding.\n"
+      . "- **Core is not indexed, and resolves anyway.** Core is a scope nothing\n"
+      . "  indexes by default, so a core citation is answered by the brain, by\n"
+      . "  the autoloader, or off the filesystem — the `Store that answered`\n"
+      . "  column above says which. This paragraph used to read \"the brain, and\n"
+      . "  only the brain\", which the table four lines above it has contradicted\n"
+      . "  since the autoloader fallback landed: it told a reader that a correct\n"
+      . "  observation was a broken probe (F-28).\n"
       . "\n### Every row\n\n"
       . self::table(
         ['Tier', 'Phase', 'Asked', 'Found', 'Citation', 'Resolved'],

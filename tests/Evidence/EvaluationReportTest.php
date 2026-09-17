@@ -1182,4 +1182,40 @@ final class EvaluationReportTest extends TestCase {
     );
   }
 
+  /**
+   * Section 4b does not contradict its own table about core (F-28).
+   *
+   * The prose asserted "core resolves against the brain, and only the brain,"
+   * and that "a round reporting core citations resolving against the symbol
+   * graph has a wrong probe, not a finding." The autoloader fallback landed in
+   * the grounding redesign and was verified live in KCH-3, after which the
+   * table four lines above printed `brain, autoloader` while the paragraph
+   * below denied it. Harmless where the table is read; dangerous where the
+   * prose is, because it tells a reader that a correct observation is a broken
+   * instrument.
+   */
+  public function testSection4bDoesNotDenyTheStoresItReports(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'medium', 'seekers' => 'on']);
+    $store->recordGroundingRow(
+      'r1',
+      'code',
+      'core',
+      'the node entity class',
+      'Drupal\\node\\Entity\\Node',
+      'Drupal\\node\\Entity\\Node',
+      TRUE,
+      'autoloader',
+    );
+
+    $report = (new EvaluationReport($store))->render('r1');
+
+    $this->assertStringNotContainsString(
+      'and only the brain',
+      $report,
+      'the prose may not deny a store the table can print',
+    );
+    $this->assertStringContainsString('autoloader', $report);
+  }
+
 }
