@@ -558,4 +558,34 @@ class PackContentLintTest extends TestCase {
     }
   }
 
+  /**
+   * The shipped template carries every section the generator emits (F-9).
+   *
+   * The template had `1 2 3 4 4a 4b 5 6 7 8` while the generator emitted `4c`,
+   * `4d` and `7a` as well — so an operator filling the form by hand produced a
+   * document missing the transcripts, the adversarial read and the enforcement
+   * evidence, and had no way to know. Three descriptions of this document
+   * disagreed at once; this is the one that fails when they drift.
+   *
+   * Read out of both files rather than listed here, so a new section is caught
+   * by adding it to the generator alone.
+   */
+  public function testTheTemplateCarriesEverySectionTheGeneratorEmits(): void {
+    $generator = (string) file_get_contents(dirname(__DIR__, 2) . '/src/Evidence/EvaluationReport.php');
+    preg_match_all('/"## ([0-9]+[a-z]?)\. /', $generator, $m);
+    $emitted = array_values(array_unique($m[1]));
+    $this->assertNotSame([], $emitted, 'no sections found; the generator changed shape');
+
+    $template = (string) file_get_contents($this->packDir() . '/templates/evaluation.md');
+    preg_match_all('/^## ([0-9]+[a-z]?)\. /m', $template, $tm);
+    $carried = array_values(array_unique($tm[1]));
+
+    $missing = array_values(array_diff($emitted, $carried));
+    $this->assertSame(
+      [],
+      $missing,
+      'the template is behind its generator; missing: ' . implode(', ', $missing),
+    );
+  }
+
 }

@@ -135,7 +135,7 @@ A green is not a measurement. Classify every one.
 
 ---
 
-## 4-evidence. Read the store, not this form, where the store knows
+## 4e. Read the store, not this form, where the store knows
 
 Since the evidence store landed, most of what follows is recorded rather than
 reconstructed, and `drush droost:workflow:evidence --write` renders it — or
@@ -244,6 +244,29 @@ drush droost:workflow:report | grep -A3 grounding_check
   `unresolved`; a `none-superseded` rule marks a plan-phase negative claim
   that the code phase itself made true, which is the build doing its job.
 
+## 4c. Transcripts — what the tool actually said
+
+**Generated.** `check_result` holds each gate's own output, so a reader never
+has to take a summary's word for what a tool printed. Nothing to fill in here:
+if you are reading this heading in a hand-written evaluation, the generator did
+not run and you should say so rather than paraphrase a transcript from memory.
+
+## 4d. The seeker's findings — what an adversarial read caught
+
+**Generated**, from the ledger droost parsed rather than the agent's summary of
+it, so the counts and the rows come from one place and cannot disagree.
+
+Two facts a reader must not confuse, and the generated section distinguishes
+them explicitly:
+
+- **`seekers: off`** — nothing read this diff with intent. A statement about
+  COVERAGE, not quality.
+- **`seekers: on`, no findings** — something read it and found nothing.
+
+`low` turns seekers off by preset. A round at `low` closes with no adversarial
+read at all, and the record must say so rather than let a green be mistaken for
+a reviewed green.
+
 ## 5. Build verdict
 
 Against the spec's own acceptance criteria, **verified live** — not from the
@@ -266,6 +289,14 @@ once.
 Comparable only to a round at the same preset, install shape and §2.
 
 ---
+
+## 7a. Enforcement — was the hook there, and did it fire
+
+**Generated**, from rows the guard wrote about itself and the engine ingested at
+phase close. This is the only place that answers "was the discipline real on
+this host", as opposed to "was it configured" — a host without pre-tool hooks
+holds `hard` with nothing, and §3's lever table says what was asked for, not
+what the host could deliver.
 
 ## 7. Observability — the entire chain
 
