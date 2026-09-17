@@ -68,34 +68,6 @@ final class RunOutcome {
   }
 
   /**
-   * Attempts still available per gate that has used any.
-   *
-   * INVOCATIONS still available, not `max - spent`. `mayRetry()` is `spent <
-   * max`, so a gate at `spent == max` is NOT re-tried — but the phase is
-   * still active and the gate RUNS once more, the terminal invocation, which
-   * can pass and advance the run. `max - spent` reported 0 there while the
-   * gate ran again and passed: an agent reading `remaining: 0` with
-   * `exhausted: false` asks for a reset a run too early. So it is the number
-   * of times the gate will still execute before the phase can go terminal —
-   * the retries plus that final run — and 0 once the phase IS exhausted.
-   * Only gates with a recorded attempt appear: a gate that has never failed
-   * has its whole budget, and saying so for thirteen gates would bury the two
-   * that matter.
-   *
-   * @return array<string, int>
-   *   Gate name to invocations remaining, never below zero.
-   */
-  private function remaining(): array {
-    $exhausted = $this->exhausted();
-    $left = [];
-    foreach ($this->state->feedbackAttempts as $gate => $spent) {
-      $left[$gate] = $exhausted ? 0 : max(0, $this->state->maxGateRetries - $spent + 1);
-    }
-
-    return $left;
-  }
-
-  /**
    * The one run envelope every surface renders.
    *
    * Until this existed the same five fields were assembled three times — in
@@ -135,12 +107,7 @@ final class RunOutcome {
       // mid-loop it is FALSE while one particular gate already has nothing
       // left. Stating the remainder per gate costs a few bytes and removes
       // the inference.
-      'retries' => [
-        'attempts' => $this->state->feedbackAttempts,
-        'remaining' => $this->remaining(),
-        'max_gate_retries' => $this->state->maxGateRetries,
-        'exhausted' => $this->exhausted(),
-      ],
+      'retries' => $this->state->retries(),
     ];
   }
 

@@ -1813,4 +1813,42 @@ final class RunState {
     );
   }
 
+  /**
+   * The retry budget, as every surface must report it (F-21).
+   *
+   * ONE SOURCE OF TRUTH. `RunOutcome::toArray()` computed this for the run
+   * envelope and `status()` did not carry it, so `droost:workflow:report`
+   * — the surface an operator actually reads after a run ends — could not tell
+   * "this gate failed" from "this gate failed, spent its budget, and has not
+   * been asked since". Only the second sentence explains a verdict naming spec
+   * rows the agent has already corrected, which is how a live round read as
+   * "your corrections were rejected".
+   *
+   * Re-deriving it in a second place would be the same defect this repo keeps
+   * finding: two paths to one answer, and they disagree in the case nobody
+   * tested.
+   *
+   * @return array{attempts: array<string, int>, remaining: array<string,
+   *   int>, max_gate_retries: int, exhausted: bool}
+   *   `remaining` is stated rather than left to inference: `mayRetry()` is
+   *   `attempts < max`, and `{"attempts":{"phpcs":2},"max_gate_retries":2}`
+   *   reads just as naturally as "one more coming" to an agent that does not
+   *   know the comparison is `<` and not `<=`.
+   */
+  public function retries(): array {
+    $exhausted = $this->currentPhase !== NULL
+      && $this->statusOf($this->currentPhase) === PhaseStatus::Failed;
+    $left = [];
+    foreach ($this->feedbackAttempts as $gate => $spent) {
+      $left[$gate] = $exhausted ? 0 : max(0, $this->maxGateRetries - $spent + 1);
+    }
+
+    return [
+      'attempts' => $this->feedbackAttempts,
+      'remaining' => $left,
+      'max_gate_retries' => $this->maxGateRetries,
+      'exhausted' => $exhausted,
+    ];
+  }
+
 }

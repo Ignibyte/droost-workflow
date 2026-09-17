@@ -318,4 +318,52 @@ class WorkflowFacadeRetryTest extends WorkflowTestCase {
     );
   }
 
+  /**
+   * Status reports the retry budget, so a stale verdict can be seen as stale.
+   *
+   * F-21. The run envelope has carried `retries` since the budget existed;
+   * `status` did not — and `status` is what `droost:workflow:report` reads,
+   * which is the surface an operator looks at after a run has ended. A gate
+   * whose budget is spent has not been asked since it last spoke, so its
+   * verdict may name work the agent has already corrected. Measured live
+   * twice: in KCH-1 the report named two citations that no longer existed in
+   * the spec, and in P2-KCH-2 phpcs read BLOCKED with attempt 1's output after
+   * the agent had taken it from three errors to one.
+   */
+  public function testStatusReportsTheRetryBudget(): void {
+    // A budget of ONE, spent. With `max_gate_retries: 0` the phase is marked
+    // Failed on the first block WITHOUT recording an attempt — `mayRetry()`
+    // refuses before `recordAttempt()` runs — so `attempts` stays empty while
+    // `exhausted` is already true. That is correct and worth knowing, but it
+    // is not the shape an operator meets after a gate has actually been
+    // retried, which is what this test is about.
+    $root = $this->makeRootWithConfig("preset: custom\nmax_gate_retries: 1\n");
+    $executor = $this->phpcsAlwaysFails();
+    // Plan is gateless, so the budget is not reached until the code phase.
+    $this->facade($executor)->run($root);
+    $this->facade($executor)->run($root);
+    $this->facade($executor)->run($root);
+
+    $status = $this->facade($executor)->status($root);
+    $run = $status['run'];
+    $this->assertIsArray($run);
+    $this->assertArrayHasKey('retries', $run, 'status must carry the budget the report needs');
+
+    $retries = $run['retries'];
+    $this->assertIsArray($retries);
+    $this->assertSame(
+      ['attempts', 'remaining', 'max_gate_retries', 'exhausted'],
+      array_keys($retries),
+      'the same shape as the run envelope, from the same method',
+    );
+    $this->assertTrue($retries['exhausted'], 'the budget is spent and the phase is terminal');
+    $this->assertSame(1, $retries['max_gate_retries']);
+    $remaining = $retries['remaining'];
+    $this->assertIsArray($remaining);
+    $this->assertNotSame([], $remaining, 'a gate that was actually retried is counted');
+    foreach ($remaining as $gate => $left) {
+      $this->assertSame(0, $left, (string) $gate . ' has nothing left, stated rather than inferred');
+    }
+  }
+
 }

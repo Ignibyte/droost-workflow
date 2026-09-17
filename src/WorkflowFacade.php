@@ -297,6 +297,16 @@ final class WorkflowFacade {
       // levers' current one above.
       'phase_gates' => $state->phaseGates,
       'gate_reports' => $state->gateResults,
+      // HOW MANY TIMES EACH GATE WAS ASKED, and how many asks are left (F-21).
+      // The run envelope has carried this since the budget existed; `status`
+      // did not, and `status` is what `droost:workflow:report` reads — the
+      // surface an operator looks at AFTER a run ends. So no reader could tell
+      // "this gate failed" from "this gate failed, spent its budget, and has
+      // not been asked since", and only the second sentence explains a verdict
+      // that names spec rows the agent has already corrected.
+      //
+      // Same method as the envelope, not a second copy of the arithmetic.
+      'retries' => $state->retries(),
       'awaiting' => $question?->toArray(),
       'answered' => count($state->qaHistory),
     ];
