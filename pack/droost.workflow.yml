@@ -19,6 +19,14 @@
 #                 actually need an answer.
 # The earlier spellings `automated` and `pair` still load, and mean agentic
 # and interactive respectively.
+#
+# `agentic` HOLDS THE PHASE BOUNDARY even when `enforcement` below is `soft`,
+# because "without stopping" is a promise and the stop hook is the only thing
+# that can keep it. Until this was fixed, only `enforcement: hard` held a stop,
+# so an agentic run announced it was continuing and the turn ended anyway —
+# three times across two measured rounds, once for thirty minutes with nothing
+# built. It is still one enforced continuation per stop attempt, never a
+# deadlock, and `enforcement: off` still silences the hooks entirely.
 mode: agentic
 
 # custom | low | medium | high | xhigh | max — one dial for how hard the
@@ -65,6 +73,11 @@ preset: custom
 #   is a reviewable diff, and a visible loosening is the honest way to allow
 #   it. (Preset defaults: hard from `high` up; soft at `low`, `medium` and
 #   `custom`.)
+#
+#   NOT orthogonal to `mode`, for stops only: `mode: agentic` raises this to
+#   `hard` at a phase boundary, so a run that promised not to stop does not.
+#   `off` still wins — it is an explicit "stay out of the way" — and tool-use
+#   enforcement is exactly what this lever says, agentic or not.
 enforcement: soft
 
 # require_run: hard | soft | off

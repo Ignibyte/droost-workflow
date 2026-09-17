@@ -466,6 +466,28 @@ if ($enforcement !== 'hard' && $enforcement !== 'soft') {
   exit(0);
 }
 
+// THE RUN'S OWN MODE, which is a different promise from the enforcement level
+// and until F-29 was quietly outranked by it.
+//
+// `mode: agentic` is documented in the lever file as "run plan through complete
+// without stopping". `enforcement` is documented as "how hard the harness hooks
+// hold the phase discipline". Read separately those are compatible; read
+// together, `agentic` + `soft` meant the agent announced it was continuing and
+// the turn ended anyway, because only `hard` held the stop.
+//
+// Measured over rounds P2-KCH-2 and P2-KCH-3: three stalls at phase boundaries,
+// every one needing an operator to type the command the agent had just said it
+// was running. One of them sat idle for thirty minutes having built nothing.
+// An unattended agentic run that halts at every boundary is not being forced,
+// it is being asked.
+//
+// So agentic raises the floor for the STOP hook alone. `enforcement: off` still
+// silences everything — that lever is an explicit "stay out of the way", and it
+// has already returned above. Tool-use enforcement is untouched: this is about
+// ending a turn mid-phase, not about what may be written during one.
+$runMode = $document['mode'] ?? '';
+$runMode = is_string($runMode) ? $runMode : '';
+
 /**
  * Emits a soft nudge, at most once per phase per mode.
  */
@@ -570,11 +592,21 @@ if ($mode === 'stop') {
       }, $blocking)),
     );
   }
+  // Either lever can hold the boundary, and the message names the one that
+  // did — an operator reading "enforcement is soft" while the stop is blocked
+  // would reasonably think the guard was broken.
   if ($enforcement === 'hard') {
     fwrite(STDERR, $message);
     exit(2);
   }
-  $warnOnce($message . ' (enforcement is soft: allowing the stop.)');
+  if ($runMode === 'agentic') {
+    fwrite(STDERR, $message . ' (enforcement is soft, but mode is agentic,'
+      . ' which is a promise to run plan through complete without stopping:'
+      . ' holding the boundary. Set mode: interactive to converse between'
+      . ' phases, or enforcement: off to silence the harness entirely.)');
+    exit(2);
+  }
+  $warnOnce($message . ' (enforcement is soft and mode is ' . ($runMode !== '' ? $runMode : 'unset') . ': allowing the stop.)');
   exit(0);
 }
 

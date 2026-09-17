@@ -399,6 +399,65 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * Agentic mode holds a mid-phase stop even when enforcement is soft.
+   *
+   * F-29. `mode: agentic` is documented as "run plan through complete without
+   * stopping"; `enforcement: soft` was the only thing the stop hook read, so
+   * the promise was silently worthless. Three live stalls across two rounds,
+   * one of them thirty minutes with nothing built, and in the sharpest case the
+   * agent's own last line was "Continuing into code with
+   * /droost:workflow:continue now" — it was not handing back, the turn ended
+   * under it.
+   */
+  public function testAgenticHoldsTheBoundaryUnderSoftEnforcement(): void {
+    $root = $this->rootWithRun('code', 'active', 'soft', 'agentic');
+
+    [$exit, , $stderr] = $this->guard($root, 'stop', []);
+    $this->assertSame(2, $exit, 'agentic does not end a turn mid-phase');
+    $this->assertStringContainsString('advance it or abandon it', $stderr);
+    $this->assertStringContainsString('mode is agentic', $stderr);
+    $this->assertStringContainsString('interactive', $stderr, 'the way out is named');
+
+    // Still exactly one enforced continuation: agentic must not deadlock a run
+    // the agent cannot advance any more than hard enforcement may.
+    [$exit, $stdout, $stderr] = $this->guard($root, 'stop', [
+      'stop_hook_active' => TRUE,
+    ]);
+    $this->assertSame(0, $exit);
+    $this->assertSame('', $stdout . $stderr);
+  }
+
+  /**
+   * Interactive mode under soft enforcement still nudges and allows.
+   *
+   * The half of F-29 that must NOT change: conversing between phases is what
+   * `interactive` is for, and the nudge names both levers so a reader can see
+   * why it was let through.
+   */
+  public function testInteractiveUnderSoftStillAllowsTheStop(): void {
+    $root = $this->rootWithRun('code', 'active', 'soft', 'interactive');
+
+    [$exit, $stdout] = $this->guard($root, 'stop', []);
+    $this->assertSame(0, $exit, 'interactive may end a turn between phases');
+    $this->assertStringContainsString('allowing the stop', $stdout);
+    $this->assertStringContainsString('mode is interactive', $stdout);
+  }
+
+  /**
+   * Off enforcement silences the harness whatever the mode says.
+   *
+   * Agentic raises the floor from soft to hard; it does not overrule an
+   * operator who turned the hooks off on purpose.
+   */
+  public function testEnforcementOffSilencesAgenticToo(): void {
+    $root = $this->rootWithRun('code', 'active', 'off', 'agentic');
+
+    [$exit, $stdout, $stderr] = $this->guard($root, 'stop', []);
+    $this->assertSame(0, $exit);
+    $this->assertSame('', $stdout . $stderr, 'off means off');
+  }
+
+  /**
    * Ended, failed and unenforced runs are all left alone.
    */
   public function testEndedFailedAndOffRunsAreNotPoliced(): void {
@@ -1109,6 +1168,9 @@ final class GuardTest extends WorkflowTestCase {
    *   The current phase's status.
    * @param string $enforcement
    *   The frozen enforcement level.
+   * @param string $mode
+   *   The run's mode. Defaults to `interactive` so the existing cases keep
+   *   asking only what they were written to ask.
    *
    * @return string
    *   The root path.
@@ -1117,6 +1179,7 @@ final class GuardTest extends WorkflowTestCase {
     string $phase,
     string $status,
     string $enforcement,
+    string $mode = 'interactive',
   ): string {
     $root = $this->makeRoot();
     mkdir($root . '/droost/droost-workflow', 0755, TRUE);
@@ -1124,6 +1187,7 @@ final class GuardTest extends WorkflowTestCase {
       'current_phase' => $phase,
       'phases' => [$phase => $status],
       'enforcement' => $enforcement,
+      'mode' => $mode,
     ]));
     return $root;
   }
