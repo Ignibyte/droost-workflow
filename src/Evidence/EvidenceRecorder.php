@@ -53,6 +53,9 @@ final class EvidenceRecorder {
         'preset' => $state->preset,
         'mode' => $state->mode->value,
         'enforcement' => $state->enforcement->value,
+        // Whether anything read this diff with intent. Recorded as a word, not
+        // a bool, because '' (a run older than schema v7) is not 'off'.
+        'seekers' => $state->seekers ? 'on' : 'off',
         'base_commit' => $state->baseCommit,
         'spec_path' => $state->specPath,
       ]);

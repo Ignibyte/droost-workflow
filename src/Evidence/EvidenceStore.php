@@ -60,7 +60,7 @@ final class EvidenceStore {
    * build does not know about costs it nothing. A store written by an older one
    * is migrated up in place.
    */
-  public const int SCHEMA_VERSION = 6;
+  public const int SCHEMA_VERSION = 7;
 
   /**
    * Stamped into the file when, and only when, it has rows that predate v4.
@@ -215,6 +215,7 @@ final class EvidenceStore {
         4 => $this->migrateToV4($pdo),
         5 => $this->migrateToV5($pdo),
         6 => $this->migrateToV6($pdo),
+        7 => $this->migrateToV7($pdo),
         default => NULL,
       };
       // Stamped per rung, so an interrupted upgrade resumes where it stopped
@@ -426,12 +427,12 @@ final class EvidenceStore {
    * @param string $runId
    *   The run.
    * @param array<string, string|null> $facts
-   *   Any of started_at, preset, mode, enforcement, base_commit, spec_path,
-   *   spec_hash, spec_frozen_at, spec_text.
+   *   Any of started_at, preset, mode, enforcement, seekers, base_commit,
+   *   spec_path, spec_hash, spec_frozen_at, spec_text.
    */
   public function upsertRun(string $runId, array $facts): void {
     $allowed = [
-      'started_at', 'preset', 'mode', 'enforcement', 'base_commit',
+      'started_at', 'preset', 'mode', 'enforcement', 'seekers', 'base_commit',
       'spec_path', 'spec_hash', 'spec_frozen_at', 'spec_text',
       'work_type', 'work_type_declared_at',
     ];
@@ -2056,6 +2057,38 @@ final class EvidenceStore {
       );
       CREATE INDEX IF NOT EXISTS guard_call_by_run ON guard_call (run_id, phase, mode);
     SQL);
+  }
+
+  /**
+   * V7 — the run records whether it was adversarially reviewed.
+   *
+   * `mode` and `enforcement` were recorded from v1; `seekers` was not, and it
+   * is the lever that decides whether anything read the diff with intent.
+   * Without it §4d could only say the run had no seeker findings and list
+   * three reasons that are "not equivalent" — no inspection was due, one ran
+   * and found nothing, or one ran and was never recorded — and leave the
+   * reader to guess.
+   *
+   * The cost is on the record. `P2-KCH-1` closed green at `low`, where seekers
+   * are off by preset, and nothing in its evaluation says it was never
+   * adversarially read. `P2-KCH-3`, at `medium`, ran four inspections and the
+   * seeker caught a CRITICAL that five green gates had passed over: both coach
+   * displays hung on an OPTIONAL field, so a published coach with that field
+   * blank rendered nothing at all. The same build at `low` ships that.
+   *
+   * Empty string means "a run recorded before v7", which is not the same as
+   * `off` and must not be rendered as it.
+   */
+  private function migrateToV7(\PDO $pdo): void {
+    try {
+      $pdo->exec("ALTER TABLE run ADD COLUMN seekers TEXT NOT NULL DEFAULT ''");
+    }
+    catch (\PDOException) {
+      // Already there: a store another build migrated, or a rung replayed
+      // after a version stamp was wound back. Additive migrations are
+      // idempotent by intent and SQLite has no ADD COLUMN IF NOT EXISTS —
+      // same reason, same shape, as V2's three columns above.
+    }
   }
 
   /**

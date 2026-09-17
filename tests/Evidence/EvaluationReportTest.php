@@ -1133,14 +1133,53 @@ final class EvaluationReportTest extends TestCase {
    * ran and found nothing, or one ran and its ledger was never recorded. A
    * blank section reads as the second, which is the flattering one.
    */
-  public function testNoSeekerFindingsSaysWhatThatCouldMean(): void {
+  public function testNoSeekerFindingsSaysWhichOfTheThreeItWas(): void {
+    // SEEKERS OFF — the round was never adversarially read, and §4d must say
+    // so rather than list three possibilities and defer to a §4 row that said
+    // `— not recorded —`. A round that nothing reviewed and a round reviewed
+    // and found clean are opposite facts; they used to render identically.
+    $off = new EvidenceStore($this->root);
+    $off->upsertRun('r1', ['preset' => 'low', 'seekers' => 'off']);
+    $report = (new EvaluationReport($off))->render('r1');
+    $this->assertStringContainsString('NOT adversarially reviewed', $report);
+    $this->assertStringContainsString('`seekers` was `off`', $report);
+    $this->assertStringContainsString('COVERAGE, not about quality', $report);
+    $this->assertStringContainsString('seekers: { on: true }', $report);
+    $this->assertStringNotContainsString('cannot be read back', $report);
+
+    // SEEKERS ON, no rows — reviewed and clean, or a ledger that never landed.
+    mkdir($this->root . '/on', 0775, TRUE);
+    $on = new EvidenceStore($this->root . '/on');
+    $on->upsertRun('r2', ['preset' => 'medium', 'seekers' => 'on']);
+    $report = (new EvaluationReport($on))->render('r2');
+    $this->assertStringContainsString('`seekers` was **on**', $report);
+    $this->assertStringNotContainsString('NOT adversarially reviewed', $report);
+
+    // PRE-v7 — the lever was not recorded, so the honest answer is that it
+    // cannot be read back. The old three-way sentence survives exactly here.
+    mkdir($this->root . '/prev7', 0775, TRUE);
+    $old = new EvidenceStore($this->root . '/prev7');
+    $old->upsertRun('r3', ['preset' => 'low']);
+    $report = (new EvaluationReport($old))->render('r3');
+    $this->assertStringContainsString('cannot be read back', $report);
+    $this->assertStringContainsString('They are not equivalent', $report);
+    $this->assertStringNotContainsString('NOT adversarially reviewed', $report);
+  }
+
+  /**
+   * The lever renders in the lever table now that the run records it.
+   */
+  public function testTheSeekerLeverIsReportedNotJustItsRows(): void {
     $store = new EvidenceStore($this->root);
-    $store->upsertRun('r1', ['preset' => 'low']);
+    $store->upsertRun('r1', ['preset' => 'low', 'seekers' => 'off']);
 
     $report = (new EvaluationReport($store))->render('r1');
 
-    $this->assertStringContainsString('No seeker findings are recorded', $report);
-    $this->assertStringContainsString('they are not equivalent', $report);
+    $this->assertMatchesRegularExpression(
+      '/`seekers`[^\n]*\*\*off\*\*/',
+      $report,
+      'the lever table says off, not "not recorded"',
+    );
   }
 
 }

@@ -238,7 +238,7 @@ final class EvaluationReport {
       // evaluation whose own sections are out of order is a small thing that
       // costs a reader trust in a large one.
       $this->transcripts($runId, $checks),
-      $this->seekerFindings($runId),
+      $this->seekerFindings($runId, $run),
       $this->buildVerdictStub(),
       $this->scoreStub(),
       "---\n",
@@ -554,8 +554,13 @@ final class EvaluationReport {
       ],
       [
         self::code('seekers'),
-        self::NOT_RECORDED,
-        'seeker rows land in `seeker_finding` and render in §4d; the lever does not',
+        match (self::text($run, 'seekers') ?? '') {
+          'on' => '**on**',
+          'off' => '**off**',
+          default => self::NOT_RECORDED,
+        },
+        'whether anything read the diff with intent. `off` and `on` are different '
+        . 'facts from a clean verdict and must not be read as one — §4d says which',
       ],
       [
         self::code('baseline'),
@@ -1133,20 +1138,45 @@ final class EvaluationReport {
    *
    * @param string $runId
    *   The run.
+   * @param array<array-key, mixed> $run
+   *   The run row, for the `seekers` lever. Empty for a caller that has none,
+   *   which renders the same as a pre-v7 run: unknown, and said so.
    *
    * @return string
    *   The section.
    */
-  private function seekerFindings(string $runId): string {
+  private function seekerFindings(string $runId, array $run = []): string {
     $rows = $this->store->seekerFindings($runId);
     $heading = "## 4d. The seeker's findings — what an adversarial read caught\n\n";
 
     if ($rows === []) {
-      return $heading
-        . "No seeker findings are recorded for this run. That means one of three\n"
-        . "things, and they are not equivalent: no inspection was due at this\n"
-        . "level, an inspection ran and found nothing, or an inspection ran and\n"
-        . "its ledger was never recorded. The seeker rows in §4 say which.\n";
+      // WHICH OF THE THREE, now that the lever is recorded (schema v7). This
+      // listed all three and told the reader to work it out from §4 — where
+      // the seeker row said `— not recorded —`. A round that was never
+      // adversarially read and a round that was read and found clean are
+      // opposite facts, and they rendered identically.
+      return $heading . match (self::text($run, 'seekers') ?? '') {
+        'off' => "**This round was NOT adversarially reviewed.** `seekers` was `off`,\n"
+          . "so no inspection was due and none ran. Nothing here read the diff with\n"
+          . "intent, asked whether a passing test asserts anything, or checked a\n"
+          . "display against the data it will actually meet.\n\n"
+          . "That is a statement about COVERAGE, not about quality. The gates that\n"
+          . "ran are in §4 and they measured what they measure. What is missing is\n"
+          . "the only reader in the system that judges rather than measures — and\n"
+          . "a round has already been observed where five green gates passed over a\n"
+          . "display that rendered nothing on an empty optional field, and the\n"
+          . "seeker was what caught it.\n\n"
+          . "`seekers: { on: true }` in `droost.workflow.yml` is one line, and\n"
+          . "`medium` and above turn it on by preset.\n",
+        'on' => "`seekers` was **on** and no findings are recorded. That means either\n"
+          . "every inspection came back clean, or an inspection ran and its ledger\n"
+          . "was never recorded. The seeker rows in §4 say which — a clean round\n"
+          . "leaves a row.\n",
+        default => "No seeker findings are recorded, and this run predates the schema\n"
+          . "that records the `seekers` lever (v7), so which of three things happened\n"
+          . "cannot be read back: no inspection was due, one ran and found nothing, or\n"
+          . "one ran and was never recorded. They are not equivalent.\n",
+      };
     }
 
     // ROUNDS ARE ROUNDS AND FINDINGS ARE FINDINGS. Every ledger restates the
