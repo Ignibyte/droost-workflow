@@ -523,4 +523,39 @@ class PackContentLintTest extends TestCase {
     }
   }
 
+  /**
+   * The lever file names every tree the wall actually walls (F-8).
+   *
+   * The guard matches `(modules|themes|profiles)/custom/` and the lever file
+   * documented two of the three, so an operator reading it would have believed
+   * an install profile — PHP that builds the entire site — could be written
+   * with no run, while the module beside it could not. The code was right and
+   * the text was wrong, which is the harder kind to notice: nothing fails.
+   *
+   * Pinned against the guard's own pattern rather than a hardcoded list, so a
+   * fourth tree cannot be added to one and forgotten in the other.
+   */
+  public function testTheLeverFileNamesEveryTreeRequireRunWalls(): void {
+    $guard = (string) file_get_contents($this->packDir() . '/hooks/droost-workflow-guard.php');
+    $this->assertSame(
+      1,
+      preg_match('#\(\^\|/\)\(([a-z|]+)\)/custom/#', $guard, $m),
+      'the wall pattern moved; this test needs to follow it',
+    );
+    $trees = explode('|', $m[1]);
+    $this->assertContains('profiles', $trees, 'profiles/custom is the one that was missing');
+
+    $levers = (string) file_get_contents($this->packDir() . '/' . PackManifest::CONFIG_FILE);
+    $section = strstr($levers, '# require_run:');
+    $this->assertIsString($section, 'the lever file must document require_run');
+    $section = substr($section, 0, (int) strpos($section, "\nrequire_run:"));
+    foreach ($trees as $tree) {
+      $this->assertStringContainsString(
+        $tree . '/custom',
+        $section,
+        $tree . '/custom is walled but the lever file does not say so',
+      );
+    }
+  }
+
 }

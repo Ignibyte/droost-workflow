@@ -81,13 +81,20 @@ preset: custom
 enforcement: soft
 
 # require_run: hard | soft | off
-#   What happens when custom code (modules/custom, themes/custom) is edited
-#   with NO active run — the trigger that makes the pipeline the end game, not
-#   an opt-in an eager agent can skip. hard BLOCKS the edit (start a run, or
-#   take an operator-granted bypass: `drush droost:workflow:bypass "<why>"`);
-#   soft nudges once; off is silent (pre-require_run behaviour). Defaults hard.
-#   Narrow by design: only custom-code writes trip it — docs, config outside
-#   those trees and non-Drupal files never do.
+#   What happens when custom code is edited with NO active run — the trigger
+#   that makes the pipeline the end game, not an opt-in an eager agent can
+#   skip. hard BLOCKS the edit (start a run, or take an operator-granted
+#   bypass: `drush droost:workflow:bypass "<why>"`); soft nudges once; off is
+#   silent (pre-require_run behaviour). Defaults hard.
+#
+#   THE THREE TREES IT COVERS, stated because this said two of them (F-8):
+#     modules/custom   themes/custom   profiles/custom
+#   An install profile is PHP that builds the entire site, so leaving it out
+#   would have walled the module beside it and waved the profile through. The
+#   gate executor has always analysed all three; only this text lagged.
+#
+#   Narrow by design otherwise: docs, config outside those trees and
+#   non-Drupal files never trip it.
 require_run: hard
 
 # DEPRECATED (0.3) and ignored: every run walks plan, code, test, complete
