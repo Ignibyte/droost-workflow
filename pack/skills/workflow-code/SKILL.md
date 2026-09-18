@@ -51,10 +51,24 @@ three outcomes stop the phase:
   at the test phase, on its own merits.
 - a file declared and not touched is recorded and does not block.
 
-The spec's contract sections are also frozen now. `## Tooling plan`,
-`## Grounding` and `## Acceptance criteria` were fixed when plan passed, and
-editing one is refused by name. Appending is still expected: `## Realized` and
+The spec's contract sections were fingerprinted when plan passed —
+`## Tooling plan`, `## Grounding`, `## Acceptance criteria` — and **changing
+one is RECORDED, not refused.** A `spec`/`frozen_sections` row names what
+moved and the phase advances. Appending is still expected: `## Realized` and
 the seeker's ledgers belong in this file.
+
+**So when a gate tells you to change the plan, change it.** `grounding_check`
+fails with `planned-not-called` when the Tooling plan names a tool the ledger
+never saw, and its remedy says to "change the plan to a hand-written row with
+its reason stated". That is a real instruction and the edit goes through.
+A live run read this paragraph's earlier wording — *"editing one is refused by
+name"*, true until 0.9.4 and false after — declined the remedy it was given,
+spent its one retry, escalated to a waiver it is not allowed to run, and
+stopped. It was wedged by a wall that no longer exists.
+
+State the reason in the row you write. The record then says "I planned X and
+needed Y", which is the thing the freeze was protecting and could only protect
+by forbidding the edit.
 
 ## Entry gate
 
