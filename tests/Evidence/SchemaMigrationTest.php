@@ -119,6 +119,33 @@ final class SchemaMigrationTest extends TestCase {
   }
 
   /**
+   * An existing store gains the guard ledger's tool column.
+   *
+   * The v7-and-earlier rows keep a NULL tool, which is what makes them
+   * distinguishable from a run that made no browser call: browserToolCalls()
+   * counts matches rather than negating the complement, so an old store reads
+   * as "not recorded" and never as "never looked".
+   */
+  public function testAnOlderStoreGainsTheGuardToolColumn(): void {
+    (new EvidenceStore($this->root))->upsertRun('r1', ['preset' => 'low']);
+    $pdo = $this->raw();
+    $pdo->exec('DROP INDEX IF EXISTS guard_call_by_tool');
+    $pdo->exec('ALTER TABLE guard_call DROP COLUMN tool');
+    $pdo->exec('PRAGMA user_version = 7');
+    unset($pdo);
+
+    $upgraded = new EvidenceStore($this->root);
+    $this->assertSame(0, $upgraded->browserToolCalls('r1'), 'the column is there');
+    $this->assertSame(EvidenceStore::SCHEMA_VERSION, $this->version(), 'the rung ran');
+
+    $upgraded->recordGuardCall(
+      'r1', 'test', 'pre-tool-use', 'invoked', NULL, NULL,
+      'mcp__playwright__browser_navigate',
+    );
+    $this->assertSame(1, $upgraded->browserToolCalls('r1'));
+  }
+
+  /**
    * An EXISTING store gains the guard ledger, not just a fresh one.
    *
    * THIS IS THE CASE EVERY OTHER TEST IN THIS SUITE MISSES, and it cost a live

@@ -33,6 +33,122 @@ use Droost\Workflow\State\RunStateStore;
 class ModeEngineTest extends WorkflowTestCase {
 
   /**
+   * The test phase holds until the agent has looked at what it built.
+   *
+   * The browser LEVERS are a suite: they say the code behaves. Nothing said
+   * anyone opened the page. The owner's rule is that the look applies at
+   * every level and the regression suite is what the higher levels add, so
+   * this is a step, it is binary, and it is a count of guard rows — the agent
+   * cannot write it.
+   */
+  public function testTheTestPhaseHoldsUntilTheAgentLooked(): void {
+    $engine = $this->engine($this->recordingSink());
+    $state = $this->begin(['mode' => 'automated', 'preset' => 'low'])
+      ->withBrowser('playwright-mcp')
+      ->advanceTo(Phase::Test);
+
+    $held = $engine->runPhase($state, Phase::Test, $this->root, self::NOW);
+    $this->assertSame(Outcome::Blocked, $held->outcome);
+    $this->assertSame(
+      ['browser_review'],
+      array_values(array_map(
+        static fn (array $row): string => (string) ($row['check'] ?? ''),
+        $held->blocked,
+      )),
+      'the run is told which step is holding it, not just that one is',
+    );
+
+    // One browser call in the phase, and the same state advances. Recorded
+    // the way the guard records it: a row in the store naming the tool.
+    (new EvidenceStore($this->root))->recordGuardCall(
+      $state->runId,
+      Phase::Test->value,
+      'pre-tool-use',
+      'invoked',
+      NULL,
+      self::NOW,
+      'mcp__playwright__browser_navigate',
+    );
+    $out = $engine->runPhase($state, Phase::Test, $this->root, self::NOW);
+    $this->assertNotSame(Outcome::Blocked, $out->outcome);
+  }
+
+  /**
+   * A tier this cannot count is recorded, never enforced.
+   *
+   * `none` is a session saying it CANNOT look, and holding a phase for a
+   * capability the host does not have is a wedge. A row that said `blocked`
+   * while the phase advanced — or a phase that could never advance — are the
+   * two ways to get this wrong; the third is silence.
+   */
+  public function testTheTierThisCannotCountIsRecordedNotEnforced(): void {
+    $engine = $this->engine($this->recordingSink());
+    $state = $this->begin(['mode' => 'automated', 'preset' => 'low'])
+      ->withBrowser('none')
+      ->advanceTo(Phase::Test);
+
+    $out = $engine->runPhase($state, Phase::Test, $this->root, self::NOW);
+    $this->assertNotSame(Outcome::Blocked, $out->outcome);
+
+    $rows = array_values(array_filter(
+      (new EvidenceStore($this->root))->checklist($state->runId, Phase::Test->value),
+      static fn (array $row): bool => ($row['name'] ?? '') === 'browser_review',
+    ));
+    $this->assertCount(1, $rows, 'the step is on the record either way');
+    $this->assertSame('recorded', $rows[0]['state']);
+    $summary = $rows[0]['summary'];
+    $this->assertIsString($summary);
+    $this->assertStringContainsString('not counted', $summary);
+    $this->assertStringContainsString('none', $summary);
+  }
+
+  /**
+   * An undeclared tier is the declaration audit's finding, not this step's.
+   *
+   * Blocking here as well would stop the run twice for one omission and name
+   * the wrong cause the second time.
+   */
+  public function testAnUndeclaredTierDoesNotBlockTheTestPhase(): void {
+    $engine = $this->engine($this->recordingSink());
+    $state = $this->begin(['mode' => 'automated', 'preset' => 'low'])
+      ->advanceTo(Phase::Test);
+
+    $out = $engine->runPhase($state, Phase::Test, $this->root, self::NOW);
+    $this->assertNotSame(Outcome::Blocked, $out->outcome);
+
+    $rows = array_values(array_filter(
+      (new EvidenceStore($this->root))->checklist($state->runId, Phase::Test->value),
+      static fn (array $row): bool => ($row['name'] ?? '') === 'browser_review',
+    ));
+    $this->assertSame('recorded', $rows[0]['state']);
+    $summary = $rows[0]['summary'];
+    $this->assertIsString($summary);
+    $this->assertStringContainsString('not verifiable', $summary);
+  }
+
+  /**
+   * The step is due at test and nowhere else.
+   *
+   * Code has not finished the thing to look at, and complete re-running it
+   * would ask the agent to look again at what test already made it look at —
+   * a second wall for one obligation.
+   */
+  public function testTheBrowserStepIsDueOnlyAtTest(): void {
+    $engine = $this->engine($this->recordingSink());
+    foreach ([Phase::Code, Phase::Complete] as $phase) {
+      $state = $this->begin(['mode' => 'automated', 'preset' => 'low'])
+        ->withBrowser('playwright-mcp')
+        ->advanceTo($phase);
+      $engine->runPhase($state, $phase, $this->root, self::NOW);
+      $names = array_column(
+        (new EvidenceStore($this->root))->checklist($state->runId, $phase->value),
+        'name',
+      );
+      $this->assertNotContains('browser_review', $names, $phase->value);
+    }
+  }
+
+  /**
    * A scratch project root, one per test.
    *
    * These tests used the literal `/tmp`, so every one of them wrote its

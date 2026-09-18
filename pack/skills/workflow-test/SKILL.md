@@ -26,8 +26,11 @@ was resolved before this phase began. Your job is to run them and report,
 not to re-derive a verdict.
 
 This is the phase where the engine runs the functional gates — phpunit,
-coverage, mutation, playwright and the rendered check. The static pair
-already gated the code phase, and everything enabled re-runs at complete.
+coverage, mutation, playwright and the rendered check. **The static pair runs
+here too, over the tests you write in this phase**, and before phpunit: a test
+method named in lowerCamel, or a fixture phpstan cannot follow, fails phpcs or
+phpstan here rather than surfacing at complete. Write tests to the same
+standard as the code they test. Everything enabled re-runs at complete.
 
 `droost_verify` runs the static and test legs — **but only the ones you ask
 for**, and the default is narrower than people expect:
@@ -57,11 +60,21 @@ when something failed, rather than guessing from an exit code.
   work — distinct from the `playwright` GATE, which runs the repo's
   committed regression specs (`node_modules/.bin/playwright test`) and
   needs playwright installed in the repo.
-- `native` — same verification through the editor's own browser.
+
+  **This is a step, and the phase holds until it is done.** The guard records
+  every browser tool call against the run and the phase, and the engine counts
+  them: zero calls in this phase blocks it, at every level, with the row
+  `browser_review`. It is a count, not a judgement — nobody grades what you
+  looked at, and one call satisfies it. The point is that a passing suite says
+  the code behaves under a script somebody wrote, which is not the same as
+  anybody having opened the page.
+- `native` — same verification through the editor's own browser. Recorded,
+  not counted: those calls do not carry names this engine can recognise, so
+  `browser_review` reports rather than holds. Do the verification anyway.
 - `none` — the rendered check is the floor: the engine renders routes
   through the booted site and that result stands in for eyes. Say in the
   report that no browser tier ran — it is a fact about the verification,
-  not a failure.
+  not a failure, and `browser_review` records it as one.
 
 When a gate fails, enter a bounded feedback loop: read the finding, fix the
 cause, invoke `run` again. **The engine counts the attempts** — each blocking

@@ -196,7 +196,14 @@ final class ModeEngine {
     // gates just measured; before advancing, because a blocked check has to
     // stop a phase exactly as a failed gate does — otherwise contributing one
     // is contributing a comment.
-    if (!$this->adjudicateChecks($state, $phase, $projectRoot)) {
+    // BOTH RUN, then the verdict. Short-circuiting here would mean an unmet
+    // step suppressed the contributed checks' rows entirely, so a run that
+    // failed the browser step would report nothing about jira or snyk either
+    // and the agent would fix one thing per pass with no idea what else was
+    // waiting.
+    $stepsMet = $this->recordPhaseSteps($state, $phase, $projectRoot);
+    $checksMet = $this->adjudicateChecks($state, $phase, $projectRoot);
+    if (!$stepsMet || !$checksMet) {
       $stuck = $this->stuckOutcome($state, $phase, $projectRoot, $report, $now);
 
       // A contributed check or a spec condition, not a gate: nothing was spent
@@ -700,6 +707,149 @@ final class ModeEngine {
       $headline,
       $detail,
       $options,
+    );
+  }
+
+  /**
+   * The steps this phase owes, recorded as rows, one per pass.
+   *
+   * THE ENGINE ROUTES AND THE AGENT EXECUTES. A step is a thing the agent was
+   * told to do that leaves a trace something other than the agent wrote: a
+   * count of rows, present or absent. No severity is read, no prose is
+   * parsed, no opinion is weighed. The phase advances or it does not, and the
+   * reason is an integer.
+   *
+   * Today there is one, at test: the agent must have opened a browser and
+   * looked at what it built. The `playwright` gate is a different claim — a
+   * passing spec says the code behaves, not that anybody looked — and the
+   * owner's rule is that the look applies at every level, while the
+   * regression suite is what the higher levels add on top.
+   *
+   * SCOPED TO THE TEST PHASE'S OWN CALLS. A browse taken during code was a
+   * browse of unfinished work; the phase whose job is verification has to
+   * have done the verifying. The guard stamps each row with the phase it saw
+   * in run.json, which is what makes that distinguishable at all.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase whose gates have just passed.
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return bool
+   *   TRUE when no step blocks the phase.
+   */
+  private function recordPhaseSteps(RunState $state, Phase $phase, string $projectRoot): bool {
+    if ($phase !== Phase::Test) {
+      return TRUE;
+    }
+    $record = $this->browserReviewStep($state, $phase, $projectRoot);
+    try {
+      (new EvidenceStore($projectRoot))->record($state->runId, $phase->value, $record);
+    }
+    catch (\Throwable) {
+      // As in adjudicateChecks: recording never decides. A step that blocks
+      // still blocks with its row lost, and the stop hook reads the same
+      // store, so the agent is told either way or neither.
+    }
+    return !$record->state->blocksAdvance();
+  }
+
+  /**
+   * Whether the agent looked at what it built, as a row.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run, for the browser tier it declared at start.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase, whose own calls are the ones that count.
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return \Droost\Workflow\Evidence\CheckRecord
+   *   The row. Blocking only where the declared tier is one this can count.
+   */
+  private function browserReviewStep(RunState $state, Phase $phase, string $projectRoot): CheckRecord {
+    // AN UNDECLARED TIER IS NOT A MISSING LOOK. The declaration audit already
+    // owns "you never said what you have"; blocking here as well would make
+    // one omission stop the run twice and name the wrong cause the second
+    // time.
+    if ($state->browser === NULL) {
+      return new CheckRecord(
+        'step',
+        'browser_review',
+        CheckState::Recorded,
+        Fault::None,
+        'not verifiable: this session never declared a browser tier '
+        . '(droost-workflow declare-browser playwright-mcp|native|none), so '
+        . 'there is nothing to hold it to. The declaration audit is where a '
+        . 'missing declaration is reported.',
+      );
+    }
+    // `none` and `native` are recorded, not enforced, and for opposite
+    // reasons. `none` means the session says it CANNOT look — holding the
+    // phase for a capability the host does not have is a wedge, and the
+    // declaration is on the record where a reader can see what the run was
+    // worth. `native` means it looks by some route this cannot see: the
+    // markers match Playwright and Puppeteer tool names, and a host driving a
+    // browser another way would produce a zero that reads as a lie about a
+    // run that did the work. An honest "not counted" beats both.
+    if ($state->browser !== 'playwright-mcp') {
+      return new CheckRecord(
+        'step',
+        'browser_review',
+        CheckState::Recorded,
+        Fault::None,
+        sprintf(
+          'not counted: this session declared browser tier "%s". Only '
+          . 'playwright-mcp leaves tool calls this engine can count, so the '
+          . 'look is reported here rather than enforced.',
+          $state->browser,
+        ),
+      );
+    }
+
+    try {
+      $calls = (new EvidenceStore($projectRoot))->browserToolCalls($state->runId, $phase->value);
+    }
+    catch (\Throwable $e) {
+      // AN UNREADABLE STORE IS NOT A ZERO. Same rule as the seeker findings:
+      // the instrument failing is a fault of the environment, and reporting
+      // it as the agent's failure is the defect class this engine exists to
+      // avoid recording.
+      return new CheckRecord(
+        'step',
+        'browser_review',
+        CheckState::Recorded,
+        Fault::Environment,
+        'not verifiable: the evidence store could not be read (' . $e::class
+        . '), so the browser calls this run made cannot be counted.',
+        'Fix the store, then run this phase again to get a real answer.',
+      );
+    }
+
+    if ($calls === 0) {
+      return new CheckRecord(
+        'step',
+        'browser_review',
+        CheckState::Blocked,
+        Fault::Agent,
+        'no browser tool call is recorded in this phase. A passing browser '
+        . 'suite says the code behaves; it does not say anyone looked at the '
+        . 'page. Navigate to the routes this ticket touched with the browser '
+        . 'tools, look at what is there, then run this phase again.',
+      );
+    }
+
+    return new CheckRecord(
+      'step',
+      'browser_review',
+      CheckState::Satisfied,
+      Fault::None,
+      sprintf(
+        '%d browser tool call(s) recorded in this phase.',
+        $calls,
+      ),
     );
   }
 

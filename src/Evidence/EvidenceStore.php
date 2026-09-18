@@ -60,7 +60,18 @@ final class EvidenceStore {
    * build does not know about costs it nothing. A store written by an older one
    * is migrated up in place.
    */
-  public const int SCHEMA_VERSION = 7;
+  public const int SCHEMA_VERSION = 8;
+
+  /**
+   * Substrings that identify a browser tool in a host's tool name.
+   *
+   * Deliberately short and deliberately few. A long list of exact names is a
+   * list that goes stale silently: the host renames one, the match misses,
+   * and the phase reports "never looked" about a run that did. These three
+   * cover Playwright MCP under every client seen so far, and a miss is a
+   * recorded zero rather than a wrong yes.
+   */
+  public const array BROWSER_TOOL_MARKERS = ['playwright', 'browser_', 'puppeteer'];
 
   /**
    * Stamped into the file when, and only when, it has rows that predate v4.
@@ -216,6 +227,7 @@ final class EvidenceStore {
         5 => $this->migrateToV5($pdo),
         6 => $this->migrateToV6($pdo),
         7 => $this->migrateToV7($pdo),
+        8 => $this->migrateToV8($pdo),
         default => NULL,
       };
       // Stamped per rung, so an interrupted upgrade resumes where it stopped
@@ -314,12 +326,14 @@ final class EvidenceStore {
       CREATE TABLE IF NOT EXISTS guard_call (
         run_id   TEXT NOT NULL,
         phase    TEXT,
+        tool     TEXT,
         mode     TEXT NOT NULL,
         verdict  TEXT NOT NULL,
         rule     TEXT,
         at       TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS guard_call_by_run ON guard_call (run_id, phase, mode);
+      CREATE INDEX IF NOT EXISTS guard_call_by_tool ON guard_call (run_id, phase, tool);
 
       CREATE TABLE IF NOT EXISTS grounding_row (
         run_id    TEXT NOT NULL,
@@ -1607,6 +1621,9 @@ final class EvidenceStore {
    *   For a refusal, the tag naming which rule produced it.
    * @param string|null $at
    *   When, ISO-8601. Defaults to now.
+   * @param string|null $tool
+   *   The tool the hook fired on, as the host named it, or NULL when the host
+   *   sent no name. Recorded, never enforced on — see migrateToV8().
    */
   public function recordGuardCall(
     string $runId,
@@ -1615,10 +1632,51 @@ final class EvidenceStore {
     string $verdict,
     ?string $rule = NULL,
     ?string $at = NULL,
+    ?string $tool = NULL,
   ): void {
     $this->connection()
-      ->prepare('INSERT INTO guard_call (run_id, phase, mode, verdict, rule, at) VALUES (?, ?, ?, ?, ?, ?)')
-      ->execute([$runId, $phase, $mode, $verdict, $rule, $at ?? date('c')]);
+      ->prepare('INSERT INTO guard_call (run_id, phase, tool, mode, verdict, rule, at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      ->execute([$runId, $phase, $tool, $mode, $verdict, $rule, $at ?? date('c')]);
+  }
+
+  /**
+   * How many browser tool calls this run made, optionally in one phase.
+   *
+   * The binary answer to "was the agent made to look at what it built". A
+   * browser SUITE passing is a different claim — it says the code behaves,
+   * not that a pair of eyes and a rendered page ever met. Every run at every
+   * level owes the second one, which is why this counts rather than judges:
+   * zero or more than zero, no threshold, no severity.
+   *
+   * Matched on the tool name by substring, because the hosts name these
+   * differently — Claude Code sends `mcp__playwright__browser_navigate`, a
+   * bare MCP client sends `browser_navigate`, and a future one will send
+   * something else again. A host whose browser tool matches nothing here
+   * reports zero, which reads as "not recorded" in the phase that asks: an
+   * honest no beats a false yes, and nothing refuses on this value.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string|null $phase
+   *   One phase, or NULL for the whole run.
+   *
+   * @return int
+   *   The number of matching calls.
+   */
+  public function browserToolCalls(string $runId, ?string $phase = NULL): int {
+    $sql = 'SELECT COUNT(*) FROM guard_call WHERE run_id = ? AND tool IS NOT NULL'
+      . ' AND (' . implode(' OR ', array_fill(0, count(self::BROWSER_TOOL_MARKERS), 'tool LIKE ?')) . ')';
+    $arguments = [$runId];
+    foreach (self::BROWSER_TOOL_MARKERS as $marker) {
+      $arguments[] = '%' . $marker . '%';
+    }
+    if ($phase !== NULL) {
+      $sql .= ' AND phase = ?';
+      $arguments[] = $phase;
+    }
+    $statement = $this->connection()->prepare($sql);
+    $statement->execute($arguments);
+    return (int) ($statement->fetchColumn() ?: 0);
   }
 
   /**
@@ -2050,12 +2108,14 @@ final class EvidenceStore {
       CREATE TABLE IF NOT EXISTS guard_call (
         run_id   TEXT NOT NULL,
         phase    TEXT,
+        tool     TEXT,
         mode     TEXT NOT NULL,
         verdict  TEXT NOT NULL,
         rule     TEXT,
         at       TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS guard_call_by_run ON guard_call (run_id, phase, mode);
+      CREATE INDEX IF NOT EXISTS guard_call_by_tool ON guard_call (run_id, phase, tool);
     SQL);
   }
 
@@ -2089,6 +2149,35 @@ final class EvidenceStore {
       // idempotent by intent and SQLite has no ADD COLUMN IF NOT EXISTS —
       // same reason, same shape, as V2's three columns above.
     }
+  }
+
+  /**
+   * V8 — the guard's diary says WHICH TOOL it fired on.
+   *
+   * The rows carried a mode, a verdict and a rule: everything about what the
+   * guard DECIDED and nothing about what the agent was doing. So "the agent
+   * opened a browser and looked at what it built" — the one thing the browser
+   * levers exist to force, and the thing an evaluator most wants a yes or no
+   * on — was unanswerable from the store. The engine ran a browser SUITE and
+   * called that the same question. It is not: a passing spec proves the code
+   * behaves, not that anyone looked.
+   *
+   * NULL means "a row recorded before v8, or a host that sent no tool name",
+   * which is not the same as "no browser call" and must not be counted as one.
+   * That is why browserToolCalls() counts matches rather than negating the
+   * complement: an unnamed tool is unknown, and an unknown is not a zero.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   */
+  private function migrateToV8(\PDO $pdo): void {
+    try {
+      $pdo->exec('ALTER TABLE guard_call ADD COLUMN tool TEXT');
+    }
+    catch (\PDOException) {
+      // Already there — additive and idempotent, as V7 above.
+    }
+    $pdo->exec('CREATE INDEX IF NOT EXISTS guard_call_by_tool ON guard_call (run_id, phase, tool)');
   }
 
   /**

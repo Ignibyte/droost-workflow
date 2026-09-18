@@ -249,11 +249,19 @@ final class EvidenceRecorder {
       foreach (array_slice($mine, $store->guardCallCount($runId)) as $row) {
         $store->recordGuardCall(
           $runId,
-          $phase,
+          // THE PHASE THE HOOK SAW, not the one closing now. `$phase` is the
+          // phase being recorded, which is the phase that just ENDED, so
+          // every row a phase ingested was filed under it regardless of when
+          // the call happened — and a browser call made during code arrived
+          // in the store looking like a test-phase one. The hook stamps its
+          // own row from run.json since 0.9; `$phase` is the fallback for
+          // rows written before that.
+          is_string($row['phase'] ?? NULL) && $row['phase'] !== '' ? $row['phase'] : $phase,
           is_string($row['mode'] ?? NULL) && $row['mode'] !== '' ? $row['mode'] : 'unknown',
           is_string($row['verdict'] ?? NULL) && $row['verdict'] !== '' ? $row['verdict'] : 'invoked',
           is_string($row['rule'] ?? NULL) && $row['rule'] !== '' ? $row['rule'] : NULL,
           is_string($row['at'] ?? NULL) ? $row['at'] : NULL,
+          is_string($row['tool'] ?? NULL) && $row['tool'] !== '' ? $row['tool'] : NULL,
         );
       }
       return;

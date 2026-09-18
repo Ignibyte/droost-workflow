@@ -261,15 +261,25 @@ register_shutdown_function(static function () use ($root, $stateDir): void {
     return;
   }
   $run = NULL;
+  // The PHASE AS THE HOOK SAW IT, from the document it is already reading.
+  // The engine stamps its rows with the phase open at ingest, which is the
+  // phase that CLOSED — so a browser call made during test was filed under
+  // whatever came next. Cheap to fix here and unanswerable anywhere else.
+  $phase = NULL;
   $record = @file_get_contents($directory . '/run.json');
   if (is_string($record)) {
     $decoded = json_decode($record, TRUE);
     if (is_array($decoded) && is_string($decoded['run_id'] ?? NULL)) {
       $run = $decoded['run_id'];
     }
+    if (is_array($decoded) && is_string($decoded['current_phase'] ?? NULL)) {
+      $phase = $decoded['current_phase'];
+    }
   }
   $line = json_encode([
     'run' => $run,
+    'phase' => $phase,
+    'tool' => $GLOBALS['workflow_guard_tool'] ?? NULL,
     'mode' => $GLOBALS['workflow_guard_mode'] ?? '',
     'verdict' => $GLOBALS['workflow_guard_verdict'] ?? 'invoked',
     'rule' => $GLOBALS['workflow_guard_rule'] ?? NULL,
@@ -309,6 +319,23 @@ $stopHookActive = $flag === TRUE
   || $flag === 1
   || (is_string($flag) && in_array(strtolower($flag), ['true', '1', 'yes'], TRUE));
 $GLOBALS['workflow_guard_continued'] = $stopHookActive;
+
+// THE TOOL'S NAME, recorded and never acted on here. Every other branch in
+// this file infers what is happening from `tool_input` — a `command` key means
+// a shell, a `file_path` means a write — because that is what a REFUSAL can
+// safely rest on: a host that renames its tools does not get to walk through a
+// wall. Recording is the opposite problem. "Did the agent open a browser and
+// look at what it built" has no answer in `tool_input`; `browser_navigate`
+// carries a `url`, and so does half of everything else.
+//
+// So the name goes in the diary and nowhere else. Nothing refuses on it, the
+// engine reads it as a count, and a host whose browser tool is called
+// something this does not recognise produces an honest zero rather than a
+// false permit.
+$toolName = $payload['tool_name'] ?? $payload['tool'] ?? NULL;
+$GLOBALS['workflow_guard_tool'] = is_string($toolName) && $toolName !== ''
+  ? substr($toolName, 0, 120)
+  : NULL;
 
 // A NUL byte is never part of a real path or a real command — no filesystem
 // this runs on accepts one — but it IS what truncates a C string, so

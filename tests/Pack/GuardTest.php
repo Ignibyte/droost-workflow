@@ -1160,6 +1160,73 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * The hook's diary names the tool it fired on, and the phase it saw.
+   *
+   * Every branch in the guard INFERS what is happening from `tool_input` — a
+   * `command` key means a shell — because a refusal must not rest on a name a
+   * host can rename. Recording is the opposite problem: "did the agent open a
+   * browser and look at what it built" has no answer in `tool_input`, since
+   * `browser_navigate` carries a url and so does half of everything else.
+   *
+   * So the name is written and never acted on. Nothing here refuses on it.
+   */
+  public function testTheDiaryNamesTheToolAndThePhase(): void {
+    $root = $this->rootWithRun('test', 'active', 'hard', 'agentic');
+    file_put_contents(
+      $root . '/droost/droost-workflow/run.json',
+      json_encode([
+        'run_id' => 'run-looked',
+        'current_phase' => 'test',
+        'phases' => ['test' => 'active'],
+        'enforcement' => 'hard',
+        'mode' => 'agentic',
+      ]),
+    );
+
+    $this->guard($root, 'pre-tool-use', [
+      'tool_name' => 'mcp__playwright__browser_navigate',
+      'tool_input' => ['url' => 'https://example.test/rinks'],
+    ]);
+
+    $lines = array_values(array_filter(
+      explode("\n", (string) file_get_contents($root . '/droost/droost-workflow/guard-calls.jsonl')),
+      static fn (string $line): bool => trim($line) !== '',
+    ));
+    $this->assertCount(1, $lines, 'one append per invocation');
+    $row = json_decode($lines[0], TRUE);
+    $this->assertIsArray($row);
+    $this->assertSame('run-looked', $row['run']);
+    $this->assertSame('mcp__playwright__browser_navigate', $row['tool']);
+    $this->assertSame(
+      'test',
+      $row['phase'],
+      'the phase the hook SAW — the engine only knows the phase that closed',
+    );
+  }
+
+  /**
+   * A host that sends no tool name writes a null, not a guess.
+   *
+   * The engine counts matches rather than negating the complement precisely
+   * so this row reads as "not recorded" and never as "never looked".
+   */
+  public function testAnUnnamedToolIsRecordedAsNull(): void {
+    $root = $this->rootWithRun('test', 'active', 'hard', 'agentic');
+
+    $this->guard($root, 'pre-tool-use', [
+      'tool_input' => ['file_path' => $root . '/src/Thing.php', 'content' => 'x'],
+    ]);
+
+    $lines = array_values(array_filter(
+      explode("\n", (string) file_get_contents($root . '/droost/droost-workflow/guard-calls.jsonl')),
+      static fn (string $line): bool => trim($line) !== '',
+    ));
+    $row = json_decode($lines[0], TRUE);
+    $this->assertIsArray($row);
+    $this->assertNull($row['tool']);
+  }
+
+  /**
    * A project root holding an active run frozen at the given levers.
    *
    * @param string $phase
