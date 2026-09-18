@@ -40,6 +40,7 @@ use Droost\Workflow\Mode\QuestionSinkInterface;
 use Droost\Workflow\Mode\RunOutcome;
 use Droost\Workflow\Seeker\SeekerLedger;
 use Droost\Workflow\Spec\SpecContract;
+use Droost\Workflow\Spec\SpecError;
 use Droost\Workflow\Pack\InitReport;
 use Droost\Workflow\Pack\PackMaterializer;
 use Droost\Workflow\Pack\PackRemover;
@@ -1148,6 +1149,162 @@ final class WorkflowFacade {
     }
 
     return $record;
+  }
+
+  /**
+   * The phase a declaration is stamped with.
+   *
+   * `requireRun()` has already refused a finished run, so in practice this is
+   * always set — but the property is nullable and a declaration stamped with
+   * an invented phase would be worse than one stamped with nothing. An empty
+   * string reads as "the record could not say", which is a fact; `plan` would
+   * be a guess wearing the costume of one.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The open run.
+   *
+   * @return string
+   *   The phase, or ''.
+   */
+  private static function openPhase(RunState $state): string {
+    return $state->currentPhase === NULL ? '' : $state->currentPhase->value;
+  }
+
+  /**
+   * Declares a route this ticket's change serves.
+   *
+   * The tool-call half of the redesign: `rendered_check` renders rows, not a
+   * markdown section. `## Routes` stays in the spec for a human, and nothing
+   * mechanical depends on where it sits or whether the writer fenced it.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $path
+   *   The route, as the site serves it. Must begin with `/`: a route is a
+   *   path, and the one thing worth refusing here is a value that cannot be
+   *   requested, because the alternative is a gate rendering it and failing.
+   * @param string|null $reason
+   *   Why the route is in scope, for the reader. Never read mechanically.
+   *
+   * @return array<string, mixed>
+   *   The routes the run now declares.
+   *
+   * @throws \InvalidArgumentException
+   *   When the path is not a path.
+   */
+  public function declareRoute(string $projectRoot, string $path, ?string $reason = NULL): array {
+    $path = trim($path);
+    if ($path === '' || !str_starts_with($path, '/')) {
+      throw new \InvalidArgumentException(sprintf(
+        'A route is a path the site serves and must begin with "/" — got "%s"',
+        $path,
+      ));
+    }
+    $state = $this->requireRun(new RunStateStore($projectRoot));
+    $store = new EvidenceStore($projectRoot);
+    $store->declareRoute($state->runId, self::openPhase($state), $path, $reason, $this->now());
+
+    return ['run' => $state->runId, 'routes' => $store->specRoutes($state->runId)];
+  }
+
+  /**
+   * Declares an acceptance criterion, or restates one.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $ref
+   *   The criterion's id, e.g. `AC-1`.
+   * @param string $statement
+   *   What must be true, in the agent's own words.
+   *
+   * @return array<string, mixed>
+   *   The criteria the run now declares.
+   *
+   * @throws \InvalidArgumentException
+   *   When either is empty.
+   */
+  public function declareCriterion(string $projectRoot, string $ref, string $statement): array {
+    $ref = trim($ref);
+    $statement = trim($statement);
+    if ($ref === '' || $statement === '') {
+      throw new \InvalidArgumentException(
+        'A criterion needs a ref and a statement: declare-criterion AC-1 "the listing shows every published rink"',
+      );
+    }
+    $state = $this->requireRun(new RunStateStore($projectRoot));
+    $store = new EvidenceStore($projectRoot);
+    $store->declareCriterion($state->runId, self::openPhase($state), $ref, $statement, $this->now());
+
+    return ['run' => $state->runId, 'criteria' => $store->specCriteria($state->runId)];
+  }
+
+  /**
+   * Records what proves a criterion.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $ref
+   *   The criterion's id.
+   * @param string $verifiedBy
+   *   The test, route or command that proves it.
+   *
+   * @return array<string, mixed>
+   *   The criteria the run now declares.
+   *
+   * @throws \Droost\Workflow\Spec\SpecError
+   *   When no such criterion was declared. The only refusal on this surface,
+   *   and the reason it is one: a run that can verify unstated criteria
+   *   proves whatever it happened to do, which is the circularity the
+   *   evidence store exists to make impossible.
+   */
+  public function verifyCriterion(string $projectRoot, string $ref, string $verifiedBy): array {
+    $ref = trim($ref);
+    $verifiedBy = trim($verifiedBy);
+    if ($ref === '' || $verifiedBy === '') {
+      throw new \InvalidArgumentException(
+        'A verification needs a ref and what proves it: verify-criterion AC-1 "RinkListTest::testEveryPublished"',
+      );
+    }
+    $state = $this->requireRun(new RunStateStore($projectRoot));
+    $store = new EvidenceStore($projectRoot);
+    if (!$store->verifyCriterion($state->runId, self::openPhase($state), $ref, $verifiedBy, $this->now())) {
+      throw SpecError::criterionNotDeclared($ref, array_column($store->specCriteria($state->runId), 'ref'));
+    }
+
+    return ['run' => $state->runId, 'criteria' => $store->specCriteria($state->runId)];
+  }
+
+  /**
+   * Records anything else the spec would have said in prose.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $kind
+   *   One of `grounding`, `tooling`, `decision`, or a contributed step's own.
+   * @param string $subject
+   *   What the note is about.
+   * @param string|null $detail
+   *   The rest, for a reader.
+   *
+   * @return array<string, mixed>
+   *   The notes the run now declares.
+   *
+   * @throws \InvalidArgumentException
+   *   When either required part is empty.
+   */
+  public function declareNote(string $projectRoot, string $kind, string $subject, ?string $detail = NULL): array {
+    $kind = trim($kind);
+    $subject = trim($subject);
+    if ($kind === '' || $subject === '') {
+      throw new \InvalidArgumentException(
+        'A note needs a kind and a subject: declare-note grounding "Drupal\\node\\Entity\\Node"',
+      );
+    }
+    $state = $this->requireRun(new RunStateStore($projectRoot));
+    $store = new EvidenceStore($projectRoot);
+    $store->declareNote($state->runId, self::openPhase($state), $kind, $subject, $detail, $this->now());
+
+    return ['run' => $state->runId, 'notes' => $store->specNotes($state->runId)];
   }
 
   /**

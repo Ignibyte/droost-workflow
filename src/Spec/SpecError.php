@@ -153,6 +153,37 @@ final class SpecError extends \RuntimeException {
   }
 
   /**
+   * A verification names a criterion nobody declared.
+   *
+   * The only refusal on the declare/verify surface, and the reason it is one:
+   * a run that can verify unstated criteria proves whatever it happened to
+   * do. Everything else about a declaration is a row, because a row cannot be
+   * mis-shaped and a refusal in the middle of a phase costs a run.
+   *
+   * @param string $ref
+   *   The ref the verification named.
+   * @param list<string> $declared
+   *   The refs this run has declared, for the reader to compare against.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function criterionNotDeclared(string $ref, array $declared): self {
+    return new self(sprintf(
+      'No criterion "%s" was declared in this run, so there is nothing for '
+      . 'that verification to be about. %s Declare it first '
+      . '(`declare-criterion %s "<what must be true>"`) and then verify it — '
+      . 'in that order, because a criterion written to fit the thing that '
+      . 'happened to pass is the one failure this record cannot survive.',
+      $ref,
+      $declared === []
+        ? 'This run has declared none at all.'
+        : 'Declared so far: ' . implode(', ', $declared) . '.',
+      $ref,
+    ));
+  }
+
+  /**
    * The phase looked nothing up, or looked into too narrow a place.
    *
    * @param string $path

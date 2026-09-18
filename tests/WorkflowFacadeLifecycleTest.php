@@ -93,6 +93,13 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
     $verbs = [
       'declareBrowser' => fn () => $this->facade($executor)->declareBrowser($root, 'native'),
       'declareTasks' => fn () => $this->facade($executor)->declareTasks($root, 'claude-code'),
+      // The declare/verify surface too. A finished run's spec rows are as
+      // closed as its verdicts: appending a criterion to a record that has
+      // already been evaluated is writing the promise after the proof.
+      'declareRoute' => fn () => $this->facade($executor)->declareRoute($root, '/rinks'),
+      'declareCriterion' => fn () => $this->facade($executor)->declareCriterion($root, 'AC-1', 'x'),
+      'verifyCriterion' => fn () => $this->facade($executor)->verifyCriterion($root, 'AC-1', 'y'),
+      'declareNote' => fn () => $this->facade($executor)->declareNote($root, 'grounding', 'z'),
       'recordSeeker' => fn () => $this->facade($executor)->recordSeeker($root, "## Seeker Inspection\n\nInspector: independent\n\n(no findings)\n"),
       'swap' => fn () => $this->facade($executor)->swap($root, Mode::Agentic),
       'answer' => fn () => $this->facade($executor)->answer($root, 'yes'),

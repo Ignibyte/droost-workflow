@@ -183,6 +183,10 @@ final class ArgvDispatcher {
         'declare-browser' => $this->declareBrowser($projectRoot, $argv),
         'declare-tasks' => $this->declareTasks($projectRoot, $argv),
         'declare-changes' => $this->declareChanges($projectRoot, $argv),
+        'declare-route' => $this->declareRoute($projectRoot, $argv),
+        'declare-criterion' => $this->declareCriterion($projectRoot, $argv),
+        'verify-criterion' => $this->verifyCriterion($projectRoot, $argv),
+        'declare-note' => $this->declareNote($projectRoot, $argv),
         'reset' => $this->reset($projectRoot, $argv),
         'baseline' => $this->baseline($projectRoot, $argv),
         'uninstall' => $this->uninstall($projectRoot),
@@ -651,6 +655,123 @@ final class ArgvDispatcher {
   }
 
   /**
+   * Declares a route: `declare-route <path> [reason]`.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The verb's arguments.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function declareRoute(string $projectRoot, array $argv): int {
+    $path = $argv[1] ?? '';
+    if ($path === '') {
+      $this->fail('declare-route needs the path: declare-route /rinks "the new listing"');
+      return self::EXIT_USAGE;
+    }
+    $declared = $this->facade($projectRoot)->declareRoute(
+      $projectRoot,
+      $path,
+      ($argv[2] ?? '') === '' ? NULL : $argv[2],
+    );
+    $this->say(sprintf(
+      'route: %s — %d declared in this run',
+      $path,
+      is_array($declared['routes'] ?? NULL) ? count($declared['routes']) : 0,
+    ));
+
+    return self::EXIT_OK;
+  }
+
+  /**
+   * Declares a criterion: `declare-criterion <ref> <statement>`.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The verb's arguments.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function declareCriterion(string $projectRoot, array $argv): int {
+    $ref = $argv[1] ?? '';
+    $statement = $argv[2] ?? '';
+    if ($ref === '' || $statement === '') {
+      $this->fail(
+        'declare-criterion needs a ref and a statement: declare-criterion '
+        . 'AC-1 "the listing shows every published rink"',
+      );
+      return self::EXIT_USAGE;
+    }
+    $this->facade($projectRoot)->declareCriterion($projectRoot, $ref, $statement);
+    $this->say('criterion: ' . $ref);
+
+    return self::EXIT_OK;
+  }
+
+  /**
+   * Records a proof: `verify-criterion <ref> <what proves it>`.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The verb's arguments.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function verifyCriterion(string $projectRoot, array $argv): int {
+    $ref = $argv[1] ?? '';
+    $by = $argv[2] ?? '';
+    if ($ref === '' || $by === '') {
+      $this->fail(
+        'verify-criterion needs a ref and what proves it: verify-criterion '
+        . 'AC-1 "RinkListTest::testEveryPublished"',
+      );
+      return self::EXIT_USAGE;
+    }
+    $this->facade($projectRoot)->verifyCriterion($projectRoot, $ref, $by);
+    $this->say(sprintf('verified: %s by %s', $ref, $by));
+
+    return self::EXIT_OK;
+  }
+
+  /**
+   * Records a note: `declare-note <kind> <subject> [detail]`.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The verb's arguments.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function declareNote(string $projectRoot, array $argv): int {
+    $kind = $argv[1] ?? '';
+    $subject = $argv[2] ?? '';
+    if ($kind === '' || $subject === '') {
+      $this->fail(
+        'declare-note needs a kind and a subject: declare-note grounding '
+        . '"Drupal\\node\\Entity\\Node" "the entity the listing reads"',
+      );
+      return self::EXIT_USAGE;
+    }
+    $this->facade($projectRoot)->declareNote(
+      $projectRoot,
+      $kind,
+      $subject,
+      ($argv[3] ?? '') === '' ? NULL : $argv[3],
+    );
+    $this->say(sprintf('note: %s %s', $kind, $subject));
+
+    return self::EXIT_OK;
+  }
+
+  /**
    * Records the agent's declared browser capability.
    *
    * @param string $projectRoot
@@ -1093,6 +1214,27 @@ final class ArgvDispatcher {
                        ran blocks. --type is one of code, content_model,
                        theme, content, docs, mixed and never turns a gate off;
                        it says which gates must have MEASURED something.
+      declare-route    declare a path this change serves, which is what
+                       rendered_check renders: `declare-route /rinks "the new
+                       listing"`. Repeatable and idempotent. `## Routes` stays
+                       in the spec for a human; nothing mechanical reads it,
+                       so a fenced list or a heading in the wrong place can no
+                       longer cost a run
+      declare-criterion
+                       declare what must be true: `declare-criterion AC-1
+                       "the listing shows every published rink"`. Restating
+                       one is a recorded revision, not a refusal — and it
+                       DROPS any verification, because a criterion rewritten
+                       to fit what passed is the one thing this record cannot
+                       survive
+      verify-criterion record what proves one: `verify-criterion AC-1
+                       "RinkListTest::testEveryPublished"`. Refused when no
+                       such criterion was declared, which is the only refusal
+                       on this surface
+      declare-note     anything else the spec would have said in prose:
+                       `declare-note grounding "Drupal\node\Entity\Node"
+                       "the entity the listing reads"`. Kinds are open —
+                       grounding, tooling, decision, or a contributed step's
       declare-browser  record the session's browser tier (playwright-mcp,
                        native, none)
       declare-tasks    record the host task surface this session can drive,
