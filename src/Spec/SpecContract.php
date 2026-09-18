@@ -474,6 +474,12 @@ final class SpecContract {
     $none = FALSE;
     foreach (preg_split('/\R/', $m[1]) ?: [] as $line) {
       $line = trim($line);
+      // A FENCED ROUTE IS NOT A DECLARED ROUTE, and that is deliberate:
+      // read() blanks every fenced block before this runs, so an EXAMPLE in a
+      // spec is never mistaken for a declaration. A writer who fences their
+      // route list therefore declares nothing — and the plan gate refuses a
+      // Routes section that names neither a route nor `none`, which is the
+      // loud failure that shape deserves (F-32).
       if ($line === '' || preg_match('/^[\s\-:|]+$/', $line) === 1) {
         continue;
       }
@@ -484,7 +490,20 @@ final class SpecContract {
         $none = TRUE;
         continue;
       }
-      if (preg_match('~`?(/[^\s`|]*)`?~', $item, $r) === 1) {
+      // ANCHORED, because a route is a line that IS a path — not a line that
+      // MENTIONS one (F-32). Unanchored, this harvested any path-shaped token
+      // out of ordinary prose: T1's spec explained that rink nodes are served
+      // by core's `/node/{nid}` route "which this change does not alter", and
+      // the gate dutifully tried to render the literal string `/node/{nid}`
+      // while `/rinks` — declared in a fence above, and therefore unseen —
+      // went unrendered. That is F-15 exactly, recreated by F-15's own fix:
+      // the gate rendering a route the ticket never named while the page the
+      // ticket exists to build is never requested.
+      //
+      // Trailing prose after the path is still allowed, because "- /rinks —
+      // the new listing" is the documented form and the em dash carries the
+      // reason a reader needs.
+      if (preg_match('~^`?(/[^\s`|]*)`?~', $item, $r) === 1) {
         $route = rtrim($r[1], '`');
         if (!in_array($route, $routes, TRUE)) {
           $routes[] = $route;

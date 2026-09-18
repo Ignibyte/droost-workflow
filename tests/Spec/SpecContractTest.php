@@ -861,4 +861,61 @@ MD
     $this->assertSame('droost/droost-workflow/spec-test-run.md', $run['spec']);
   }
 
+  /**
+   * A route is a line that IS a path, not a line that mentions one (F-32).
+   *
+   * Found by the round meant to verify F-15, which is the uncomfortable part.
+   * T1's spec declared `/rinks` inside a fenced block and then explained, in
+   * prose, that rink nodes are served by core's `/node/{nid}` route "which
+   * this change does not alter". `read()` blanks fenced blocks so an example
+   * is never read as a declaration — correct — and the unanchored match then
+   * harvested the placeholder out of the sentence. `rendered_check` rendered
+   * the literal string `/node/{nid}` while `/rinks` went unrequested: F-15's
+   * own failure, recreated by F-15's fix.
+   *
+   * A fenced route list therefore declares NOTHING, which is the right answer
+   * — the plan gate refuses a Routes section naming neither a route nor
+   * `none`, and a loud refusal beats a gate quietly rendering the wrong page.
+   */
+  public function testRoutesIgnorePathsMentionedInProse(): void {
+    $root = $this->makeRoot();
+    $spec = 'droost/droost-workflow/spec.md';
+    @mkdir(dirname($root . '/' . $spec), 0775, TRUE);
+    $write = static function (string $body) use ($root, $spec): void {
+      file_put_contents(
+        $root . '/' . $spec,
+        "# S\n\n## Tooling plan\n\n- hand\n\n## Routes\n\n" . $body,
+      );
+    };
+
+    // The section is always present in these fixtures, so a NULL return would
+    // itself be the bug; assert that before reading the list.
+    $declared = function (string $body) use ($write, $root, $spec): array {
+      $write($body);
+      $parsed = SpecContract::routes($root, $spec);
+      $this->assertNotNull($parsed, 'the Routes section is present and must parse');
+
+      return $parsed['routes'];
+    };
+
+    // The shape that caused it: fenced list, placeholder in the prose.
+    $this->assertSame(
+      [],
+      $declared("```\n/rinks\n```\n\nReachable at core's `/node/{nid}` route.\n"),
+      'a fenced list declares nothing and the prose placeholder is not a route',
+    );
+
+    // A real declaration, with the same prose beside it.
+    $this->assertSame(
+      ['/rinks'],
+      $declared("/rinks\n\nReachable at core's `/node/{nid}` route.\n"),
+    );
+
+    // The documented list form, with trailing reasons, and prose after it.
+    $this->assertSame(
+      ['/camps', '/rinks'],
+      $declared("- /camps — the new listing\n- `/rinks`\n\nMentions /not-a-route in passing.\n"),
+    );
+  }
+
 }
