@@ -2063,6 +2063,41 @@ final class EvidenceStore {
   }
 
   /**
+   * How many MCP tool calls the guard recorded for this run.
+   *
+   * THE INSTRUMENT'S OWN SELF-TEST, and the reason browser_review is allowed
+   * to block at all (F-37). A Claude Code hook fires for the tools its
+   * matcher names. Until 0.9.5 the guard was registered for the edit tools
+   * and Bash only, so no MCP call ever reached it — and a step counting
+   * browser calls in that diary counted zero for a run that browsed all day,
+   * blocked `test`, and could not be cleared by doing the thing it asked for.
+   *
+   * This is what tells the two cases apart. A run whose diary holds ANY
+   * `mcp__*` row has a recorder that demonstrably sees MCP calls, so a zero
+   * browser count is a real zero. A run whose diary holds none cannot
+   * distinguish "never browsed" from "cannot see browsing", and a wall built
+   * on an instrument that cannot see is not enforcement — it is a wedge.
+   *
+   * It self-heals rather than needing a version check: droost's own tools are
+   * MCP tools, so on a correctly wired install the recorder proves itself in
+   * the first phase without anyone asking.
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return int
+   *   The number of recorded calls whose tool name is an MCP one.
+   */
+  public function mcpToolCalls(string $runId): int {
+    $statement = $this->connection()->prepare(
+      "SELECT COUNT(*) FROM guard_call WHERE run_id = ? AND tool LIKE 'mcp__%'"
+    );
+    $statement->execute([$runId]);
+
+    return (int) ($statement->fetchColumn() ?: 0);
+  }
+
+  /**
    * How many guard invocations this run has already ingested.
    *
    * The watermark for moving the guard's append-only `guard-calls.jsonl` into

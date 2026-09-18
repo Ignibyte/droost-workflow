@@ -810,21 +810,57 @@ final class ModeEngine {
     }
 
     try {
-      $calls = (new EvidenceStore($projectRoot))->browserToolCalls($state->runId, $phase->value);
+      $store = new EvidenceStore($projectRoot);
+      $calls = $store->browserToolCalls($state->runId, $phase->value);
+      $recorderSeesMcp = $store->mcpToolCalls($state->runId) > 0;
     }
     catch (\Throwable $e) {
       // AN UNREADABLE STORE IS NOT A ZERO. Same rule as the seeker findings:
       // the instrument failing is a fault of the environment, and reporting
       // it as the agent's failure is the defect class this engine exists to
       // avoid recording.
+      // FAULT::NONE, and this is a bug Phase A shipped. `CheckRecord` refuses
+      // a fault on anything but a blocked state, and a remedy on anything but
+      // an environment fault — so this branch, written as Recorded +
+      // Environment + remedy, would have THROWN the moment a store became
+      // unreadable, which is exactly when it was supposed to speak. No test
+      // could reach it: a fixture's store is always readable. Found while
+      // fixing F-37, by making the same mistake twice in one afternoon.
       return new CheckRecord(
         'step',
         'browser_review',
         CheckState::Recorded,
-        Fault::Environment,
+        Fault::None,
         'not verifiable: the evidence store could not be read (' . $e::class
-        . '), so the browser calls this run made cannot be counted.',
-        'Fix the store, then run this phase again to get a real answer.',
+        . '), so the browser calls this run made cannot be counted. Fix the '
+        . 'store, then run this phase again to get a real answer.',
+      );
+    }
+
+    // AN INSTRUMENT THAT CANNOT SEE MAY NOT BLOCK (F-37). A hook fires for the
+    // tools its matcher names, and before 0.9.5 the guard was registered for
+    // the edit tools and Bash only — so no MCP call reached the diary, the
+    // count was structurally zero, and this step wedged a live run at `test`
+    // with every criterion verified and every gate green. The agent had
+    // browsed thoroughly; there was no action available that could clear it.
+    //
+    // A run whose diary holds any `mcp__*` row has a recorder that sees MCP
+    // calls, so zero browser calls is a real zero and the wall is honest.
+    // With none, "never browsed" and "cannot see browsing" are the same
+    // reading, and this records rather than blocks — the same rule as an
+    // unreadable store above, and as A-13 and F-27 before both.
+    if ($calls === 0 && !$recorderSeesMcp) {
+      return new CheckRecord(
+        'step',
+        'browser_review',
+        CheckState::Recorded,
+        Fault::None,
+        'not counted: no MCP tool call of any kind reached the guard in this '
+        . 'run, so a browser call could not have been recorded either and a '
+        . 'zero here says nothing about what the agent did. A hook fires for '
+        . 'the tools its matcher names, and `droost:workflow:install` from '
+        . '0.9.5 adds the recording-only registration that MCP calls match — '
+        . 'run it, then run this phase again for a real answer.',
       );
     }
 
@@ -834,10 +870,12 @@ final class ModeEngine {
         'browser_review',
         CheckState::Blocked,
         Fault::Agent,
-        'no browser tool call is recorded in this phase. A passing browser '
-        . 'suite says the code behaves; it does not say anyone looked at the '
-        . 'page. Navigate to the routes this ticket touched with the browser '
-        . 'tools, look at what is there, then run this phase again.',
+        'no browser tool call is recorded in this phase, and this run\'s guard '
+        . 'has recorded other MCP calls — so the recorder works and the zero '
+        . 'is real. A passing browser suite says the code behaves; it does not '
+        . 'say anyone looked at the page. Navigate to the routes this ticket '
+        . 'touched with the browser tools, look at what is there, then run '
+        . 'this phase again.',
       );
     }
 

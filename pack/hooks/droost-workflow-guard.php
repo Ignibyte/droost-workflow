@@ -337,6 +337,29 @@ $GLOBALS['workflow_guard_tool'] = is_string($toolName) && $toolName !== ''
   ? substr($toolName, 0, 120)
   : NULL;
 
+// RECORD MODE ENDS HERE, and ending here is the whole design (F-37).
+//
+// The diary's other two modes are walls that happen to keep a diary. This one
+// is a diary and nothing else: it exists because Claude Code fires a hook for
+// the tools its MATCHER names, and the two wall registrations name
+// `Edit|Write|MultiEdit|NotebookEdit` and `Bash`. An MCP call matches neither,
+// so for three phases of a live run the guard recorded 94 rows across exactly
+// three tool names and not one `mcp__*` — while the agent was driving a real
+// browser. `browser_review` counted zero, blocked `test`, and could never have
+// been satisfied.
+//
+// The fix is NOT a wider wall. Widening a refusal matcher to `.*` would run
+// the file-path and shell checks over every third-party tool's arguments, and
+// an enforcement surface whose behaviour depends on the shape of somebody
+// else's tool input is one nobody can reason about. So: a third registration,
+// matched on `mcp__.*`, that returns before any branch that can refuse.
+//
+// The shutdown function is already registered above and writes the row however
+// this script leaves, so `return` here is a complete recording.
+if ($mode === 'record') {
+  return;
+}
+
 // A NUL byte is never part of a real path or a real command — no filesystem
 // this runs on accepts one — but it IS what truncates a C string, so
 // `.claude/hooks/droost-workflow-guard.php\0.txt` is one name to this guard and

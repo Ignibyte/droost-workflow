@@ -202,6 +202,22 @@ final class PackMaterializer {
         'hooks' => [['type' => 'command', 'command' => $guard . ' operator-commands']],
       ],
       ],
+      // RECORDING ONLY, and the reason it is a third registration rather
+      // than a wider matcher on one of the two above (F-37). A hook fires for
+      // the tools its matcher names; the two walls name the edit tools and
+      // Bash, so no MCP call has ever reached this guard — not Playwright,
+      // not droost's own tools. A live run recorded 94 rows across three tool
+      // names, zero of them `mcp__*`, while the agent drove a browser
+      // throughout, and the step that counts those rows wedged the run.
+      //
+      // Widening a refusal matcher to `.*` would put every third-party tool's
+      // arguments through the file-path and shell checks. This entry cannot
+      // refuse anything: `record` returns before any branch that can.
+      ['PreToolUse', [
+        'matcher' => 'mcp__.*',
+        'hooks' => [['type' => 'command', 'command' => $guard . ' record']],
+      ],
+      ],
       ['Stop', [
         'hooks' => [['type' => 'command', 'command' => $guard . ' stop']],
       ],

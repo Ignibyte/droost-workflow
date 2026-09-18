@@ -84,15 +84,32 @@ final class EnforcementWiringTest extends WorkflowTestCase {
 
     $settings = json_decode((string) file_get_contents($root . '/.claude/settings.json'), TRUE);
     $this->assertIsArray($settings);
-    // The Bash guard is added, and the pre-existing guards are upgraded to the
-    // anchored path in place — two PreToolUse entries, one Stop, no duplicate
-    // and no old relative path left behind (R23-F2 + R27-F1).
+    // The Bash guard is added, the pre-existing guards are upgraded to the
+    // anchored path in place, and the recording-only MCP registration joins
+    // them — three PreToolUse entries, one Stop, no duplicate and no old
+    // relative path left behind (R23-F2 + R27-F1 + F-37).
     $new = 'php "$CLAUDE_PROJECT_DIR/.claude/hooks/droost-workflow-guard.php"';
     $pre = self::preToolUseEntries($settings);
-    $this->assertCount(2, $pre, 'the edit guard is upgraded once and the Bash guard added once');
+    $this->assertCount(3, $pre, 'edit guard upgraded, Bash guard added, MCP recorder added');
     $commands = array_column($pre, 'command');
     $this->assertContains($new . ' pre-tool-use', $commands);
     $this->assertContains($new . ' operator-commands', $commands);
+    $this->assertContains($new . ' record', $commands);
+    // AND IT IS THE ONLY ONE MATCHED ON MCP. A wall that ran over every
+    // third-party tool's arguments is the thing F-37's fix is avoiding; if a
+    // refusal mode ever acquires an `mcp__` matcher, this fails.
+    foreach ($pre as $entry) {
+      // preToolUseEntries() already narrows both keys to strings, so the
+      // `?? NULL` phpstan flagged was dead — and a dead null-coalesce on a
+      // key that is always present is the kind of defensive noise that hides
+      // a real absence somewhere else.
+      if (str_ends_with($entry['command'], ' record')) {
+        $this->assertSame('mcp__.*', $entry['matcher']);
+      }
+      else {
+        $this->assertStringNotContainsString('mcp__', $entry['matcher']);
+      }
+    }
     $this->assertNotContains($old . ' pre-tool-use', $commands, 'the old relative path is gone, not left beside the new one');
     $hooks = $settings['hooks'] ?? NULL;
     $this->assertIsArray($hooks);

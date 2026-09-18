@@ -47,6 +47,22 @@ class ModeEngineTest extends WorkflowTestCase {
       ->withBrowser('playwright-mcp')
       ->advanceTo(Phase::Test);
 
+    // THE RECORDER MUST PROVE ITSELF FIRST (F-37). One MCP call of any kind
+    // in the diary is what says this run's guard can see MCP calls at all —
+    // without it, zero browser calls is an unreadable instrument rather than
+    // an agent who did not look, and the step records instead of blocking.
+    // A live run wedged at `test` for exactly this reason: the hook was never
+    // registered for MCP, so the count was structurally zero.
+    (new EvidenceStore($this->root))->recordGuardCall(
+      $state->runId,
+      Phase::Test->value,
+      'pre-tool-use',
+      'invoked',
+      NULL,
+      self::NOW,
+      'mcp__droost__droost_search',
+    );
+
     $held = $engine->runPhase($state, Phase::Test, $this->root, self::NOW);
     $this->assertSame(Outcome::Blocked, $held->outcome);
     $this->assertSame(
@@ -71,6 +87,49 @@ class ModeEngineTest extends WorkflowTestCase {
     );
     $out = $engine->runPhase($state, Phase::Test, $this->root, self::NOW);
     $this->assertNotSame(Outcome::Blocked, $out->outcome);
+  }
+
+  /**
+   * A recorder that has never seen an MCP call may not block on one.
+   *
+   * F-37, found live. A Claude Code hook fires for the tools its matcher
+   * names; the guard was registered for the edit tools and Bash only, so no
+   * MCP call reached the diary, `browserToolCalls()` was structurally zero,
+   * and this step wedged a real run at `test` with every criterion verified
+   * and every gate green. The agent had browsed thoroughly and no action
+   * available to it could clear the wall.
+   *
+   * "Never browsed" and "cannot see browsing" are the same reading of the
+   * same zero, and only one of them is the agent's fault.
+   */
+  public function testTheBlindRecorderRecordsRatherThanBlocks(): void {
+    $engine = $this->engine($this->recordingSink());
+    $state = $this->begin(['mode' => 'automated', 'preset' => 'low'])
+      ->withBrowser('playwright-mcp')
+      ->advanceTo(Phase::Test);
+    // A diary with rows, none of them MCP — which is exactly what a live run
+    // produced across three phases: Bash, Edit and Write, and nothing else.
+    (new EvidenceStore($this->root))->recordGuardCall(
+      $state->runId,
+      Phase::Test->value,
+      'pre-tool-use',
+      'invoked',
+      NULL,
+      self::NOW,
+      'Bash',
+    );
+
+    $out = $engine->runPhase($state, Phase::Test, $this->root, self::NOW);
+    $this->assertNotSame(Outcome::Blocked, $out->outcome, 'a blind instrument is not a wall');
+
+    $rows = array_values(array_filter(
+      (new EvidenceStore($this->root))->checklist($state->runId, Phase::Test->value),
+      static fn (array $row): bool => ($row['name'] ?? '') === 'browser_review',
+    ));
+    $this->assertSame('recorded', $rows[0]['state']);
+    $summary = $rows[0]['summary'];
+    $this->assertIsString($summary);
+    $this->assertStringContainsString('no MCP tool call of any kind', $summary);
   }
 
   /**

@@ -438,7 +438,26 @@ final class EvaluationReport {
       ['Preset', self::code(self::text($run, 'preset')), 'reported'],
       ['Mode', self::code(self::text($run, 'mode')), 'reported'],
       ['Enforcement (requested)', self::code(self::text($run, 'enforcement')), 'reported'],
-      ['Base commit', self::code(self::text($run, 'base_commit')), 'reported'],
+      // NOT "reported" WHEN IT IS ABSENT (F-36). This row read `— not
+      // recorded —` beside the word "reported" for four series, and nobody
+      // noticed that every run in every one of them had an empty base
+      // commit. The cause is environmental and invisible: ddev's mutagen
+      // sync ignores `/.git`, so the container the run opens in has the
+      // project's files and no repository, and `CliVcs::head()` correctly
+      // returns NULL. Correctly, and silently — "this is not a git
+      // repository" and "git could not see one from where I asked" are the
+      // same NULL, which is the ambiguity this whole document exists to
+      // refuse.
+      [
+        'Base commit',
+        self::code(self::text($run, 'base_commit')),
+        self::text($run, 'base_commit') === NULL
+          ? '**not reported** — no repository was visible from the project '
+        . 'root when the run opened, so nothing here can say what '
+        . 'changed: the seeker reads a diff with no stated base and '
+        . '`changedFiles()` falls back to the working tree alone'
+          : 'reported',
+      ],
       ['Spec', self::code(self::text($run, 'spec_path')), 'reported'],
       // NOT `measured`, and not "Spec hash" either — both were wrong, and a
       // reviewer proved both by running them. droost does the hashing, but over
