@@ -233,6 +233,13 @@ Then produce the spec:
    "nobody asked". Three live rounds rendered `/` alone while the ticket's
    own page was the one that could fail — once it was a 500 mid-build.
 
+   Write them however reads best: a plain list, a table, or a fenced block —
+   **this section reads its fences, and it is the only one that does.** A
+   route is a line that IS a path, so `- /camps — the listing` declares
+   `/camps` and a sentence mentioning `` `/node/{nid}` `` declares nothing.
+   Elsewhere a fenced block is invisible to the engine on purpose, so a
+   sample command in your Tooling plan is never read as a real declaration.
+
 The spec's WEIGHT follows the run's preset — read the frozen, canonical name
 from run.json — and since 0.4 the weight is DEPTH, never format. The five-point
 dial collapses to two weights: a **`high`/`xhigh`/`max`** (or `custom`) run

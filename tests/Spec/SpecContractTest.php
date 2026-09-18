@@ -872,9 +872,13 @@ MD
    * the literal string `/node/{nid}` while `/rinks` went unrequested: F-15's
    * own failure, recreated by F-15's fix.
    *
-   * A fenced route list therefore declares NOTHING, which is the right answer
-   * — the plan gate refuses a Routes section naming neither a route nor
-   * `none`, and a loud refusal beats a gate quietly rendering the wrong page.
+   * Anchoring is the fix, and it is the whole fix. Blanking the fence was the
+   * OTHER half of the same wound (F-34): two of Part 3's three specs wrote
+   * their route list inside a fence, because that is the natural markdown for
+   * "one per line", and declared nothing by doing it. This section reads its
+   * fences now — it is a list of paths and nothing else, so there is no
+   * example in it to protect against — and the anchor is what keeps the prose
+   * placeholder out either way.
    */
   public function testRoutesIgnorePathsMentionedInProse(): void {
     $root = $this->makeRoot();
@@ -897,11 +901,21 @@ MD
       return $parsed['routes'];
     };
 
-    // The shape that caused it: fenced list, placeholder in the prose.
+    // The shape that caused it: fenced list, placeholder in the prose. The
+    // fence is read and the sentence is not — which is what T1's spec meant
+    // and what the engine now does with it.
     $this->assertSame(
-      [],
+      ['/rinks'],
       $declared("```\n/rinks\n```\n\nReachable at core's `/node/{nid}` route.\n"),
-      'a fenced list declares nothing and the prose placeholder is not a route',
+      'the fenced list declares, and the prose placeholder is still not a route',
+    );
+
+    // Info strings and tildes are fences too, and a fenced list may carry the
+    // same reasons-after-the-path form as a plain one.
+    $this->assertSame(
+      ['/rinks', '/camps'],
+      $declared("~~~text\n- /rinks — the listing\n- /camps\n~~~\n"),
+      'every fence form a writer might reach for',
     );
 
     // A real declaration, with the same prose beside it.

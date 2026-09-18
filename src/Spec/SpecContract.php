@@ -499,6 +499,29 @@ final class SpecContract {
    * declares that the ticket touches no route. Header and separator rows are
    * not routes; nor is prose.
    *
+   * THIS SECTION READS ITS FENCES, and it is the only one that does (F-34).
+   * `read()` blanks every fenced block before anything is parsed, so that a
+   * Tooling plan showing a sample command is never read as a real
+   * declaration — right for every section that mixes prose with examples.
+   * `## Routes` does not mix: it is a list of paths and nothing else, so a
+   * fence in it is never an example and there is nothing to protect against.
+   *
+   * The cost of blanking it was measured. The plan skill asks for the paths
+   * "one per line", the natural markdown for that is a fenced block, and
+   * **two of Part 3's three specs wrote one** — declaring nothing. `P3-T1`
+   * fenced `/rinks` and had `/node/{nid}` harvested from a prose sentence
+   * instead, so the gate rendered a 404 while the page the ticket existed to
+   * build was never requested. `P3-T2` fenced seven paths and declared two by
+   * accident, from prose lines that happened to begin with a backticked path.
+   * Not one fenced spec got what it asked for.
+   *
+   * The SECTION BOUNDARY is still found in the blanked text, and that matters:
+   * `read()` emits one line per input line, so the two texts align
+   * line-for-line, and a `#` heading inside a fence cannot end the section
+   * early the way it would if the raw text were scanned for boundaries.
+   * Anchoring (F-32) is what keeps prose out: a route is a line that IS a
+   * path, never a line that mentions one.
+   *
    * @param string $projectRoot
    *   The repository.
    * @param string $spec
@@ -511,24 +534,37 @@ final class SpecContract {
    *   with `none` FALSE — the caller decides that this is undeclared.
    */
   public static function routes(string $projectRoot, string $spec): ?array {
-    $text = self::read(rtrim($projectRoot, '/') . '/' . $spec);
+    $path = rtrim($projectRoot, '/') . '/' . $spec;
+    $text = self::read($path);
     if ($text === NULL) {
       return NULL;
     }
     $heading = preg_quote(self::ROUTES_HEADING, '/');
-    if (preg_match('/^' . $heading . '\b[^\n]*\n(.*?)(?=^#{1,2} |\z)/msi', $text, $m) !== 1) {
+    if (preg_match('/^' . $heading . '\b[^\n]*\n(.*?)(?=^#{1,2} |\z)/msi', $text, $m, PREG_OFFSET_CAPTURE) !== 1) {
       return NULL;
     }
+    // The same lines, unblanked. Counted rather than re-matched: the blanked
+    // and raw texts have the same line count by construction (read() emits
+    // one line per input line), so the section's line range transfers exactly
+    // and the boundary stays fence-safe.
+    $raw = @file_get_contents($path);
+    $lines = $raw === FALSE
+      ? (preg_split('/\R/', (string) $m[1][0]) ?: [])
+      : array_slice(
+        preg_split('/\R/', $raw) ?: [],
+        substr_count(substr($text, 0, (int) $m[1][1]), "\n"),
+        max(0, count(preg_split('/\R/', (string) $m[1][0]) ?: []) - 1),
+      );
     $routes = [];
     $none = FALSE;
-    foreach (preg_split('/\R/', $m[1]) ?: [] as $line) {
+    foreach ($lines as $line) {
       $line = trim($line);
-      // A FENCED ROUTE IS NOT A DECLARED ROUTE, and that is deliberate:
-      // read() blanks every fenced block before this runs, so an EXAMPLE in a
-      // spec is never mistaken for a declaration. A writer who fences their
-      // route list therefore declares nothing — and the plan gate refuses a
-      // Routes section that names neither a route nor `none`, which is the
-      // loud failure that shape deserves (F-32).
+      // The fence's own delimiter lines, which are not routes. Everything
+      // BETWEEN them is, because this section is nothing but paths — see the
+      // docblock. Anchoring is what keeps prose out, not blanking.
+      if (preg_match('/^(?:`{3,}|~{3,})/', $line) === 1) {
+        continue;
+      }
       if ($line === '' || preg_match('/^[\s\-:|]+$/', $line) === 1) {
         continue;
       }
