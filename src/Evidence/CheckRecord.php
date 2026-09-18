@@ -67,6 +67,18 @@ final class CheckRecord {
    *   nothing — an empty path set, phpcs exit 16, phpunit finding no tests —
    *   each of which labelled itself in prose and was then read as an ordinary
    *   green. NULL when nothing said either way.
+   * @param int|null $inherited
+   *   How many of this gate's findings the adoption baseline already recorded
+   *   — subtracted from the verdict, reported, never failing — or NULL when
+   *   no baseline was consulted. The executor composed this into the summary
+   *   (`passed — 0 new, 123 inherited`) and the evidence boundary kept only
+   *   the sentence, so §4 printed a bare `satisfied` over subsidised debt
+   *   (F-7). NULL is not zero: a gate that never asked and a gate that asked
+   *   and found nothing are different facts.
+   * @param int|null $newFindings
+   *   How many findings the baseline does NOT record — the ones the verdict
+   *   actually turns on. `new_findings` in the store, because `new` is a
+   *   reserved word in enough SQL dialects to be worth avoiding.
    */
   public function __construct(
     public readonly string $kind,
@@ -85,6 +97,8 @@ final class CheckRecord {
     public readonly string $stderr = '',
     public readonly string $provider = '',
     public readonly ?bool $measured = NULL,
+    public readonly ?int $inherited = NULL,
+    public readonly ?int $newFindings = NULL,
   ) {
     if ($this->kind === '' || $this->name === '') {
       throw new \InvalidArgumentException('A check record needs both a kind and a name.');
@@ -177,6 +191,11 @@ final class CheckRecord {
         [GateStatus::ErrorToolMissing, GateStatus::ErrorToolFailed],
         TRUE,
       ),
+      // The baseline split, as columns rather than as a sentence. Both are
+      // NULL for every gate that consulted no baseline, which is every gate
+      // on a project that has never adopted one.
+      $result->inherited,
+      $result->new,
     );
   }
 

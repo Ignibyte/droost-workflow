@@ -57,6 +57,10 @@ final class EvidenceRecorder {
         // a bool, because '' (a run older than schema v7) is not 'off'.
         'seekers' => $state->seekers ? 'on' : 'off',
         'base_commit' => $state->baseCommit,
+        // WHICH baseline subsidised the verdicts in §4. Frozen at begin, so a
+        // baseline grown under a run disagrees with this and every consulting
+        // gate catches it.
+        'baseline_hash' => $state->baselineHash,
         'spec_path' => $state->specPath,
       ]);
       $this->ingestToolCalls($store, $state->runId, $phase);

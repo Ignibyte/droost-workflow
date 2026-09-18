@@ -26,6 +26,8 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(EvaluationReport::class)]
 final class EvaluationReportTest extends TestCase {
 
+  use ReadsTheReport;
+
   /**
    * A scratch project root, removed after each test.
    */
@@ -540,10 +542,14 @@ final class EvaluationReportTest extends TestCase {
       }
     }
     $this->assertNotSame('', $row, 'the gate row is in the report at all');
+    // The COUNT, not any column's position: a pipe inside a finding message
+    // that escaped wrongly adds a cell and silently shifts every column right
+    // of it. Kept in step with §4's header by hand, which is the only place
+    // in this suite that still needs to be.
     $this->assertSame(
-      9,
+      10,
       substr_count(str_replace('\\|', '', $row), '|') - 1,
-      'the gate row still has its nine columns: ' . $row,
+      'the gate row still has its ten columns: ' . $row,
     );
     $this->assertStringContainsString("phpcs | tee out.txt", $report, 'the invocation is printed raw, outside the table, so it can be run');
   }
@@ -755,12 +761,17 @@ final class EvaluationReportTest extends TestCase {
   private function verdicts(string $report): array {
     $verdicts = [];
     foreach (explode("\n", $report) as $line) {
-      // Eleven parts is the §4 table's nine columns plus the empty ends. §3's
-      // gate table opens with the same two cells and has four columns, so the
-      // count is what tells them apart.
       $cells = array_map(trim(...), explode('|', $line));
-      if (count($cells) === 11 && str_starts_with($cells[1], '`')) {
-        $verdicts[trim($cells[1], '`')] = $cells[8];
+      // §4's rows, named by their gate. The CELL comes from gateCell(), which
+      // finds the column by its heading — this loop only needs to know which
+      // gates have rows, not where any column sits.
+      if (count($cells) < 4 || !str_starts_with($cells[1], '`')) {
+        continue;
+      }
+      $gate = trim($cells[1], '`');
+      $cell = $this->gateCell($report, $gate, 'Measured anything?');
+      if ($cell !== NULL) {
+        $verdicts[$gate] = $cell;
       }
     }
 
@@ -870,14 +881,7 @@ final class EvaluationReportTest extends TestCase {
    *   The cell.
    */
   private function stillTrue(string $report): string {
-    foreach (explode("\n", $report) as $line) {
-      $cells = array_map(trim(...), explode('|', $line));
-      if (count($cells) === 11 && $cells[1] === '`phpcs`') {
-        return $cells[9];
-      }
-    }
-
-    return '(no phpcs row)';
+    return $this->gateCell($report, 'phpcs', 'Still true?') ?? '(no phpcs row)';
   }
 
   /**
@@ -995,14 +999,8 @@ final class EvaluationReportTest extends TestCase {
    *   The cell.
    */
   private function expiryOf(string $report, string $gate): string {
-    foreach (explode("\n", $report) as $line) {
-      $cells = array_map(trim(...), explode('|', $line));
-      if (count($cells) === 11 && $cells[1] === '`' . $gate . '`') {
-        return $cells[9];
-      }
-    }
-
-    return '(no row for ' . $gate . ')';
+    return $this->gateCell($report, $gate, 'Still true?')
+      ?? '(no row for ' . $gate . ')';
   }
 
   /**

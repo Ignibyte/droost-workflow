@@ -34,6 +34,7 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(EvidenceStore::class)]
 final class LabelledPassTest extends TestCase {
 
+  use ReadsTheReport;
   use ReadsTheStore;
 
   /**
@@ -131,13 +132,7 @@ final class LabelledPassTest extends TestCase {
     $report = (new EvaluationReport($this->runThatMeasuredNothing()))->render('r1');
 
     foreach (['phpcs', 'phpstan', 'phpunit'] as $gate) {
-      $cell = NULL;
-      foreach (explode("\n", $report) as $line) {
-        $cells = array_map(trim(...), explode('|', $line));
-        if (count($cells) === 11 && $cells[1] === '`' . $gate . '`') {
-          $cell = $cells[8];
-        }
-      }
+      $cell = $this->gateCell($report, $gate, 'Measured anything?');
       $this->assertIsString($cell, $gate . ' has a gate row');
       $this->assertStringStartsWith(
         'no —',

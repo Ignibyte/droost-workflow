@@ -564,8 +564,12 @@ final class EvaluationReport {
       ],
       [
         self::code('baseline'),
-        self::NOT_RECORDED,
-        'the baseline hash lives in `run.json`, not here',
+        self::text($run, 'baseline_hash') === NULL
+          ? 'none'
+          : self::code(self::text($run, 'baseline_hash')),
+        'the adoption baseline this run was held to, frozen at begin. `none` '
+        . 'means no debt was subsidised; §4\'s Baseline column says which '
+        . 'verdicts leaned on it',
       ],
       [
         self::code('work_item'),
@@ -685,6 +689,7 @@ final class EvaluationReport {
     $rows = [];
     $earlier = [];
     $measured = 0;
+    $subsidised = 0;
     foreach ($byItem as $attempts) {
       $latest = $attempts[count($attempts) - 1];
       $state = CheckState::tryFrom((string) (self::text($latest, 'state') ?? ''));
@@ -693,6 +698,10 @@ final class EvaluationReport {
       $verdict = self::measurement($state, $duration, is_numeric($recorded) ? (int) $recorded : NULL, self::number($latest, 'exit_code'));
       if ($verdict === 'yes') {
         $measured++;
+      }
+      $baseline = self::baselineCell($latest);
+      if (($latest['inherited'] ?? NULL) !== NULL && self::number($latest, 'inherited') > 0) {
+        $subsidised++;
       }
       $rows[] = [
         self::code(self::text($latest, 'name')),
@@ -703,6 +712,7 @@ final class EvaluationReport {
         $duration === NULL ? self::NOT_RECORDED : (string) $duration,
         self::text($latest, 'invocation') === NULL ? 'no' : 'yes',
         $verdict,
+        $baseline,
         $this->stillDescribesTheCode($runId, $latest),
       ];
       // ONLY GATES THAT RAN. A gate that is off or has no site here is
@@ -733,10 +743,19 @@ final class EvaluationReport {
       . "  longer exists. The most complete form of expiry there is.\n"
       . "- `unknown` — the gate has no `paths` lever, so there is nothing to\n"
       . "  fingerprint and there never was. NOT the same as unchanged.\n\n"
+      . "**Baseline** is the other way a green can mean less than it looks.\n"
+      . "An adoption baseline records the debt a tree already carried, and a\n"
+      . "consulting gate subtracts those findings from its verdict — a\n"
+      . "deliberate, audited exception to \"green means measured\", which this\n"
+      . "column is the audit of:\n\n"
+      . "- `—` — no baseline was consulted. NOT the same as zero inherited.\n"
+      . "- `0 inherited` — a baseline was consulted and subsidised nothing.\n"
+      . "- `**N inherited**, M new` — the verdict rests on M findings and set\n"
+      . "  N aside. A `satisfied` beside a non-zero N is a pass over debt.\n\n"
       . self::table(
         [
           'Gate', 'Phase', 'State', 'Fault', 'Exit', '`duration_ms`',
-          'Invocation recorded', 'Measured anything?', 'Still true?',
+          'Invocation recorded', 'Measured anything?', 'Baseline', 'Still true?',
         ],
         $rows,
       )
@@ -749,6 +768,14 @@ final class EvaluationReport {
         count($rows) === 1 ? '' : 's',
         $measured,
       )
+      . ($subsidised === 0 ? '' : sprintf(
+        "\n**%d of those verdicts subtracted inherited debt.** Read %s against\n"
+        . "§2's `baseline` row, which names the manifest the run was frozen\n"
+        . "to: that is WHICH debt was set aside, and a gate consulting a\n"
+        . "different one is a baseline edited under the run.\n",
+        $subsidised,
+        $subsidised === 1 ? 'it' : 'them',
+      ))
       . $this->expiryNote($rows);
 
     if ($earlier !== []) {
@@ -1883,6 +1910,42 @@ final class EvaluationReport {
     }
 
     return $rows;
+  }
+
+  /**
+   * What the adoption baseline contributed to one verdict.
+   *
+   * The three answers are deliberately not two. An em dash is "no baseline
+   * was consulted", `0 inherited` is "one was, and it subsidised nothing",
+   * and those are different facts about different projects — collapsing them
+   * into a blank cell is how a subsidised green became invisible in the first
+   * place (F-7). The template's own first instruction is that an empty cell
+   * is an unmeasured thing wearing the costume of a measured one.
+   *
+   * @param array<array-key, mixed> $row
+   *   The stored check row.
+   *
+   * @return string
+   *   The cell.
+   */
+  private static function baselineCell(array $row): string {
+    $inherited = $row['inherited'] ?? NULL;
+    $new = $row['new_findings'] ?? NULL;
+    if ($inherited === NULL && $new === NULL) {
+      return '—';
+    }
+    $count = $inherited === NULL ? 0 : self::number($row, 'inherited');
+    if ($count === 0) {
+      return sprintf('0 inherited, %d new', $new === NULL ? 0 : self::number($row, 'new_findings'));
+    }
+    // BOLD ON THE INHERITED NUMBER, because that is the one a reader skims
+    // past. The verdict rests on the `new` count; the bold one is what the
+    // verdict does not rest on and a reviewer would otherwise never learn.
+    return sprintf(
+      '**%d inherited**, %d new',
+      $count,
+      $new === NULL ? 0 : self::number($row, 'new_findings'),
+    );
   }
 
   /**

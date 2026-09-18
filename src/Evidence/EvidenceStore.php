@@ -60,7 +60,7 @@ final class EvidenceStore {
    * build does not know about costs it nothing. A store written by an older one
    * is migrated up in place.
    */
-  public const int SCHEMA_VERSION = 8;
+  public const int SCHEMA_VERSION = 9;
 
   /**
    * Substrings that identify a browser tool in a host's tool name.
@@ -228,6 +228,7 @@ final class EvidenceStore {
         6 => $this->migrateToV6($pdo),
         7 => $this->migrateToV7($pdo),
         8 => $this->migrateToV8($pdo),
+        9 => $this->migrateToV9($pdo),
         default => NULL,
       };
       // Stamped per rung, so an interrupted upgrade resumes where it stopped
@@ -256,7 +257,8 @@ final class EvidenceStore {
         spec_frozen_at  TEXT,
         spec_text       TEXT,
         work_type       TEXT,
-        work_type_declared_at TEXT
+        work_type_declared_at TEXT,
+        baseline_hash   TEXT
       );
 
       CREATE TABLE IF NOT EXISTS check_result (
@@ -276,7 +278,9 @@ final class EvidenceStore {
         started_at      TEXT,
         duration_ms     INTEGER,
         adjudicated_at  TEXT NOT NULL,
-        provider        TEXT
+        provider        TEXT,
+        inherited       INTEGER,
+        new_findings    INTEGER
       );
       CREATE INDEX IF NOT EXISTS check_by_run   ON check_result (run_id, phase, name);
       CREATE INDEX IF NOT EXISTS check_by_state ON check_result (run_id, state);
@@ -442,13 +446,13 @@ final class EvidenceStore {
    *   The run.
    * @param array<string, string|null> $facts
    *   Any of started_at, preset, mode, enforcement, seekers, base_commit,
-   *   spec_path, spec_hash, spec_frozen_at, spec_text.
+   *   spec_path, spec_hash, spec_frozen_at, spec_text, baseline_hash.
    */
   public function upsertRun(string $runId, array $facts): void {
     $allowed = [
       'started_at', 'preset', 'mode', 'enforcement', 'seekers', 'base_commit',
       'spec_path', 'spec_hash', 'spec_frozen_at', 'spec_text',
-      'work_type', 'work_type_declared_at',
+      'work_type', 'work_type_declared_at', 'baseline_hash',
     ];
     $facts = array_intersect_key($facts, array_flip($allowed));
     $pdo = $this->connection();
@@ -557,8 +561,8 @@ final class EvidenceStore {
       'INSERT INTO check_result
         (run_id, phase, attempt, kind, name, state, fault, summary, remedy,
          subject_hash, exit_code, invocation, started_at, duration_ms, adjudicated_at,
-         provider, measured, row_digest)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+         provider, measured, inherited, new_findings, row_digest)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     $statement->execute([
       $runId,
@@ -578,6 +582,8 @@ final class EvidenceStore {
       $adjudicatedAt = $now ?? date('c'),
       $check->provider,
       $check->measured === NULL ? NULL : (int) $check->measured,
+      $check->inherited,
+      $check->newFindings,
       $digest = self::chain($previous, $runId, $phase, $attempt, $check, $adjudicatedAt),
     ]);
     // Per RUN. Without the WHERE, two runs sharing a store carried one global
@@ -1852,6 +1858,13 @@ final class EvidenceStore {
       $adjudicatedAt,
       $check->provider,
       $check->measured === NULL ? '' : ($check->measured ? '1' : '0'),
+      // CONDITIONALLY — see migrateToV9(). Appending these unconditionally
+      // would change the recompute input for every row written before v9 and
+      // read three completed series of archived evidence as forged.
+      ...($check->inherited === NULL && $check->newFindings === NULL ? [] : [
+        (string) ($check->inherited ?? -1),
+        (string) ($check->newFindings ?? -1),
+      ]),
     ]));
   }
 
@@ -1952,6 +1965,13 @@ final class EvidenceStore {
         self::text($row, 'adjudicated_at'),
         self::text($row, 'provider'),
         ($row['measured'] ?? NULL) === NULL ? '' : (self::number($row, 'measured') === 1 ? '1' : '0'),
+        // The same conditional as chain(), and it has to be the same or every
+        // pre-v9 row fails here. A count moved into or out of NULL changes
+        // this input either way, so the conditional hides no forgery.
+        ...(($row['inherited'] ?? NULL) === NULL && ($row['new_findings'] ?? NULL) === NULL ? [] : [
+          ($row['inherited'] ?? NULL) === NULL ? '-1' : (string) self::number($row, 'inherited'),
+          ($row['new_findings'] ?? NULL) === NULL ? '-1' : (string) self::number($row, 'new_findings'),
+        ]),
       ]));
       if (!hash_equals($expected, $stored)) {
         return [
@@ -2178,6 +2198,63 @@ final class EvidenceStore {
       // Already there — additive and idempotent, as V7 above.
     }
     $pdo->exec('CREATE INDEX IF NOT EXISTS guard_call_by_tool ON guard_call (run_id, phase, tool)');
+  }
+
+  /**
+   * V9 — a green subsidised by the adoption baseline says so in columns.
+   *
+   * The counts existed. `ShellGateExecutor` composes `passed — 0 new, 123
+   * inherited` and `GateResult` carries both numbers, and the evidence
+   * boundary kept only the sentence: §4 printed `satisfied` with no column
+   * saying the verdict had subtracted pre-existing findings (F-7). The
+   * baseline is a deliberate, audited exception to "green means measured",
+   * and an exception invisible where the verdict is read is not audited by
+   * anybody.
+   *
+   * NULL in both means no baseline was consulted, which is not zero
+   * inherited — a gate that never asked and a gate that asked and found
+   * nothing are different facts, and this is the column that tells them
+   * apart.
+   *
+   * THE DIGEST TAKES THEM CONDITIONALLY, and that is the whole reason this
+   * migration is safe. `chain()`'s comment is right that a digest over part
+   * of a row invites "which part" — but appending two fields unconditionally
+   * would change the recompute input for every row written before this
+   * version, and the archives of three completed dogfood series would read as
+   * forged the moment they were opened by a newer build. A record that cries
+   * tampering on an untouched archive teaches its reader to ignore it. So
+   * both digests — the one at insert and the one at verification — include
+   * these fields only when at least one is non-NULL, which is byte-identical
+   * to today for every pre-v9 row and covers every row that carries a count.
+   * Moving a count in or out of NULL changes the input either way, so there
+   * is no forgery this admits.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   */
+  private function migrateToV9(\PDO $pdo): void {
+    foreach (['inherited', 'new_findings'] as $column) {
+      try {
+        $pdo->exec('ALTER TABLE check_result ADD COLUMN ' . $column . ' INTEGER');
+      }
+      catch (\PDOException) {
+        // Already there — additive and idempotent, as V7 and V8 above.
+      }
+    }
+    // WHICH debt, not only how much. `RunState` has frozen the baseline's
+    // hash at begin since 0.6 precisely so a baseline edited mid-run is a
+    // defeat rather than a tuning, and the store kept none of it: §2's
+    // blind-spot table said "the baseline hash lives in run.json, not here",
+    // about a file inside the state directory, in a document whose whole
+    // premise is that the record must not be the subject's account of itself.
+    // A subsidised verdict in §4 is unreadable without it — N inherited from
+    // WHAT — so the two land together.
+    try {
+      $pdo->exec('ALTER TABLE run ADD COLUMN baseline_hash TEXT');
+    }
+    catch (\PDOException) {
+      // As above.
+    }
   }
 
   /**
