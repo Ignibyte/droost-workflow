@@ -239,6 +239,10 @@ final class EvaluationReport {
       // costs a reader trust in a large one.
       $this->transcripts($runId, $checks),
       $this->seekerFindings($runId, $run),
+      // AFTER 4d, because it is numbered 4e. The sections were once
+      // assembled out of order and a reader met 4d, 4a, 4b, 4d, 4c — a small
+      // thing that costs a reader trust in a large one.
+      $this->declaredSpec($runId),
       $this->buildVerdictStub(),
       $this->scoreStub(),
       "---\n",
@@ -1541,6 +1545,158 @@ final class EvaluationReport {
       . "named, against this ledger) and **scaffold-vs-handwritten** (how many\n"
       . "added files came from a blueprint and how many were typed). Both need\n"
       . "the spec and the diff, neither of which is in the store.\n";
+  }
+
+  /**
+   * Section 4e — what the run DECLARED, as opposed to what it wrote down.
+   *
+   * The rows a tool call wrote: routes, criteria and their proofs, notes.
+   * Rendered because a fact the store holds and the report drops is the same
+   * defect as F-7 — the baseline's inherited/new split existed in every gate
+   * result and §4 printed a bare `satisfied` over it for four months.
+   *
+   * A run with no rows says so in a sentence rather than omitting the
+   * section. An absent section and a run that declared nothing look identical
+   * to a reader, and only one of them is a finding.
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return string
+   *   The section.
+   */
+  private function declaredSpec(string $runId): string {
+    $heading = "## 4e. The declared spec — structure written by a tool call\n\n";
+    $routes = $this->rows(
+      'SELECT path, phase, reason FROM spec_route r WHERE run_id = ? AND revision = (
+         SELECT MAX(revision) FROM spec_route WHERE run_id = r.run_id AND path = r.path)
+       ORDER BY (SELECT MIN(rowid) FROM spec_route WHERE run_id = r.run_id AND path = r.path)',
+      [$runId],
+    );
+    $criteria = $this->rows(
+      'SELECT ref, statement, verified_by, phase,
+              (SELECT COUNT(DISTINCT statement) FROM spec_criterion
+                WHERE run_id = c.run_id AND ref = c.ref) AS statements
+         FROM spec_criterion c WHERE run_id = ? AND revision = (
+           SELECT MAX(revision) FROM spec_criterion WHERE run_id = c.run_id AND ref = c.ref)
+       ORDER BY (SELECT MIN(rowid) FROM spec_criterion WHERE run_id = c.run_id AND ref = c.ref)',
+      [$runId],
+    );
+    $notes = $this->rows(
+      'SELECT kind, subject, detail, phase FROM spec_note n WHERE run_id = ? AND revision = (
+         SELECT MAX(revision) FROM spec_note
+          WHERE run_id = n.run_id AND subject = n.subject AND kind = n.kind)
+       ORDER BY (SELECT MIN(rowid) FROM spec_note
+                  WHERE run_id = n.run_id AND subject = n.subject AND kind = n.kind)',
+      [$runId],
+    );
+
+    if ($routes === [] && $criteria === [] && $notes === []) {
+      return $heading
+        . "**This run declared nothing through the tools.** Its structure, if\n"
+        . "it has any, was read out of the spec document — so `rendered_check`\n"
+        . "rendered whatever `## Routes` could be parsed into (§4's row says\n"
+        . "`spec-parsed` where that happened), and the criteria count in §5\n"
+        . "came from a markdown table. That is the pre-0.9.4 path and it still\n"
+        . "works; it is also the path on which every stoppage of the Part 3\n"
+        . "series was the shape of a document rather than the state of the\n"
+        . "code.\n";
+    }
+
+    $out = $heading
+      . "A declared row cannot be mis-shaped. Each line below is a tool call\n"
+      . "that happened, and the engine's question about it is a count — not\n"
+      . "whether a heading sat in the right place or whether a list was\n"
+      . "fenced.\n\n";
+
+    if ($routes !== []) {
+      $out .= "### Routes declared\n\n" . self::table(
+        ['Path', 'Declared at', 'Why'],
+        array_map(
+          static fn (array $row): array => [
+            self::code(self::text($row, 'path')),
+            self::code(self::text($row, 'phase')),
+            // cell() renders NULL as "not recorded", which is the rule this
+            // document runs on: an empty cell is an unmeasured thing wearing
+            // the costume of a measured one.
+            self::cell(self::text($row, 'reason')),
+          ],
+          $routes,
+        ),
+      ) . "\n";
+    }
+
+    if ($criteria !== []) {
+      $unverified = 0;
+      $revised = 0;
+      $body = [];
+      foreach ($criteria as $row) {
+        // NULL, not ''. This class's own text() reads an empty column as
+        // NULL — deliberately, so no cell renders blank — and the first
+        // draft of this section compared against '' instead, which read
+        // every unproven criterion as proven and printed "0 with nothing
+        // proving them" above a table that showed one. Caught by rendering
+        // it, not by the types.
+        $by = self::text($row, 'verified_by');
+        if ($by === NULL) {
+          $unverified++;
+        }
+        // STATEMENTS, not revisions. A verification writes a revision too,
+        // so counting revisions called every verified criterion "restated" —
+        // and a restatement is the thing worth reporting, because it is the
+        // one that drops a proof.
+        $statements = self::number($row, 'statements') ?? 1;
+        if ($statements > 1) {
+          $revised++;
+        }
+        $body[] = [
+          self::code(self::text($row, 'ref')),
+          self::cell(self::text($row, 'statement')),
+          $by === NULL ? '**nothing yet**' : self::cell($by),
+          $statements > 1 ? sprintf('%d wordings', $statements) : '1',
+        ];
+      }
+      $out .= "### Criteria declared, and what proves each\n\n" . self::table(
+        ['Ref', 'Statement', 'Proven by', 'Wordings'],
+        $body,
+      );
+      $out .= sprintf(
+        "\n**%d declared, %d with nothing proving them.** A proof is RECORDED,\n"
+        . "never judged: `manual — <reason>` is a legitimate answer and is\n"
+        . "reported as manual, and whether a named test is a real test is the\n"
+        . "suite's business. What this section can say is whether the promise\n"
+        . "was made before the proof, which is the one thing a record cannot\n"
+        . "survive getting wrong.\n",
+        count($criteria),
+        $unverified,
+      );
+      if ($revised > 0) {
+        $out .= sprintf(
+          "\n**%d criterion/criteria were restated.** Every earlier wording is\n"
+          . "still in the store under a lower revision, and a restatement drops\n"
+          . "whatever proof the old wording had — so a criterion cannot be\n"
+          . "rewritten to fit the test that happened to pass.\n",
+          $revised,
+        );
+      }
+    }
+
+    if ($notes !== []) {
+      $out .= "\n### Notes declared\n\n" . self::table(
+        ['Kind', 'Subject', 'Declared at', 'Detail'],
+        array_map(
+          static fn (array $row): array => [
+            self::code(self::text($row, 'kind')),
+            self::cell(self::text($row, 'subject')),
+            self::code(self::text($row, 'phase')),
+            self::cell(self::text($row, 'detail')),
+          ],
+          $notes,
+        ),
+      );
+    }
+
+    return $out;
   }
 
   /**

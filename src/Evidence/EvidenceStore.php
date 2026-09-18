@@ -1814,6 +1814,11 @@ final class EvidenceStore {
    *
    * @return list<array{ref: string, statement: string, verified_by: string|null, verified_at: string|null, phase: string, revisions: int}>
    *   One entry per distinct ref, in the order they were first declared.
+   *   `revisions` counts EVERY row for that ref, verifications included — a
+   *   verification writes a revision too. A caller that wants "how many
+   *   times was this restated" counts distinct statements instead, which is
+   *   what §4e of the evaluation does, and the distinction matters because a
+   *   restatement is the thing that drops a proof.
    */
   public function specCriteria(string $runId): array {
     $statement = $this->connection()->prepare(

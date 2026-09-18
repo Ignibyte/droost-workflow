@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Evidence;
 
+use Droost\Workflow\Evidence\EvaluationReport;
 use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Tests\WorkflowTestCase;
 
@@ -189,6 +190,55 @@ final class SpecAsRowsTest extends WorkflowTestCase {
     $this->assertSame([], $upgraded->specRoutes('r1'), 'the tables are there and empty');
     $upgraded->declareRoute('r1', 'plan', '/rinks', NULL, self::NOW);
     $this->assertCount(1, $upgraded->specRoutes('r1'), 'and they take rows');
+  }
+
+  /**
+   * The declared rows reach the evaluation, or it says they do not.
+   *
+   * A fact the store holds and the report drops is F-7's defect exactly: the
+   * baseline's inherited/new split was in every gate result and §4 printed a
+   * bare `satisfied` over it for four months.
+   */
+  public function testTheDeclaredRowsReachTheEvaluation(): void {
+    $store = $this->store();
+    $store->declareRoute('r1', 'plan', '/rinks', 'the new listing', self::NOW);
+    $store->declareCriterion('r1', 'plan', 'AC-1', 'every published rink is listed', self::NOW);
+    $store->declareCriterion('r1', 'plan', 'AC-2', 'the page shows its coach', self::NOW);
+    $store->verifyCriterion('r1', 'test', 'AC-1', 'RinkListTest::testEveryPublished', self::NOW);
+    $store->declareCriterion('r1', 'test', 'AC-2', 'the page shows its coach, or nothing', self::NOW);
+    $store->declareNote('r1', 'plan', 'grounding', 'Drupal\\node\\Entity\\Node', NULL, self::NOW);
+
+    $rendered = (new EvaluationReport($store))->render('r1');
+
+    $this->assertStringContainsString('## 4e. The declared spec', $rendered);
+    $this->assertStringContainsString('/rinks', $rendered);
+    $this->assertStringContainsString('RinkListTest::testEveryPublished', $rendered);
+    $this->assertStringContainsString(
+      '**nothing yet**',
+      $rendered,
+      'the unproven criterion is marked, not left as an empty cell',
+    );
+    $this->assertStringContainsString('**2 declared, 1 with nothing proving them.**', $rendered);
+    // A RESTATEMENT, counted by distinct wordings. Counting revisions called
+    // every verified criterion restated, because a verification writes a
+    // revision too — and the restatement is the one that drops a proof.
+    $this->assertStringContainsString('1 criterion/criteria were restated', $rendered);
+    $this->assertStringContainsString('2 wordings', $rendered);
+  }
+
+  /**
+   * A run that declared nothing says so, rather than omitting the section.
+   *
+   * An absent section and a run that declared nothing look identical to a
+   * reader, and only one of them is a finding.
+   */
+  public function testTheRunThatDeclaredNothingSaysSo(): void {
+    $store = $this->store();
+
+    $rendered = (new EvaluationReport($store))->render('r1');
+
+    $this->assertStringContainsString('## 4e. The declared spec', $rendered);
+    $this->assertStringContainsString('declared nothing through the tools', $rendered);
   }
 
   /**
