@@ -65,7 +65,7 @@ class BootedSiteDriverTest extends TestCase {
     $result = (new BootedSiteDriver($kernel, static fn (): int => 0))->run(new GateSettings('rendered_check', TRUE), $root);
 
     $this->assertSame(GateStatus::Failed, $result->status);
-    $this->assertSame('1 of 2 route(s) did not render — / (default), /camps (spec)', $result->summary);
+    $this->assertSame('1 of 2 route(s) did not render — / (default), /camps (spec-parsed)', $result->summary);
     $this->assertSame(['route' => '/camps', 'status' => 500, 'problem' => 'not 200'], $result->findings[0]);
     RunWithSpec::close($root);
     @rmdir($root);

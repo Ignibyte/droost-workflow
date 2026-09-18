@@ -92,7 +92,7 @@ class FreshProcessSiteDriverTest extends TestCase {
 
     $this->assertSame('/,/camps,/camps/summer-skills', $seen[2] ?? NULL, 'the probe is asked for the front page AND the ticket\'s pages');
     $this->assertSame(
-      '3 route(s) rendered — / (default), /camps (spec), /camps/summer-skills (spec)',
+      '3 route(s) rendered — / (default), /camps (spec-parsed), /camps/summer-skills (spec-parsed)',
       $result->summary,
     );
     RunWithSpec::close($this->root);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Droost\Workflow\Driver;
 
 use Droost\Workflow\Config\GateSettings;
+use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Spec\SpecContract;
 use Droost\Workflow\State\RunStateStore;
 
@@ -19,10 +20,19 @@ use Droost\Workflow\State\RunStateStore;
  * The verification floor never asked for the one page the run existed to
  * make.
  *
- * So the spec's `## Routes` section joins the lever. The lever is the
- * project's standing list; the spec is this ticket's. The gate renders the
- * union, and the record names the source of every route, so a reader can see
- * "the spec said `/camps`, and it rendered" rather than an unlabelled green.
+ * So the spec's routes join the lever. The lever is the project's standing
+ * list; the spec is this ticket's. The gate renders the union, and the record
+ * names the source of every route, so a reader can see "the spec said
+ * `/camps`, and it rendered" rather than an unlabelled green.
+ *
+ * DECLARED ROWS FIRST, the markdown section only when there are none. A
+ * `declare-route` call is a fact with no shape to get wrong; the section is
+ * prose whose meaning depends on where a heading sits and whether the writer
+ * fenced their list, and two of Part 3's three specs lost their routes to
+ * exactly that (F-32, F-34). The parse stays as the fallback for a run that
+ * declared nothing — which is every run written before the tool existed —
+ * and the record says `spec-declared` or `spec-parsed` so a reader can tell
+ * which answered. Phase C deletes the second.
  */
 final class RenderedRoutes {
 
@@ -41,9 +51,9 @@ final class RenderedRoutes {
    *   when there is no run, no spec, or no section, only the lever answers.
    *
    * @return array{routes: list<string>, sources: array<string, string>, spec: string|null, none: bool}
-   *   The routes in order, each route's source (`lever`, `default`, `spec`),
-   *   the spec that was consulted (NULL when none was), and whether that
-   *   spec declared `none`.
+   *   The routes in order, each route's source (`lever`, `default`,
+   *   `spec-declared`, `spec-parsed`), the spec that was consulted (NULL when
+   *   none was) and whether that spec declared `none`.
    */
   public static function resolve(GateSettings $gate, string $projectRoot): array {
     $sources = [];
@@ -54,17 +64,26 @@ final class RenderedRoutes {
       $sources[self::DEFAULT] = 'default';
     }
 
-    $spec = self::specPath($projectRoot);
     $none = FALSE;
-    if ($spec !== NULL) {
-      $declared = SpecContract::routes($projectRoot, $spec);
-      if ($declared === NULL) {
+    $declared = self::declaredRoutes($projectRoot);
+    foreach ($declared as $route) {
+      $sources[$route] ??= 'spec-declared';
+    }
+
+    // The document, only when nothing was declared. A run that called the
+    // tool has said what it means; re-reading its prose could only disagree
+    // with it, and a disagreement between two sources for the same fact is
+    // the defect this whole redesign removes rather than arbitrates.
+    $spec = self::specPath($projectRoot);
+    if ($declared === [] && $spec !== NULL) {
+      $parsed = SpecContract::routes($projectRoot, $spec);
+      if ($parsed === NULL) {
         $spec = NULL;
       }
       else {
-        $none = $declared['none'];
-        foreach ($declared['routes'] as $route) {
-          $sources[$route] ??= 'spec';
+        $none = $parsed['none'];
+        foreach ($parsed['routes'] as $route) {
+          $sources[$route] ??= 'spec-parsed';
         }
       }
     }
@@ -78,15 +97,41 @@ final class RenderedRoutes {
   }
 
   /**
+   * The open run's declared routes, from the store.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return list<string>
+   *   The paths, in declaration order. Empty when no run is open, none were
+   *   declared, or the store cannot be read — an unreachable store is not a
+   *   reason to fail a render, and the summary says which source answered.
+   */
+  private static function declaredRoutes(string $projectRoot): array {
+    try {
+      $store = new RunStateStore($projectRoot);
+      $state = $store->exists() ? $store->load() : NULL;
+      if ($state === NULL) {
+        return [];
+      }
+
+      return array_column((new EvidenceStore($projectRoot))->specRoutes($state->runId), 'path');
+    }
+    catch (\Throwable) {
+      return [];
+    }
+  }
+
+  /**
    * The routes with their sources, for a summary a reader can check.
    *
    * @param array{routes: list<string>, sources: array<string, string>, spec: string|null, none: bool} $resolved
    *   What resolve() returned.
    *
    * @return string
-   *   E.g. "/ (default), /camps (spec)" — with "; the spec declares no
-   *   routes" when it said so, and "; no run spec to read" when there was no
-   *   spec to ask, so an unlabelled front page is never mistaken for a
+   *   E.g. "/ (default), /camps (spec-declared)" — with "; the spec declares
+   *   no routes" when it said so, and "; no run spec to read" when there was
+   *   no spec to ask, so an unlabelled front page is never mistaken for a
    *   ticket that had no page.
    */
   public static function describe(array $resolved): string {
@@ -95,6 +140,12 @@ final class RenderedRoutes {
       $parts[] = sprintf('%s (%s)', $route, $source);
     }
     $line = implode(', ', $parts);
+    // A run that DECLARED its routes needs no sentence about the document:
+    // the rows answered, and "no run spec to read" beside a declared route
+    // would read as a gap where there is none.
+    if (in_array('spec-declared', $resolved['sources'], TRUE)) {
+      return $line;
+    }
     if ($resolved['spec'] === NULL) {
       return $line . '; no run spec to read';
     }
