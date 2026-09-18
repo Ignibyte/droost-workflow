@@ -39,6 +39,7 @@ use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\QuestionSinkInterface;
 use Droost\Workflow\Mode\RunOutcome;
 use Droost\Workflow\Seeker\SeekerLedger;
+use Droost\Workflow\Spec\CriteriaVerification;
 use Droost\Workflow\Spec\SpecContract;
 use Droost\Workflow\Spec\SpecError;
 use Droost\Workflow\Pack\InitReport;
@@ -275,9 +276,10 @@ final class WorkflowFacade {
       // Promise against proof: which criteria name a test, which are
       // verified by hand (printed as manual, never as passed), which are
       // still empty — NULL when the spec carries no criteria table.
-      'criteria' => $state->specPath === NULL
-        ? NULL
-        : SpecContract::criteriaVerification($projectRoot, $state->specPath),
+      // Declared rows first, the markdown table only where a run has none —
+      // and `source` says which answered, so a reader is never guessing
+      // whether a count came from a tool call or from a heading's position.
+      'criteria' => CriteriaVerification::resolve($projectRoot, $state->runId, $state->specPath),
       'gate_waivers' => $state->gateWaivers,
       'browser' => $state->browser,
       'tasks' => $state->tasks,
@@ -760,7 +762,7 @@ final class WorkflowFacade {
     // tool calls; until then its observations are still worth reading. They
     // were never wrong about what the document said — only about whether that
     // should end a run.
-    $observations = $this->specShapeObservations($projectRoot, $specPath, $phase);
+    $observations = $this->specShapeObservations($projectRoot, $specPath, $phase, $state->runId);
     if ($observations !== []) {
       $this->recordSpecShape($state, $projectRoot, $phase, $observations);
     }
@@ -770,7 +772,7 @@ final class WorkflowFacade {
       $this->recordCriteriaContract(
         $state,
         $projectRoot,
-        SpecContract::criteriaVerification($projectRoot, $specPath) !== NULL,
+        CriteriaVerification::resolve($projectRoot, $state->runId, $specPath) !== NULL,
       );
     }
 
@@ -1985,11 +1987,16 @@ final class WorkflowFacade {
    *   The governing spec, or NULL when the run has none yet.
    * @param \Droost\Workflow\Config\Phase $phase
    *   The phase being adjudicated; different phases look at different sections.
+   * @param string $runId
+   *   The run, so the criteria observation reads the DECLARED rows where
+   *   there are any and the table only where there are none. Observing the
+   *   document about criteria a run declared through the tool would report a
+   *   gap in prose nobody is relying on.
    *
    * @return list<array{check: string, why: string}>
    *   Observations, empty when the document says everything it should.
    */
-  private function specShapeObservations(string $projectRoot, ?string $specPath, Phase $phase): array {
+  private function specShapeObservations(string $projectRoot, ?string $specPath, Phase $phase, string $runId): array {
     if ($specPath === NULL) {
       return [];
     }
@@ -2045,17 +2052,33 @@ final class WorkflowFacade {
     }
 
     if ($phase === Phase::Plan) {
-      $routes = SpecContract::routes($projectRoot, $specPath);
-      if ($routes === NULL || ($routes['routes'] === [] && !$routes['none'])) {
+      // A run that DECLARED its routes has nothing to observe here. The
+      // document is the fallback, and reporting a gap in a section nothing
+      // is reading would be a lint about prose the engine has stopped
+      // consulting.
+      $declaredRoutes = [];
+      try {
+        $declaredRoutes = (new EvidenceStore($projectRoot))->specRoutes($runId);
+      }
+      catch (\Throwable) {
+        // Unreadable store: fall through to the document, and the phase that
+        // could not write the store has already said so.
+      }
+      $routes = $declaredRoutes !== [] ? NULL : SpecContract::routes($projectRoot, $specPath);
+      if ($declaredRoutes === [] && ($routes === NULL || ($routes['routes'] === [] && !$routes['none']))) {
         $out[] = [
           'check' => 'routes',
           'why' => $routes === NULL
-            ? sprintf('no "%s" section, so rendered_check has only the lever to go on', SpecContract::ROUTES_HEADING)
+            ? sprintf(
+              'no route was declared with `declare-route`, and no "%s" section '
+              . 'to fall back on — so rendered_check has only the lever to go on',
+              SpecContract::ROUTES_HEADING,
+          )
             : sprintf(
-              'the "%s" section declares neither a path nor `none`. A path '
-              . 'inside a fenced block declares nothing — fences are blanked '
-              . 'so a spec\'s examples are never read as declarations (F-34) '
-              . '— and this is why routes are moving to `declare_route` rows.',
+              'no route was declared with `declare-route`, and the "%s" '
+              . 'section names neither a path nor `none`. Declaring is the '
+              . 'route out of this: a row has no shape to get wrong, which is '
+              . 'what cost two of Part 3\'s three runs their routes (F-34).',
               SpecContract::ROUTES_HEADING,
           ),
         ];
@@ -2069,7 +2092,7 @@ final class WorkflowFacade {
           'why' => sprintf('no "%s" capture of what was actually built', SpecContract::REALIZED_HEADING),
         ];
       }
-      $criteria = SpecContract::criteriaVerification($projectRoot, $specPath);
+      $criteria = CriteriaVerification::resolve($projectRoot, $runId, $specPath);
       if ($criteria !== NULL && $criteria['unverified'] !== []) {
         $out[] = [
           'check' => 'criteria_verified',
