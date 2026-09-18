@@ -115,8 +115,11 @@ Then produce the spec:
 2. **The Drupal constructs to build** — content types, fields, views, pages,
    blocks, custom code. Name each one.
 3. **The approach**, including what you are deliberately NOT doing.
-4. **A `## Tooling plan` section — REQUIRED; the engine refuses to leave the
-   plan phase without it.** Every construct from item 2, mapped to the
+4. **A `## Tooling plan` section — expected, and its absence is RECORDED.**
+   The engine no longer refuses a phase over a missing section: it writes a
+   `spec`/`shape` row naming what the document does not say, and the phase
+   advances. Write it anyway — the tool-call ledger is checked against it,
+   and the ledger is the half nothing can rewrite. Every construct from item 2, mapped to the
    surface that builds it, in this order of preference: a droost write tool
    (`droost_structure_create`, `droost_views_compose`, `droost_config_set`,
    `droost_scaffold` and its blueprints), `drush generate`, or —
@@ -218,13 +221,37 @@ Then produce the spec:
    <observable response>", one observable behaviour per row, each with a way
    to check it. A criterion nobody can check is not a criterion. Give the
    table a `Verified By` column NOW, left empty: the test phase fills it with
-   the test that proves each row, and `complete` refuses while any cell is
-   empty. The plan freezes every other cell of this table; a column added
-   later is allowed only as an appended column with nothing else touched, and
-   a run that reached complete without one has lost a round to exactly that.
+   the test that proves each row.
 
-5. **A `## Routes` section — REQUIRED; the engine refuses to leave plan
-   without it.** The paths this change adds or alters, one per line, as the
+   **DECLARE EACH ONE, once the run exists.** The table is for a human; the
+   engine counts rows:
+
+   ```bash
+   vendor/bin/droost-workflow declare-criterion AC-1 \
+     "When a visitor opens /rinks, the site shall list every published rink"
+   ```
+
+   The test phase then records what proves each one —
+   `verify-criterion AC-1 "RinkListTest::testEveryPublished"`, or
+   `verify-criterion AC-1 "manual — checked at 390px"` where a human looked.
+   Verifying a ref nobody declared is refused, and it is the ONLY refusal on
+   this surface: declare the promise, then prove it, in that order. A
+   criterion written to fit whatever happened to pass is the one failure the
+   record cannot survive.
+
+   Restating a criterion is allowed and recorded as a revision — both
+   sentences stay in the table — and it DROPS any proof the old sentence had,
+   because a test that proved the old wording does not prove the new one.
+
+   Why the rows and not the table: a spec once documented its six source
+   records under `## Acceptance criteria`, the engine read everything under
+   that heading as criteria, demanded proof for six rows that were not
+   criteria, and then refused the correction. The build was finished and
+   verified. A declared criterion cannot be mistaken for a data table.
+
+5. **A `## Routes` section — expected, and its absence is RECORDED.** What
+   the gate actually renders is `declare-route` rows (below); the section is
+   the fallback and the human's copy. The paths this change adds or alters, one per line, as the
    site serves them (`/camps`, `/camps/summer-skills` — never a node id).
    `rendered_check` renders every one of them at test and at complete,
    beside the front page, and the report names which source each route came
@@ -233,12 +260,31 @@ Then produce the spec:
    "nobody asked". Three live rounds rendered `/` alone while the ticket's
    own page was the one that could fail — once it was a 500 mid-build.
 
-   Write them however reads best: a plain list, a table, or a fenced block —
-   **this section reads its fences, and it is the only one that does.** A
-   route is a line that IS a path, so `- /camps — the listing` declares
-   `/camps` and a sentence mentioning `` `/node/{nid}` `` declares nothing.
-   Elsewhere a fenced block is invisible to the engine on purpose, so a
-   sample command in your Tooling plan is never read as a real declaration.
+   **DECLARE EACH ROUTE, once the run exists.** The section is for a human;
+   the gate renders rows:
+
+   ```bash
+   vendor/bin/droost-workflow declare-route /rinks "the new listing"
+   vendor/bin/droost-workflow declare-route /pepsi-ice-midwest
+   ```
+
+   Repeatable, idempotent, and it must begin with `/`. Once a run has
+   declared anything, the document is not consulted for routes at all — two
+   sources for one fact is a disagreement waiting to happen.
+
+   The section is still the fallback for a run that declared nothing, and
+   there it reads however you wrote it: a plain list, a table, or a fenced
+   block — **this section reads its fences, and it is the only one that
+   does.** A route is a line that IS a path, so `- /camps — the listing`
+   declares `/camps` and a sentence mentioning `` `/node/{nid}` `` declares
+   nothing. Elsewhere a fenced block is invisible to the engine on purpose,
+   so a sample command in your Tooling plan is never read as a real
+   declaration.
+
+   Two of three live rounds lost their routes to that shape: one fenced its
+   list and had a placeholder harvested out of a sentence instead, rendering
+   a 404 while the page the ticket existed to build was never requested.
+   Declaring is how that stops being possible.
 
 The spec's WEIGHT follows the run's preset — read the frozen, canonical name
 from run.json — and since 0.4 the weight is DEPTH, never format. The five-point
@@ -247,8 +293,9 @@ writes the full spec above to `droost/droost-workflow/spec-<slug>.md`. A
 **`medium`/`low`** run writes a shorter spec in the same EARS shape — what was
 asked, what will change, a handful of "When <trigger>, the <system> shall
 <response>" criteria, AND the `## Grounding`, `## Tooling plan` and
-`## Routes` sections (the engine refuses to leave plan without them at every
-weight — grounding is the discipline the light spec trims depth from, not out) — to
+`## Routes` sections (expected at every weight, and a missing one is recorded
+rather than refused — grounding is the discipline the light spec trims depth
+from, not out) — to
 `droost/droost-workflow/tmp-spec-<slug>.md`, presented back in chat at
 complete.
 One spec format everywhere is what the seeker checkpoint grades against;

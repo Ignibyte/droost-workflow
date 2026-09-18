@@ -23,9 +23,11 @@ exists at every level:
    <observable response>" — as a table `| ID | Criterion | Check | Verified By |`:
    one observable behaviour per row, each with a way to check it, and the
    `Verified By` cell left EMPTY here. The test phase fills it with the test
-   that proves the row (or `manual — <reason>` when no test can), and the
-   engine refuses to gate complete while any cell is still empty. A
-   criterion nobody can check is not a criterion.
+   that proves the row (or `manual — <reason>` when no test can). The engine
+   records an empty cell rather than refusing complete over it, and what it
+   counts is `verify-criterion` calls — so declare each criterion and verify
+   it, and keep the table readable for the human. A criterion nobody can
+   check is not a criterion.
 
 **The quasi-spec — `medium`, `low`**, written to
 `droost/droost-workflow/tmp-spec-<slug>.md`: what was asked, what will change, and

@@ -38,7 +38,9 @@ a very old site, not the normal case.
 Write down what was built, for the person who arrives after the run — often
 a later run of this same pipeline, with none of this context. **The capture
 lives in the spec itself, as a `## Realized` section appended to the run's
-spec file — the engine refuses to gate the complete phase until it exists.**
+spec file. A missing one is recorded as a `spec`/`shape` finding rather than
+refused — which means nobody will stop you shipping without it, and the next
+run of this pipeline pays for that.**
 The spec is the run's one living document: criteria at the top, inspection
 ledgers as they happened, and what was actually built at the end, so the
 whole story reads in one file. (Earlier packs wrote a sibling
