@@ -232,9 +232,37 @@ final class ModeEngine {
     // The path that disabled the second check was the EASY one: a clean code
     // inspection. Complete is where the diff is largest, so a run that got a
     // clean read early is precisely the run nobody looked at again.
-    if (($phase === Phase::Code || $phase === Phase::Complete)
+    // THE SEEKER ADVISES; THE ENGINE COUNTS (F-35).
+    //
+    // This held `code` and `complete` until an LLM's adversarial read reported
+    // `clean` — an opinion gating a run, which is the thing droost is not for.
+    // What it holds on now is a COUNT, and only in the CODE phase, which is
+    // where the fix loop belongs: write code, run the static gates, have the
+    // diff read, fix what the read found, run the gates again.
+    //
+    // - every level: the inspection is a Code-phase STEP. It must have run.
+    // - `high` and above: the number of OPEN CRITICAL findings must be zero.
+    //
+    // Mediums and lows are advisory at every level and go to the report. The
+    // seeker still judges — nothing mechanical can ask "does this display
+    // survive an empty optional field", which is the CRITICAL it caught in
+    // P2-KCH-3 after five green gates walked past it — but what stops a phase
+    // is an integer, not a verdict.
+    // TWO BINARY CHECKS, IN ORDER. The second is meaningless without the
+    // first: if Code advances before any inspection runs, a count of open
+    // criticals is always zero and the level's requirement is vacuous.
+    //
+    //   1. the inspection RAN            — a step. `seekers` on, i.e. medium+
+    //   2. open criticals number zero    — high and above
+    //
+    // Both are questions with a yes/no answer that the agent cannot write:
+    // the rows come from a parsed inspection ledger.
+    $criticalsMustBeZero = in_array($state->preset, ['high', 'xhigh', 'max', 'factory'], TRUE);
+    $inspectionRan = $state->seekerHistory !== [];
+    if ($phase === Phase::Code
       && $state->seekers
-      && ($state->seeker['status'] ?? NULL) !== 'clean') {
+      && (!$inspectionRan
+        || ($criticalsMustBeZero && $this->openCriticalSeekerCount($state, $projectRoot) > 0))) {
       // WITH THE FINDINGS, when there are any. This returned nothing but the
       // word: `outcome: "inspection-due"`, `report.advance: true`,
       // `blocked: []`, `awaiting: null`, and no key naming the open MEDIUM
@@ -846,6 +874,50 @@ final class ModeEngine {
    *
    * @return list<array{check: string, fault: string, why: string, remedy: string, guidance: string}>
    *   The open findings.
+   */
+
+  /**
+   * How many OPEN CRITICAL seeker findings this run has, in this phase.
+   *
+   * The engine's whole interest in the seeker, reduced to an integer (F-35).
+   * The seeker reads a diff and forms an opinion about severity; that is
+   * judgment and it stays the seeker's. What droost does with it is count the
+   * criticals and compare to zero, which is binary and mechanical, and only at
+   * `high` and above.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run, whose seeker history says which inspection round is current.
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return int
+   *   The count. Zero when the store cannot be read — an unreachable store is
+   *   not evidence of a critical, and the phase's own audit already reports
+   *   that it could not be asked.
+   */
+  private function openCriticalSeekerCount(RunState $state, string $projectRoot): int {
+    $open = $this->openSeekerFindingsFor($state, Phase::Code, $projectRoot);
+    $criticals = array_filter(
+      $open,
+      static fn (array $f): bool => stripos($f['why'] ?? '', 'critical') === 0,
+    );
+
+    return count($criticals);
+  }
+
+  /**
+   * The run's open seeker findings, shaped like blocking checks.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run, whose seeker history says which inspection round is current.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase to read findings for.
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return list<array<string, string>>
+   *   One entry per open finding, or an empty list when the store cannot be
+   *   read — an unreachable store is not evidence of a finding.
    */
   private function openSeekerFindingsFor(RunState $state, Phase $phase, string $projectRoot): array {
     try {

@@ -128,7 +128,7 @@ final class ScopeBeforeJudgementTest extends WorkflowTestCase {
    */
   private function project(): array {
     $root = $this->makeRootWithConfig(
-      "mode: agentic\npreset: low\nenforcement: soft\nseekers: { on: true }\n",
+      "mode: agentic\npreset: high\nenforcement: soft\nseekers: { on: true }\n",
     );
     $spec = 'droost/droost-workflow/spec-scope.md';
     @mkdir($root . '/droost/droost-workflow', 0775, TRUE);
@@ -208,6 +208,10 @@ none — fixture
     $this->assertSame(Outcome::Advanced, $facade->run($root, $spec)->outcome, 'plan ends');
     $facade->declareChanges($root, ['src/Declared.php'], [], 'code');
 
+    // An honest diff reaches the seeker, and the phase waits for the
+    // inspection to have RUN — which is a step with a yes/no answer, not a
+    // verdict (F-35). The contrast with the case above is the point: an
+    // UNDECLARED file blocks on scope before any reviewer is spent on it.
     $this->assertSame(
       Outcome::InspectionDue,
       $facade->run($root, $spec)->outcome,
@@ -236,14 +240,18 @@ none — fixture
     $this->assertSame(Outcome::Advanced, $facade->run($root, $spec)->outcome, 'plan ends');
     $facade->declareChanges($root, ['src/Declared.php'], [], 'code');
 
+    // The inspection has not run: the STEP is pending, which holds. With
+    // nothing filed there is nothing to name, which is the distinction the
+    // envelope used to lose.
     $due = $facade->run($root, $spec);
     $this->assertSame(Outcome::InspectionDue, $due->outcome, 'the seeker is asked for');
     $this->assertSame([], $due->blocked, 'and with nothing filed there is nothing to name');
 
-    // An inspection that carries an open MEDIUM.
+    // An inspection carrying an open CRITICAL — the one severity that holds,
+    // and only from `high` up. A MEDIUM beside it is advice and holds nothing.
     $facade->recordSeeker($root, "## Seeker Inspection\n\nInspector: independent\n\n"
       . "| ID | Severity | Location | Finding | Status |\n|---|---|---|---|---|\n"
-      . "| F1 | MEDIUM | src/Declared.php:42 | the total is computed twice and the second one wins | open |\n"
+      . "| F1 | CRITICAL | src/Declared.php:42 | the total is computed twice and the second one wins | open |\n"
       // A RESOLVED one beside it, so the filter is observable: reporting
       // everything the seeker ever wrote would hand an agent a list of work
       // it has already done and call it the reason the run is held.
@@ -257,7 +265,7 @@ none — fixture
     // asserting against the encoded form tests the encoder.
     $first = $held->blocked[0];
     $this->assertSame('seeker:F1', $first['check'], 'named by its reference');
-    $this->assertStringContainsString('MEDIUM', $first['why'], 'with its severity');
+    $this->assertStringContainsString('CRITICAL', $first['why'], 'with its severity');
     $this->assertStringContainsString('src/Declared.php:42', $first['why'], 'and where it is');
     $this->assertStringContainsString(
       'file a new inspection',
@@ -404,20 +412,20 @@ none — fixture
     $facade->declareChanges($root, ['src/Declared.php'], [], 'code');
     $facade->run($root, $spec);
 
-    // Both MEDIUM: by the seeker protocol an open LOW does not block, so a
-    // LOW here would let the phase advance and the supersession would never
-    // be exercised at all.
+    // Both CRITICAL: only criticals hold, and only from `high` up (F-35), so
+    // anything softer would let the phase advance and the supersession this
+    // test exists for would never be exercised at all.
     $rows = "| ID | Severity | Location | Finding | Status |\n|---|---|---|---|---|\n";
     $facade->recordSeeker($root, "## Seeker Inspection\n\nInspector: independent\n\n" . $rows
-      . "| F1 | MEDIUM | src/Declared.php:42 | the total is computed twice | open |\n"
-      . "| F2 | MEDIUM | src/Declared.php:8 | the bound is off by one | open |\n");
+      . "| F1 | CRITICAL | src/Declared.php:42 | the total is computed twice | open |\n"
+      . "| F2 | CRITICAL | src/Declared.php:8 | the bound is off by one | open |\n");
     $held = $facade->run($root, $spec);
     $this->assertCount(2, $held->blocked, 'both findings hold the phase');
 
     // The agent fixes one and files the next round, which restates both.
     $facade->recordSeeker($root, "## Seeker Inspection\n\nInspector: independent\n\n" . $rows
-      . "| F1 | MEDIUM | src/Declared.php:42 | the total is computed twice | resolved |\n"
-      . "| F2 | MEDIUM | src/Declared.php:8 | the bound is off by one | open |\n");
+      . "| F1 | CRITICAL | src/Declared.php:42 | the total is computed twice | resolved |\n"
+      . "| F2 | CRITICAL | src/Declared.php:8 | the bound is off by one | open |\n");
     $after = $facade->run($root, $spec);
 
     $this->assertCount(1, $after->blocked, 'the resolved one stops holding it');

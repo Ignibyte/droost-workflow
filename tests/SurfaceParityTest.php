@@ -84,10 +84,11 @@ class SurfaceParityTest extends WorkflowTestCase {
     $this->assertSame([], $cliPlan->report->results, 'plan ran a gate');
     $this->assertSame([], $livePlan->report->results, 'plan ran a gate');
 
-    // Cross the code phase (0.3: every run walks all four working phases).
-    $cliFacade->run($cliRoot);
-    $liveFacade->run($liveRoot);
-
+    // THE CODE PHASE'S OWN REPORT. This took a third step to reach it,
+    // because the seeker used to hold `code` and the extra call was what
+    // adjudicated it. The seeker no longer holds (F-35), so the second call
+    // IS the code report — and the third would be `test`, which runs no phpcs
+    // and made this assert a mandatory gate that was never in the phase.
     $cli = $cliFacade->run($cliRoot);
     $live = $liveFacade->run($liveRoot);
 
@@ -179,22 +180,22 @@ class SurfaceParityTest extends WorkflowTestCase {
     $root = $this->makeRootWithConfig("preset: custom\n");
     $facade = $this->facade(new NullSiteDriver());
 
-    // 0.4: every run walks the full canonical sequence — three working
-    // phases and the terminal one (which now carries the documentation
-    // work) — and the seeker checkpoint holds the green code phase until a
-    // clean inspection is recorded. This walk is the canonical flow, seeker
-    // step included.
-    $walk = [];
-    for ($step = 0; $step < 2; $step++) {
-      $outcome = $facade->run($root);
-      $phase = $outcome->state->currentPhase;
-      $this->assertNotNull($phase);
-      $walk[] = $outcome->outcome->value . ':' . $phase->value;
-    }
+    // 0.4: every run walks the full canonical sequence — three working phases
+    // and the terminal one, which carries the documentation work.
+    //
+    // The seeker used to hold this walk TWICE, at code and again at complete,
+    // each until a clean inspection was recorded. It holds once now, at code,
+    // and for a different reason (F-35): not "is the verdict clean" but "has
+    // the inspection RUN" — a step with a yes/no answer. What it found is
+    // advice below `high`, where only an open CRITICAL count holds.
+    $first = $facade->run($root);
+    $this->assertSame('advanced:code', $first->outcome->value . ':' . $first->state->currentPhase?->value);
+
+    $due = $facade->run($root);
     $this->assertSame(
-      ['advanced:code', 'inspection-due:code'],
-      $walk,
-      'code passes its gates and is then held for inspection',
+      'inspection-due:code',
+      $due->outcome->value . ':' . $due->state->currentPhase?->value,
+      'code passes its gates and waits for the inspection step',
     );
 
     $record = $facade->recordSeeker(
@@ -204,7 +205,7 @@ class SurfaceParityTest extends WorkflowTestCase {
     $this->assertSame('clean', $record['status']);
 
     $walk = [];
-    for ($step = 0; $step < 3; $step++) {
+    for ($step = 0; $step < 5; $step++) {
       $outcome = $facade->run($root);
       $phase = $outcome->state->currentPhase;
       // The terminal step completes: the final phase passed and the run
@@ -212,39 +213,19 @@ class SurfaceParityTest extends WorkflowTestCase {
       // exactly how status, report and reset tell a finished run from a live
       // one.
       $walk[] = $outcome->outcome->value . ':' . ($phase === NULL ? '(none)' : $phase->value);
+      if ($phase === NULL) {
+        break;
+      }
     }
-    // COMPLETE ASKS FOR ITS OWN INSPECTION. This walk used to reach
-    // `completed` in three steps because a clean ledger at CODE set the run's
-    // seeker verdict permanently, so the complete checkpoint was silently
-    // skipped — the README promises one inspection "after the code phase's
-    // gates pass, and again at complete", and complete is where the diff is
-    // largest.
+
+    // And complete no longer asks for an inspection of its own. The seeker's
+    // fix loop belongs in code — write, gate, read the diff, fix, gate again —
+    // and complete carries the wiki and knowledge rebuilds instead.
     $this->assertSame(
-      ['advanced:test', 'advanced:complete', 'inspection-due:complete'],
+      ['advanced:test', 'advanced:complete', 'completed:(none)'],
       $walk,
-      'the run advances to complete and is held there for its own inspection',
+      'once the inspection has run the walk finishes, unheld',
     );
-
-    $second = $facade->recordSeeker(
-      $root,
-      "## Seeker Inspection\n\nInspector: independent\n\n(no findings)\n",
-    );
-    $this->assertSame('clean', $second['status']);
-
-    $final = $facade->run($root);
-    $this->assertSame(
-      'completed:(none)',
-      $final->outcome->value . ':' . ($final->state->currentPhase === NULL
-        ? '(none)'
-        : $final->state->currentPhase->value),
-      'and then completes, with no current phase',
-    );
-
-    // Re-running an ended run says so rather than starting a second one.
-    $again = $facade->run($root);
-    $this->assertSame('completed', $again->outcome->value);
-    $this->assertNull($again->state->currentPhase);
-    $this->assertSame($outcome->state->runId, $again->state->runId);
   }
 
   /**

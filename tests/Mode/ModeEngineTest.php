@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Mode;
 
+use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Config\Mode;
@@ -527,86 +528,67 @@ class ModeEngineTest extends WorkflowTestCase {
   }
 
   /**
-   * The seeker checkpoint holds a green code phase until a clean ledger.
+   * The seeker advises; only an open CRITICAL at high+ holds the Code phase.
    *
-   * Gates verify rules; the seeker verifies judgment. The checkpoint fires
-   * AFTER the machines pass (inspection is of code that already satisfies
-   * them), holds the run in place without spending retry budget, releases
-   * on a recorded clean inspection — and holds again at complete, the other
-   * boundary the pattern names. A findings record holds exactly like no
-   * record: fixing is followed by re-inspection, never by advancing.
+   * This asserted that an inspection being DUE held both `code` and
+   * `complete` until the seeker reported `clean` — an LLM's verdict gating a
+   * run, which is what droost is not for (F-35). The hold is now a COUNT, in
+   * the Code phase only, and only from `high` up. The inspection itself is a
+   * step: it must have RUN, and its mediums and lows are advisory everywhere.
    */
-  public function testTheSeekerCheckpointHoldsCodeAndComplete(): void {
+  public function testOnlyAnOpenCriticalHoldsCodeAtHigh(): void {
     $engine = $this->engine($this->recordingSink());
-    $state = $this->begin(['mode' => 'automated'])->advanceTo(Phase::Code);
 
-    $held = $engine->runPhase($state, Phase::Code, $this->root, self::NOW);
+    // Seekers OFF is the only state in which nothing about the inspection
+    // holds — which is `low` by preset, and what `low` means.
+    $advisory = $this->begin([
+      'mode' => 'automated',
+      'preset' => 'custom',
+      'seekers' => ['on' => FALSE],
+    ])->advanceTo(Phase::Code);
+    $out = $engine->runPhase($advisory, Phase::Code, $this->root, self::NOW);
+    $this->assertNotSame(
+      Outcome::InspectionDue,
+      $out->outcome,
+      'with seekers off, nothing about the inspection holds the phase',
+    );
+
+    // At high, with an inspection already filed, an open CRITICAL row holds
+    // it — the engine counting, not judging. Without the filed inspection the
+    // hold would be the STEP being pending, which is a different fact.
+    $strict = $this->begin(['mode' => 'automated', 'preset' => 'high'])->advanceTo(Phase::Code);
+    (new EvidenceStore($this->root))->recordSeekerFindings(
+      $strict->runId,
+      Phase::Code->value,
+      1,
+      [
+        [
+          'ref' => 'F1',
+          'severity' => 'critical',
+          'location' => 'src/Thing.php:12',
+          'finding' => 'the display hangs on an optional field',
+          'status' => 'open',
+        ],
+      ],
+    );
+    $held = $engine->runPhase(
+      $strict->withSeekerReport([
+        'status' => 'findings',
+        'critical' => 1,
+        'medium' => 0,
+        'low' => 0,
+        'observations' => 0,
+        'reported_at' => self::NOW,
+      ]),
+      Phase::Code,
+      $this->root,
+      self::NOW,
+    );
     $this->assertSame(Outcome::InspectionDue, $held->outcome);
-    $this->assertSame(Phase::Code, $held->state->currentPhase);
     $this->assertSame(
       [],
       $held->state->feedbackAttempts,
       'the checkpoint is not a failing gate — it spends no budget',
-    );
-
-    $dirty = $held->state->withSeekerReport([
-      'status' => 'findings',
-      'critical' => 1,
-      'medium' => 0,
-      'low' => 0,
-      'observations' => 0,
-      'reported_at' => self::NOW,
-    ]);
-    $stillHeld = $engine->runPhase($dirty, Phase::Code, $this->root, self::NOW);
-    $this->assertSame(Outcome::InspectionDue, $stillHeld->outcome);
-
-    $clean = $stillHeld->state->withSeekerReport([
-      'status' => 'clean',
-      'critical' => 0,
-      'medium' => 0,
-      'low' => 0,
-      'observations' => 2,
-      'reported_at' => self::NOW,
-    ]);
-    $released = $engine->runPhase($clean, Phase::Code, $this->root, self::NOW);
-    $this->assertSame(Outcome::Advanced, $released->outcome);
-
-    // The other boundary: complete demands a clean record OF ITS OWN.
-    //
-    // This used to pass with the code phase's ledger still standing, because
-    // `$state->seeker` is the LAST ledger and a clean one set it permanently
-    // — so the arm this test is named for could never fire, and it asserted
-    // `Completed` on a checkpoint that was silently skipped. A reviewer's
-    // third ticket got exactly one inspection, at code, and the README
-    // promises one "after the code phase's gates pass, and again at
-    // complete". Complete is where the diff is largest, and the path that
-    // disabled the second read was the easy one.
-    $atComplete = $released->state
-      ->advanceTo(Phase::Test)
-      ->advanceTo(Phase::Complete);
-    $held = $engine->runPhase($atComplete, Phase::Complete, $this->root, self::NOW);
-    $this->assertSame(
-      Outcome::InspectionDue,
-      $held->outcome,
-      'complete asks for its own inspection, not the code phase\'s',
-    );
-
-    $inspected = $held->state->withSeekerReport([
-      'status' => 'clean',
-      'critical' => 0,
-      'medium' => 0,
-      'low' => 0,
-      'observations' => 0,
-      'reported_at' => self::NOW,
-    ]);
-    $completed = $engine->runPhase($inspected, Phase::Complete, $this->root, self::NOW);
-    $this->assertSame(Outcome::Completed, $completed->outcome);
-
-    // And the trail keeps both, which is what the report counts.
-    $this->assertGreaterThanOrEqual(
-      2,
-      count($completed->state->seekerHistory),
-      'clearing the current verdict does not erase the inspections that happened',
     );
   }
 
