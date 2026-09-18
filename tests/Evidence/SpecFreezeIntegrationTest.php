@@ -14,7 +14,6 @@ use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
-use Droost\Workflow\Spec\SpecError;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\WorkflowFacade;
 
@@ -128,7 +127,7 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
    * than against the class in isolation — so a future relaxation that makes
    * the run work by making the check vacuous fails here.
    */
-  public function testRewritingPlanCriterionMidRunIsRefused(): void {
+  public function testRewritingPlanCriterionMidRunIsRecorded(): void {
     $root = $this->makeRootWithConfig("mode: agentic\npreset: low\nenforcement: soft\n");
     $spec = 'droost/droost-workflow/spec-integration.md';
     @mkdir($root . '/droost/droost-workflow', 0775, TRUE);
@@ -145,9 +144,34 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
       '| code | core | the constructor? | NodeType | `Drupal\node\Entity\NodeType` |',
     ]);
 
-    $this->expectException(SpecError::class);
-    $this->expectExceptionMessage('broke the contract the plan phase recorded');
     $facade->run($root, $spec);
+
+    // PHASE A DELIBERATELY DOWNGRADES THIS, AND IT IS THE ONE DOWNGRADE THAT
+    // COSTS SOMETHING REAL.
+    //
+    // Rewriting a criterion you could not satisfy into one you could is the
+    // circularity the whole apparatus exists to prevent — not a formatting
+    // lint. Phase A records it rather than refusing, because the freeze cannot
+    // tell this apart from the honest case that cost P3-T1-a2 its run (F-33):
+    // an agent correcting a tooling plan it no longer meant, having explicitly
+    // refused to fake tool calls to satisfy the old one. One check, two
+    // opposite intents, and it fired on the honest one in every live round.
+    //
+    // Phase B makes the cheat UNREACHABLE instead of detected: criteria become
+    // `spec_criterion` rows written by a tool call, rows are append-only, and
+    // a correction is a new row that says it is one. There is nothing to
+    // rewrite. Until then the drift is recorded and named, so a reader of the
+    // record still sees it.
+    $query = (new EvidenceStore($root))->connection()
+      ->query("SELECT rule, message FROM finding WHERE rule = 'spec_freeze.drift'");
+    $this->assertNotFalse($query, 'the finding table is unreadable');
+    $drift = $query->fetchAll();
+    $this->assertNotSame([], $drift, 'the rewritten criterion was not recorded at all');
+    $this->assertStringContainsString(
+      'criteria',
+      strtolower(json_encode($drift) ?: ''),
+      'the drift finding does not name the criteria section',
+    );
   }
 
   /**
@@ -516,53 +540,62 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
   }
 
   /**
-   * Above `medium` the missing table refuses, and adding it clears the refusal.
+   * At high, an absent criteria table is recorded and the run still finishes.
    *
-   * A check that blocks is only legitimate if the agent can satisfy it, and a
-   * new blocking check is exactly where this project keeps shipping an
-   * unclearable one. The spec is FROZEN at plan, so "add the acceptance
-   * criteria table" is a demand to edit a frozen document — if the freeze
-   * refused that addition, `high` and above would be unfinishable.
-   *
-   * This drives the whole loop rather than asserting the rule, because the rule
-   * was right the last three times too and the run still wedged.
+   * This asserted a REFUSAL and then that doing what the refusal asked cleared
+   * it. Phase A removes the refusal (F-35): a document's shape does not end a
+   * run whose gates are green. What is still worth pinning is that the absence
+   * is recorded rather than passed over in silence — silence being the
+   * cheapest cheat in the system — and that a spec which HAS the table records
+   * `satisfied`, so the two cases are distinguishable in the record.
    */
-  public function testHighRefusesMissingCriteriaTableAndTheRefusalClears(): void {
+  public function testHighRecordsMissingCriteriaTableAndFinishes(): void {
     $root = $this->makeRootWithConfig("preset: high\nmode: agentic\n");
     $spec = $this->writeSpec($root);
     $facade = $this->facade();
 
-    $refused = NULL;
-    try {
-      $this->driveToEnd($facade, $root, $spec);
-    }
-    catch (SpecError $e) {
-      $refused = $e->getMessage();
-    }
-    $this->assertIsString($refused, 'high refuses a spec with no criteria table');
-    $this->assertStringContainsString('## Acceptance criteria', $refused);
+    $state = $this->driveToEnd($facade, $root, $spec);
 
-    // Now do exactly what the refusal asks, on the frozen spec.
+    $states = [];
+    foreach ((new EvidenceStore($root))->checklist($state->runId, 'complete') as $row) {
+      if (($row['name'] ?? '') === 'criteria_table') {
+        $value = $row['state'] ?? '';
+        $states[] = is_scalar($value) ? (string) $value : '';
+      }
+    }
+    $this->assertContains('recorded', $states, 'the absent table was not recorded at high');
+    $this->assertNotContains(
+      'blocked',
+      $states,
+      'a blocked row while the phase advances is a record that contradicts the run',
+    );
+    $this->assertNull($state->currentPhase, 'the run finished despite the absent table');
+  }
+
+  /**
+   * A spec that HAS the table records satisfied, so the two cases differ.
+   */
+  public function testCriteriaTablePresentRecordsSatisfied(): void {
+    $root = $this->makeRootWithConfig("preset: high\nmode: agentic\n");
+    $spec = $this->writeSpec($root);
     file_put_contents(
       $root . '/' . $spec,
       "\n## Acceptance criteria\n\n| ID | Criterion | Check | Verified By |\n|---|---|---|---|\n"
       . "| AC1 | the page renders | curl / | RinkTest::testIt |\n",
       FILE_APPEND,
     );
+    $facade = $this->facade();
 
     $state = $this->driveToEnd($facade, $root, $spec);
 
-    $found = [];
+    $states = [];
     foreach ((new EvidenceStore($root))->checklist($state->runId, 'complete') as $row) {
       if (($row['name'] ?? '') === 'criteria_table') {
-        $found[] = $row['state'];
+        $value = $row['state'] ?? '';
+        $states[] = is_scalar($value) ? (string) $value : '';
       }
     }
-    $this->assertSame(
-      ['satisfied'],
-      $found,
-      'the freeze permits the edit the refusal demands, and the check clears',
-    );
+    $this->assertContains('satisfied', $states);
   }
 
   /**

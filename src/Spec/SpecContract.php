@@ -287,6 +287,55 @@ final class SpecContract {
    * @throws \Droost\Workflow\Spec\SpecError
    *   When the file is gone or the section is absent.
    */
+
+  /**
+   * Whether a section is present, without throwing about it.
+   *
+   * `requireSection()`'s sibling, for callers that RECORD what the document
+   * says rather than refusing over it (F-35). Same matching rules: heading at
+   * line start, trailing words on the line tolerated, a deeper level not
+   * accepted, and a heading quoted inside a fence invisible because `read()`
+   * has already blanked it.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $spec
+   *   The spec, project-relative.
+   * @param string $heading
+   *   The heading to look for, e.g. `## Tooling plan`.
+   *
+   * @return bool
+   *   TRUE when the section is there. FALSE when it is not, and also when the
+   *   spec cannot be read — a caller that only records has nothing to say
+   *   about an unreadable file that the phase audit does not already say.
+   */
+  public static function hasSection(string $projectRoot, string $spec, string $heading): bool {
+    $text = self::read(rtrim($projectRoot, '/') . '/' . $spec);
+    if ($text === NULL) {
+      return FALSE;
+    }
+
+    return preg_match('/^' . preg_quote($heading, '/') . '\b/mi', $text) === 1;
+  }
+
+  /**
+   * Requires a section, throwing when it is absent.
+   *
+   * Kept for callers that genuinely want the refusal. Phase A's spec-shape
+   * recorder uses hasSection() instead (F-35).
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $spec
+   *   The spec, project-relative.
+   * @param string $heading
+   *   The heading required.
+   * @param string $why
+   *   What the section is for, quoted in the refusal.
+   *
+   * @throws \Droost\Workflow\Spec\SpecError
+   *   When the spec cannot be read or the section is absent.
+   */
   public static function requireSection(
     string $projectRoot,
     string $spec,

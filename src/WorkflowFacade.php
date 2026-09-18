@@ -40,7 +40,6 @@ use Droost\Workflow\Mode\QuestionSinkInterface;
 use Droost\Workflow\Mode\RunOutcome;
 use Droost\Workflow\Seeker\SeekerLedger;
 use Droost\Workflow\Spec\SpecContract;
-use Droost\Workflow\Spec\SpecError;
 use Droost\Workflow\Pack\InitReport;
 use Droost\Workflow\Pack\PackMaterializer;
 use Droost\Workflow\Pack\PackRemover;
@@ -725,98 +724,53 @@ final class WorkflowFacade {
     // requirement and the seeker appends its ledgers as they happen, so the
     // document must stay writable. What may not move is the tooling plan, the
     // grounding table and the acceptance criteria.
+    // THE FREEZE IS RECORDED TOO (F-33, F-35). A rewritten frozen section used
+    // to throw SpecError::contractChanged, whose only remedy is destroying the
+    // run — and P3-T1-a2 took it, honestly, having refused to manufacture tool
+    // calls to satisfy a list it no longer meant. An agent that legitimately
+    // needs different tooling than it predicted has no lawful edit, so the
+    // freeze punished honesty. Recorded now; Phase B removes the need for it
+    // entirely by making the facts rows rather than prose.
     if ($specPath !== NULL && $phase !== Phase::Plan) {
-      $this->requireFrozenSpecIntact($projectRoot, $specPath, $state->runId);
+      $this->recordFrozenSpecDrift($state, $projectRoot, $specPath, $phase);
     }
-    if ($specPath !== NULL && $phase === Phase::Plan) {
-      SpecContract::requireSection(
-        $projectRoot,
-        $specPath,
-        SpecContract::TOOLING_HEADING,
-        'the plan phase ends by mapping every deliverable to the surface '
-        . 'that builds it (a droost blueprint, drush generate, a composer '
-        . 'tool, or hand-written with the reason stated). Add the section, '
-        . 'then re-run.',
-      );
-    }
-    // Grounding is a contract at plan and at code, and advisory after. The
-    // two phases that DECIDE things are the two that must look first: plan
-    // proposes a shape, code commits it to disk. Test and complete verify
-    // what those two chose, so a lookup there is welcome and not required.
+    // SPEC SHAPE IS RECORDED, NOT ENFORCED (F-35, Phase A).
     //
-    // This exists because grounding was advice while routing was a contract,
-    // and the numbers followed the contract rather than the advice. The plan
-    // brief asks for both in one breath; only one produced a row anybody
-    // checked.
-    if ($specPath !== NULL && in_array($phase, [Phase::Plan, Phase::Code], TRUE)) {
-      $grounding = SpecContract::grounding($projectRoot, $specPath);
-      $name = strtolower($phase->value);
-      if ($grounding === NULL) {
-        throw SpecError::groundingMissing($specPath, $name, SpecContract::TIERS, TRUE, []);
-      }
-      if ($grounding['unanswered'] !== []) {
-        throw SpecError::groundingMissing($specPath, $name, [], FALSE, $grounding['unanswered']);
-      }
-      $reached = $grounding['phases'][$name] ?? [];
-      $missing = array_values(array_diff(SpecContract::TIERS, $reached));
-      if ($missing !== []) {
-        throw SpecError::groundingMissing($specPath, $name, $missing, FALSE, []);
-      }
+    // Everything this block used to do, it did by THROWING. Grounding tiers
+    // unreached, routes undeclared, a `## Realized` section absent, criteria
+    // without a `Verified By` cell — each was a SpecError that ended the run.
+    //
+    // Part 3 measured the cost. Across three runs every code-quality gate
+    // passed every time — phpcs, phpstan, config_clean, rendered_check — and
+    // all three stoppages were the shape of a markdown file: a route list
+    // inside a fence (F-32, F-34), a rewritten frozen section whose only
+    // remedy was destroying the run (F-33), and a data table under the wrong
+    // heading which left a complete, live, verified build unclosable (F-35).
+    //
+    // The rule this now obeys: there is no judgement from droost, only "did
+    // it do the job or not" in binary. The shape of prose is not a job the
+    // agent did or did not do — it is a lint. So each observation becomes a
+    // finding on a `spec` / `shape` check in CheckState::Recorded, which
+    // renders as "recorded (not blocking)": the same treatment a report-mode
+    // gate whose tool is absent already gets. The report names every one of
+    // them and none of them stops a run.
+    //
+    // The parser stays deliberately. Phase B replaces it with rows written by
+    // tool calls; until then its observations are still worth reading. They
+    // were never wrong about what the document said — only about whether that
+    // should end a run.
+    $observations = $this->specShapeObservations($projectRoot, $specPath, $phase);
+    if ($observations !== []) {
+      $this->recordSpecShape($state, $projectRoot, $phase, $observations);
     }
-    // And the routes, once the plan has grounded. rendered_check is on at
-    // every preset and for three live rounds rendered only `/` while the
-    // ticket's own page — once a 500 mid-build — went unrequested (F-15).
-    // The lever is per project; the routes are per ticket; the spec is where
-    // per-ticket facts live, and `none — <why>` is an answer.
-    if ($specPath !== NULL && $phase === Phase::Plan) {
-      $routes = SpecContract::routes($projectRoot, $specPath);
-      if ($routes === NULL || ($routes['routes'] === [] && !$routes['none'])) {
-        throw SpecError::routesUndeclared($specPath, $routes !== NULL);
-      }
-    }
-    if ($specPath !== NULL && $phase === Phase::Complete
-      && !SpecContract::hasRealizedCapture($projectRoot, $specPath)) {
-      throw SpecError::sectionMissing(
-        $specPath,
-        SpecContract::REALIZED_HEADING,
-        'complete opens by capturing what was actually built, in the spec '
-        . 'itself, for whoever arrives next with none of this context. '
-        . 'Write the section, then re-run.',
-      );
-    }
-    // And every acceptance criterion names the test that proves it (or an
-    // honest `manual — <reason>`). The pipeline this workflow descends from
-    // failed completion on an empty "Verified By" cell; the first real site
-    // on droost shipped three criteria of nine with no test and passed every
-    // phase, because the link was advice. It is a contract again here —
-    // only where the spec carries a criteria table at all, so a quasi-spec
-    // at medium or low is not held to a table it never had.
     if ($specPath !== NULL && $phase === Phase::Complete) {
-      $criteria = SpecContract::criteriaVerification($projectRoot, $specPath);
-      if ($criteria !== NULL && $criteria['unverified'] !== []) {
-        throw SpecError::criteriaUnverified($specPath, $criteria['unverified'], $criteria['column_missing'], $criteria['unnamed']);
-      }
-      // NO TABLE AT ALL used to be silence, and silence is the cheapest cheat
-      // in the system: write the criteria as prose and the whole `Verified By`
-      // contract never fires. A reviewer completed a run — all four phases
-      // passed — with a sixteen-line spec, zero tests, zero declarations and
-      // zero acceptance criteria, because the one section that would have held
-      // it was the one section nothing required.
-      //
-      // The quasi-spec exemption stays: a medium or low run must not be held to
-      // a table it was never told to write. But the absence is RECORDED now
-      // rather than assumed, so a reader sees "nothing here was verified
-      // against a stated criterion" instead of an unbroken column of green.
-      if ($this->recordCriteriaContract($state, $projectRoot, $criteria !== NULL)) {
-        throw SpecError::sectionMissing(
-          $specPath,
-          SpecFreeze::CRITERIA,
-          'at this level every claim the run makes is held to a criterion naming '
-          . 'the test that proves it. Write the table — one observable behaviour '
-          . 'per row, with `Verified By` filled — then re-run. Below `high` the '
-          . 'table is optional and its absence is only recorded.',
-        );
-      }
+      // Still recorded, and still in the report — but the return value no
+      // longer gates anything.
+      $this->recordCriteriaContract(
+        $state,
+        $projectRoot,
+        SpecContract::criteriaVerification($projectRoot, $specPath) !== NULL,
+      );
     }
 
     // Every door, the same gates (R31-F3/F5): a run begun on a surface that
@@ -1860,6 +1814,194 @@ final class WorkflowFacade {
    * @param bool $present
    *   Whether a criteria table was found.
    */
+
+  /**
+   * What the spec's SHAPE looks like, as observations rather than refusals.
+   *
+   * One entry per thing the old contract would have thrown on. Each is a lint
+   * about a markdown document, and the engine records lints — it does not end
+   * runs over them (F-35). Order is the order a reader meets them.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string|null $specPath
+   *   The governing spec, or NULL when the run has none yet.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase being adjudicated; different phases look at different sections.
+   *
+   * @return list<array{check: string, why: string}>
+   *   Observations, empty when the document says everything it should.
+   */
+  private function specShapeObservations(string $projectRoot, ?string $specPath, Phase $phase): array {
+    if ($specPath === NULL) {
+      return [];
+    }
+    $out = [];
+    $name = strtolower($phase->value);
+
+    if ($phase === Phase::Plan
+      && !SpecContract::hasSection($projectRoot, $specPath, SpecContract::TOOLING_HEADING)) {
+      $out[] = [
+        'check' => 'tooling_plan',
+        'why' => sprintf(
+          'no "%s" section. Which surface built each deliverable is answerable '
+          . 'from the tool-call ledger, which the agent cannot write — so this '
+          . 'is a readability lint, not a missing fact.',
+          SpecContract::TOOLING_HEADING,
+        ),
+      ];
+    }
+
+    if (in_array($phase, [Phase::Plan, Phase::Code], TRUE)) {
+      $grounding = SpecContract::grounding($projectRoot, $specPath);
+      if ($grounding === NULL) {
+        $out[] = [
+          'check' => 'grounding',
+          'why' => sprintf(
+            'no grounding table. Whether the codebase was actually consulted is '
+            . 'answerable from the ledger (%s), which is the mechanical half; '
+            . 'the table is the agent showing its working.',
+            implode(', ', array_slice(EvaluationReport::KNOWLEDGE_TOOLS, 0, 3)) . ', …',
+          ),
+        ];
+      }
+      elseif ($grounding['unanswered'] !== []) {
+        $out[] = [
+          'check' => 'grounding',
+          'why' => sprintf(
+            '%d grounding question(s) left unanswered in the %s phase: %s',
+            count($grounding['unanswered']),
+            $name,
+            implode('; ', array_slice($grounding['unanswered'], 0, 5)),
+          ),
+        ];
+      }
+      else {
+        $missing = array_values(array_diff(SpecContract::TIERS, $grounding['phases'][$name] ?? []));
+        if ($missing !== []) {
+          $out[] = [
+            'check' => 'grounding',
+            'why' => sprintf('the %s phase reached no %s tier row(s)', $name, implode('/', $missing)),
+          ];
+        }
+      }
+    }
+
+    if ($phase === Phase::Plan) {
+      $routes = SpecContract::routes($projectRoot, $specPath);
+      if ($routes === NULL || ($routes['routes'] === [] && !$routes['none'])) {
+        $out[] = [
+          'check' => 'routes',
+          'why' => $routes === NULL
+            ? sprintf('no "%s" section, so rendered_check has only the lever to go on', SpecContract::ROUTES_HEADING)
+            : sprintf(
+              'the "%s" section declares neither a path nor `none`. A path '
+              . 'inside a fenced block declares nothing — fences are blanked '
+              . 'so a spec\'s examples are never read as declarations (F-34) '
+              . '— and this is why routes are moving to `declare_route` rows.',
+              SpecContract::ROUTES_HEADING,
+          ),
+        ];
+      }
+    }
+
+    if ($phase === Phase::Complete) {
+      if (!SpecContract::hasRealizedCapture($projectRoot, $specPath)) {
+        $out[] = [
+          'check' => 'realized',
+          'why' => sprintf('no "%s" capture of what was actually built', SpecContract::REALIZED_HEADING),
+        ];
+      }
+      $criteria = SpecContract::criteriaVerification($projectRoot, $specPath);
+      if ($criteria !== NULL && $criteria['unverified'] !== []) {
+        $out[] = [
+          'check' => 'criteria_verified',
+          'why' => sprintf(
+            '%d criterion/criteria carry no `Verified By`: %s. This is the one '
+            . 'observation worth making mechanical, and Phase B does: '
+            . '`verify_criterion` names a test the phpunit run executed, or '
+            . 'records `manual` honestly.',
+            count($criteria['unverified']),
+            implode(', ', array_slice($criteria['unverified'], 0, 8)),
+          ),
+        ];
+      }
+    }
+
+    return $out;
+  }
+
+  /**
+   * Records spec-shape observations as one non-blocking check.
+   *
+   * `CheckState::Recorded` renders as "recorded (not blocking)" and
+   * `blocksAdvance()` is FALSE for it, so the phase proceeds. The findings ride
+   * the row, so §8a names each one and a reader can see what the document did
+   * not say without the run having died over it.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param string $projectRoot
+   *   The repository.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase these observations belong to.
+   * @param list<array{check: string, why: string}> $observations
+   *   What specShapeObservations() found.
+   */
+  private function recordSpecShape(RunState $state, string $projectRoot, Phase $phase, array $observations): void {
+    $findings = [];
+    foreach ($observations as $o) {
+      $findings[] = [
+        'rule' => 'spec_shape.' . $o['check'],
+        'message' => $o['why'],
+      ];
+    }
+    try {
+      (new EvidenceStore($projectRoot))->record(
+        $state->runId,
+        $phase->value,
+        new CheckRecord(
+          'spec',
+          'shape',
+          CheckState::Recorded,
+          Fault::None,
+          sprintf(
+            '%d spec-shape observation(s), recorded and not blocking: %s. The '
+            . 'document\'s shape is a lint; what the run DID is in the gates and '
+            . 'the ledger.',
+            count($observations),
+            implode(', ', array_column($observations, 'check')),
+          ),
+          findings: $findings,
+        ),
+        $this->now(),
+      );
+    }
+    catch (\Throwable) {
+      // The store is unreachable; the phase's own audit already says so.
+    }
+  }
+
+  /**
+   * Records whether the spec carries a criteria table at all.
+   *
+   * Presence and absence are both recorded, because silence is the cheapest
+   * cheat in the system: write the criteria as prose and the whole `Verified
+   * By` contract never fires. The return value used to gate the complete
+   * phase at high+; nothing reads it now (F-35), and Phase B replaces the
+   * question with a COUNT of `spec_criterion` rows.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param string $projectRoot
+   *   The repository.
+   * @param bool $present
+   *   Whether the spec has a criteria table.
+   *
+   * @return bool
+   *   Whether the level would once have refused. Kept so the signature does
+   *   not churn while Phase B is built; no caller acts on it.
+   */
   private function recordCriteriaContract(RunState $state, string $projectRoot, bool $present): bool {
     $demanding = in_array($state->preset, ['high', 'xhigh', 'max', 'factory'], TRUE);
     if ($present) {
@@ -1898,8 +2040,19 @@ final class WorkflowFacade {
         new CheckRecord(
           'spec',
           'criteria_table',
-          $demanding ? CheckState::Blocked : CheckState::Recorded,
-          $demanding ? Fault::Agent : Fault::None,
+          // RECORDED AT EVERY LEVEL IN PHASE A. This wrote `Blocked` at high+,
+          // and `Blocked->blocksAdvance()` is TRUE — so leaving it while the
+          // phase now advances would put a row in the store that contradicts
+          // what the run did. A record that disagrees with the run is the
+          // defect class this whole repo exists to find (F-21, F-31), and it
+          // would be self-inflicted.
+          //
+          // The level still matters and is still said, in the summary: at high+
+          // the absent table is called out as something that level expects.
+          // Phase B makes it mechanical — criteria are rows, and "are there
+          // any" is a COUNT.
+          CheckState::Recorded,
+          Fault::None,
           $demanding
             ? 'The spec carries no `## Acceptance criteria` table, so nothing in this run was '
             . 'checked against a stated criterion. At this level that is the contract rather than '
@@ -2048,54 +2201,71 @@ final class WorkflowFacade {
   }
 
   /**
-   * Refuses a phase whose spec lost the contract it was frozen with.
+   * Records frozen-spec drift instead of refusing over it (F-33, F-35).
    *
-   * The hole this closes: every phase re-read the spec from disk, so a
-   * grounding table that satisfied the plan gate could be rewritten before the
-   * code gate looked at it, and nothing would know. The agent both wrote the
-   * contract and was graded against it, with an edit button in between.
+   * `requireFrozenSpecIntact()` stays for callers that genuinely want the
+   * refusal, and for Phase B to delete. This one records the same breaches as
+   * findings on a non-blocking check, so a reader still learns that a frozen
+   * section moved — and the run still finishes.
    *
-   * Silent when nothing was frozen — a run begun before this existed, or one
-   * whose store could not be written — because a run cannot be retroactively
-   * in breach of a contract nobody recorded.
+   * The distinction the freeze could never draw is why this had to change: an
+   * agent quietly deleting a criterion it failed and an agent correcting a
+   * tooling plan it no longer means produce the same breach. Only the second
+   * happened in three live rounds, and the remedy for it was destroying the
+   * run.
    *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
    * @param string $projectRoot
-   *   The repository root.
+   *   The repository.
    * @param string $spec
    *   The spec, project-relative.
-   * @param string $runId
-   *   The run.
-   *
-   * @throws \Droost\Workflow\Spec\SpecError
-   *   When a frozen section has changed since the plan.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase being adjudicated.
    */
-  private function requireFrozenSpecIntact(string $projectRoot, string $spec, string $runId): void {
+  private function recordFrozenSpecDrift(RunState $state, string $projectRoot, string $spec, Phase $phase): void {
     try {
       $store = new EvidenceStore($projectRoot);
       $statement = $store->connection()->prepare('SELECT spec_hash, spec_text FROM run WHERE run_id = ?');
-      $statement->execute([$runId]);
+      $statement->execute([$state->runId]);
       $row = $statement->fetch();
+      if (!is_array($row) || !is_string($row['spec_text'] ?? NULL)) {
+        return;
+      }
+      $text = @file_get_contents(rtrim($projectRoot, '/') . '/' . $spec);
+      if ($text === FALSE) {
+        return;
+      }
+      $breaches = SpecFreeze::breaches($text, (string) $row['spec_text']);
+      if ($breaches === []) {
+        return;
+      }
+      $store->record(
+        $state->runId,
+        $phase->value,
+        new CheckRecord(
+          'spec',
+          'frozen_sections',
+          CheckState::Recorded,
+          Fault::None,
+          sprintf(
+            '%d frozen-section change(s) since the plan froze the spec, recorded '
+            . 'and not blocking. What the run DID is in the gates and the ledger; '
+            . 'the ledger in particular cannot be rewritten by the agent, which '
+            . 'is why the tooling plan no longer needs freezing.',
+            count($breaches),
+          ),
+          findings: array_map(
+            static fn (string $b): array => ['rule' => 'spec_freeze.drift', 'message' => $b],
+            $breaches,
+          ),
+        ),
+        $this->now(),
+      );
     }
-    catch (\Throwable $e) {
-      return;
+    catch (\Throwable) {
+      // The store is unreachable; the phase's own audit already says so.
     }
-    if (!is_array($row) || !is_string($row['spec_hash'] ?? NULL) || $row['spec_hash'] === '') {
-      return;
-    }
-    // The recorded TEXT is what this is checked against, not the digest: two of
-    // the three sections are append-only, and "every row that was there is
-    // still there" is not a question a hash can answer.
-    $frozenText = is_string($row['spec_text'] ?? NULL) ? $row['spec_text'] : NULL;
-    $text = @file_get_contents(rtrim($projectRoot, '/') . '/' . $spec);
-    if ($text === FALSE || $frozenText === NULL) {
-      return;
-    }
-    $breaches = SpecFreeze::breaches($text, $frozenText);
-    if ($breaches === []) {
-      return;
-    }
-
-    throw SpecError::contractChanged($spec, $breaches);
   }
 
   /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Spec;
 
+use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
@@ -32,17 +33,16 @@ final class SpecContractTest extends WorkflowTestCase {
   /**
    * Leaving plan requires the tooling plan, and the refusal names the fix.
    */
-  public function testPlanRefusesWithoutTheToolingPlan(): void {
+  public function testPlanRecordsWithoutTheToolingPlan(): void {
     $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
     // Overwrite the helper's satisfying spec with one missing the section.
     file_put_contents(
       $root . '/droost/droost-workflow/spec-test-run.md',
       "# Spec: test run\n\n## 1. The request\n\nWords.\n",
     );
-
-    $this->expectException(SpecError::class);
-    $this->expectExceptionMessageMatches('/Tooling plan.*surface that builds it/s');
     $this->facadeForCli()->run($root);
+
+    $this->assertShapeRecorded($root, 'spec_shape.tooling_plan', 'plan', 'Tooling plan');
   }
 
   /**
@@ -52,17 +52,16 @@ final class SpecContractTest extends WorkflowTestCase {
    * and `/private-lessons`; the gate that exists to render the run's page
    * never asked for it, because nothing per-ticket named one.
    */
-  public function testPlanRefusesWithoutRoutes(): void {
+  public function testPlanRecordsWithoutRoutes(): void {
     $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
     $spec = $root . '/droost/droost-workflow/spec-test-run.md';
     $text = (string) file_get_contents($spec);
     $text = (string) preg_replace('/^## Routes\n.*?(?=^## )/ms', '', $text);
     $this->assertStringNotContainsString('## Routes', $text, 'the fixture is now silent about routes');
     file_put_contents($spec, $text);
-
-    $this->expectException(SpecError::class);
-    $this->expectExceptionMessageMatches('/has no "## Routes" section.*none — <why>/s');
     $this->facadeForCli()->run($root);
+
+    $this->assertShapeRecorded($root, 'spec_shape.routes', 'plan', 'Routes');
   }
 
   /**
@@ -71,15 +70,14 @@ final class SpecContractTest extends WorkflowTestCase {
    * The heading alone would be the cheapest way past the gate; the refusal
    * distinguishes "empty" from "missing" so the fix is obvious either way.
    */
-  public function testPlanRefusesAnEmptyRoutesSection(): void {
+  public function testPlanRecordsAnEmptyRoutesSection(): void {
     $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
     $spec = $root . '/droost/droost-workflow/spec-test-run.md';
     $text = (string) preg_replace('/^## Routes\n.*?(?=^## )/ms', "## Routes\n\nThe pages will be decided during code.\n\n", (string) file_get_contents($spec));
     file_put_contents($spec, $text);
-
-    $this->expectException(SpecError::class);
-    $this->expectExceptionMessageMatches('/names no route and does not say none/');
     $this->facadeForCli()->run($root);
+
+    $this->assertShapeRecorded($root, 'spec_shape.routes', 'plan', 'Routes');
   }
 
   /**
@@ -167,7 +165,7 @@ final class SpecContractTest extends WorkflowTestCase {
   /**
    * Complete refuses while the realized capture is absent.
    */
-  public function testCompleteRefusesWithoutTheRealizedCapture(): void {
+  public function testCompleteRecordsWithoutTheRealizedCapture(): void {
     $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
     $this->writeSpec($root, realized: FALSE);
     $facade = $this->facadeForCli();
@@ -175,10 +173,9 @@ final class SpecContractTest extends WorkflowTestCase {
     $facade->run($root);
     $facade->run($root);
     $facade->run($root);
-
-    $this->expectException(SpecError::class);
-    $this->expectExceptionMessageMatches('/Realized.*capturing what was actually built/s');
     $facade->run($root);
+
+    $this->assertShapeRecorded($root, 'spec_shape.realized', 'complete', 'Realized');
   }
 
   /**
@@ -331,17 +328,16 @@ MD
    * no test and passed, because the link was advice. The refusal names the
    * rows and the remedy.
    */
-  public function testCompleteRefusesWithUnverifiedCriteria(): void {
+  public function testCompleteRecordsWithUnverifiedCriteria(): void {
     $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
     $this->writeCriteriaSpec($root, "| AC1 | When x, the system shall y. | drush | `XTest::testY` |\n| AC2 | When p, the system shall q. | drush | |\n");
     $facade = $this->facadeForCli();
     $facade->run($root);
     $facade->run($root);
     $facade->run($root);
-
-    $this->expectException(SpecError::class);
-    $this->expectExceptionMessageMatches('/1 acceptance criterion without a "Verified By" entry \(AC2\).*manual — <reason>/s');
     $facade->run($root);
+
+    $this->assertShapeRecorded($root, 'spec_shape.criteria_verified', 'complete', 'Verified By');
   }
 
   /**
@@ -351,17 +347,25 @@ MD
    * different fixes, so the refusal distinguishes them rather than telling an
    * agent its filled-in cell is empty.
    */
-  public function testCompleteRefusesProseAndNamesTheShapeItWants(): void {
+  public function testCompleteRecordsProseInTheVerifiedByCell(): void {
     $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
     $this->writeCriteriaSpec($root, "| AC1 | When x, the system shall y. | drush | `XTest::testY` |\n| AC2 | When p, the system shall q. | eye | I tested it by hand |\n");
     $facade = $this->facadeForCli();
     $facade->run($root);
     $facade->run($root);
     $facade->run($root);
-
-    $this->expectException(SpecError::class);
-    $this->expectExceptionMessageMatches('/\(AC2\) — the cells name no test.*FooTest::testBar/s');
     $facade->run($root);
+
+    // AC2's cell is a manual claim in the wrong FORM — "I tested it by hand"
+    // rather than `manual — <reason>`. That is cell formatting, and Phase A
+    // records formatting instead of refusing over it (F-35).
+    //
+    // What Phase B makes mechanical is narrower and genuinely checkable: a
+    // `verify_criterion --test=X` reference must name a test the phpunit run
+    // actually executed, and `--manual` is recorded as manual without being
+    // judged. A criterion claiming a test that never ran is the one thing
+    // worth ending a run over; prose in a cell is not.
+    $this->assertShapeRecorded($root, 'spec_shape.criteria_verified', 'complete', 'AC2');
   }
 
   /**
@@ -558,16 +562,15 @@ none — fixture
    * graph, module_patterns and deprecations not once. The plan brief asked for
    * both in one breath; only one produced a row anybody checked.
    */
-  public function testPlanRefusesWithoutGrounding(): void {
+  public function testPlanRecordsWithoutGrounding(): void {
     $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
     file_put_contents(
       $root . '/droost/droost-workflow/spec-test-run.md',
       "# Spec: test run\n\n## Tooling plan\n\n- hand-written (fixture)\n\n## Realized\n\nx\n",
     );
-
-    $this->expectException(SpecError::class);
-    $this->expectExceptionMessageMatches('/has no "## Grounding" section/');
     $this->facadeForCli()->run($root);
+
+    $this->assertShapeRecorded($root, 'spec_shape.grounding', 'plan', 'grounding');
   }
 
   /**
@@ -577,29 +580,27 @@ none — fixture
    * plan-phase mistake is building what this site already has under another
    * name, and no amount of contrib knowledge catches it.
    */
-  public function testPlanRefusesWhenOneTierIsNeverReached(): void {
+  public function testPlanRecordsWhenOneTierIsNeverReached(): void {
     $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
     $this->writeGroundingSpec($root, [['plan', 'contrib', 'does views do this', 'yes']]);
-
-    $this->expectException(SpecError::class);
-    $this->expectExceptionMessageMatches('/never reached: custom, core/');
     $this->facadeForCli()->run($root);
+
+    $this->assertShapeRecorded($root, 'spec_shape.grounding', 'plan', 'tier');
   }
 
   /**
    * A row claiming a lookup with no answer is refused.
    */
-  public function testGroundingRefusesRowsWithNoAnswer(): void {
+  public function testGroundingRecordsRowsWithoutAnswers(): void {
     $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
     $this->writeGroundingSpec($root, [
       ['plan', 'custom', 'does a rink type exist', ''],
       ['plan', 'contrib', 'what does views offer', 'a page display'],
       ['plan', 'core', 'node bundle API', 'NodeType'],
     ]);
-
-    $this->expectException(SpecError::class);
-    $this->expectExceptionMessageMatches('/no answer/');
     $this->facadeForCli()->run($root);
+
+    $this->assertShapeRecorded($root, 'spec_shape.grounding', 'plan', 'unanswered');
   }
 
   /**
@@ -697,10 +698,9 @@ MD);
       $grounding['unanswered'],
       'every casing and both dashes read as unanswered',
     );
-
-    $this->expectException(SpecError::class);
-    $this->expectExceptionMessageMatches('/no answer/');
     $this->facadeForCli()->run($root);
+
+    $this->assertShapeRecorded($root, 'spec_shape.grounding', 'plan', 'unanswered');
   }
 
   /**
@@ -739,7 +739,7 @@ none — fixture
    * of `## Tooling plan` in an example satisfied the requirement on the
    * strength of its own teaching material.
    */
-  public function testFencedHeadingDoesNotSatisfyTheSection(): void {
+  public function testFencedHeadingIsRecordedAbsent(): void {
     $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
     file_put_contents($root . '/droost/droost-workflow/spec-test-run.md', <<<'MD'
 # Spec: test run
@@ -769,10 +769,9 @@ none — fixture
 Words.
 MD
     );
-
-    $this->expectException(SpecError::class);
-    $this->expectExceptionMessageMatches('/Tooling plan.*surface that builds it/s');
     $this->facadeForCli()->run($root);
+
+    $this->assertShapeRecorded($root, 'spec_shape.tooling_plan', 'plan', 'Tooling plan');
   }
 
   /**
@@ -916,6 +915,66 @@ MD
       ['/camps', '/rinks'],
       $declared("- /camps — the new listing\n- `/rinks`\n\nMentions /not-a-route in passing.\n"),
     );
+  }
+
+  /**
+   * Asserts the run FINISHED and recorded a spec-shape observation.
+   *
+   * Phase A of the mechanical-workflow plan (F-35): every refusal this class
+   * used to assert is now a finding on a non-blocking `spec` check. The thing
+   * worth testing is no longer "does it throw" but "does the report say what
+   * the document did not say, without the run dying over it".
+   *
+   * @param string $root
+   *   The project root the run was driven in.
+   * @param string $rule
+   *   The finding rule to look for, e.g. `spec_shape.routes`.
+   * @param string $phase
+   *   The phase the observation belongs to.
+   * @param string $expect
+   *   A fragment the finding's message must contain.
+   */
+  private function assertShapeRecorded(string $root, string $rule, string $phase, string $expect): void {
+    $record = json_decode(
+      (string) file_get_contents($root . '/droost/droost-workflow/run.json'),
+      TRUE,
+    );
+    $this->assertIsArray($record, 'the run record is unreadable');
+    $runId = is_string($record['run_id'] ?? NULL) ? $record['run_id'] : '';
+    $this->assertNotSame('', $runId, 'the run has no id');
+
+    $rows = (new EvidenceStore($root))->checklist($runId, $phase);
+    $spec = array_values(array_filter(
+      $rows,
+      static fn (array $r): bool => ($r['kind'] ?? '') === 'spec',
+    ));
+    $this->assertNotSame([], $spec, 'the run recorded no spec observations at all in ' . $phase);
+
+    // The check row carries the summary; the findings live in their own table,
+    // which is what §8a renders. Assert both, because the summary alone would
+    // pass on a row with no findings attached.
+    $blob = json_encode($spec) ?: '';
+    $this->assertStringContainsString(
+      explode('.', $rule)[1],
+      $blob,
+      'the check summary does not name ' . $rule,
+    );
+
+    $store = new EvidenceStore($root);
+    $query = $store->connection()
+      ->query("SELECT rule, message FROM finding WHERE rule LIKE 'spec_%'");
+    $this->assertNotFalse($query, 'the finding table is unreadable');
+    $findings = $query->fetchAll();
+    $text = json_encode($findings) ?: '';
+    $this->assertStringContainsString($rule, $text, 'no ' . $rule . ' finding row was written');
+    $this->assertStringContainsString($expect, $text);
+    foreach ($spec as $row) {
+      $this->assertNotSame(
+        'blocked',
+        $row['state'] ?? '',
+        'a spec-shape observation blocked the phase; Phase A says it must not',
+      );
+    }
   }
 
 }
