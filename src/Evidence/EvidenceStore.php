@@ -60,7 +60,7 @@ final class EvidenceStore {
    * build does not know about costs it nothing. A store written by an older one
    * is migrated up in place.
    */
-  public const int SCHEMA_VERSION = 9;
+  public const int SCHEMA_VERSION = 10;
 
   /**
    * Substrings that identify a browser tool in a host's tool name.
@@ -229,6 +229,7 @@ final class EvidenceStore {
         7 => $this->migrateToV7($pdo),
         8 => $this->migrateToV8($pdo),
         9 => $this->migrateToV9($pdo),
+        10 => $this->migrateToV10($pdo),
         default => NULL,
       };
       // Stamped per rung, so an interrupted upgrade resumes where it stopped
@@ -338,6 +339,39 @@ final class EvidenceStore {
       );
       CREATE INDEX IF NOT EXISTS guard_call_by_run ON guard_call (run_id, phase, mode);
       CREATE INDEX IF NOT EXISTS guard_call_by_tool ON guard_call (run_id, phase, tool);
+
+      CREATE TABLE IF NOT EXISTS spec_route (
+        run_id      TEXT NOT NULL,
+        phase       TEXT NOT NULL,
+        revision    INTEGER NOT NULL,
+        path        TEXT NOT NULL,
+        reason      TEXT,
+        declared_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS spec_route_by_run ON spec_route (run_id, path, revision);
+
+      CREATE TABLE IF NOT EXISTS spec_criterion (
+        run_id      TEXT NOT NULL,
+        phase       TEXT NOT NULL,
+        revision    INTEGER NOT NULL,
+        ref         TEXT NOT NULL,
+        statement   TEXT NOT NULL,
+        verified_by TEXT,
+        verified_at TEXT,
+        declared_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS spec_criterion_by_run ON spec_criterion (run_id, ref, revision);
+
+      CREATE TABLE IF NOT EXISTS spec_note (
+        run_id      TEXT NOT NULL,
+        phase       TEXT NOT NULL,
+        revision    INTEGER NOT NULL,
+        kind        TEXT NOT NULL,
+        subject     TEXT NOT NULL,
+        detail      TEXT,
+        declared_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS spec_note_by_run ON spec_note (run_id, kind, subject, revision);
 
       CREATE TABLE IF NOT EXISTS grounding_row (
         run_id    TEXT NOT NULL,
@@ -1609,6 +1643,344 @@ final class EvidenceStore {
   }
 
   /**
+   * Declares a route this ticket's change serves.
+   *
+   * Written by a TOOL CALL, never parsed out of a document. `## Routes` is
+   * still in the spec for a human to read; this is what `rendered_check`
+   * renders, and the difference is that a row has no shape to get wrong.
+   * Part 3 lost two runs to a route list written inside a fence, which is
+   * the natural markdown for "one per line" and declared nothing (F-34).
+   *
+   * Idempotent by intent: re-declaring the same path at the same phase with
+   * the same reason writes a new revision and changes no answer. The cost of
+   * a duplicate row is nothing; the cost of an exception mid-phase is a run.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $phase
+   *   The phase declaring it.
+   * @param string $path
+   *   The route, as the site serves it.
+   * @param string|null $reason
+   *   Why it is in scope, for the reader. Never read mechanically.
+   * @param string|null $now
+   *   The timestamp, ISO-8601.
+   */
+  public function declareRoute(string $runId, string $phase, string $path, ?string $reason = NULL, ?string $now = NULL): void {
+    $this->connection()
+      ->prepare('INSERT INTO spec_route (run_id, phase, revision, path, reason, declared_at) VALUES (?, ?, ?, ?, ?, ?)')
+      ->execute([
+        $runId,
+        $phase,
+        $this->nextRevision('spec_route', 'path', $runId, $path),
+        $path,
+        $reason,
+        $now ?? date('c'),
+      ]);
+  }
+
+  /**
+   * The routes this run declared, newest revision per path.
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return list<array{path: string, phase: string, reason: string|null, declared_at: string}>
+   *   One entry per distinct path, in the order they were first declared.
+   */
+  public function specRoutes(string $runId): array {
+    $statement = $this->connection()->prepare(
+      'SELECT path, phase, reason, declared_at FROM spec_route r
+        WHERE run_id = ? AND revision = (
+          SELECT MAX(revision) FROM spec_route WHERE run_id = r.run_id AND path = r.path
+        )
+        ORDER BY (SELECT MIN(rowid) FROM spec_route WHERE run_id = r.run_id AND path = r.path)'
+    );
+    $statement->execute([$runId]);
+    $out = [];
+    foreach (self::rows($statement) as $row) {
+      $out[] = [
+        'path' => self::text($row, 'path'),
+        'phase' => self::text($row, 'phase'),
+        'reason' => self::nullableText($row, 'reason'),
+        'declared_at' => self::text($row, 'declared_at'),
+      ];
+    }
+
+    return $out;
+  }
+
+  /**
+   * Declares an acceptance criterion, or restates one.
+   *
+   * A restatement is a REVISION, not an overwrite and not a refusal. The old
+   * statement stays in the table under a lower revision, so "I promised X and
+   * ended up proving Y" is legible — which is the fact `SpecFreeze` existed to
+   * protect and could only protect by refusing the edit, because prose has no
+   * revision number.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $phase
+   *   The phase declaring it.
+   * @param string $ref
+   *   The criterion's id, e.g. `AC-1`.
+   * @param string $statement
+   *   What must be true, in the agent's words.
+   * @param string|null $now
+   *   The timestamp, ISO-8601.
+   */
+  public function declareCriterion(string $runId, string $phase, string $ref, string $statement, ?string $now = NULL): void {
+    $latest = $this->latestCriterion($runId, $ref);
+    $this->connection()
+      ->prepare(
+        'INSERT INTO spec_criterion
+          (run_id, phase, revision, ref, statement, verified_by, verified_at, declared_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      )
+      ->execute([
+        $runId,
+        $phase,
+        $this->nextRevision('spec_criterion', 'ref', $runId, $ref),
+        $ref,
+        $statement,
+        // A RESTATEMENT DROPS THE PROOF. The verification named a test that
+        // proved the OLD sentence; carrying it forward onto a new one is
+        // precisely the circularity this table exists to make impossible —
+        // a criterion retrofitted to the thing that happened to pass.
+        $latest !== NULL && self::text($latest, 'statement') === $statement
+          ? self::nullableText($latest, 'verified_by')
+          : NULL,
+        $latest !== NULL && self::text($latest, 'statement') === $statement
+          ? self::nullableText($latest, 'verified_at')
+          : NULL,
+        $now ?? date('c'),
+      ]);
+  }
+
+  /**
+   * Records what proves a criterion.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $phase
+   *   The phase verifying it.
+   * @param string $ref
+   *   The criterion's id.
+   * @param string $verifiedBy
+   *   The test, route or command that proves it. Stored, never interpreted:
+   *   whether it is a real test is the test gate's question, not this one's.
+   * @param string|null $now
+   *   The timestamp, ISO-8601.
+   *
+   * @return bool
+   *   FALSE when no such criterion was declared — the one thing here that is
+   *   an error rather than a row, because verifying a criterion nobody stated
+   *   is how a run proves whatever it happened to do.
+   */
+  public function verifyCriterion(string $runId, string $phase, string $ref, string $verifiedBy, ?string $now = NULL): bool {
+    $latest = $this->latestCriterion($runId, $ref);
+    if ($latest === NULL) {
+      return FALSE;
+    }
+    $at = $now ?? date('c');
+    $this->connection()
+      ->prepare(
+        'INSERT INTO spec_criterion
+          (run_id, phase, revision, ref, statement, verified_by, verified_at, declared_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      )
+      ->execute([
+        $runId,
+        $phase,
+        $this->nextRevision('spec_criterion', 'ref', $runId, $ref),
+        $ref,
+        // THE STATEMENT AS DECLARED. Verification may not restate what it is
+        // verifying; that is one tool call, and this is the other.
+        self::text($latest, 'statement'),
+        $verifiedBy,
+        $at,
+        self::nullableText($latest, 'declared_at') ?? $at,
+      ]);
+
+    return TRUE;
+  }
+
+  /**
+   * The criteria this run declared, newest revision per ref.
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return list<array{ref: string, statement: string, verified_by: string|null, verified_at: string|null, phase: string, revisions: int}>
+   *   One entry per distinct ref, in the order they were first declared.
+   */
+  public function specCriteria(string $runId): array {
+    $statement = $this->connection()->prepare(
+      'SELECT ref, statement, verified_by, verified_at, phase,
+              (SELECT COUNT(*) FROM spec_criterion WHERE run_id = c.run_id AND ref = c.ref) AS revisions
+         FROM spec_criterion c
+        WHERE run_id = ? AND revision = (
+          SELECT MAX(revision) FROM spec_criterion WHERE run_id = c.run_id AND ref = c.ref
+        )
+        ORDER BY (SELECT MIN(rowid) FROM spec_criterion WHERE run_id = c.run_id AND ref = c.ref)'
+    );
+    $statement->execute([$runId]);
+    $out = [];
+    foreach (self::rows($statement) as $row) {
+      $out[] = [
+        'ref' => self::text($row, 'ref'),
+        'statement' => self::text($row, 'statement'),
+        'verified_by' => self::nullableText($row, 'verified_by'),
+        'verified_at' => self::nullableText($row, 'verified_at'),
+        'phase' => self::text($row, 'phase'),
+        'revisions' => self::number($row, 'revisions'),
+      ];
+    }
+
+    return $out;
+  }
+
+  /**
+   * Records anything else the spec would have said in prose.
+   *
+   * Grounding citations, tooling the run means to use, a decision and its
+   * reason. Deliberately one loose table rather than three tight ones: what
+   * killed the markdown contract was a schema inferred from heading position,
+   * and inventing a new table per section would rebuild that in SQL.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $phase
+   *   The phase declaring it.
+   * @param string $kind
+   *   One of `grounding`, `tooling`, `decision` — or whatever a contributed
+   *   step needs. Not a closed set: a note nobody reads is harmless, and a
+   *   refused note in the middle of a phase is not.
+   * @param string $subject
+   *   What the note is about: a citation, a tool id, a decision's name.
+   * @param string|null $detail
+   *   The rest, for a reader.
+   * @param string|null $now
+   *   The timestamp, ISO-8601.
+   */
+  public function declareNote(string $runId, string $phase, string $kind, string $subject, ?string $detail = NULL, ?string $now = NULL): void {
+    $this->connection()
+      ->prepare('INSERT INTO spec_note (run_id, phase, revision, kind, subject, detail, declared_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      ->execute([
+        $runId,
+        $phase,
+        $this->nextRevision('spec_note', 'subject', $runId, $subject, $kind),
+        $kind,
+        $subject,
+        $detail,
+        $now ?? date('c'),
+      ]);
+  }
+
+  /**
+   * The notes this run declared, newest revision per kind and subject.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string|null $kind
+   *   One kind, or NULL for all of them.
+   *
+   * @return list<array{kind: string, subject: string, detail: string|null, phase: string, declared_at: string}>
+   *   The notes, in the order they were first declared.
+   */
+  public function specNotes(string $runId, ?string $kind = NULL): array {
+    $sql = 'SELECT kind, subject, detail, phase, declared_at FROM spec_note n
+              WHERE run_id = ? AND revision = (
+                SELECT MAX(revision) FROM spec_note
+                 WHERE run_id = n.run_id AND subject = n.subject AND kind = n.kind
+              )';
+    $arguments = [$runId];
+    if ($kind !== NULL) {
+      $sql .= ' AND kind = ?';
+      $arguments[] = $kind;
+    }
+    // BY FIRST DECLARATION, not by the latest revision's rowid: a note
+    // revised at code would otherwise jump to the end of the list and the
+    // reader would lose the order the run declared things in.
+    $statement = $this->connection()->prepare(
+      $sql . ' ORDER BY (SELECT MIN(rowid) FROM spec_note
+                 WHERE run_id = n.run_id AND subject = n.subject AND kind = n.kind)'
+    );
+    $statement->execute($arguments);
+    $out = [];
+    foreach (self::rows($statement) as $row) {
+      $out[] = [
+        'kind' => self::text($row, 'kind'),
+        'subject' => self::text($row, 'subject'),
+        'detail' => self::nullableText($row, 'detail'),
+        'phase' => self::text($row, 'phase'),
+        'declared_at' => self::text($row, 'declared_at'),
+      ];
+    }
+
+    return $out;
+  }
+
+  /**
+   * The current row for one criterion, or NULL.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $ref
+   *   The criterion's id.
+   *
+   * @return array<string, mixed>|null
+   *   The highest-revision row.
+   */
+  private function latestCriterion(string $runId, string $ref): ?array {
+    $statement = $this->connection()->prepare(
+      'SELECT * FROM spec_criterion WHERE run_id = ? AND ref = ? ORDER BY revision DESC LIMIT 1'
+    );
+    $statement->execute([$runId, $ref]);
+    $rows = self::rows($statement);
+
+    return $rows === [] ? NULL : $rows[0];
+  }
+
+  /**
+   * The next revision for one declared subject.
+   *
+   * @param string $table
+   *   The spec table.
+   * @param string $column
+   *   The column identifying the subject.
+   * @param string $runId
+   *   The run.
+   * @param string $subject
+   *   The subject's value.
+   * @param string|null $kind
+   *   A note's kind, which narrows the subject further.
+   *
+   * @return int
+   *   One above the highest revision recorded for it, or 1.
+   */
+  private function nextRevision(string $table, string $column, string $runId, string $subject, ?string $kind = NULL): int {
+    // The table and column names are literals from this class's own callers,
+    // never from input — there is no way to bind an identifier in SQL, and an
+    // allowlist is what keeps that true rather than a comment saying so.
+    if (!in_array($table, ['spec_route', 'spec_criterion', 'spec_note'], TRUE)
+      || !in_array($column, ['path', 'ref', 'subject'], TRUE)) {
+      throw new \InvalidArgumentException(sprintf('No such spec table or column: %s.%s', $table, $column));
+    }
+    $sql = 'SELECT COALESCE(MAX(revision), 0) + 1 FROM ' . $table . ' WHERE run_id = ? AND ' . $column . ' = ?';
+    $arguments = [$runId, $subject];
+    if ($kind !== NULL) {
+      $sql .= ' AND kind = ?';
+      $arguments[] = $kind;
+    }
+    $statement = $this->connection()->prepare($sql);
+    $statement->execute($arguments);
+
+    return (int) ($statement->fetchColumn() ?: 1);
+  }
+
+  /**
    * Records one invocation of the enforcement hook.
    *
    * Written by the engine from the guard's own append-only ledger, never by
@@ -2201,6 +2573,73 @@ final class EvidenceStore {
   }
 
   /**
+   * V10 — the spec becomes rows a tool call writes, not prose to parse.
+   *
+   * The three tables are the first half of the redesign F-35 produced. The
+   * measurement behind it: across Part 3's three runs **every code-quality
+   * gate passed every time** and **all three stoppages were the shape of a
+   * markdown file** — a fenced route list, a rewritten frozen section, a data
+   * table sitting under the wrong heading. The gates worked; the contract
+   * serving them killed the runs.
+   *
+   * A row cannot be mis-shaped. `declare_route /camps` either happened or it
+   * did not, and the engine's whole question becomes a count. The prose spec
+   * stays — it is the agent's document and a human reads it — but nothing
+   * mechanical depends on where a heading sits in it.
+   *
+   * APPEND-ONLY, with a revision per subject, for the same reason
+   * `check_result` is: readers take the highest revision and the ones it
+   * superseded survive under it. A criterion restated at code is then a
+   * VISIBLE revision beside the original rather than a silent overwrite —
+   * which is the circularity the whole apparatus exists to prevent — and no
+   * declaration needs refusing to keep the record honest. `SpecFreeze` froze
+   * sections because prose has no revision number; rows do.
+   *
+   * No foreign keys and no unique constraints on purpose: a constraint here
+   * turns a duplicate declaration into an exception in the middle of a phase,
+   * and an idempotent re-declaration is the commonest thing an agent does.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   */
+  private function migrateToV10(\PDO $pdo): void {
+    $pdo->exec(<<<'SQL'
+      CREATE TABLE IF NOT EXISTS spec_route (
+        run_id      TEXT NOT NULL,
+        phase       TEXT NOT NULL,
+        revision    INTEGER NOT NULL,
+        path        TEXT NOT NULL,
+        reason      TEXT,
+        declared_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS spec_route_by_run ON spec_route (run_id, path, revision);
+
+      CREATE TABLE IF NOT EXISTS spec_criterion (
+        run_id      TEXT NOT NULL,
+        phase       TEXT NOT NULL,
+        revision    INTEGER NOT NULL,
+        ref         TEXT NOT NULL,
+        statement   TEXT NOT NULL,
+        verified_by TEXT,
+        verified_at TEXT,
+        declared_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS spec_criterion_by_run ON spec_criterion (run_id, ref, revision);
+
+      CREATE TABLE IF NOT EXISTS spec_note (
+        run_id      TEXT NOT NULL,
+        phase       TEXT NOT NULL,
+        revision    INTEGER NOT NULL,
+        kind        TEXT NOT NULL,
+        subject     TEXT NOT NULL,
+        detail      TEXT,
+        declared_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS spec_note_by_run ON spec_note (run_id, kind, subject, revision);
+SQL);
+  }
+
+  /**
    * V9 — a green subsidised by the adoption baseline says so in columns.
    *
    * The counts existed. `ShellGateExecutor` composes `passed — 0 new, 123
@@ -2307,6 +2746,31 @@ final class EvidenceStore {
     $value = $row[$column] ?? NULL;
 
     return is_scalar($value) ? (string) $value : '';
+  }
+
+  /**
+   * The same, keeping NULL as NULL.
+   *
+   * `text()` reads an absent or NULL column as `''`, which is right for the
+   * columns it was written for — a summary, a phase, a state — where empty
+   * and absent mean the same thing. It is wrong for a nullable one: an
+   * unverified criterion and a criterion verified by the empty string are
+   * different facts, and collapsing them is the whole class of defect this
+   * store exists to avoid ("an unmeasured thing wearing the costume of a
+   * measured one").
+   *
+   * @param array<array-key, mixed> $row
+   *   The row.
+   * @param string $column
+   *   The column.
+   *
+   * @return string|null
+   *   The value, or NULL when the column is NULL or absent.
+   */
+  private static function nullableText(array $row, string $column): ?string {
+    $value = $row[$column] ?? NULL;
+
+    return is_scalar($value) ? (string) $value : NULL;
   }
 
   /**
