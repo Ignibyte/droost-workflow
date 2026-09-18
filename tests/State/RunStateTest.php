@@ -516,7 +516,10 @@ class RunStateTest extends TestCase {
     );
     // Order comes from the resolved levers, so reports stay stably ordered.
     $this->assertSame(
-      ['phpunit', 'mutation', 'playwright', 'coverage', 'rendered_check', 'config_clean'],
+      [
+        'phpcs', 'phpstan', 'eslint', 'prettier', 'phpunit',
+        'mutation', 'playwright', 'coverage', 'rendered_check', 'config_clean',
+      ],
       array_keys($state->gatesDueFor(Phase::Test)),
     );
     $this->assertSame(

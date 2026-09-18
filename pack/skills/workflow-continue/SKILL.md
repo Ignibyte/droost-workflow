@@ -65,8 +65,9 @@ search, the wiki as knowledge — is always used. Five points, two weights:
   seeker grades against, and the grounding discipline is never what a lighter
   weight drops. At `low` there is additionally NO wiki: `wiki_fresh`
   is off and the complete phase writes no wiki pages; phpunit is off BY
-  PRESET (the test phase runs only the browser check) and reports `off`,
-  never `passed` — that is the level's declared trade, not a green suite.
+  PRESET (the test phase is left with the rendered check, plus phpcs and
+  phpstan over whatever it wrote) and reports `off`, never `passed` — that is
+  the level's declared trade, not a green suite.
 
 **You cannot move the dial — propose it.** `drush droost:workflow:effort
 <level>` is the operator's command: the guard refuses it from your shell, and

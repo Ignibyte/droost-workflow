@@ -12,11 +12,18 @@ namespace Droost\Workflow\Config;
  * suite before a line of code existed. The design always said "the test phase
  * reads these levers"; this class is that sentence made executable.
  *
+ * A gate appearing at more than one phase is not duplication. Each phase
+ * writes source, and the gate reads whatever is on disk when it runs, so the
+ * second run of phpcs measures the files the second phase produced. The
+ * question "did this phase's own output meet the standard" has no other
+ * mechanical answer.
+ *
  * The map is engine-owned rather than a lever. The lever file decides WHETHER
  * a gate runs (`on`) and with what thresholds; WHEN it runs is a property of
- * what the phases mean — static analysis gates code that now exists, the
- * functional gates gate the phase whose job is verification, and complete
- * re-runs everything as the terminal safety net. A per-repo remap of that
+ * what the phases mean — static analysis gates source that now exists, in
+ * both phases that write source, the functional gates gate the phase whose
+ * job is verification, and complete re-runs everything as the terminal safety
+ * net. A per-repo remap of that
  * would let a lever file move phpunit to the plan phase, which is not a
  * configuration, it is a contradiction.
  *
@@ -55,6 +62,23 @@ final class PhaseGateMap {
       'grounding_check',
     ],
     'test' => [
+      // The test phase writes source, so the gates that read source are due
+      // again — over the tests it just wrote. P2-KCH-2 is the worked example:
+      // a run passed phpcs at code, then wrote a test method in lowerCamel
+      // that phpcs forbids, and nothing looked at it again until complete,
+      // where a failure costs the most to act on. A test held to a lower
+      // standard than the code it tests is not a test the next run can read.
+      //
+      // phpcs and phpstan precede phpunit in KNOWN_GATES order, which is the
+      // order gates execute: the suite's shape is checked before its result
+      // is believed. eslint and prettier are here for the same reason, for
+      // the browser specs. stylelint is not — the phase writes no
+      // stylesheets, and a gate that can only ever report nothing-to-analyse
+      // is noise in every report that carries it.
+      'phpcs',
+      'phpstan',
+      'eslint',
+      'prettier',
       'phpunit',
       'mutation',
       'playwright',

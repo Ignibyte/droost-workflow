@@ -124,6 +124,49 @@ class PhaseGateMapTest extends TestCase {
   }
 
   /**
+   * Every mandatory gate is due at the phase whose output it reads.
+   *
+   * No lever can disarm phpcs or phpstan (GateSettings::MANDATORY): the
+   * toolchain core itself develops with is not optional. That is only true
+   * of a run if the phases that write source are all held to it — a test
+   * phase exempt from the standards it is testing against writes source no
+   * later run can read. P2-KCH-2 failed exactly there.
+   */
+  public function testTheStaticGatesAreDueAtEveryPhaseThatWritesSource(): void {
+    foreach (['phpcs', 'phpstan'] as $gate) {
+      foreach ([Phase::Code, Phase::Test, Phase::Complete] as $phase) {
+        $this->assertContains(
+          $gate,
+          PhaseGateMap::gatesFor($phase),
+          sprintf('"%s" writes source but does not run %s', $phase->value, $gate),
+        );
+      }
+    }
+  }
+
+  /**
+   * The static gates precede the suite they are checking the shape of.
+   *
+   * Gates execute in KNOWN_GATES order, so this is an ordering claim about
+   * the constant, not about the map: a phpcs failure on a test file must be
+   * reported before phpunit's verdict on that file is recorded, or the run
+   * shows a green suite above a red standard and the agent fixes the wrong
+   * one first.
+   */
+  public function testTheShapeOfTheSuiteIsCheckedBeforeItsResult(): void {
+    $order = array_flip(GateSettings::KNOWN_GATES);
+    $this->assertLessThan($order['phpunit'], $order['phpcs']);
+    $this->assertLessThan($order['phpunit'], $order['phpstan']);
+
+    $due = PhaseGateMap::gatesFor(Phase::Test);
+    $this->assertSame(
+      array_values(array_intersect(GateSettings::KNOWN_GATES, $due)),
+      $due,
+      'The test phase gates are not in execution order',
+    );
+  }
+
+  /**
    * The frozen map carries only the phases a run configures, in run order.
    */
   public function testForPhasesFiltersToTheConfiguredRun(): void {

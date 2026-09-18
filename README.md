@@ -388,7 +388,7 @@ engine's phase map, frozen into each run when it begins:
 ```text
 plan: none
 code: phpcs, phpstan, eslint, stylelint, prettier, config_clean, grounding_check
-test: phpunit, mutation, playwright, coverage, rendered_check, config_clean
+test: phpcs, phpstan, eslint, prettier, phpunit, mutation, playwright, coverage, rendered_check, config_clean
 complete: phpcs, phpstan, eslint, stylelint, prettier, phpunit, mutation, playwright, coverage, rendered_check, config_clean, grounding_check, wiki_fresh
 ```
 
@@ -398,7 +398,10 @@ static analysis, and `config_clean` asks the booted site whether a fresh
 configuration as data, so a hand-written file that imports fine can still
 diverge from the canonical serialization, and the divergence surfaces later
 as a noisy re-export burying real changes. Zero diff, against a target git
-can see, is the passing state. Test runs the functional gates. Complete opens by capturing
+can see, is the passing state. Test runs the functional gates, and re-runs
+the static ones over the tests it has just written — a suite whose own source
+would not pass code's standards is not a suite whose green anyone should
+believe. Complete opens by capturing
 what was built — the documentation work that was its own phase until 0.4 —
 and then re-runs the full enabled set as the terminal safety net, custom
 gates included, so every other enabled gate is met at least twice: once at
