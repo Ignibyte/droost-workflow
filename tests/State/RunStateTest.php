@@ -10,6 +10,7 @@ use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\PhaseGateMap;
 use Droost\Workflow\Config\Provenance;
 use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\Support\TypedArray;
 use Droost\Workflow\State\PhaseStatus;
 use Droost\Workflow\State\RunState;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -581,6 +582,66 @@ class RunStateTest extends TestCase {
       'run-1',
       '2026-07-27T09:00:00+00:00',
       WorkflowConfig::builtIn(),
+    );
+  }
+
+  /**
+   * `seekerRounds` survives serialisation AND every copy-on-write.
+   *
+   * Worth its own test because of how the field had to be added. RunState
+   * copies itself positionally in seven places, so a new constructor
+   * parameter appended at the end is silently reset to its default by any
+   * copy that was not updated — and the run would quietly drop back to one
+   * required inspection the first time anything touched its state. Nothing
+   * else in the suite would have noticed.
+   */
+  public function testSeekerRoundsSurvivesRoundTripAndCopies(): void {
+    $state = RunState::begin('run-rounds', 't', WorkflowConfig::fromArray(
+      ['preset' => 'medium', 'seekers' => ['on' => TRUE, 'rounds' => 3]],
+      'test',
+    ));
+    $this->assertSame(3, $state->seekerRounds, 'config reached the state');
+
+    // Exactly the path RunStateStore uses: json out, json in, and
+    // TypedArray::serialized — `authored` is for human-written YAML and
+    // refuses the nulls a machine-written run.json legitimately carries.
+    $restored = RunState::fromArray(
+      TypedArray::serialized(json_decode(json_encode($state->toArray()), TRUE)),
+      'run.json',
+    );
+    $this->assertSame(3, $restored->seekerRounds, 'and survived a save/load');
+
+    $moved = $restored->advanceTo(Phase::Code);
+    $this->assertSame(3, $moved->seekerRounds, 'and a phase advance');
+
+    $reported = $moved->withSeekerReport(
+      ['status' => 'findings', 'critical' => 0, 'medium' => 1, 'low' => 0],
+    );
+    $this->assertSame(3, $reported->seekerRounds, 'and recording an inspection');
+  }
+
+  /**
+   * A run.json written before the lever existed keeps its old semantics.
+   *
+   * Those runs required one inspection. A missing key must therefore mean
+   * one, not zero — zero would let a mid-flight run skip the checkpoint the
+   * upgrade was meant to preserve.
+   */
+  public function testSeekerRoundsDefaultsToOneOnOlderRunFiles(): void {
+    $state = RunState::begin('run-legacy', 't', WorkflowConfig::fromArray(
+      ['preset' => 'medium'],
+      'test',
+    ));
+    $raw = $state->toArray();
+    unset($raw['seeker_rounds']);
+
+    $this->assertSame(
+      1,
+      RunState::fromArray(
+        TypedArray::serialized(json_decode(json_encode($raw), TRUE)),
+        'run.json',
+      )->seekerRounds,
+      'a file with no seeker_rounds key still requires exactly one inspection',
     );
   }
 

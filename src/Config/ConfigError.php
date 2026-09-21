@@ -520,7 +520,7 @@ final class ConfigError extends \RuntimeException {
     string $key,
   ): self {
     return new self($source, sprintf(
-      'seekers accepts only "on" — got "%s". The one-hop blast radius and '
+      'seekers accepts only "on" and "rounds" — got "%s". The one-hop blast radius and '
       . 'the six lenses are the pattern, not configuration.',
       $key,
     ));
@@ -779,6 +779,31 @@ final class ConfigError extends \RuntimeException {
       . 'dropping phases',
       $source,
     );
+  }
+
+  /**
+   * A seekers.rounds value outside the allowed range.
+   *
+   * @param string $source
+   *   The document label.
+   * @param int $got
+   *   What the file asked for.
+   * @param int $ceiling
+   *   The most rounds a run may be made to sit through.
+   *
+   * @return self
+   *   The refusal.
+   */
+  public static function seekerRoundsOutOfRange(string $source, int $got, int $ceiling): self {
+    return new self($source, sprintf(
+      'seekers.rounds must be between 1 and %d — got %d. One is the default '
+      . 'and the fast path: the engine requires one inspection before the '
+      . 'code phase advances, and this lever raises that floor for rungs '
+      . 'where a second pass earns its cost. A ceiling exists so a typo '
+      . 'cannot buy fifty subagent passes over the same diff.',
+      $ceiling,
+      $got,
+    ));
   }
 
 }

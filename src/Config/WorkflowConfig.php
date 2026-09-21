@@ -58,11 +58,22 @@ final class WorkflowConfig {
   /**
    * The options the seekers block accepts.
    *
-   * The switch is the only lever. The one-hop blast radius and the six
-   * lenses are the pattern, not configuration — a per-repo remap of what
-   * the reviewer looks at would be a reviewer you can negotiate with.
+   * Two levers, and only two. `on` arms the checkpoint; `rounds` says how
+   * many inspections the code phase requires before it advances. The
+   * one-hop blast radius and the six lenses stay pattern, not
+   * configuration — a per-repo remap of what the reviewer LOOKS AT would be
+   * a reviewer you can negotiate with. How many times it looks is a
+   * different question, and it is the operator's.
    */
-  private const SEEKER_OPTIONS = ['on'];
+  private const SEEKER_OPTIONS = ['on', 'rounds'];
+
+  /**
+   * The most inspections a run may be made to sit through.
+   *
+   * A ceiling exists for the same reason MAX_RETRIES_CEILING does: a typo
+   * should not buy fifty subagent passes over the diff.
+   */
+  private const MAX_SEEKER_ROUNDS = 5;
 
   /**
    * The largest retry bound a run may configure.
@@ -124,6 +135,7 @@ final class WorkflowConfig {
     public readonly Enforcement $enforcement = Enforcement::Soft,
     public readonly array $deprecations = [],
     public readonly bool $seekers = TRUE,
+    public readonly int $seekerRounds = 1,
     public readonly Enforcement $requireRun = Enforcement::Hard,
     public readonly ?WorkItemSettings $workItem = NULL,
     public readonly bool $baseline = TRUE,
@@ -326,6 +338,7 @@ final class WorkflowConfig {
         : $base->maxGateRetries;
       $enforcement = self::readEnforcement($root, $source, $base->enforcement);
       $seekers = self::readSeekers($root, $source, $base->seekers);
+      $seekerRounds = self::readSeekerRounds($root, $source, $base->seekerRounds);
 
       // WHAT THE DIAL DID NOT DO. Explicit keys beat the preset, which is the
       // right precedence and is not the problem. The problem was that nothing
@@ -359,6 +372,7 @@ final class WorkflowConfig {
         $enforcement,
         $deprecations,
         $seekers,
+        $seekerRounds,
         // Preset-independent on purpose: building must engage the pipeline
         // whatever the gate weight, so the default is hard everywhere and the
         // lever is the only thing that loosens it.
@@ -520,6 +534,48 @@ final class WorkflowConfig {
       }
     }
     return $node->optionalBool('on', $default);
+  }
+
+  /**
+   * Reads how many seeker inspections the code phase requires.
+   *
+   * A FLOOR, not a cap: the engine has always required one before the code
+   * phase advances, and this makes that number a lever. One is the default
+   * and the fast path — a measured run at `medium` spent three rounds and
+   * roughly forty minutes inside one code phase because the PACK text, not
+   * any level, told it to keep going.
+   *
+   * Raising it is for rungs where a second pass earns its cost. On the run
+   * that prompted the lever the third inspection found a stored XSS that
+   * the first two read straight past.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   * @param int $default
+   *   The preset's default.
+   *
+   * @return int
+   *   How many inspections are required, at least one.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When the count is below one or above the ceiling.
+   */
+  private static function readSeekerRounds(
+    TypedArray $root,
+    string $source,
+    int $default,
+  ): int {
+    $node = $root->optionalChild('seekers');
+    if ($node === NULL) {
+      return $default;
+    }
+    $rounds = $node->optionalInt('rounds', $default);
+    if ($rounds < 1 || $rounds > self::MAX_SEEKER_ROUNDS) {
+      throw ConfigError::seekerRoundsOutOfRange($source, $rounds, self::MAX_SEEKER_ROUNDS);
+    }
+    return $rounds;
   }
 
   /**

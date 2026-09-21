@@ -38,6 +38,7 @@ final class Preset {
     public readonly array $gates,
     public readonly Enforcement $enforcement = Enforcement::Soft,
     public readonly bool $seekers = TRUE,
+    public readonly int $seekerRounds = 1,
   ) {}
 
 }

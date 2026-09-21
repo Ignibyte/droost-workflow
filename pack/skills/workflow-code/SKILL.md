@@ -162,10 +162,14 @@ cheap — each one is a subagent reading the entire cumulative diff. A measured
 run spent three rounds inside one code phase and roughly forty minutes on
 them.
 
-**Re-inspect only where the level makes you.** From `high` up the checkpoint
-*additionally* requires **zero open CRITICAL**, so there, if a CRITICAL is
-open: fix it and re-inspect — a fresh section, appended — until none is. An
-open MEDIUM never requires a second round, at any level.
+**Re-inspect only where you are made to**, and there are exactly two ways
+that happens. The lever file's `seekers: { rounds: N }` is a floor the code
+phase will not advance below — read the `outcome`, not the number, because
+`inspection-due` keeps coming back until the trail is long enough. And from
+`high` up the checkpoint *additionally* requires **zero open CRITICAL**, so
+there, if a CRITICAL is open: fix it and re-inspect until none is.
+
+An open MEDIUM never requires another round, at any level.
 
 Gates verify rules; the seeker verifies judgment. The checkpoint spends no
 retry budget: it is a hold, not a failure.

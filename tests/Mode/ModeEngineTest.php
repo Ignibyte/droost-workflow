@@ -961,4 +961,79 @@ class ModeEngineTest extends WorkflowTestCase {
     );
   }
 
+  /**
+   * `seekers.rounds` is a FLOOR the code phase will not advance below.
+   *
+   * This is what makes the lever mechanical rather than advisory. Before it,
+   * the engine asked only whether the trail was non-empty and every extra
+   * round was the agent obeying PACK TEXT — which is how a measured run at
+   * `medium` spent five inspections and roughly forty minutes inside one
+   * code phase. Now the number is the operator's, and the engine counts.
+   */
+  public function testSeekerRoundsIsAFloorTheEngineCounts(): void {
+    $engine = $this->engine($this->recordingSink());
+
+    $state = $this->begin([
+      'mode' => 'automated',
+      'preset' => 'custom',
+      'seekers' => ['on' => TRUE, 'rounds' => 2],
+    ])->advanceTo(Phase::Code);
+    $this->assertSame(2, $state->seekerRounds, 'the lever reached the run state');
+
+    $out = $engine->runPhase($state, Phase::Code, $this->root, self::NOW);
+    $this->assertSame(
+      Outcome::InspectionDue,
+      $out->outcome,
+      'no inspection filed yet, so the floor is not met',
+    );
+
+    $one = $state->withSeekerReport(
+      ['status' => 'findings', 'critical' => 0, 'medium' => 1, 'low' => 0],
+    );
+    $out = $engine->runPhase($one, Phase::Code, $this->root, self::NOW);
+    $this->assertSame(
+      Outcome::InspectionDue,
+      $out->outcome,
+      'ONE inspection against a floor of two still holds the phase',
+    );
+
+    $two = $one->withSeekerReport(
+      ['status' => 'findings', 'critical' => 0, 'medium' => 1, 'low' => 0],
+    );
+    $out = $engine->runPhase($two, Phase::Code, $this->root, self::NOW);
+    $this->assertNotSame(
+      Outcome::InspectionDue,
+      $out->outcome,
+      'the second inspection meets the floor and the phase advances — an open '
+      . 'MEDIUM never holds it, at any level',
+    );
+  }
+
+  /**
+   * The default floor is one, which is the fast path.
+   */
+  public function testOneInspectionSatisfiesTheDefaultFloor(): void {
+    $engine = $this->engine($this->recordingSink());
+
+    $state = $this->begin([
+      'mode' => 'automated',
+      'preset' => 'medium',
+    ])->advanceTo(Phase::Code);
+    $this->assertSame(1, $state->seekerRounds);
+
+    $this->assertSame(
+      Outcome::InspectionDue,
+      $engine->runPhase($state, Phase::Code, $this->root, self::NOW)->outcome,
+    );
+
+    $one = $state->withSeekerReport(
+      ['status' => 'findings', 'critical' => 0, 'medium' => 9, 'low' => 7],
+    );
+    $this->assertNotSame(
+      Outcome::InspectionDue,
+      $engine->runPhase($one, Phase::Code, $this->root, self::NOW)->outcome,
+      'one round is enough at medium however many mediums it found',
+    );
+  }
+
 }

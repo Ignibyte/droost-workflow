@@ -721,4 +721,74 @@ class WorkflowConfigTest extends WorkflowTestCase {
     );
   }
 
+  /**
+   * seekers.rounds is a floor the operator sets, and it defaults to one.
+   *
+   * The lever exists because the number was a constant and the cost is not:
+   * a measured run at `medium` spent five inspections and roughly forty
+   * minutes inside one code phase. One is the fast path; raising it is for
+   * rungs where a second pass earns its cost.
+   */
+  public function testSeekerRoundsDefaultsToOne(): void {
+    $this->assertSame(1, WorkflowConfig::fromArray(['preset' => 'medium'], 'test')->seekerRounds);
+    $this->assertSame(
+      1,
+      WorkflowConfig::fromArray(['preset' => 'medium', 'seekers' => ['on' => TRUE]], 'test')->seekerRounds,
+      'an on-only block keeps the default rather than inventing a number',
+    );
+  }
+
+  /**
+   * An explicit count is read, and `on` still works beside it.
+   */
+  public function testSeekerRoundsIsRead(): void {
+    $config = WorkflowConfig::fromArray(
+      ['preset' => 'medium', 'seekers' => ['on' => TRUE, 'rounds' => 3]],
+      'test',
+    );
+    $this->assertSame(3, $config->seekerRounds);
+    $this->assertTrue($config->seekers);
+  }
+
+  /**
+   * Out of range is refused at both ends, and the message says the range.
+   *
+   * A ceiling exists for the same reason the retry ceiling does: a typo
+   * should not buy fifty subagent passes over the same diff.
+   */
+  #[DataProvider('outOfRangeSeekerRounds')]
+  public function testSeekerRoundsOutOfRangeIsRefused(int $rounds): void {
+    $this->expectException(ConfigError::class);
+    $this->expectExceptionMessageMatches('/seekers\.rounds must be between 1 and 5/');
+    WorkflowConfig::fromArray(
+      ['preset' => 'medium', 'seekers' => ['rounds' => $rounds]],
+      'test',
+    );
+  }
+
+  /**
+   * The counts that are refused.
+   *
+   * @return list<array{int}>
+   *   Each out-of-range count.
+   */
+  public static function outOfRangeSeekerRounds(): array {
+    return [[0], [-1], [6], [50]];
+  }
+
+  /**
+   * The block still refuses anything that is not one of its two levers.
+   *
+   * WHAT the seeker looks at stays pattern, not configuration. Only how
+   * many times it looks became an option.
+   */
+  public function testSeekersStillRefusesUnknownOptions(): void {
+    $this->expectException(ConfigError::class);
+    $this->expectExceptionMessageMatches('/seekers accepts only "on" and "rounds"/');
+    WorkflowConfig::fromArray(
+      ['preset' => 'medium', 'seekers' => ['lenses' => 3]],
+      'test',
+    );
+  }
+
 }

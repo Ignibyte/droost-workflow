@@ -196,6 +196,15 @@ final class RunState {
     public readonly ?string $baselineHash = NULL,
     public readonly array $lateWoven = [],
     public readonly ?string $contributedSource = NULL,
+    /**
+     * How many seeker inspections the code phase requires before it advances.
+     *
+     * A FLOOR, not a cap. The engine has always required one; this makes the
+     * number an operator lever instead of a constant, because the right
+     * answer is not the same for a docs rung and a rung that writes Twig.
+     * One is the default and the fast path.
+     */
+    public readonly int $seekerRounds = 1,
   ) {}
 
   /**
@@ -250,6 +259,7 @@ final class RunState {
       ),
       enforcement: $config->enforcement,
       seekers: $config->seekers,
+      seekerRounds: $config->seekerRounds,
       baseCommit: $baseCommit,
       baselineHash: $baselineHash,
       contributedSource: $contributedSource,
@@ -337,6 +347,7 @@ final class RunState {
       $this->baselineHash,
       $late,
       $this->contributedSource,
+      $this->seekerRounds,
     );
   }
 
@@ -588,6 +599,7 @@ final class RunState {
       $this->baselineHash,
       $this->lateWoven,
       $this->contributedSource,
+      $this->seekerRounds,
     );
   }
 
@@ -747,6 +759,7 @@ final class RunState {
       $this->baselineHash,
       $this->lateWoven,
       $this->contributedSource,
+      $this->seekerRounds,
     );
   }
 
@@ -790,6 +803,7 @@ final class RunState {
       $this->baselineHash,
       $this->lateWoven,
       $this->contributedSource,
+      $this->seekerRounds,
     );
   }
 
@@ -916,6 +930,7 @@ final class RunState {
       $this->baselineHash,
       $this->lateWoven,
       $this->contributedSource,
+      $this->seekerRounds,
     );
   }
 
@@ -1037,6 +1052,7 @@ final class RunState {
       'qa_history' => $this->qaHistory,
       'feedback_attempts' => $this->feedbackAttempts,
       'seekers' => $this->seekers,
+      'seeker_rounds' => $this->seekerRounds,
       'seeker' => $this->seeker,
       'seeker_history' => $this->seekerHistory,
       'spec_path' => $this->specPath,
@@ -1143,6 +1159,10 @@ final class RunState {
       $node->optionalString('baseline_hash', '') ?: NULL,
       self::readLateWoven($node, $label),
       $node->optionalString('contributed_source', '') ?: NULL,
+      // Absent on every run.json written before the lever existed. Those
+      // runs required one inspection, which is what the default says, so a
+      // run mid-flight when the upgrade lands keeps its own semantics.
+      max(1, $node->optionalInt('seeker_rounds', 1)),
     );
   }
 
@@ -1259,6 +1279,7 @@ final class RunState {
       $this->baselineHash,
       $this->lateWoven,
       $this->contributedSource,
+      $this->seekerRounds,
     );
   }
 
@@ -1810,6 +1831,7 @@ final class RunState {
       $this->baselineHash,
       $this->lateWoven,
       $this->contributedSource,
+      $this->seekerRounds,
     );
   }
 

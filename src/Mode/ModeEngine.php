@@ -265,7 +265,12 @@ final class ModeEngine {
     // Both are questions with a yes/no answer that the agent cannot write:
     // the rows come from a parsed inspection ledger.
     $criticalsMustBeZero = in_array($state->preset, ['high', 'xhigh', 'max', 'factory'], TRUE);
-    $inspectionRan = $state->seekerHistory !== [];
+    // A FLOOR the operator sets, defaulting to one. Counting the trail
+    // rather than asking "is it non-empty" is what makes `seekers.rounds`
+    // mechanical instead of advisory: a run configured for two cannot leave
+    // code on one, whatever the pack text says.
+    $roundsRequired = max(1, $state->seekerRounds);
+    $inspectionRan = count($state->seekerHistory) >= $roundsRequired;
     if ($phase === Phase::Code
       && $state->seekers
       && (!$inspectionRan

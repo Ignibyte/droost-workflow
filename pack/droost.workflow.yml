@@ -189,10 +189,21 @@ gates:
 # complete. Gates verify rules; the seeker verifies judgment — dead new
 # code, drift from the spec, coupling the change breaks, weak tests,
 # security smells, discipline defeats. On by default and highly
-# recommended; the switch is the only lever (the one-hop blast radius and
-# the six lenses are the pattern, not configuration). Turning it off is a
-# reviewable line in this file — which is why the levers live in a file.
-seekers: { on: true }
+# recommended. WHAT it looks at is not configurable (the one-hop blast
+# radius and the six lenses are the pattern, not a per-repo choice — a
+# reviewer you can remap is a reviewer you can negotiate with). HOW MANY
+# TIMES it looks is yours.
+#
+# `rounds` is a FLOOR the code phase will not advance below, 1 to 5. One is
+# the default and the fast path. Raise it on a rung where a second pass
+# earns its cost: on the run that prompted this lever, five rounds took
+# about forty minutes, the second caught a fix that had introduced a test
+# incapable of failing, and the third found a stored XSS the first two read
+# straight past.
+#
+# Turning it off, or down, is a reviewable line in this file — which is why
+# the levers live in a file.
+seekers: { on: true, rounds: 1 }
 
 # How many times a failing gate may drive the feedback loop before the run
 # fails. 0 means a gate gets one attempt and no retry. The seeker hold is
