@@ -51,30 +51,41 @@ executed. None of the legs render a page or fetch a URL — do not describe
 `droost_last_error` and `droost_logs` tell you what the site actually said
 when something failed, rather than guessing from an exit code.
 
+## The browser check is a committed spec, at every level
+
+**`playwright` is ON at every preset with `required: true`.** Write a real
+spec under the repo's playwright suite, run it, and commit it. That file is
+the verification AND the artefact: it re-runs on every later ticket, where a
+browser tool call proves nothing the moment the session ends.
+
+```bash
+npx playwright test                     # the gate runs exactly this
+npx playwright test tests/e2e/rinks.spec.ts   # while you iterate
+```
+
+**An empty suite is a FAILURE, not a labelled pass** — that is what
+`required: true` means. If playwright is not installed the gate REPORTS
+rather than blocks, and says how to install it; it is the one gate whose
+missing binary does not stop the run, because it is due everywhere and
+wedging every project without a node toolchain would be worse than the gap.
+
+**Write the spec directly. Do not drive the browser and then reconstruct it.**
+Recording your actions captures clicks, never assertions — and the assertions
+are the test. Half of a typical ticket is negative cases ("the save is
+refused and names the field") and absence cases ("no empty block renders"),
+and neither can be recorded, only written. You already know what you are
+asserting; that knowledge is exactly what a record-and-recreate round trip
+throws away.
+
 **Verify through the browser tier the run declared** (`browser` in
 `droost/droost-workflow/run.json`, recorded at run start):
 
-- `playwright-mcp` — drive the real browser over the changed surfaces: load
-  the pages your diff touches, exercise the behaviour the criteria name,
-  screenshot what you assert. This is interactive verification of YOUR OWN
-  work — distinct from the `playwright` GATE, which runs the repo's
-  committed regression specs (`node_modules/.bin/playwright test`) and
-  needs playwright installed in the repo.
-
-  **This is a step, and the phase holds until it is done.** The guard records
-  every browser tool call against the run and the phase, and the engine counts
-  them: zero calls in this phase blocks it, at every level, with the row
-  `browser_review`. It is a count, not a judgement — nobody grades what you
-  looked at, and one call satisfies it. The point is that a passing suite says
-  the code behaves under a script somebody wrote, which is not the same as
-  anybody having opened the page.
-- `native` — same verification through the editor's own browser. Recorded,
-  not counted: those calls do not carry names this engine can recognise, so
-  `browser_review` reports rather than holds. Do the verification anyway.
-- `none` — the rendered check is the floor: the engine renders routes
-  through the booted site and that result stands in for eyes. Say in the
-  report that no browser tier ran — it is a fact about the verification,
-  not a failure, and `browser_review` records it as one.
+- `playwright-mcp` — available for **exploration**, and no longer what you
+  are held to. Snapshot a page to learn its real selectors and error text
+  before you write a spec against them. The guard records every call and the
+  evaluation reports the count, but nothing gates on it.
+- `native` — the same, through the editor's own browser.
+- `none` — fine. The spec below does not need an MCP server.
 
 **Record what proves each criterion**, one call per criterion, as you prove
 it:

@@ -133,7 +133,13 @@ class EffortSwitchTest extends WorkflowTestCase {
     $delta = EffortSwitch::apply($root, 'max')->delta();
 
     $this->assertContains('phpunit: off → on (required to exist)', $delta);
-    $this->assertContains('playwright: off → on (required to exist)', $delta);
+    // NOT playwright. It is on and required at EVERY preset since the browser
+    // check became a committed spec rather than an MCP call, so moving the
+    // dial changes nothing about it — and a delta that named it would be
+    // telling the operator they are buying something they already had.
+    foreach ($delta as $line) {
+      $this->assertStringNotContainsString('playwright: off', $line);
+    }
     $this->assertContains('mutation: off → on (msi ≥ 80, timeout 1800s)', $delta);
     $this->assertContains('coverage: off → on (min 80, timeout 900s)', $delta);
     $this->assertContains('wiki_fresh: off → on', $delta);

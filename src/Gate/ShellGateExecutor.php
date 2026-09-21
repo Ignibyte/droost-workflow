@@ -500,6 +500,36 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       if (in_array($gate->name, self::SITE_SHELL_GATES, TRUE)) {
         return GateResult::skippedNoSite($gate->name);
       }
+      // PLAYWRIGHT IS THE ONE EXCEPTION, and it is a deliberate one. Since
+      // the browser check moved from a Playwright MCP call to a committed
+      // spec file, this gate is ON at every preset — a run must leave a
+      // re-runnable test behind, not a tool call that proves nothing
+      // afterwards. Blocking on the binary's absence would then wedge every
+      // project that has not installed it, which is F-37's mistake exactly:
+      // an instrument that cannot see refusing to let the run past.
+      //
+      // So the absence is REPORTED. `Reported` does not block, the row says
+      // what is missing and how to install it, and the moment playwright IS
+      // installed the gate becomes a real wall with `required: true` behind
+      // it. A project that never installs it gets an honest line in every
+      // record rather than a silent pass or a dead run.
+      if ($gate->name === 'playwright') {
+        return GateResult::ran(
+          $gate->name,
+          GateStatus::Reported,
+          // 127, the shell's own "command not found", because ran() needs an
+          // int and inventing 0 would say the tool succeeded.
+          127,
+          0,
+          'playwright is not installed, so no browser suite could run and '
+          . 'nothing here says whether the agent looked at its work. This '
+          . 'gate is on at every preset since the browser check became a '
+          . 'committed spec; install it to make it a real check: '
+          . '`npm i -D @playwright/test && npx playwright install chromium`.',
+          [],
+          $invocation,
+        );
+      }
       // A missing tool outranks an empty scope: the environment being broken
       // is true whether or not there is anything to analyse yet.
       return GateResult::toolMissing($gate->name, $invocation);

@@ -865,21 +865,52 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
-   * A repo without playwright gets tool-missing naming the npm path.
+   * A repo without playwright REPORTS, and may not block — alone among gates.
+   *
+   * Every other missing binary is `ErrorToolMissing`, which blocks, and that
+   * is right: you asked for the gate and the environment cannot run it. The
+   * browser suite is the exception because it is now ON AT EVERY PRESET —
+   * the check moved from a Playwright MCP call, which leaves nothing behind,
+   * to a committed spec that re-runs on every later ticket. Blocking on the
+   * binary's absence would wedge every project that has not installed it,
+   * which is F-37's mistake exactly: an instrument that cannot see refusing
+   * to let the run past.
+   *
+   * The row still says what is missing and how to install it, and the moment
+   * playwright IS installed `required: true` makes this a real wall.
    */
-  public function testPlaywrightMissingNamesTheNpmPath(): void {
+  public function testPlaywrightMissingReportsRatherThanBlocking(): void {
     $executor = new ShellGateExecutor(
       static fn (): array => [0, '', ''],
       static fn (): int => 0,
     );
 
     $result = $executor->execute(
-      new GateSettings('playwright', TRUE),
+      new GateSettings('playwright', TRUE, ['required' => TRUE]),
       $this->makeRoot(),
     );
 
-    $this->assertSame(GateStatus::ErrorToolMissing, $result->status);
-    $this->assertStringContainsString('node_modules/.bin/playwright', $result->summary);
+    $this->assertSame(GateStatus::Reported, $result->status);
+    $this->assertFalse($result->status->blocksAdvance(), 'a missing browser must not wedge a run');
+    $this->assertStringContainsString('playwright is not installed', $result->summary);
+    $this->assertStringContainsString('npx playwright install chromium', $result->summary);
+  }
+
+  /**
+   * Every OTHER missing binary still blocks, so the exception stays one.
+   */
+  public function testEveryOtherMissingBinaryStillBlocks(): void {
+    $executor = new ShellGateExecutor(
+      static fn (): array => [0, '', ''],
+      static fn (): int => 0,
+    );
+
+    foreach (['eslint', 'stylelint', 'prettier'] as $gate) {
+      $result = $executor->execute(new GateSettings($gate, TRUE), $this->makeRoot());
+      $this->assertSame(GateStatus::ErrorToolMissing, $result->status, $gate);
+      $this->assertTrue($result->status->blocksAdvance(), $gate);
+      $this->assertStringContainsString('node_modules/.bin/' . $gate, $result->summary);
+    }
   }
 
   /**

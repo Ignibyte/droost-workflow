@@ -1700,6 +1700,35 @@ final class EvaluationReport {
       }
     }
 
+    // EXPLORATION, REPORTED AND NEVER GATED. The guard records every MCP call
+    // (F-37), and until 0.9.7 a step counted the browser ones and blocked on
+    // zero. That moved to the `playwright` gate, which asks for a committed
+    // spec instead — but the number is still worth printing: it says how much
+    // the agent actually looked while building, which no gate measures and a
+    // reader cannot otherwise know.
+    try {
+      $store = $this->store;
+      $browsed = $store->browserToolCalls($runId);
+      $mcp = $store->mcpToolCalls($runId);
+      if ($mcp > 0 || $browsed > 0) {
+        $out .= sprintf(
+          "\n### Exploration, not enforcement\n\n"
+          . "**%d MCP tool call(s) this run, %d of them browser calls.** Reported,\n"
+          . "never gated: what the run is HELD to is the `playwright` gate's\n"
+          . "committed spec, because a tool call leaves nothing behind and a\n"
+          . "spec re-runs on every later ticket. A high number here with a\n"
+          . "failing browser suite means the agent looked and did not write it\n"
+          . "down; a low number with a passing suite is fine.\n",
+          $mcp,
+          $browsed,
+        );
+      }
+    }
+    catch (\Throwable) {
+      // A store that cannot answer says nothing rather than zero — the same
+      // rule the step used to follow.
+    }
+
     if ($notes !== []) {
       $out .= "\n### Notes declared\n\n" . self::table(
         ['Kind', 'Subject', 'Declared at', 'Detail'],

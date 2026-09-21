@@ -60,7 +60,7 @@ gates:
   # site's modules/custom and themes/custom — never vendor/, core or contrib.
   phpunit:        { on: true }
   mutation:       { on: false, msi_min: 0 }
-  playwright:     { on: false }
+  playwright:     { on: true, required: true }   # a committed spec, at every level
   coverage:       { on: false, min: 0 }
   rendered_check: { on: true }                 # artifacts are truth
   config_clean:   { on: true }                 # a fresh cex produces zero diff
@@ -201,12 +201,28 @@ agent's own hand. You may pair factory gates with `enforcement: off`; not
 advised, but the lever file is a reviewable diff, and a visible loosening is
 the honest way to allow it.
 
-**Playwright is the npm tier.** The `playwright` gate runs
+**Playwright is the npm tier, and it is on at EVERY preset.** The gate runs
 `node_modules/.bin/playwright test` — committed regression specs, exit code
-as verdict; without playwright installed in the repo it reports tool-missing,
-honestly. It is distinct from a session's Playwright MCP tools, which the
-test phase uses for interactive verification and which the run records as
-the declared `browser` capability.
+as verdict — with `required: true`, so an empty suite is a failure rather
+than a labelled pass.
+
+It is the only gate whose **missing binary REPORTS instead of blocking**.
+Every other absent tool is `error-tool-missing`, which stops the run, and
+that is right: you asked for the gate and the environment cannot run it. The
+browser suite is the exception because it is due everywhere, and blocking on
+an uninstalled binary would wedge every project that has not run
+`npm i -D @playwright/test` — an instrument that cannot see refusing to let
+the run past. The row says what is missing and how to install it, and the
+moment it IS installed `required: true` makes this a real wall.
+
+**Why a spec and not an MCP call.** The browser check used to be "the agent
+called a Playwright MCP tool", counted from the guard's ledger. That forced
+looking and left nothing behind: one `browser_navigate` satisfied it, and the
+regression test had to be recreated from memory afterwards. A committed spec
+is the verification AND the artefact — it re-runs on every later ticket, and
+it cannot be satisfied cheaply, because it has to pass against the running
+site. A session's Playwright MCP tools remain available for exploration, and
+the run still records the declared `browser` capability.
 
 **Custom gates** (`gates.custom`) wire the repo's own commands — semgrep,
 behat, anything — as first-class gates: everything explicit (`on`, `phase`

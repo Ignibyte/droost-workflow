@@ -55,7 +55,7 @@ class PresetResolverTest extends TestCase {
       'prettier' => ['on' => FALSE],
       'phpunit' => ['on' => TRUE],
       'mutation' => ['on' => FALSE, 'msi_min' => 0],
-      'playwright' => ['on' => FALSE],
+      'playwright' => ['on' => TRUE, 'required' => TRUE],
       'coverage' => ['on' => FALSE, 'min' => 0],
       'rendered_check' => ['on' => TRUE],
       'config_clean' => ['on' => TRUE],
@@ -70,7 +70,7 @@ class PresetResolverTest extends TestCase {
       'prettier' => ['on' => FALSE],
       'phpunit' => ['on' => FALSE],
       'mutation' => ['on' => FALSE, 'msi_min' => 0],
-      'playwright' => ['on' => FALSE],
+      'playwright' => ['on' => TRUE, 'required' => TRUE],
       'coverage' => ['on' => FALSE, 'min' => 0],
       'rendered_check' => ['on' => TRUE],
       'config_clean' => ['on' => TRUE],
@@ -85,7 +85,7 @@ class PresetResolverTest extends TestCase {
       'prettier' => ['on' => FALSE],
       'phpunit' => ['on' => TRUE],
       'mutation' => ['on' => FALSE, 'msi_min' => 0],
-      'playwright' => ['on' => FALSE],
+      'playwright' => ['on' => TRUE, 'required' => TRUE],
       'coverage' => ['on' => FALSE, 'min' => 0],
       'rendered_check' => ['on' => TRUE],
       'config_clean' => ['on' => TRUE],
@@ -100,7 +100,7 @@ class PresetResolverTest extends TestCase {
       'prettier' => ['on' => TRUE],
       'phpunit' => ['on' => TRUE],
       'mutation' => ['on' => TRUE, 'msi_min' => 60, 'timeout' => 1800],
-      'playwright' => ['on' => TRUE],
+      'playwright' => ['on' => TRUE, 'required' => TRUE],
       'coverage' => ['on' => TRUE, 'min' => 60, 'timeout' => 900],
       'rendered_check' => ['on' => TRUE],
       'config_clean' => ['on' => TRUE],
@@ -297,7 +297,7 @@ class PresetResolverTest extends TestCase {
 
     $this->assertSame(9, $config->gate('phpstan')->option('level'));
     // The overlaid gate keeps its siblings...
-    $this->assertFalse($config->gate('playwright')->on);
+    $this->assertTrue($config->gate('playwright')->on);
     $this->assertTrue($config->gate('rendered_check')->on);
     // ...and the untouched gates keep their own options.
     $this->assertSame(

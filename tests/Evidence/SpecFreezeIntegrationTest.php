@@ -501,8 +501,13 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
         $states[] = $row['state'];
       }
     }
+    // `recorded`, not `not_applicable`, since the browser suite came on at
+    // every preset. `not_applicable` carries the sentence "this level runs
+    // no test gate at all", and `low` now runs one — so the old state would
+    // be a lie about the level even though the PHP tests are still
+    // unverifiable. Either way it is neither a pass nor a block.
     $this->assertSame(
-      ['not_applicable'],
+      ['recorded'],
       $states,
       'an unverifiable declaration is recorded as unverified, not as a pass and not as a block',
     );

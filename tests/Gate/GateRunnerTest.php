@@ -35,12 +35,14 @@ class GateRunnerTest extends WorkflowTestCase {
 
     // Due at test: phpcs, phpstan, eslint, prettier, phpunit, mutation,
     // playwright, coverage, rendered_check, config_clean. custom: phpcs,
-    // phpstan and phpunit on; eslint, prettier, mutation, playwright,
-    // coverage off; rendered_check and config_clean on but site-dependent.
-    // The static gates run here over what the test phase wrote, and in
-    // KNOWN_GATES order they precede the suite whose shape they check.
+    // phpstan, phpunit AND playwright on — the browser suite is on at every
+    // preset since the check became a committed spec; eslint, prettier,
+    // mutation, coverage off; rendered_check and config_clean on but
+    // site-dependent. The static gates run here over what the test phase
+    // wrote, and in KNOWN_GATES order they precede the suite whose shape
+    // they check.
     $this->assertSame(
-      ['phpcs', 'phpstan', 'phpunit'],
+      ['phpcs', 'phpstan', 'phpunit', 'playwright'],
       $executor->ran,
       'the executor saw a different set than the phase map named',
     );
@@ -148,11 +150,11 @@ class GateRunnerTest extends WorkflowTestCase {
       '/tmp',
     );
 
-    $this->assertSame(5, $report->tally()['off']);
+    $this->assertSame(4, $report->tally()['off']);
     foreach ($report->withStatus(GateStatus::Off) as $result) {
       $this->assertContains(
         $result->gate,
-        ['eslint', 'prettier', 'mutation', 'playwright', 'coverage'],
+        ['eslint', 'prettier', 'mutation', 'coverage'],
       );
     }
   }
@@ -225,11 +227,12 @@ class GateRunnerTest extends WorkflowTestCase {
     $this->assertSame(NullSiteDriver::REASON, $skipped[0]->skipReason);
     $this->assertSame(NullSiteDriver::REASON, $skipped[1]->skipReason);
     // Non-blocking, but never counted among the passes. Under custom at the
-    // test phase, phpcs, phpstan and phpunit are the gates that both run and
-    // pass — the two static ones because the phase that writes tests is held
-    // to the standards those tests are written against.
+    // test phase, phpcs, phpstan, phpunit and playwright are the gates that
+    // both run and pass — the two static ones because the phase that writes
+    // tests is held to the standards those tests are written against, and
+    // playwright because a committed browser spec is now due at every level.
     $this->assertTrue($report->advance());
-    $this->assertSame(3, $report->tally()['passed']);
+    $this->assertSame(4, $report->tally()['passed']);
   }
 
   /**

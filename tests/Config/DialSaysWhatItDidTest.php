@@ -48,7 +48,11 @@ final class DialSaysWhatItDidTest extends WorkflowTestCase {
     $this->assertSame('max', $config->preset, 'the file names max');
     $notice = implode(' ', $config->deprecations);
 
-    foreach (['enforcement', 'mutation', 'playwright', 'coverage'] as $lever) {
+    // NOT playwright any more. The shipped lever file spells it out as ON
+    // with required, matching every preset, so it is no longer an override
+    // and naming it here would be the notice crying about a value the dial
+    // agrees with.
+    foreach (['enforcement', 'mutation', 'coverage'] as $lever) {
       $this->assertStringContainsString(
         $lever,
         $notice,
@@ -86,7 +90,7 @@ final class DialSaysWhatItDidTest extends WorkflowTestCase {
       $overridden->enforcement,
       'and a different answer, which is the whole finding',
     );
-    foreach (['mutation', 'playwright', 'coverage'] as $gate) {
+    foreach (['mutation', 'coverage'] as $gate) {
       $this->assertTrue($dial->gates[$gate]->on, $gate . ' is what max means');
       $this->assertFalse(
         $overridden->gates[$gate]->on,

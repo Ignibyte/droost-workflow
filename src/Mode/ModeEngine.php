@@ -716,19 +716,27 @@ final class ModeEngine {
    * THE ENGINE ROUTES AND THE AGENT EXECUTES. A step is a thing the agent was
    * told to do that leaves a trace something other than the agent wrote: a
    * count of rows, present or absent. No severity is read, no prose is
-   * parsed, no opinion is weighed. The phase advances or it does not, and the
-   * reason is an integer.
+   * parsed, no opinion is weighed.
    *
-   * Today there is one, at test: the agent must have opened a browser and
-   * looked at what it built. The `playwright` gate is a different claim — a
-   * passing spec says the code behaves, not that anybody looked — and the
-   * owner's rule is that the look applies at every level, while the
-   * regression suite is what the higher levels add on top.
+   * **There are none at present, and that is a decision rather than a gap.**
+   * The one step this ever carried was `browser_review`, which counted
+   * Playwright MCP calls in the guard's diary to answer "did the agent look
+   * at its work". It worked — verified live in `P4-KCH-4` and `P4-KCH-6` —
+   * and it was replaced on purpose:
    *
-   * SCOPED TO THE TEST PHASE'S OWN CALLS. A browse taken during code was a
-   * browse of unfinished work; the phase whose job is verification has to
-   * have done the verifying. The guard stamps each row with the phase it saw
-   * in run.json, which is what makes that distinguishable at all.
+   * - **a tool call leaves nothing behind.** One `browser_navigate`
+   *   satisfied it, and the regression test still had to be written
+   *   afterwards from memory. A committed spec is the verification AND the
+   *   artefact, and it re-runs on every later ticket.
+   * - **it was cheap to fake.** `P4-KCH-4` made 32 calls and `P4-KCH-6` made
+   *   4; both read `satisfied`. A spec has to pass against the running site.
+   * - **two sources for one fact.** With the `playwright` gate on at every
+   *   preset, a step that asked the same question from a different ledger is
+   *   the redundancy Phase B3 removed from route resolution.
+   *
+   * The guard still RECORDS every MCP call — that is F-37's fix and it stays,
+   * because `EvidenceStore::browserToolCalls()` now reports exploration in
+   * the evaluation instead of gating on it.
    *
    * @param \Droost\Workflow\State\RunState $state
    *   The run.
@@ -741,154 +749,7 @@ final class ModeEngine {
    *   TRUE when no step blocks the phase.
    */
   private function recordPhaseSteps(RunState $state, Phase $phase, string $projectRoot): bool {
-    if ($phase !== Phase::Test) {
-      return TRUE;
-    }
-    $record = $this->browserReviewStep($state, $phase, $projectRoot);
-    try {
-      (new EvidenceStore($projectRoot))->record($state->runId, $phase->value, $record);
-    }
-    catch (\Throwable) {
-      // As in adjudicateChecks: recording never decides. A step that blocks
-      // still blocks with its row lost, and the stop hook reads the same
-      // store, so the agent is told either way or neither.
-    }
-    return !$record->state->blocksAdvance();
-  }
-
-  /**
-   * Whether the agent looked at what it built, as a row.
-   *
-   * @param \Droost\Workflow\State\RunState $state
-   *   The run, for the browser tier it declared at start.
-   * @param \Droost\Workflow\Config\Phase $phase
-   *   The phase, whose own calls are the ones that count.
-   * @param string $projectRoot
-   *   The repository.
-   *
-   * @return \Droost\Workflow\Evidence\CheckRecord
-   *   The row. Blocking only where the declared tier is one this can count.
-   */
-  private function browserReviewStep(RunState $state, Phase $phase, string $projectRoot): CheckRecord {
-    // AN UNDECLARED TIER IS NOT A MISSING LOOK. The declaration audit already
-    // owns "you never said what you have"; blocking here as well would make
-    // one omission stop the run twice and name the wrong cause the second
-    // time.
-    if ($state->browser === NULL) {
-      return new CheckRecord(
-        'step',
-        'browser_review',
-        CheckState::Recorded,
-        Fault::None,
-        'not verifiable: this session never declared a browser tier '
-        . '(droost-workflow declare-browser playwright-mcp|native|none), so '
-        . 'there is nothing to hold it to. The declaration audit is where a '
-        . 'missing declaration is reported.',
-      );
-    }
-    // `none` and `native` are recorded, not enforced, and for opposite
-    // reasons. `none` means the session says it CANNOT look — holding the
-    // phase for a capability the host does not have is a wedge, and the
-    // declaration is on the record where a reader can see what the run was
-    // worth. `native` means it looks by some route this cannot see: the
-    // markers match Playwright and Puppeteer tool names, and a host driving a
-    // browser another way would produce a zero that reads as a lie about a
-    // run that did the work. An honest "not counted" beats both.
-    if ($state->browser !== 'playwright-mcp') {
-      return new CheckRecord(
-        'step',
-        'browser_review',
-        CheckState::Recorded,
-        Fault::None,
-        sprintf(
-          'not counted: this session declared browser tier "%s". Only '
-          . 'playwright-mcp leaves tool calls this engine can count, so the '
-          . 'look is reported here rather than enforced.',
-          $state->browser,
-        ),
-      );
-    }
-
-    try {
-      $store = new EvidenceStore($projectRoot);
-      $calls = $store->browserToolCalls($state->runId, $phase->value);
-      $recorderSeesMcp = $store->mcpToolCalls($state->runId) > 0;
-    }
-    catch (\Throwable $e) {
-      // AN UNREADABLE STORE IS NOT A ZERO. Same rule as the seeker findings:
-      // the instrument failing is a fault of the environment, and reporting
-      // it as the agent's failure is the defect class this engine exists to
-      // avoid recording.
-      // FAULT::NONE, and this is a bug Phase A shipped. `CheckRecord` refuses
-      // a fault on anything but a blocked state, and a remedy on anything but
-      // an environment fault — so this branch, written as Recorded +
-      // Environment + remedy, would have THROWN the moment a store became
-      // unreadable, which is exactly when it was supposed to speak. No test
-      // could reach it: a fixture's store is always readable. Found while
-      // fixing F-37, by making the same mistake twice in one afternoon.
-      return new CheckRecord(
-        'step',
-        'browser_review',
-        CheckState::Recorded,
-        Fault::None,
-        'not verifiable: the evidence store could not be read (' . $e::class
-        . '), so the browser calls this run made cannot be counted. Fix the '
-        . 'store, then run this phase again to get a real answer.',
-      );
-    }
-
-    // AN INSTRUMENT THAT CANNOT SEE MAY NOT BLOCK (F-37). A hook fires for the
-    // tools its matcher names, and before 0.9.5 the guard was registered for
-    // the edit tools and Bash only — so no MCP call reached the diary, the
-    // count was structurally zero, and this step wedged a live run at `test`
-    // with every criterion verified and every gate green. The agent had
-    // browsed thoroughly; there was no action available that could clear it.
-    //
-    // A run whose diary holds any `mcp__*` row has a recorder that sees MCP
-    // calls, so zero browser calls is a real zero and the wall is honest.
-    // With none, "never browsed" and "cannot see browsing" are the same
-    // reading, and this records rather than blocks — the same rule as an
-    // unreadable store above, and as A-13 and F-27 before both.
-    if ($calls === 0 && !$recorderSeesMcp) {
-      return new CheckRecord(
-        'step',
-        'browser_review',
-        CheckState::Recorded,
-        Fault::None,
-        'not counted: no MCP tool call of any kind reached the guard in this '
-        . 'run, so a browser call could not have been recorded either and a '
-        . 'zero here says nothing about what the agent did. A hook fires for '
-        . 'the tools its matcher names, and `droost:workflow:install` from '
-        . '0.9.5 adds the recording-only registration that MCP calls match — '
-        . 'run it, then run this phase again for a real answer.',
-      );
-    }
-
-    if ($calls === 0) {
-      return new CheckRecord(
-        'step',
-        'browser_review',
-        CheckState::Blocked,
-        Fault::Agent,
-        'no browser tool call is recorded in this phase, and this run\'s guard '
-        . 'has recorded other MCP calls — so the recorder works and the zero '
-        . 'is real. A passing browser suite says the code behaves; it does not '
-        . 'say anyone looked at the page. Navigate to the routes this ticket '
-        . 'touched with the browser tools, look at what is there, then run '
-        . 'this phase again.',
-      );
-    }
-
-    return new CheckRecord(
-      'step',
-      'browser_review',
-      CheckState::Satisfied,
-      Fault::None,
-      sprintf(
-        '%d browser tool call(s) recorded in this phase.',
-        $calls,
-      ),
-    );
+    return TRUE;
   }
 
   /**

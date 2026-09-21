@@ -50,7 +50,7 @@ mode: agentic
 #
 # CHANGING THIS LINE ALONE DOES NOT MOVE EVERYTHING. Every key below is
 # written out, and an explicit key beats the preset — so setting `preset: max`
-# here still leaves `enforcement: soft`, still leaves mutation, playwright and
+# here still leaves `enforcement: soft`, still leaves mutation and
 # coverage off, and still leaves max_gate_retries at 2. To let a level decide
 # a lever, DELETE that lever's line.
 #
@@ -140,7 +140,7 @@ gates:
   # infection over one kernel-test-heavy module already outruns ten minutes.
   # Raise it here rather than narrowing what the tool scans.
   mutation:       { on: false, msi_min: 0 }
-  playwright:     { on: false }
+  playwright:     { on: true, required: true }
   coverage:       { on: false, min: 0 }
 
   # THE FRONT-END TRIO: eslint, stylelint, prettier — the JS/CSS analogue of

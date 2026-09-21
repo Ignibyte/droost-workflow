@@ -62,7 +62,7 @@ final class PresetResolver {
    *
    * An earlier revision defaulted a file-that-exists to "custom" and only a
    * missing file to the strict set. That made `touch droost.workflow.yml` turn
-   * mutation, playwright and coverage off and drop PHPStan from max to 6,
+   * mutation and coverage off and drop PHPStan from max to 6,
    * with no error and no warning — a gate set silently weakened by creating
    * an empty file, which is the exact failure this package exists to prevent.
    *
@@ -159,7 +159,7 @@ final class PresetResolver {
       'prettier' => new GateSettings('prettier', FALSE),
       'phpunit' => new GateSettings('phpunit', FALSE),
       'mutation' => new GateSettings('mutation', FALSE, ['msi_min' => 0]),
-      'playwright' => new GateSettings('playwright', FALSE),
+      'playwright' => new GateSettings('playwright', TRUE, ['required' => TRUE]),
       'coverage' => new GateSettings('coverage', FALSE, ['min' => 0]),
       'rendered_check' => new GateSettings('rendered_check', TRUE),
       'config_clean' => new GateSettings('config_clean', TRUE),
@@ -192,7 +192,7 @@ final class PresetResolver {
       'prettier' => new GateSettings('prettier', FALSE),
       'phpunit' => new GateSettings('phpunit', TRUE),
       'mutation' => new GateSettings('mutation', FALSE, ['msi_min' => 0]),
-      'playwright' => new GateSettings('playwright', FALSE),
+      'playwright' => new GateSettings('playwright', TRUE, ['required' => TRUE]),
       'coverage' => new GateSettings('coverage', FALSE, ['min' => 0]),
       'rendered_check' => new GateSettings('rendered_check', TRUE),
       'config_clean' => new GateSettings('config_clean', TRUE),
@@ -240,7 +240,7 @@ final class PresetResolver {
       'prettier' => new GateSettings('prettier', TRUE),
       'phpunit' => new GateSettings('phpunit', TRUE),
       'mutation' => new GateSettings('mutation', TRUE, ['msi_min' => 60, 'timeout' => 1800]),
-      'playwright' => new GateSettings('playwright', TRUE),
+      'playwright' => new GateSettings('playwright', TRUE, ['required' => TRUE]),
       'coverage' => new GateSettings('coverage', TRUE, ['min' => 60, 'timeout' => 900]),
       'rendered_check' => new GateSettings('rendered_check', TRUE),
       'config_clean' => new GateSettings('config_clean', TRUE),
@@ -317,7 +317,7 @@ final class PresetResolver {
       'prettier' => new GateSettings('prettier', FALSE),
       'phpunit' => new GateSettings('phpunit', TRUE),
       'mutation' => new GateSettings('mutation', FALSE, ['msi_min' => 0]),
-      'playwright' => new GateSettings('playwright', FALSE),
+      'playwright' => new GateSettings('playwright', TRUE, ['required' => TRUE]),
       'coverage' => new GateSettings('coverage', FALSE, ['min' => 0]),
       'rendered_check' => new GateSettings('rendered_check', TRUE),
       'config_clean' => new GateSettings('config_clean', TRUE),
