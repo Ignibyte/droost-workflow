@@ -200,6 +200,7 @@ final class WorkflowFacade {
         // `medium`, frozen into run.json at begin — and until now absent from
         // the one command an operator reads BEFORE there is a run (F-12).
         'seekers' => $config->seekers,
+        'seeker_rounds' => $config->seekerRounds,
         // The work-item integration for status: how a run's ticket is fetched
         // and written back. NULL when the repo declares none.
         'work_item' => $config->workItem?->toArray(),
@@ -268,6 +269,7 @@ final class WorkflowFacade {
       // run actually verified by, and could anyone watch it" is answerable
       // from status alone.
       'seekers' => $state->seekers,
+      'seeker_rounds' => $state->seekerRounds,
       'seeker' => $state->seeker,
       // The arc, not just the verdict: a clean re-inspection replaces the
       // record but must not erase what the earlier ones caught.
