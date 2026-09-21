@@ -151,8 +151,22 @@ the outcome. When it is `inspection-due`, the engine is
 holding the run rather than advancing: dispatch the
 `workflow-seeker` agent over everything this run changed, append its
 `## Seeker Inspection` section to the spec verbatim, and record it with the
-`seeker-report` surface. Open CRITICAL or MEDIUM findings are fixed and
-re-inspected — a fresh section, appended — before the run moves to test.
+`seeker-report` surface.
+
+**ONE inspection, then fix, then move on.** Fix what it found — CRITICAL and
+MEDIUM first, LOW where it is cheap — and record the fixes in the spec. Do
+**not** dispatch a second inspection to confirm your own fixes. The
+checkpoint asks whether an inspection RAN, and once one has, the engine
+advances; another round answers a question nobody asked, and it is not
+cheap — each one is a subagent reading the entire cumulative diff. A measured
+run spent three rounds inside one code phase and roughly forty minutes on
+them.
+
+**Re-inspect only where the level makes you.** From `high` up the checkpoint
+*additionally* requires **zero open CRITICAL**, so there, if a CRITICAL is
+open: fix it and re-inspect — a fresh section, appended — until none is. An
+open MEDIUM never requires a second round, at any level.
+
 Gates verify rules; the seeker verifies judgment. The checkpoint spends no
 retry budget: it is a hold, not a failure.
 

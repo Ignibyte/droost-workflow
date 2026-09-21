@@ -167,10 +167,14 @@ Inspector: independent
 ## The severity protocol
 
 - **CRITICAL** — security, correctness, or a discipline defeat introduced by
-  the diff. Blocks until fixed and re-inspected.
+  the diff. **From `high` up** this blocks until fixed and re-inspected; at
+  `medium` it is fixed but does not hold the phase. Nothing below `high`
+  counts open criticals, so do not describe it as blocking there.
 - **MEDIUM** — coupling the diff breaks, drift from the spec, real gaps in
-  this run's tests. Blocks while `open`; a later inspection may mark it
-  `resolved`, or the owner may carry it: `carried: <reason>`.
+  this run's tests. **Never blocks, at any level** — earlier text here said
+  it "blocks while `open`", which no level implements and which bought three
+  re-inspection rounds in one measured code phase. Fix it; a later inspection
+  may mark it `resolved`, or the owner may carry it: `carried: <reason>`.
 - **LOW** — dead new code, naming, missing docblocks on new internal
   helpers. Never blocks.
 
