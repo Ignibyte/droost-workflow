@@ -770,9 +770,16 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       && $gate->option('required') === TRUE
       && $exit === 0
       && (str_contains($stdout, 'No tests found') || str_contains($stderr, 'No tests found'))) {
-      // `playwright test` exits non-zero on an empty suite, so this is
-      // defensive — but `required` must hold even if a future runner exits
-      // zero on nothing: at the top of the dial no suite is a failure.
+      // NOT defensive — this branch IS the mechanism, and the comment that
+      // used to sit here said the opposite. Measured 2026-09-21 against
+      // @playwright/test 1.63: `playwright test` on an empty project prints
+      // `Error: No tests found` and exits **0**. So the exit code does not
+      // fail this gate and never did; the string match does.
+      //
+      // Which makes the string load-bearing. Anyone simplifying this on the
+      // belief that a non-zero exit already covers it turns an empty browser
+      // suite into a silent pass at every preset — and `required: true` is
+      // on every preset since 0.9.7, so that would be the whole dial.
       return GateResult::ran(
         $gate->name,
         GateStatus::Failed,
