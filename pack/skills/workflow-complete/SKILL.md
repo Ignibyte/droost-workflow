@@ -14,9 +14,17 @@ record and the report from drifting apart.
 ## Entry gate
 
 - Every earlier phase this run configured has passed.
-- The seeker checkpoint holds here too: a clean inspection must be recorded,
-  and if anything was edited since the last one, re-dispatch the
-  `workflow-seeker` before completing rather than riding a stale clean.
+- **The seeker checkpoint does NOT hold here.** It is a Code-phase
+  mechanism (`ModeEngine`: `$phase === Phase::Code`), and this line used to
+  say it "holds here too", which is false and bought a sixth inspection on a
+  measured run whose code phase had already filed five. Do not dispatch one
+  out of habit.
+- **The real gap, stated instead of papered over:** the test phase writes
+  source — the browser spec, and usually fixes to the suite — and no seeker
+  ever reads it, because the only checkpoint fired before that code existed.
+  If the test phase wrote something substantial, one inspection scoped to
+  *that* diff is worth its cost. That is a judgement about what changed, not
+  a gate, and `seekers.rounds` does not apply to it.
 
 ## Work
 
