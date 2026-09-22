@@ -83,7 +83,13 @@ final class WorkflowFacadeSeekerRoundsVisibleTest extends WorkflowTestCase {
     $status = $facade->status($root);
     $this->assertIsArray($status['levers']);
 
-    return $status['levers'];
+    $levers = [];
+    foreach ($status['levers'] as $name => $value) {
+      $this->assertIsString($name, 'a lever is named, not numbered');
+      $levers[$name] = $value;
+    }
+
+    return $levers;
   }
 
 }

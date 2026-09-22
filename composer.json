@@ -1,7 +1,7 @@
 {
     "name": "droost/workflow",
     "type": "library",
-    "description": "The phased, gated pipeline an agent runs to build or change a Drupal site: plan, code, test, document, complete. Framework-free \u2014 the Drupal surface ships with drupal/droost.",
+    "description": "The phased, gated pipeline an agent runs to build or change a Drupal site: plan, code, test, document, complete. Framework-free — the Drupal surface ships with drupal/droost.",
     "keywords": [
         "Drupal",
         "droost",
@@ -18,14 +18,16 @@
     "require": {
         "php": "^8.3",
         "ext-pdo_sqlite": "*",
-        "droost/engine": "~0.6.0",
         "symfony/yaml": "^6.4 || ^7.0 || ^8.0"
     },
     "require-dev": {
-        "drupal/coder": "^8.3",
-        "phpstan/phpstan": "^2.1",
-        "phpstan/phpstan-phpunit": "^2.0",
-        "phpunit/phpunit": "^10.5 || ^11.5 || ^12.0"
+        "drupal/coder": "^8.3.31",
+        "phpstan/phpstan": "^2.2.14",
+        "phpstan/phpstan-phpunit": "^2.0.18",
+        "phpunit/phpunit": "^10.5 || ^11.5 || ^12.0",
+        "sirbrillig/phpcs-variable-analysis": "^2.13.0",
+        "symfony/http-foundation": "^6.4 || ^7.0 || ^8.0",
+        "symfony/http-kernel": "^6.4 || ^7.0 || ^8.0"
     },
     "autoload": {
         "psr-4": {
@@ -56,5 +58,8 @@
     },
     "bin": [
         "bin/droost-workflow"
-    ]
+    ],
+    "suggest": {
+        "symfony/http-kernel": "Used only by BootedSiteDriver, which runs inside a booted site; Drupal provides it (with symfony/http-foundation)."
+    }
 }

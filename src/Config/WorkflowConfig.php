@@ -106,6 +106,8 @@ final class WorkflowConfig {
    *   judgment half of the gate set, and a repo that says nothing has not
    *   opted out of judgment. Turning it off is allowed and recorded, like
    *   enforcement: off — a visible loosening in a reviewable diff.
+   * @param int $seekerRounds
+   *   How many seeker inspections the code phase requires before it advances.
    * @param \Droost\Workflow\Config\Enforcement $requireRun
    *   What happens when custom code is edited with no active run: hard blocks
    *   (start a run, or take an operator-granted bypass), soft nudges once, off

@@ -772,7 +772,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       && (str_contains($stdout, 'No tests found') || str_contains($stderr, 'No tests found'))) {
       // NOT defensive — this branch IS the mechanism, and the comment that
       // used to sit here said the opposite. Measured 2026-09-21 against
-      // @playwright/test 1.63: `playwright test` on an empty project prints
+      // `@playwright/test` 1.63: `playwright test` on an empty project prints
       // `Error: No tests found` and exits **0**. So the exit code does not
       // fail this gate and never did; the string match does.
       //

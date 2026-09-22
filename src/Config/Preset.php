@@ -30,6 +30,8 @@ final class Preset {
    *   Whether the adversarial-review checkpoint is armed unless the file says
    *   otherwise. Off only at the bottom of the dial (low), where speed is the
    *   point and one line arms it back.
+   * @param int $seekerRounds
+   *   How many seeker inspections the code phase requires before it advances.
    */
   public function __construct(
     public readonly string $name,

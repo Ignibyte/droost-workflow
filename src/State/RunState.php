@@ -167,6 +167,8 @@ final class RunState {
    *   Where the surface that BEGAN the run got its contributed gates — the
    *   booted site's catalog, drush asked from the standalone binary, or the
    *   reason none could be resolved. Frozen so a shorter set explains itself.
+   * @param int $seekerRounds
+   *   How many seeker inspections the code phase requires, frozen at start.
    */
   public function __construct(
     public readonly string $runId,

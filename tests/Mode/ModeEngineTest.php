@@ -962,7 +962,7 @@ class ModeEngineTest extends WorkflowTestCase {
   }
 
   /**
-   * `seekers.rounds` is a FLOOR the code phase will not advance below.
+   * The `seekers.rounds` lever is a FLOOR the code phase will not go below.
    *
    * This is what makes the lever mechanical rather than advisory. Before it,
    * the engine asked only whether the trail was non-empty and every extra
@@ -970,7 +970,7 @@ class ModeEngineTest extends WorkflowTestCase {
    * `medium` spent five inspections and roughly forty minutes inside one
    * code phase. Now the number is the operator's, and the engine counts.
    */
-  public function testSeekerRoundsIsAFloorTheEngineCounts(): void {
+  public function testSeekerRoundsFloorIsCountedByTheEngine(): void {
     $engine = $this->engine($this->recordingSink());
 
     $state = $this->begin([

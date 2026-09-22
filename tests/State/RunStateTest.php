@@ -586,7 +586,7 @@ class RunStateTest extends TestCase {
   }
 
   /**
-   * `seekerRounds` survives serialisation AND every copy-on-write.
+   * The `seekerRounds` field survives serialisation AND every copy-on-write.
    *
    * Worth its own test because of how the field had to be added. RunState
    * copies itself positionally in seven places, so a new constructor
@@ -606,7 +606,7 @@ class RunStateTest extends TestCase {
     // TypedArray::serialized — `authored` is for human-written YAML and
     // refuses the nulls a machine-written run.json legitimately carries.
     $restored = RunState::fromArray(
-      TypedArray::serialized(json_decode(json_encode($state->toArray()), TRUE)),
+      $this->viaJson($state->toArray()),
       'run.json',
     );
     $this->assertSame(3, $restored->seekerRounds, 'and survived a save/load');
@@ -638,11 +638,27 @@ class RunStateTest extends TestCase {
     $this->assertSame(
       1,
       RunState::fromArray(
-        TypedArray::serialized(json_decode(json_encode($raw), TRUE)),
+        $this->viaJson($raw),
         'run.json',
       )->seekerRounds,
       'a file with no seeker_rounds key still requires exactly one inspection',
     );
+  }
+
+  /**
+   * The exact save/load path RunStateStore uses: json out, then json in.
+   *
+   * Both calls throw rather than return false, so a value json cannot carry
+   * fails here instead of arriving as a silent null.
+   *
+   * @param array<mixed> $data
+   *   What RunState::toArray() produced, or a hand-built run.json shape.
+   */
+  private function viaJson(array $data): TypedArray {
+    $decoded = json_decode(json_encode($data, JSON_THROW_ON_ERROR), TRUE, 512, JSON_THROW_ON_ERROR);
+    $this->assertIsArray($decoded);
+
+    return TypedArray::serialized($decoded);
   }
 
 }

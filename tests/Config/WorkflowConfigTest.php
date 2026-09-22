@@ -722,7 +722,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
   }
 
   /**
-   * seekers.rounds is a floor the operator sets, and it defaults to one.
+   * The seekers.rounds floor is the operator's, and it defaults to one.
    *
    * The lever exists because the number was a constant and the cost is not:
    * a measured run at `medium` spent five inspections and roughly forty
