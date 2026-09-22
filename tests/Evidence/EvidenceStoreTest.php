@@ -755,17 +755,65 @@ final class EvidenceStoreTest extends TestCase {
       . 'than having committed itself and left the rollback with nothing to undo',
     );
 
-    $body = (string) file_get_contents(
-      dirname(__DIR__, 2) . '/src/Evidence/EvidenceStore.php',
+    $this->assertStringContainsString(
+      '$this->writeTransaction(',
+      $this->methodSource('recordSeekerFindings'),
+      'it writes through the one transaction helper',
     );
-    $body = substr($body, (int) strpos($body, 'function recordSeekerFindings'));
-    $body = substr($body, 0, (int) strpos($body, "\n  }\n"));
     $this->assertStringContainsString(
       'BEGIN IMMEDIATE',
-      $body,
+      $this->methodSource('writeTransaction'),
       'and when it owns the transaction, it opens one — a structural pin on '
       . 'the crash window, which no timing-based test can reach',
     );
+  }
+
+  /**
+   * A failed write is undone, and the connection is not left mid-transaction.
+   *
+   * On PHP 8.3 this was false. PDO::inTransaction() cannot see a transaction
+   * begun in SQL, so the rollback it guarded never ran, the connection stayed
+   * inside a transaction nothing would end, and the NEXT write failed on
+   * "cannot start a transaction within a transaction". PHP 8.4 asks SQLite
+   * and hid it; CI's php 8.3 job is the one that caught it.
+   */
+  public function testFailedWriteIsUndoneAndTheNextOneSucceeds(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'medium']);
+    $finding = ['id' => 'F1', 'severity' => 'LOW', 'location' => 'a.php:1', 'finding' => 'real', 'status' => 'open'];
+    $store->recordSeekerFindings('r1', 'code', 1, [$finding]);
+
+    $pdo = (new \ReflectionMethod(EvidenceStore::class, 'connection'))->invoke($store);
+    $this->assertInstanceOf(\PDO::class, $pdo);
+    try {
+      (new \ReflectionMethod(EvidenceStore::class, 'writeTransaction'))->invoke($store, $pdo, static function () use ($pdo): void {
+        $pdo->exec('DELETE FROM seeker_finding');
+        throw new \RuntimeException('mid-write');
+      });
+      $this->fail('the failure propagates');
+    }
+    catch (\RuntimeException $e) {
+      $this->assertSame('mid-write', $e->getMessage());
+    }
+    $this->assertCount(1, $store->seekerFindings('r1'), 'the failed write was undone');
+
+    $store->recordSeekerFindings('r1', 'code', 2, [$finding]);
+    $this->assertCount(2, $store->seekerFindings('r1'), 'and the next write opened a transaction of its own');
+  }
+
+  /**
+   * One EvidenceStore method's source, for the structural pins.
+   *
+   * @param string $name
+   *   The method name.
+   *
+   * @return string
+   *   From its signature to its closing brace.
+   */
+  private function methodSource(string $name): string {
+    $source = (string) file_get_contents(dirname(__DIR__, 2) . '/src/Evidence/EvidenceStore.php');
+    $body = substr($source, (int) strpos($source, 'function ' . $name . '('));
+    return substr($body, 0, (int) strpos($body, "\n  }\n"));
   }
 
 }

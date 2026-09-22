@@ -544,24 +544,10 @@ final class EvidenceStore {
     // outright — and every caller swallows the exception, so the rows simply
     // went missing. Taking the write lock up front turns the same contention
     // into a wait.
-    $owns = !$pdo->inTransaction();
-    if ($owns) {
-      $pdo->exec('BEGIN IMMEDIATE');
-    }
-    try {
-      $id = $this->insertCheck($pdo, $runId, $phase, $check, $now);
-    }
-    catch (\Throwable $e) {
-      if ($owns && $pdo->inTransaction()) {
-        $pdo->exec('ROLLBACK');
-      }
-      throw $e;
-    }
-    if ($owns) {
-      $pdo->exec('COMMIT');
-    }
-
-    return $id;
+    return $this->writeTransaction(
+      $pdo,
+      fn (): int => $this->insertCheck($pdo, $runId, $phase, $check, $now),
+    );
   }
 
   /**
@@ -1367,11 +1353,7 @@ final class EvidenceStore {
     // between them would leave the round with its previous findings erased and
     // its new ones unwritten, which reads as a clean inspection. Losing a
     // finding is the failure this table exists to stop.
-    $owns = !$pdo->inTransaction();
-    if ($owns) {
-      $pdo->exec('BEGIN IMMEDIATE');
-    }
-    try {
+    $this->writeTransaction($pdo, function () use ($pdo, $runId, $phase, $round, $findings): void {
       $pdo->prepare('DELETE FROM seeker_finding WHERE run_id = ? AND phase = ? AND round = ?')
         ->execute([$runId, $phase, $round]);
       $insert = $pdo->prepare(
@@ -1401,15 +1383,83 @@ final class EvidenceStore {
       if ($findings === []) {
         $insert->execute([$runId, $phase, $round, '—', '', '', 'inspection filed: no findings', 'clean']);
       }
+    });
+  }
+
+  /**
+   * Runs a write in its own IMMEDIATE transaction, or joins the caller's.
+   *
+   * Whether a transaction is already open cannot be asked of
+   * PDO::inTransaction(): before PHP 8.4 it only knows about transactions PDO
+   * began itself, and every transaction here is begun in SQL, because PDO has
+   * no way to say IMMEDIATE. On PHP 8.3 that made both halves wrong at once.
+   * A caller's transaction was invisible, so a second BEGIN threw; and the
+   * store's own was invisible too, so the rollback after a failed write never
+   * ran and the connection was left inside a transaction nothing would end,
+   * failing every write after it.
+   *
+   * So SQLite is asked instead: it refuses a BEGIN inside a transaction, and
+   * the refusal is the answer. Joined work runs inside a SAVEPOINT, so a
+   * failure undoes this write alone and leaves the caller's transaction to the
+   * caller.
+   *
+   * @param \PDO $pdo
+   *   The store's connection.
+   * @param \Closure $work
+   *   The writes.
+   *
+   * @return mixed
+   *   Whatever the work returned.
+   *
+   * @template T
+   * @phpstan-param \Closure(): T $work
+   * @phpstan-return T
+   */
+  private function writeTransaction(\PDO $pdo, \Closure $work): mixed {
+    try {
+      $pdo->exec('BEGIN IMMEDIATE');
+      $owns = TRUE;
+    }
+    catch (\PDOException $e) {
+      if (!str_contains($e->getMessage(), 'within a transaction')) {
+        throw $e;
+      }
+      $owns = FALSE;
+      $pdo->exec('SAVEPOINT evidence_write');
+    }
+    try {
+      $value = $work();
     }
     catch (\Throwable $e) {
-      if ($owns && $pdo->inTransaction()) {
-        $pdo->exec('ROLLBACK');
-      }
+      $this->undoWrite($pdo, $owns);
       throw $e;
     }
-    if ($owns) {
-      $pdo->exec('COMMIT');
+    $pdo->exec($owns ? 'COMMIT' : 'RELEASE evidence_write');
+
+    return $value;
+  }
+
+  /**
+   * Undoes a failed write, tolerating a transaction SQLite already ended.
+   *
+   * @param \PDO $pdo
+   *   The store's connection.
+   * @param bool $owns
+   *   Whether the write began the transaction, or joined one via SAVEPOINT.
+   */
+  private function undoWrite(\PDO $pdo, bool $owns): void {
+    try {
+      if ($owns) {
+        $pdo->exec('ROLLBACK');
+        return;
+      }
+      $pdo->exec('ROLLBACK TO evidence_write');
+      $pdo->exec('RELEASE evidence_write');
+    }
+    catch (\PDOException) {
+      // SQLite rolls a transaction back by itself on some errors (a full disk,
+      // an I/O failure). Then there is nothing left to undo, and the failure
+      // worth throwing is the original one, which the caller rethrows.
     }
   }
 
