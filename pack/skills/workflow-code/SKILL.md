@@ -171,6 +171,24 @@ there, if a CRITICAL is open: fix it and re-inspect until none is.
 
 An open MEDIUM never requires another round, at any level.
 
+**But close the ones you fixed — that is not a re-inspection.** A finding's
+status lives in the `## Seeker Inspection` table, and it is one of `open`,
+`resolved`, or `carried: <reason>`. Once you have fixed what the inspection
+found, append an updated section with those rows marked, and record it with
+`seeker-report` again. **No subagent, no second read of the diff** — you are
+reporting what you did, not asking to be reviewed again.
+
+Skip it and the evidence store keeps every finding at `open` forever, because
+the only thing that ever moves a status is a later report. A run that fixed
+four mediums then reads, permanently, as a run that shipped four — and the
+record is the thing everything here exists to make true. Measured: `P5 · run
+3` fixed a translation regression and its store still says otherwise
+(**F-44**).
+
+Mark honestly. `carried: <reason>` is a real answer for something you chose
+not to fix; `resolved` on something you did not fix is the one thing this
+whole pipeline is built to prevent.
+
 Gates verify rules; the seeker verifies judgment. The checkpoint spends no
 retry budget: it is a hold, not a failure.
 

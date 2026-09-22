@@ -588,4 +588,40 @@ class PackContentLintTest extends TestCase {
     );
   }
 
+  /**
+   * The code skill must tell the agent to CLOSE findings it fixed.
+   *
+   * F-44: a finding's status only ever moves when a later report marks it,
+   * and with `seekers: { rounds: 1 }` there is no later inspection — so the
+   * evidence store kept every finding at `open` forever and a run that fixed
+   * four mediums read, permanently, as a run that shipped four.
+   *
+   * The remedy is cheap and it is text: marking a row `resolved` costs a
+   * table edit, not another subagent pass over the diff. This pins that the
+   * instruction says so, because the whole reason F-44 existed is that
+   * nothing told the agent the two were different.
+   */
+  public function testTheCodeSkillSaysToCloseFixedFindings(): void {
+    $skill = file_get_contents(__DIR__ . '/../../pack/skills/workflow-code/SKILL.md');
+    $this->assertIsString($skill);
+
+    $this->assertStringContainsString(
+      'that is not a re-inspection',
+      $skill,
+      'closing a fixed finding must be distinguished from re-inspecting',
+    );
+    foreach (['`open`', '`resolved`', '`carried: <reason>`'] as $status) {
+      $this->assertStringContainsString(
+        $status,
+        $skill,
+        'the status vocabulary must be stated where the agent reads it',
+      );
+    }
+    $this->assertStringContainsString(
+      'No subagent, no second read of the diff',
+      $skill,
+      'the cost must be stated, or the instruction reads as "run it again"',
+    );
+  }
+
 }
