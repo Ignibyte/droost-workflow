@@ -624,4 +624,41 @@ class PackContentLintTest extends TestCase {
     );
   }
 
+  /**
+   * The plan brief must say that precedent is not guidance.
+   *
+   * Measured across four rungs of one project: `droost_scaffold` was called
+   * on every rung, while `droost_guidelines` and `droost_module_patterns`
+   * were called fifteen times on the FIRST and never again. The generators
+   * kept being used; the lookups that say "how is this done here" stopped
+   * the moment the repository contained one example of its own.
+   *
+   * No gate can see that. The grounding ledger counts knowledge calls and
+   * four rungs each made some, so the half that went to zero is invisible
+   * in every tally. The consequence is that a convention invented on rung
+   * one becomes house style by rung three without ever having been checked.
+   */
+  public function testThePlanBriefWarnsThatPrecedentIsNotGuidance(): void {
+    $skill = file_get_contents(__DIR__ . '/../../pack/skills/workflow-plan/SKILL.md');
+    $this->assertIsString($skill);
+
+    $this->assertStringContainsString(
+      'It is precedent, not guidance',
+      $skill,
+      'copying your own earlier rung must be named as the weak reason it is',
+    );
+    $this->assertStringContainsString(
+      'Ask again when you are extending your own work',
+      $skill,
+      'the brief must say WHEN to re-ask, not only that the tools exist',
+    );
+    foreach (['droost_module_patterns', 'droost_guidelines'] as $tool) {
+      $this->assertStringContainsString(
+        $tool,
+        $skill,
+        'the two lookups that went to zero must be the ones named',
+      );
+    }
+  }
+
 }

@@ -108,6 +108,33 @@ none of them fails however good its citations:
 And `droost_guidelines` — the conventions this project expects you to follow;
 read it, though the gate does not count it as a lookup.
 
+### "The codebase already does it this way" is the WEAKEST reason
+
+It is precedent, not guidance, and on a second or third piece of work it
+quietly replaces both.
+
+Measured across four rungs of one project: `droost_scaffold` was called on
+every rung, and `droost_guidelines` and `droost_module_patterns` were called
+**fifteen times on the first and never again**. Nothing went wrong that a
+gate could see. What happened is that once the repository contained one
+example, the agent read that instead of asking — and an example is only as
+good as the rung that produced it.
+
+**So the first thing built is the thing most worth checking, and it is the
+thing least likely to be checked**, because by the time anyone doubts it the
+codebase is full of copies. A convention that entered on rung one becomes
+house style by rung three without ever having been right.
+
+Ask again when you are extending your own work. Two questions are enough:
+
+- `droost_module_patterns` — is the way this project does it still the way
+  the module wants it done?
+- `droost_guidelines` — has the convention I am about to copy actually been
+  stated anywhere, or did a previous rung invent it?
+
+If the answer confirms the precedent, you have lost one call. If it does not,
+you have stopped propagating a mistake into everything above it.
+
 Then produce the spec:
 
 1. **The request, restated.** What the user asked for, in your words. If your
