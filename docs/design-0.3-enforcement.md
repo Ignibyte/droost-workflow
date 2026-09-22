@@ -97,7 +97,7 @@ whose binary is missing reports **tool missing**, never passed.
 ## Sub-agents (pack, `.claude/agents/`)
 
 - **researcher** — used in plan: grounds the spec in reality via droost's
-  read tools (capabilities, entities, routes, guidelines) or, siteless, the
+  read tools (capabilities, entities, routes, search) or, siteless, the
   repo; returns findings, writes nothing.
 - **spec-writer** — drafts the EARS table (factory) or quasi-spec (light)
   from the conversation + researcher findings; the main loop reviews it into

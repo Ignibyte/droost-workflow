@@ -88,52 +88,22 @@ Why this is enforced rather than suggested: grounding used to be advice while
 routing was a contract, and usage followed the contract. Across 39 graded
 rounds the build-surface router was called 179 times; the codebase knowledge
 behind it was called six, and `droost_symbol`, `droost_graph`,
-`droost_module_patterns` and `droost_deprecations` were never called at all.
+`droost_deprecations` and a module-pattern lookup droost has since dropped
+were never called at all.
 A lookup that produces no row is a lookup nobody can tell you made.
 
-Ask the site before you assume. These ten are what the gate counts as
+Ask the site before you assume. These nine are what the gate counts as
 knowledge calls — the ledger half of `grounding_check` — so a plan that used
 none of them fails however good its citations:
 
 - `droost_search` — what this codebase says, lexically and (if indexed)
   semantically.
 - `droost_symbol` and `droost_graph` — a class, its callers and what it calls.
-- `droost_module_patterns` and `droost_deprecations` — how a module is
-  conventionally used, and what not to reach for.
+- `droost_deprecations` — what not to reach for.
 - `droost_module_docs` — what an installed module already gives you.
 - `droost_capabilities` — what this site can actually do right now.
 - `droost_architecture` — how it is put together.
 - `droost_entities` and `droost_routes` — what already exists.
-
-And `droost_guidelines` — the conventions this project expects you to follow;
-read it, though the gate does not count it as a lookup.
-
-### "The codebase already does it this way" is the WEAKEST reason
-
-It is precedent, not guidance, and on a second or third piece of work it
-quietly replaces both.
-
-Measured across four rungs of one project: `droost_scaffold` was called on
-every rung, and `droost_guidelines` and `droost_module_patterns` were called
-**fifteen times on the first and never again**. Nothing went wrong that a
-gate could see. What happened is that once the repository contained one
-example, the agent read that instead of asking — and an example is only as
-good as the rung that produced it.
-
-**So the first thing built is the thing most worth checking, and it is the
-thing least likely to be checked**, because by the time anyone doubts it the
-codebase is full of copies. A convention that entered on rung one becomes
-house style by rung three without ever having been right.
-
-Ask again when you are extending your own work. Two questions are enough:
-
-- `droost_module_patterns` — is the way this project does it still the way
-  the module wants it done?
-- `droost_guidelines` — has the convention I am about to copy actually been
-  stated anywhere, or did a previous rung invent it?
-
-If the answer confirms the precedent, you have lost one call. If it does not,
-you have stopped propagating a mistake into everything above it.
 
 Then produce the spec:
 

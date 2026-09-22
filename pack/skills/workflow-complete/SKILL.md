@@ -66,8 +66,8 @@ documented one.) Three things, in descending order of how fast they decay:
 
 Tools that help — every one needs a booted site:
 
-- `droost_search` and `droost_guidelines` — find how this project already
-  documents things, and match it rather than inventing a house style. Note
+- `droost_search` — find how this project already documents things, and
+  match it rather than inventing a house style. Note
   that `droost_search` returns nothing at all on a site whose index was
   never built (`drush droost:search:index`), and an empty result reads
   exactly like "this project documents nothing" — check before concluding.
@@ -159,8 +159,8 @@ and until a run is active, custom-code edits are walled again
 
 ## Without a site
 
-The capture half loses its site tools: `droost_search`, `droost_guidelines`
-and `droost_wiki` all need a booted site. Write the documentation into the
+The capture half loses its site tools: `droost_search` and `droost_wiki`
+both need a booted site. Write the documentation into the
 repo — module READMEs, a change summary in the run's own artefacts — and say
 plainly that the wiki could not be read or updated. Do not report it fresh,
 and do not report it stale either: you did not look. The `wiki_fresh` gate

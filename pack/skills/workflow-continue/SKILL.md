@@ -48,8 +48,8 @@ The preset is one graded dial for how much the run VERIFIES —
 Read the frozen, canonical name from run.json (`factory` records as `max`,
 `light` as `medium`). The dial decides the gates and thresholds (engine-side)
 and the artefact weight (your side); the file can override any lever. Two
-things never move with it: a spec always exists, and the brain — guidelines,
-search, the wiki as knowledge — is always used. Five points, two weights:
+things never move with it: a spec always exists, and the brain — search,
+the code graph, the wiki as knowledge — is always used. Five points, two weights:
 
 - **Full weight — `high`, `xhigh`, `max`, `custom`** — the full EARS spec,
   written to `droost/droost-workflow/spec-<slug>.md`; the capture is recorded

@@ -18,8 +18,8 @@ Two things never scale with effort:
 - **A spec is always written.** Every level still walks plan → code → test →
   complete and still produces the governing spec. Depth scales; existence does
   not.
-- **The brain is always used.** Guidelines, the wiki as knowledge, search, the
-  brain directive — the *read* side is not a gate and is not a lever. Effort
+- **The brain is always used.** The wiki as knowledge, search, the code graph,
+  the brain directive — the *read* side is not a gate and is not a lever. Effort
   scales what we *verify* and what artefacts we *write*, never what the agent is
   required to *know*.
 
@@ -135,9 +135,9 @@ Stated so they can be tested, not assumed:
 - **Consent.** The write wall, the `allow_*` gates, `require_run` and the
   bypass are *safety*, not rigor. `low` means less verification, never less
   consent. No level may loosen any of them; they are not in the preset at all.
-- **The brain.** Guidelines, search, the wiki-as-knowledge, the brain
-  directive — the read side is harness guidance, not a gate, and effort has no
-  lever for it by construction.
+- **The brain.** Search, the code graph, the wiki-as-knowledge, the brain
+  directive — the read side is knowledge of the codebase, not a gate, and
+  effort has no lever for it by construction.
 - **The phase model.** Four phases, always, at every level (§3b).
 - **The spec.** Always produced. Depth is a pack concern (§6); existence is not
   negotiable.

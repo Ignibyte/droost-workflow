@@ -89,7 +89,7 @@ A preset is a **base**, not an alternative to per-gate control — explicit
 `gates:` entries are applied over it, so "max but without Playwright" is one
 line rather than a fork. Since 2.0 the presets form one graded dial. Two
 things never move with it: a spec is always written, and the brain
-(guidelines, search, the wiki as knowledge) is always used — the dial scales
+(search, the code graph, the wiki as knowledge) is always used — the dial scales
 what is *verified* and what artefacts are *written*, never what the agent must
 know. Consent (the write wall, `require_run`) is not in a preset at all.
 

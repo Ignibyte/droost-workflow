@@ -10,8 +10,7 @@ nothing.
 
 With a booted site, ask it instead of assuming: `droost_capabilities` (what
 this site can do), `droost_architecture` (how it is put together),
-`droost_entities` and `droost_routes` (what already exists),
-`droost_guidelines` (the conventions this project expects), `droost_search`
+`droost_entities` and `droost_routes` (what already exists), `droost_search`
 (where things live in the code). The most expensive planning mistake is
 describing a thing that already exists under another name — look for that
 first.

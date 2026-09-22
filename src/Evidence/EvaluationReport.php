@@ -66,7 +66,6 @@ final class EvaluationReport {
     'droost_search',
     'droost_symbol',
     'droost_graph',
-    'droost_module_patterns',
     'droost_module_docs',
     'droost_deprecations',
     'droost_entities',
@@ -1506,7 +1505,7 @@ final class EvaluationReport {
       ['Total calls', (string) $total, 'every tool result, successes and refusals alike'],
       ['Distinct tools', (string) count($perTool), '—'],
       [
-        '**Knowledge calls** (the ten in `KNOWLEDGE_TOOLS`)',
+        '**Knowledge calls** (the nine in `KNOWLEDGE_TOOLS`)',
         (string) $knowledge,
         $knowledge === 0
           ? '**zero here means the run never asked the codebase anything**, whatever its grounding table says'

@@ -16,9 +16,9 @@ namespace Droost\Workflow\Config;
  * Since 2.0 the presets form ONE GRADED DIAL — low, medium, high, xhigh, max —
  * for how much verification a run does (design: docs/design-effort-presets.md).
  * Two things never move with the dial: a spec is always written, and the brain
- * (guidelines, search, the wiki as knowledge) is always used — the dial scales
- * what is VERIFIED and what artefacts are WRITTEN, never what the agent must
- * know. Consent — the write wall, require_run — is not in a preset at all.
+ * (search, the code graph, the wiki as knowledge) is always used — the dial
+ * scales what is VERIFIED and what artefacts are WRITTEN, never what the agent
+ * must know. Consent — the write wall, require_run — is not in a preset at all.
  */
 final class PresetResolver {
 

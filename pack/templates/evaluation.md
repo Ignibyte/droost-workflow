@@ -175,7 +175,7 @@ jq -r 'select(.outcome=="fail") | .tool' droost/droost-workflow/tool-calls.jsonl
 |---|---|---|
 | Total calls | | |
 | Distinct tools | | |
-| **Knowledge calls** (`search`, `symbol`, `graph`, `module_patterns`, `module_docs`, `deprecations`, `entities`, `routes`, `capabilities`, `architecture`) | | **zero here means the run never asked the codebase anything**, whatever its grounding table says |
+| **Knowledge calls** (`search`, `symbol`, `graph`, `module_docs`, `deprecations`, `entities`, `routes`, `capabilities`, `architecture`) | | **zero here means the run never asked the codebase anything**, whatever its grounding table says |
 | Router calls (`droost_decide`) | | |
 | **Knowledge : router ratio** | | the number that exposed the original defect — 6 : 179 across 39 rounds |
 | Write/scaffold calls (`scaffold`, `structure_create`, `config_set`, `entity_create`, `views_compose`) | | |

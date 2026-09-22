@@ -481,9 +481,9 @@ class PackContentLintTest extends TestCase {
    * The plan brief names every tool the gate counts as a knowledge call.
    *
    * `grounding_check`'s ledger half fails a run whose tool-call ledger holds no
-   * KNOWLEDGE_TOOLS call. The brief's "ask the site" list named six of the ten
-   * and omitted the four it complained, three paragraphs up, were never called
-   * — `droost_symbol`, `droost_graph`, `droost_module_patterns`,
+   * KNOWLEDGE_TOOLS call. The brief's "ask the site" list once named only six
+   * of the counted tools and omitted the ones it complained, three paragraphs
+   * up, were never called — `droost_symbol`, `droost_graph`,
    * `droost_deprecations` — plus `droost_search`. An agent following the list
    * to the letter could satisfy every citation and still fail the gate it was
    * never told existed. The constant is the contract; the brief has to match.
@@ -625,40 +625,25 @@ class PackContentLintTest extends TestCase {
   }
 
   /**
-   * The plan brief must say that precedent is not guidance.
+   * The evaluation template's knowledge row lists exactly the counted tools.
    *
-   * Measured across four rungs of one project: `droost_scaffold` was called
-   * on every rung, while `droost_guidelines` and `droost_module_patterns`
-   * were called fifteen times on the FIRST and never again. The generators
-   * kept being used; the lookups that say "how is this done here" stopped
-   * the moment the repository contained one example of its own.
-   *
-   * No gate can see that. The grounding ledger counts knowledge calls and
-   * four rungs each made some, so the half that went to zero is invisible
-   * in every tally. The consequence is that a convention invented on rung
-   * one becomes house style by rung three without ever having been checked.
+   * The row names them without the `droost_` prefix, so the unknown-tool lint,
+   * which matches `droost_[a-z_]+`, cannot see it: the row went on listing a
+   * tool droost had removed after the constant had already dropped it. The
+   * constant is the contract, and the template has to match it both ways.
    */
-  public function testThePlanBriefWarnsThatPrecedentIsNotGuidance(): void {
-    $skill = file_get_contents(__DIR__ . '/../../pack/skills/workflow-plan/SKILL.md');
-    $this->assertIsString($skill);
+  public function testTheEvaluationTemplatesKnowledgeRowMatchesTheCountedTools(): void {
+    $template = file_get_contents(__DIR__ . '/../../pack/templates/evaluation.md');
+    $this->assertIsString($template);
+    $this->assertSame(1, preg_match('/^\| \*\*Knowledge calls\*\* \(([^)]*)\)/m', $template, $row), 'the template has a Knowledge calls row');
 
-    $this->assertStringContainsString(
-      'It is precedent, not guidance',
-      $skill,
-      'copying your own earlier rung must be named as the weak reason it is',
-    );
-    $this->assertStringContainsString(
-      'Ask again when you are extending your own work',
-      $skill,
-      'the brief must say WHEN to re-ask, not only that the tools exist',
-    );
-    foreach (['droost_module_patterns', 'droost_guidelines'] as $tool) {
-      $this->assertStringContainsString(
-        $tool,
-        $skill,
-        'the two lookups that went to zero must be the ones named',
-      );
-    }
+    preg_match_all('/`([a-z_]+)`/', $row[1], $names);
+    $listed = array_map(static fn (string $name): string => 'droost_' . $name, $names[1]);
+    sort($listed);
+    $counted = EvaluationReport::KNOWLEDGE_TOOLS;
+    sort($counted);
+
+    $this->assertSame($counted, $listed, 'the template lists every counted knowledge tool, and nothing else');
   }
 
 }
