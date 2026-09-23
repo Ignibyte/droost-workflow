@@ -890,7 +890,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $exit,
       $elapsed,
       $this->summarise($gate->name, $exit, $stdout, $stderr, $gate, $root),
-      $this->findings($stdout, $gate->name, $root),
+      $this->findings($stdout, $gate->name, $root, $stderr),
       $invocation,
     );
   }
@@ -1039,12 +1039,13 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     $name = $gate->name;
 
     if (in_array($name, ['phpcs', 'eslint', 'stylelint'], TRUE) && $baseline->has($name)) {
+      $report = self::lintReport($name, $stdout, $stderr);
       $findings = match ($name) {
         'phpcs' => FindingParsers::phpcs($stdout, $root),
         'eslint' => FindingParsers::eslint($stdout, $root),
-        default => FindingParsers::stylelint($stdout, $root),
+        default => FindingParsers::stylelint($report, $root),
       };
-      if ($findings === [] && $exit !== 0 && $this->phpcsTotals($stdout) === NULL && trim($stdout) !== '' && !str_starts_with(trim($stdout), '[') && !str_starts_with(trim($stdout), '{')) {
+      if ($findings === [] && $exit !== 0 && $this->phpcsTotals($stdout) === NULL && trim($report) !== '' && !str_starts_with(trim($report), '[') && !str_starts_with(trim($report), '{')) {
         // Non-zero with no machine output: the tool did not run to a report.
         return NULL;
       }
@@ -2265,6 +2266,38 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   }
 
   /**
+   * The stream a lint tool wrote its report to.
+   *
+   * Stylelint 16 writes its report to stderr whenever it finds a problem, and
+   * to stdout when it finds none. Every reader here took stdout, so a failing
+   * stylelint was recorded with no findings at all, and a baseline measured
+   * its debt as zero (F-90). The other tools report on stdout.
+   *
+   * @param string $gate
+   *   The gate.
+   * @param string $stdout
+   *   What the tool wrote to stdout.
+   * @param string $stderr
+   *   What it wrote to stderr.
+   *
+   * @return string
+   *   The stream holding the JSON report, else stdout.
+   */
+  public static function lintReport(string $gate, string $stdout, string $stderr): string {
+    if ($gate !== 'stylelint') {
+      return $stdout;
+    }
+    foreach ([$stdout, $stderr] as $stream) {
+      $trimmed = ltrim($stream);
+      if ($trimmed !== '' && $trimmed[0] === '[') {
+        return $stream;
+      }
+    }
+
+    return $stdout;
+  }
+
+  /**
    * Whether a tool's stdout carries a report it produced.
    *
    * The difference between "I ran and found problems" and "I could not run",
@@ -2318,9 +2351,16 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         . '`vendor/bin/phpcs -i` lists.';
     }
     return match ($gate) {
-      'eslint' => 'eslint walked up to a config it cannot load — on a Drupal site that is core\'s scaffolded .eslintrc.json, whose plugins only core\'s own yarn install provides. Point gates.eslint.config at this project\'s own config (its package.json lint script names it); the gate then pins it and turns discovery off.',
-      'stylelint' => 'stylelint could not load its config — point gates.stylelint.config at this project\'s own stylelint config.',
-      'prettier' => 'prettier could not run — check gates.prettier.config (its own config) and the syntax of the file it names.',
+      // WHAT THE AGENT MAY DO, THEN WHAT ONLY THE OPERATOR MAY (F-91). These
+      // named only `gates.*.config`, and droost.workflow.yml is a file the
+      // guard refuses the agent, so a run blocked on a missing config could
+      // only escalate. A config at the project root is the project's own,
+      // and it is the one every tool finds alike: a prettier config pinned
+      // by the lever reaches the prettier gate and neither eslint's nor
+      // stylelint's prettier rule, so the gates then disagree about one file.
+      'eslint' => 'eslint walked up to a config it cannot load — on a Drupal site that is core\'s scaffolded .eslintrc.json, which extends core\'s own config and the packages core/package.json lists for it (eslint-config-airbnb-base, eslint-plugin-prettier and the rest). Install those at the project root, or give the project its own config there (`root: true` stops the cascade); either is a project change you may make and declare. Only the OPERATOR can pin one instead, with gates.eslint.config in droost.workflow.yml.',
+      'stylelint' => 'stylelint found no config for the files it was handed. Give the project its own at its root, where every tool finds the same one: a .stylelintrc.json, which on a Drupal site can extend core\'s (core/.stylelintrc.json under the docroot). That is a project change you may make and declare. Only the OPERATOR can pin one instead, with gates.stylelint.config in droost.workflow.yml.',
+      'prettier' => 'prettier could not run; its own message says why. Its config belongs at the project root (.prettierrc.json), where eslint\'s and stylelint\'s prettier rules read the same one. A config pinned with gates.prettier.config reaches this gate and neither of those, so the two can demand opposite formatting of one file.',
       'phpcs' => 'phpcs hit a processing error — check the ruleset gates.phpcs.standard names and that it resolves from the project root.',
       default => 'the tool could not run; fix its configuration before the gate can judge anything.',
     };
@@ -2491,6 +2531,34 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         );
       }
     }
+    // THE TRIO'S TWO LINTERS, THE SAME WAY (F-90). Their summary was the
+    // head of the JSON report: "eslint failed (exit 1): [{"filePath":"/var/
+    // www/…", cut at 200 characters, which is where a reader looks first.
+    if (in_array($gate, ['eslint', 'stylelint'], TRUE) && $root !== '') {
+      $report = self::lintReport($gate, $stdout, $stderr);
+      $found = $gate === 'eslint' ? FindingParsers::eslint($report, $root) : FindingParsers::stylelint($report, $root);
+      if ($found !== []) {
+        $errors = count(array_filter($found, static fn (array $finding): bool => $finding['error']));
+        $warnings = count($found) - $errors;
+        $where = [];
+        foreach ($found as $finding) {
+          if ($finding['error'] && $finding['file'] !== '') {
+            $where[$finding['file'] . ':' . $finding['line']] = TRUE;
+          }
+        }
+        $shown = array_slice(array_keys($where), 0, 3);
+
+        return sprintf(
+          '%s failed (exit %d): %d error%s%s%s',
+          $gate,
+          $exit,
+          $errors,
+          $errors === 1 ? '' : 's',
+          $warnings > 0 ? sprintf(' and %d warning%s', $warnings, $warnings === 1 ? '' : 's') : '',
+          $shown === [] ? '' : ', at ' . implode(', ', $shown) . (count($where) > 3 ? ', and more' : ''),
+        );
+      }
+    }
     $line = self::failureLine($stderr, $stdout);
 
     return sprintf(
@@ -2632,11 +2700,14 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    * @param string $root
    *   The project root, for paths relative to it. '' when unknown, in which
    *   case only the generic shape is available.
+   * @param string $stderr
+   *   Standard error, where stylelint 16 reports whenever it finds anything.
    *
    * @return list<array<string, mixed>>
    *   The findings, or an empty list.
    */
-  private function findings(string $stdout, string $gate = '', string $root = ''): array {
+  private function findings(string $stdout, string $gate = '', string $root = '', string $stderr = ''): array {
+    $stdout = self::lintReport($gate, $stdout, $stderr);
     if (trim($stdout) === '') {
       return [];
     }

@@ -120,7 +120,8 @@ final class BaselineWriter {
           break;
 
         case 'stylelint':
-          $findings[$gate] = self::errorsOnly(FindingParsers::stylelint($run['stdout'], $root));
+          // Stylelint 16 reports on stderr when it finds anything (F-90).
+          $findings[$gate] = self::errorsOnly(FindingParsers::stylelint(ShellGateExecutor::lintReport('stylelint', $run['stdout'], $run['stderr']), $root));
           break;
 
         case 'prettier':

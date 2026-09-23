@@ -50,6 +50,11 @@ final class BaselineWriterTest extends WorkflowTestCase {
   private bool $infectionThreeFive = FALSE;
 
   /**
+   * The root the fake stylelint reports against, when it runs.
+   */
+  private string $stylelintRoot = '';
+
+  /**
    * The first write records what the level judges; the rest is skipped by name.
    */
   public function testFirstWriteRecordsTheMeasuredDebt(): void {
@@ -130,6 +135,25 @@ final class BaselineWriterTest extends WorkflowTestCase {
 
     $this->assertArrayNotHasKey('mutation', $measured->skipped);
     $this->assertSame(66, $measured->bill()['mutation'] ?? NULL);
+  }
+
+  /**
+   * Stylelint's debt is measured from stderr, where stylelint 16 reports it.
+   *
+   * Every reader took stdout, so the baseline recorded a stylelint with real
+   * problems as a clean bill (F-90).
+   */
+  public function testStylelintDebtOnStderrIsMeasured(): void {
+    $root = $this->legacyRoot();
+    file_put_contents($root . '/node_modules/.bin/stylelint', '');
+    mkdir($root . '/css', 0775, TRUE);
+    file_put_contents($root . '/css/x.css', "a { color: #FFFFFFF; }\n");
+    $this->stylelintRoot = $root;
+
+    $measured = $this->writer()->measure(WorkflowConfig::load($root), $root);
+
+    $this->assertArrayNotHasKey('stylelint', $measured->skipped);
+    $this->assertCount(1, $measured->findings['stylelint'] ?? [], 'the one error stylelint reported on stderr');
   }
 
   /**
@@ -408,6 +432,24 @@ final class BaselineWriterTest extends WorkflowTestCase {
               '',
               "Oops! Something went wrong! :(\n\nESLint: 8.57.1\n\nESLint couldn't find the config \"airbnb-base\" to extend from.\n",
             ];
+
+          case 'stylelint':
+            // Stylelint 16: a report with problems goes to stderr.
+            $report = [[
+              'source' => $this->stylelintRoot . '/css/x.css',
+              'errored' => TRUE,
+              'warnings' => [
+                [
+                  'line' => 1,
+                  'column' => 5,
+                  'rule' => 'color-no-invalid-hex',
+                  'severity' => 'error',
+                  'text' => 'Unexpected invalid hex color',
+                ],
+              ],
+            ],
+            ];
+            return [2, '', json_encode($report, JSON_THROW_ON_ERROR)];
 
           case 'prettier':
             // Only what it was handed: a real prettier reports nothing else.
