@@ -374,7 +374,7 @@ final class EvaluationReportTest extends TestCase {
    * and the drift here is invisible from the output: a run grounded through a
    * tool one list has and the other does not would render as a run that asked
    * the codebase nothing. So the ratio is driven through every name, and the
-   * count it prints is what pins the list at nine.
+   * count it prints is what pins the list at twelve.
    */
   public function testEveryKnowledgeToolIsCountedAsKnowledge(): void {
     $store = new EvidenceStore($this->root);
@@ -387,9 +387,9 @@ final class EvaluationReportTest extends TestCase {
     $report = (new EvaluationReport($store))->render('r1');
 
     $this->assertStringContainsString(
-      '| **Knowledge : router ratio** | 9 : 1 |',
+      '| **Knowledge : router ratio** | 12 : 1 |',
       $report,
-      'nine names in, nine knowledge calls out',
+      'twelve names in, twelve knowledge calls out',
     );
     foreach (EvaluationReport::KNOWLEDGE_TOOLS as $tool) {
       $this->assertStringContainsString('| `' . $tool . '` | 1 | knowledge |', $report);

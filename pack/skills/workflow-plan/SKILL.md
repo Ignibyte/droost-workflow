@@ -92,7 +92,7 @@ behind it was called six, and `droost_symbol`, `droost_graph`,
 were never called at all.
 A lookup that produces no row is a lookup nobody can tell you made.
 
-Ask the site before you assume. These nine are what the gate counts as
+Ask the site before you assume. These twelve are what the gate counts as
 knowledge calls — the ledger half of `grounding_check` — so a plan that used
 none of them fails however good its citations:
 
@@ -104,6 +104,10 @@ none of them fails however good its citations:
 - `droost_capabilities` — what this site can actually do right now.
 - `droost_architecture` — how it is put together.
 - `droost_entities` and `droost_routes` — what already exists.
+- `droost_services` and `droost_db_schema` — the services and the tables
+  that exist, with a renamed service's modern name.
+- `droost_wiki` — how this project documents itself: its pages, whether they
+  are still true, and the factsheet that grounds a new one.
 
 Then produce the spec:
 

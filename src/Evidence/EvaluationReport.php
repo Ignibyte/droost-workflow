@@ -61,6 +61,14 @@ final class EvaluationReport {
    * side is the shape that has cost this project most: had they drifted, a run
    * that grounded itself through the new tool would have rendered as a run
    * that asked the codebase nothing.
+   *
+   * The last three joined on 2026-09-22 (F-49). The directive droost writes
+   * into AGENTS.md and the MCP handshake tells every agent to ask it
+   * `droost_services`, `droost_db_schema` and `droost_wiki`, and the gate
+   * credited none of them: an agent that grounded exactly as told failed the
+   * ledger half with zero knowledge calls. They are questions put to this
+   * codebase, the same kind as `droost_entities` and `droost_routes`, and
+   * droost now pins every tool its directive names to this list.
    */
   public const array KNOWLEDGE_TOOLS = [
     'droost_search',
@@ -72,6 +80,9 @@ final class EvaluationReport {
     'droost_routes',
     'droost_capabilities',
     'droost_architecture',
+    'droost_services',
+    'droost_db_schema',
+    'droost_wiki',
   ];
 
   /**
@@ -1505,7 +1516,7 @@ final class EvaluationReport {
       ['Total calls', (string) $total, 'every tool result, successes and refusals alike'],
       ['Distinct tools', (string) count($perTool), '—'],
       [
-        '**Knowledge calls** (the nine in `KNOWLEDGE_TOOLS`)',
+        '**Knowledge calls** (the twelve in `KNOWLEDGE_TOOLS`)',
         (string) $knowledge,
         $knowledge === 0
           ? '**zero here means the run never asked the codebase anything**, whatever its grounding table says'
