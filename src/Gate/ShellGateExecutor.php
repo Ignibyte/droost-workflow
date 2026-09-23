@@ -1514,6 +1514,27 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     // operator remedy (F-76). The same remedy as the exit-0 case below.
     $noDriver = str_contains($stdout . $stderr, 'No code coverage driver available');
 
+    // NO SOURCE IS NO MEASUREMENT EITHER (F-92). A phpunit.xml that names no
+    // `<source>` gives PHPUnit nothing to measure, and it says "No filter is
+    // configured, code coverage will not be processed" as a test-runner
+    // warning. The file droost writes has no `<source>` and fails on warnings,
+    // so the coverage gate on every site it installed read a passing suite as
+    // a failing one. The file is the project's, so its remedy is the agent's.
+    if (str_contains($stdout . $stderr, 'No filter is configured, code coverage will not be processed')) {
+      return GateResult::toolMissing(
+        $gate->name,
+        $invocation . ' — phpunit.xml names no <source>, so no coverage was processed',
+        'Coverage is measured over the code phpunit.xml names in <source>, and '
+        . 'this one names none. Add <source><include><directory>…</directory>'
+        . '</include></source> naming the project\'s own code (on a Drupal site, '
+        . 'the custom modules directory the test suite already points at). '
+        . 'phpunit.xml is the project\'s file: a change you may make and '
+        . 'declare. The suite itself is fine.',
+        $exit,
+        $elapsed,
+      );
+    }
+
     if ($exit !== 0 && !$noDriver) {
       return GateResult::ran(
         $gate->name,

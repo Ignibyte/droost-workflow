@@ -348,6 +348,26 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * A phpunit.xml that names no source measures nothing, and that is no test.
+   *
+   * The file `drush droost:workflow:install` writes names a test suite and no
+   * `<source>`, and fails on warnings. With a driver, PHPUnit then warns that
+   * no filter is configured and exits 1, and the gate read a passing suite as
+   * a failing one (F-92). The output is PHPUnit 11.5.56's with pcov, verbatim.
+   */
+  public function testCoverageWithNoSourceIsMissingConfiguration(): void {
+    $stdout = "PHPUnit 11.5.56 by Sebastian Bergmann and contributors.\n\nRuntime:       PHP 8.4.18\nConfiguration: /app/phpunit.xml\n\n"
+      . "There was 1 PHPUnit test runner warning:\n\n1) No filter is configured, code coverage will not be processed\n\n"
+      . "OK, but there were issues!\nTests: 1, Assertions: 1, PHPUnit Warnings: 1.\n";
+    $result = $this->coverageRun(60, [1, $stdout, '']);
+
+    $this->assertSame(GateStatus::ErrorToolMissing, $result->status);
+    $this->assertTrue($result->status->blocksAdvance());
+    $this->assertStringContainsString('names no <source>', $result->summary);
+    $this->assertStringContainsString('you may make', (string) $result->remedy);
+  }
+
+  /**
    * A failing suite fails the coverage gate before coverage is a question.
    */
   public function testCoverageWithFailingSuiteFails(): void {
