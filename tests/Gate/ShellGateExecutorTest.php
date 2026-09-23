@@ -1328,6 +1328,43 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * Each extension with no page is a finding, so the runner can read it.
+   *
+   * The summary names at most ten, and a summary is prose. `cover_diff`
+   * (F-60) holds the extensions a run changed to having a page, and it reads
+   * them from these rows rather than parsing the sentence.
+   */
+  public function testWikiFreshListsEachUncoveredExtension(): void {
+    $root = $this->rootWithBinaries(['drush']);
+    $stdout = (string) json_encode([
+      'bundle_path' => 'droost/wiki',
+      'summary' => [
+        'pages' => 1,
+        'fresh' => 1,
+        'stale' => 0,
+        'orphaned' => 0,
+        'invalid' => 0,
+        'unmanaged' => 0,
+        'uncovered_modules' => 2,
+      ],
+      'pages' => [],
+      'uncovered' => ['example_one', 'example_two'],
+      'ok' => TRUE,
+    ]);
+    $executor = new ShellGateExecutor(
+      static fn (array $argv): array => [0, $stdout, ''],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('wiki_fresh', TRUE), $root);
+
+    $this->assertSame([
+      ['rule' => 'wiki.uncovered', 'message' => 'no wiki page covers example_one', 'extension' => 'example_one'],
+      ['rule' => 'wiki.uncovered', 'message' => 'no wiki page covers example_two', 'extension' => 'example_two'],
+    ], $result->findings);
+  }
+
+  /**
    * Status reports, as droost:wiki:status --format=json prints them.
    *
    * @return array<string, array{int, string, \Droost\Workflow\Gate\GateStatus, bool, list<string>}>

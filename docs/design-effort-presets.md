@@ -162,7 +162,7 @@ Anchored to the existing presets so three of five levels change nothing.
 | coverage | — | — | — | on, min **60** | on, min 80 |
 | rendered_check | **on** | on | on | on | on |
 | config_clean | on | on | on | on | on |
-| wiki_fresh | **—** | on | on | on | on |
+| wiki_fresh | **—** | on, **cover_diff** | on, cover_diff (`custom`: without) | on, cover_diff | on, cover_diff |
 | seekers (default) | **off** | on | on | on | on |
 | enforcement (default) | soft | soft | **hard** | hard | hard |
 | max_gate_retries | 1 | 2 | 2 | 2 | 3 |
@@ -178,7 +178,8 @@ Notes:
   correctness bug at any rigor.
 - `medium` is `light` unchanged, `high` is the `custom` baseline unchanged, so
   a repo on either today keeps its behaviour under the new name. **Amended
-  2026-09-23:** both gained phpunit's `in_diff` (§6b), and `custom` did not.
+  2026-09-23:** both gained phpunit's `in_diff` (§6b) and wiki_fresh's
+  `cover_diff` (§6c), and `custom` gained neither.
 - The front-end trio at `xhigh`/`max`: a repo with no node toolchain reports
   tool-missing (blocks) — that is the existing gate contract, and it is correct
   at those levels. **OWNER (answered 2026-09-07): no conditional at `high`.**
@@ -225,6 +226,28 @@ that turned phpunit off never blocks for its absence. **Owner, 2026-09-23:**
 on from `medium` up; `custom` carries no opinion beyond its file, so it does
 not get it. A presence check can be met by a trivial test. The seeker, and an
 observer's mutation case on the new code, are what catch that.
+
+## 6c. `cover_diff` — a page for what the run changed (2026-09-23)
+
+`droost:wiki:status` fails on a stale, orphaned or invalid page, and names an
+extension with no page at all only as a note. Its `--strict` fails on every
+uncovered custom extension, which would make any run document every earlier
+rung's module. And "every page is fresh" is true by vacuity over a wiki that
+covers nothing the run touched (F-60).
+
+```yaml
+wiki_fresh: { on: true, cover_diff: true }
+```
+
+`cover_diff: true` means: **a custom module or theme the run changed must be
+named by some page's `droost.modules`**, or the gate fails and says which. The
+owner of a changed file is the nearest directory holding a `*.info.yml` under a
+`custom/` tree, as Drupal finds it; contrib is never held; a gap an earlier run
+left stays in the summary as a note. The status command reports each uncovered
+extension as a finding row (`rule: wiki.uncovered`), and the runner compares
+those with the diff. With no readable diff, the gate says the demand was not
+applied rather than taking the diff for empty. **Owner, 2026-09-23:** on from
+`medium` up, and not in `custom`.
 
 ## 7. Two layers read the same frozen name
 

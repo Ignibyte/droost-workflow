@@ -46,7 +46,8 @@ class PresetResolverTest extends TestCase {
   public static function presetTable(): array {
     $standard = 'Drupal,DrupalPractice';
     // Custom and high share the shipped baseline, except that from medium up
-    // phpunit demands a test for the classes a run writes (`in_diff`, F-61);
+    // phpunit demands a test for the classes a run writes (`in_diff`, F-61)
+    // and the wiki a page for the extensions it changes (`cover_diff`, F-60);
     // max adds `required`. Only low and xhigh are new points.
     $baseline = [
       'phpcs' => ['on' => TRUE, 'standard' => $standard],
@@ -65,6 +66,7 @@ class PresetResolverTest extends TestCase {
     ];
     $high = $baseline;
     $high['phpunit'] = ['on' => TRUE, 'in_diff' => TRUE];
+    $high['wiki_fresh'] = ['on' => TRUE, 'cover_diff' => TRUE];
     $low = [
       'phpcs' => ['on' => TRUE, 'standard' => 'Drupal'],
       'phpstan' => ['on' => TRUE, 'level' => 1],
@@ -93,7 +95,7 @@ class PresetResolverTest extends TestCase {
       'rendered_check' => ['on' => TRUE],
       'config_clean' => ['on' => TRUE],
       'grounding_check' => ['on' => TRUE],
-      'wiki_fresh' => ['on' => TRUE],
+      'wiki_fresh' => ['on' => TRUE, 'cover_diff' => TRUE],
     ];
     $xhigh = [
       'phpcs' => ['on' => TRUE, 'standard' => $standard],
@@ -108,7 +110,7 @@ class PresetResolverTest extends TestCase {
       'rendered_check' => ['on' => TRUE],
       'config_clean' => ['on' => TRUE],
       'grounding_check' => ['on' => TRUE],
-      'wiki_fresh' => ['on' => TRUE],
+      'wiki_fresh' => ['on' => TRUE, 'cover_diff' => TRUE],
     ];
     $max = [
       'phpcs' => ['on' => TRUE, 'standard' => $standard],
@@ -123,7 +125,7 @@ class PresetResolverTest extends TestCase {
       'rendered_check' => ['on' => TRUE],
       'config_clean' => ['on' => TRUE],
       'grounding_check' => ['on' => TRUE],
-      'wiki_fresh' => ['on' => TRUE],
+      'wiki_fresh' => ['on' => TRUE, 'cover_diff' => TRUE],
     ];
     return [
       'custom' => ['custom', $baseline],

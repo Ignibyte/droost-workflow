@@ -153,7 +153,13 @@ final class GateRunner {
       }
       else {
         [$levers, $drift] = $this->withLiveTuning($name, $levers, $live[$name] ?? NULL);
-        $result = $this->inReportMode($levers, $this->runOne($name, $levers, $projectRoot, $state->preset, $context));
+        $result = $this->inReportMode($levers, $this->coveringTheDiff(
+          $name,
+          $levers,
+          $state,
+          $projectRoot,
+          $this->runOne($name, $levers, $projectRoot, $state->preset, $context),
+        ));
         if ($drift !== []) {
           $result = new GateResult(
             $result->gate,
@@ -177,6 +183,101 @@ final class GateRunner {
     }
 
     return $report;
+  }
+
+  /**
+   * The wiki verdict, held to the extensions this run changed.
+   *
+   * F-60 (owner, 2026-09-23). `droost:wiki:status` fails only on a stale,
+   * orphaned or invalid page. An extension with no page at all is a note, and
+   * `--strict` would fail every run for every earlier rung's module. With
+   * `cover_diff`, which medium and up set, the custom modules and themes THIS
+   * run changed are held to having a page, and a gap an earlier run left stays
+   * the note it was. Contrib is never held: the run did not write it.
+   *
+   * @param string $name
+   *   The gate.
+   * @param array<string, mixed> $levers
+   *   Its levers.
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run, for its base commit.
+   * @param string $projectRoot
+   *   The repository.
+   * @param \Droost\Workflow\Gate\GateResult $result
+   *   What the tool reported.
+   *
+   * @return \Droost\Workflow\Gate\GateResult
+   *   The verdict.
+   */
+  private function coveringTheDiff(string $name, array $levers, RunState $state, string $projectRoot, GateResult $result): GateResult {
+    if ($name !== 'wiki_fresh' || ($levers['cover_diff'] ?? FALSE) !== TRUE || $result->status !== GateStatus::Passed) {
+      return $result;
+    }
+    if ($this->vcs === NULL || !$this->vcs->isRepository($projectRoot)) {
+      return $result->withVerdict(GateStatus::Passed, rtrim($result->summary, '. ') . ' — cover_diff was not applied: '
+        . 'the run\'s diff could not be read, so which extensions it changed is unknown.');
+    }
+    $uncovered = [];
+    foreach ($result->findings as $finding) {
+      if (($finding['rule'] ?? NULL) === 'wiki.uncovered' && is_string($finding['extension'] ?? NULL)) {
+        $uncovered[] = $finding['extension'];
+      }
+    }
+    $own = array_values(array_intersect(
+      self::customExtensions($projectRoot, $this->vcs->changedFiles($projectRoot, $state->baseCommit)),
+      $uncovered,
+    ));
+    if ($own === []) {
+      return $result;
+    }
+
+    return $result->withVerdict(GateStatus::Failed, sprintf(
+      'wiki_fresh FAILED — this run changed %s, and no wiki page covers %s (gates.wiki_fresh.cover_diff). '
+      . 'Write or extend a page whose droost.modules names %s, then run this phase again. The report: %s',
+      implode(', ', $own),
+      count($own) === 1 ? 'it' : 'them',
+      count($own) === 1 ? 'it' : 'each of them',
+      $result->summary,
+    ));
+  }
+
+  /**
+   * The custom modules and themes that own the changed files.
+   *
+   * The owner is the nearest directory up the path that holds a `*.info.yml`,
+   * which is how Drupal finds an extension, so a submodule is its own
+   * extension rather than its parent's. Only paths under a `custom/` directory
+   * are asked: a contrib, core or vendor change is not the run's extension.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $changed
+   *   Project-relative changed paths.
+   *
+   * @return list<string>
+   *   Machine names, first seen first.
+   */
+  private static function customExtensions(string $projectRoot, array $changed): array {
+    $root = rtrim($projectRoot, '/');
+    $names = [];
+    foreach ($changed as $file) {
+      $path = ltrim(str_replace('\\', '/', $file), '/');
+      if (preg_match('#^((?:.*?/)?custom)/.+$#', $path, $match) !== 1) {
+        continue;
+      }
+      $stop = $match[1];
+      for ($dir = dirname($path); str_starts_with($dir, $stop . '/'); $dir = dirname($dir)) {
+        $infos = glob($root . '/' . $dir . '/*.info.yml') ?: [];
+        foreach ($infos as $info) {
+          $names[basename($info, '.info.yml')] = TRUE;
+        }
+        if ($infos !== []) {
+          break;
+        }
+      }
+    }
+
+    return array_keys($names);
   }
 
   /**

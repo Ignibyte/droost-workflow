@@ -180,7 +180,8 @@ final class PresetResolver {
    * addition, because this is the level the dial arms phpunit at: a run
    * that writes a class under `src/` must change a phpunit test too
    * (`in_diff`). Two medium runs added PHP, wrote no test and passed on a
-   * suite they never touched (F-61, owner 2026-09-23).
+   * suite they never touched (F-61, owner 2026-09-23). And a custom module
+   * or theme the run changed needs a wiki page (`cover_diff`, F-60).
    *
    * @return \Droost\Workflow\Config\Preset
    *   The base lever set.
@@ -201,7 +202,7 @@ final class PresetResolver {
       'rendered_check' => new GateSettings('rendered_check', TRUE),
       'config_clean' => new GateSettings('config_clean', TRUE),
       'grounding_check' => new GateSettings('grounding_check', TRUE),
-      'wiki_fresh' => new GateSettings('wiki_fresh', TRUE),
+      'wiki_fresh' => new GateSettings('wiki_fresh', TRUE, ['cover_diff' => TRUE]),
     ]);
   }
 
@@ -211,8 +212,9 @@ final class PresetResolver {
    * The same gate set as the shipped `custom` baseline — a repo on that
    * baseline keeps its behaviour under the new name — with enforcement hard,
    * because from here up the phase discipline is meant to hold, and with
-   * phpunit's `in_diff`, which every level from medium up sets. `custom`
-   * carries no opinion beyond its file, so it does not get it.
+   * phpunit's `in_diff` and wiki_fresh's `cover_diff`, which every level from
+   * medium up sets. `custom` carries no opinion beyond its file, so it gets
+   * neither.
    *
    * @return \Droost\Workflow\Config\Preset
    *   The base lever set.
@@ -220,6 +222,7 @@ final class PresetResolver {
   private static function high(): Preset {
     $gates = self::baselineGates();
     $gates['phpunit'] = new GateSettings('phpunit', TRUE, ['in_diff' => TRUE]);
+    $gates['wiki_fresh'] = new GateSettings('wiki_fresh', TRUE, ['cover_diff' => TRUE]);
     return new Preset('high', Mode::Agentic, 2, enforcement: Enforcement::Hard, gates: $gates);
   }
 
@@ -253,7 +256,7 @@ final class PresetResolver {
       'rendered_check' => new GateSettings('rendered_check', TRUE),
       'config_clean' => new GateSettings('config_clean', TRUE),
       'grounding_check' => new GateSettings('grounding_check', TRUE),
-      'wiki_fresh' => new GateSettings('wiki_fresh', TRUE),
+      'wiki_fresh' => new GateSettings('wiki_fresh', TRUE, ['cover_diff' => TRUE]),
     ]);
   }
 
@@ -289,7 +292,7 @@ final class PresetResolver {
       'rendered_check' => new GateSettings('rendered_check', TRUE),
       'config_clean' => new GateSettings('config_clean', TRUE),
       'grounding_check' => new GateSettings('grounding_check', TRUE),
-      'wiki_fresh' => new GateSettings('wiki_fresh', TRUE),
+      'wiki_fresh' => new GateSettings('wiki_fresh', TRUE, ['cover_diff' => TRUE]),
     ]);
   }
 

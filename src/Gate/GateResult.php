@@ -180,6 +180,26 @@ final class GateResult {
   }
 
   /**
+   * This result with a different verdict, everything else kept.
+   *
+   * For a judgement made after the tool ran, over what it reported: the
+   * wiki gate's `cover_diff` fails a passing status report when the run
+   * changed an extension no page covers. A verdict that is not a pass is
+   * never a labelled pass.
+   *
+   * @param \Droost\Workflow\Gate\GateStatus $status
+   *   The verdict.
+   * @param string $summary
+   *   The sentence saying why.
+   *
+   * @return self
+   *   The result.
+   */
+  public function withVerdict(GateStatus $status, string $summary): self {
+    return $this->rebuilt(status: $status, summary: $summary);
+  }
+
+  /**
    * A copy of this result with some fields replaced, and every other kept.
    *
    * The one place the constructor is called with the whole field list, so a
@@ -192,24 +212,34 @@ final class GateResult {
    *   New-finding count, when replacing it.
    * @param list<string>|null $subjects
    *   The subjects, when replacing them.
+   * @param \Droost\Workflow\Gate\GateStatus|null $status
+   *   The verdict, when replacing it.
+   * @param string|null $summary
+   *   The summary, when replacing it.
    *
    * @return self
    *   The copy.
    */
-  private function rebuilt(?int $inherited = NULL, ?int $new = NULL, ?array $subjects = NULL): self {
+  private function rebuilt(
+    ?int $inherited = NULL,
+    ?int $new = NULL,
+    ?array $subjects = NULL,
+    ?GateStatus $status = NULL,
+    ?string $summary = NULL,
+  ): self {
     $copy = new self(
       gate: $this->gate,
-      status: $this->status,
+      status: $status ?? $this->status,
       exitCode: $this->exitCode,
       durationMs: $this->durationMs,
-      summary: $this->summary,
+      summary: $summary ?? $this->summary,
       findings: $this->findings,
       truncated: $this->truncated,
       skipReason: $this->skipReason,
       invocation: $this->invocation,
       inherited: $inherited ?? $this->inherited,
       new: $new ?? $this->new,
-      labelledPass: $this->labelledPass,
+      labelledPass: $this->labelledPass && ($status ?? $this->status) === GateStatus::Passed,
       remedy: $this->remedy,
       declaredFault: $this->declaredFault,
       subjects: $subjects ?? $this->subjects,
@@ -404,6 +434,9 @@ final class GateResult {
    *   The sentence saying what was NOT measured, and why.
    * @param string $invocation
    *   The command, as run.
+   * @param list<array<string, mixed>> $findings
+   *   What the tool did report, when it reported something short of a
+   *   measurement: the wiki's uncovered extensions, with no page to check.
    *
    * @return self
    *   The result, flagged as having measured nothing.
@@ -414,6 +447,7 @@ final class GateResult {
     int $durationMs,
     string $summary,
     string $invocation,
+    array $findings = [],
   ): self {
     return new self(
       $gate,
@@ -421,7 +455,7 @@ final class GateResult {
       $exitCode,
       $durationMs,
       $summary,
-      [],
+      $findings,
       FALSE,
       NULL,
       $invocation,

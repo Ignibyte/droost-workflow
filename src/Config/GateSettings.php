@@ -188,7 +188,11 @@ final class GateSettings {
     'eslint' => ['paths' => 'paths', 'config' => 'string', 'timeout' => 'seconds'],
     'stylelint' => ['paths' => 'paths', 'config' => 'string', 'timeout' => 'seconds'],
     'prettier' => ['paths' => 'paths', 'config' => 'string', 'timeout' => 'seconds'],
-    'wiki_fresh' => ['timeout' => 'seconds'],
+    // `cover_diff` (a flag, set from `medium` up) holds the custom modules and
+    // themes a run changed to having a wiki page: one the run touched with no
+    // page fails the gate, while a gap an earlier run left stays a note and
+    // contrib is never held (F-60, owner 2026-09-23).
+    'wiki_fresh' => ['cover_diff' => 'flag', 'timeout' => 'seconds'],
   ];
 
   /**

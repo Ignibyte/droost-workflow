@@ -881,6 +881,17 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       count($uncovered),
       implode(', ', array_slice($uncovered, 0, 10)) . (count($uncovered) > 10 ? ', …' : ''),
     );
+    // Each one a row as well as a clause: the summary names at most ten and is
+    // prose, and `cover_diff` reads these to hold the run's own extensions to
+    // having a page (GateRunner, F-60).
+    $findings = array_map(
+      static fn (string $name): array => [
+        'rule' => 'wiki.uncovered',
+        'message' => 'no wiki page covers ' . $name,
+        'extension' => $name,
+      ],
+      $uncovered,
+    );
     $pages = $count('pages');
     if ($exit !== 0) {
       return GateResult::ran(
@@ -889,7 +900,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         $exit,
         $elapsed,
         sprintf('wiki_fresh FAILED — %d stale, %d orphaned, %d invalid of %d page(s)%s', $count('stale'), $count('orphaned'), $count('invalid'), $pages, $gap),
-        [],
+        $findings,
         $invocation,
       );
     }
@@ -900,6 +911,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         $elapsed,
         sprintf('wiki_fresh passed — NO PAGE TO CHECK: the wiki holds no managed page, so freshness was not measured%s.', $gap),
         $invocation,
+        $findings,
       );
     }
 
@@ -909,7 +921,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $exit,
       $elapsed,
       sprintf('wiki_fresh passed — %d of %d page(s) fresh%s', $count('fresh'), $pages, $gap),
-      [],
+      $findings,
       $invocation,
     );
   }

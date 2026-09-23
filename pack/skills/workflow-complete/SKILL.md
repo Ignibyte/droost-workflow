@@ -103,6 +103,14 @@ name from run.json:
   checks is a page that goes stale unnoticed) and say in the report that the
   wiki was not touched at this level — not that it is fresh.
 
+**From `medium` up, every custom module or theme you changed needs a page.**
+`wiki_fresh` carries `cover_diff` there: an extension this run changed that
+no page's `droost.modules` names fails the gate, by name. An extension an
+earlier run left without a page is listed in the summary and not held
+against you, and contrib never is. Write or extend the page through
+`droost_wiki_write` before this phase's `run`, and declare it like any other
+file.
+
 At every level the `## Realized` section still lands in the spec file first:
 the engine's requirement does not thin with the preset; depth does. Same
 three questions, lighter medium.
