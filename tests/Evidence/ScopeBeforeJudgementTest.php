@@ -103,6 +103,13 @@ final class ScopeBeforeJudgementTest extends WorkflowTestCase {
       /**
        * {@inheritdoc}
        */
+      public function isRepository(string $projectRoot): bool {
+        return $projectRoot !== '';
+      }
+
+      /**
+       * {@inheritdoc}
+       */
       public function changedFiles(string $projectRoot, ?string $base): array {
         return $this->changed;
       }

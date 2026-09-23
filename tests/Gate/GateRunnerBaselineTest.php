@@ -186,6 +186,13 @@ final class GateRunnerBaselineTest extends WorkflowTestCase {
       /**
        * {@inheritdoc}
        */
+      public function isRepository(string $projectRoot): bool {
+        return TRUE;
+      }
+
+      /**
+       * {@inheritdoc}
+       */
       public function changedFiles(string $projectRoot, ?string $base): array {
         return $this->changed;
       }

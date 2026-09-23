@@ -26,6 +26,24 @@ interface VcsInterface {
   public function head(string $projectRoot): ?string;
 
   /**
+   * Whether the project is inside a repository git can answer for.
+   *
+   * Not the same question as head(). A repository with no commits yet has no
+   * HEAD, and its diff is still perfectly visible: `git status` lists every
+   * file in it. Reading "no HEAD" as "no repository" made the diff audits say
+   * NOT MEASURED over a diff they could see (a freshly `git init`ed project,
+   * and every CI runner where the fixture's first commit failed for want of an
+   * identity).
+   *
+   * @param string $projectRoot
+   *   The project.
+   *
+   * @return bool
+   *   TRUE when git can report a working tree here.
+   */
+  public function isRepository(string $projectRoot): bool;
+
+  /**
    * The files changed since a commit, the working tree included.
    *
    * @param string $projectRoot

@@ -30,6 +30,30 @@ final class CliVcsTest extends WorkflowTestCase {
   }
 
   /**
+   * Being a repository is asked directly, not inferred from having a HEAD.
+   *
+   * A repository with no commits answers `rev-parse HEAD` with an error and
+   * `rev-parse --is-inside-work-tree` with "true". Reading the first as "no
+   * repository" made the diff audits report NOT MEASURED over a diff git could
+   * list in full.
+   */
+  public function testRepositoryIsAskedDirectlyNotInferredFromHead(): void {
+    $noCommits = new CliVcs(static fn (array $argv): array => in_array('--is-inside-work-tree', $argv, TRUE)
+      ? [0, "true\n", '']
+      : [128, '', "fatal: ambiguous argument 'HEAD'"]);
+    $this->assertNull($noCommits->head('/repo'), 'no commits, so no HEAD');
+    $this->assertTrue($noCommits->isRepository('/repo'), 'and still a repository');
+
+    $notARepo = new CliVcs(static fn (array $argv): array => [128, '', 'fatal: not a git repository']);
+    $this->assertFalse($notARepo->isRepository('/repo'));
+
+    $noGit = new CliVcs(static function (array $argv): array {
+      throw new \RuntimeException('git: command not found');
+    });
+    $this->assertFalse($noGit->isRepository('/repo'), 'a missing git binary is not a repository, and not a crash');
+  }
+
+  /**
    * Changed files merge the diff against the base with the working tree.
    */
   public function testChangedFilesMergeDiffAndStatus(): void {

@@ -40,6 +40,14 @@ final class CliVcs implements VcsInterface {
   /**
    * {@inheritdoc}
    */
+  public function isRepository(string $projectRoot): bool {
+    [$exit, $stdout] = $this->git($projectRoot, ['rev-parse', '--is-inside-work-tree']);
+    return $exit === 0 && trim($stdout) === 'true';
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   public function changedFiles(string $projectRoot, ?string $base): array {
     $files = [];
     // Committed since the base (when a base is known), plus everything the

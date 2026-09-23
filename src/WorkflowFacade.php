@@ -2350,8 +2350,9 @@ final class WorkflowFacade {
         // whether a package manager wrote it.
         $projectRoot,
         // An empty diff is "nothing changed" only when there is a repository
-        // to ask. head() is NULL without one, and so is the base (F-36).
-        diffVisible: $this->vcs->head($projectRoot) !== NULL,
+        // to ask (F-36). Asked directly, not inferred from head(): a
+        // repository with no commits has no HEAD and a fully visible diff.
+        diffVisible: $this->vcs->isRepository($projectRoot),
         // What the plan predicted, which a re-declaration made from the
         // finished diff must not be allowed to stand in for (F-54).
         firstDeclaredFiles: $first['values'],

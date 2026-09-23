@@ -659,7 +659,7 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     // A real repository, because the audit compares declarations against the
     // DIFF: with no git there is no diff, nothing is ever undeclared, and the
     // test would pass by never reaching the condition it exists to drive.
-    exec(sprintf('cd %s && git init -q . && git add -A && git commit -q -m base', escapeshellarg($root)));
+    $this->commitBase($root);
     $spec = $this->writeSpec($root);
     $facade = $this->facade();
 
@@ -722,7 +722,7 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
    */
   public function testNonGateBlockTellsTheCallerWhy(): void {
     $root = $this->makeRootWithConfig("preset: low\nmode: agentic\n");
-    exec(sprintf('cd %s && git init -q . && git add -A && git commit -q -m base', escapeshellarg($root)));
+    $this->commitBase($root);
     $spec = $this->writeSpec($root);
     $facade = $this->facade();
 
@@ -765,7 +765,7 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
    */
   public function testRedeclarationFromTheDiffIsRecordedNotVouchedFor(): void {
     $root = $this->makeRootWithConfig("preset: low\nmode: agentic\n");
-    exec(sprintf('cd %s && git init -q . && git add -A && git commit -q -m base', escapeshellarg($root)));
+    $this->commitBase($root);
     $spec = $this->writeSpec($root);
     $facade = $this->facade();
 
@@ -793,6 +793,49 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     $this->assertStringContainsString('covered only by a later re-declaration', $files['summary']);
     $this->assertStringContainsString('unplanned.php', $files['summary']);
     $this->assertStringNotContainsString('src/Planned.php', $files['summary']);
+  }
+
+  /**
+   * A repository with no commits yet is still audited.
+   *
+   * It has no HEAD, and F-36's first fix read "no HEAD" as "no repository", so
+   * the audit said NOT MEASURED and the phase advanced over an undeclared
+   * file that `git status` lists plainly. Measured on the CI runner, where the
+   * fixtures' first commit failed for want of an identity and two tests about
+   * blocking watched the run advance instead.
+   */
+  public function testRepositoryWithNoCommitsIsStillAudited(): void {
+    $root = $this->makeRootWithConfig("preset: low\nmode: agentic\n");
+    exec(sprintf('cd %s && git init -q . 2>&1', escapeshellarg($root)), $output, $exit);
+    $this->assertSame(0, $exit, implode("\n", $output));
+    $spec = $this->writeSpec($root);
+    $facade = $this->facade();
+
+    $facade->run($root, $spec);
+    $facade->declareChanges($root, ['src'], [], 'code');
+    file_put_contents($root . '/undeclared.php', "<?php // never declared\n");
+
+    $this->assertSame(Outcome::Blocked, $facade->run($root, $spec)->outcome, 'the undeclared file blocks, as it does with a commit');
+  }
+
+  /**
+   * Makes the project a repository with one commit, or fails the test.
+   *
+   * The commit names its own author. A CI runner has no git identity, so a
+   * bare `git commit` there failed, `exec()` ignored the failure, and every
+   * test built on this fixture ran against a repository with no commits. That
+   * turned tests about blocking into tests about advancing, and they failed
+   * on the runner while passing on any machine with a global identity.
+   *
+   * @param string $root
+   *   The project root.
+   */
+  private function commitBase(string $root): void {
+    exec(sprintf(
+      'cd %s && git init -q . && git add -A && git -c user.name=droost-test -c user.email=test@example.invalid commit -q -m base 2>&1',
+      escapeshellarg($root),
+    ), $output, $exit);
+    $this->assertSame(0, $exit, 'the fixture commit failed: ' . implode("\n", $output));
   }
 
 }
