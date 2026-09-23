@@ -617,7 +617,9 @@ final class GuardTest extends WorkflowTestCase {
         'tool_input' => ['command' => $command],
       ]);
       $this->assertSame(2, $exit, $command . ' runs the command and must be refused');
-      $this->assertStringContainsString("OPERATOR's command", $stderr);
+      // A heredoc fed to drush's PHP runner is code, and code carrying a verb
+      // is refused as such (F-78), in the words the `php -r` case uses.
+      $this->assertMatchesRegularExpression("/OPERATOR's command|operator-only verbs/", $stderr);
     }
   }
 

@@ -761,10 +761,16 @@ function operator_commands_scan_text(string $command): string {
     $line = $lines[$i];
     $kept[] = $line;
     if (preg_match('/<<-?\s*([\'"]?)([A-Za-z_][A-Za-z0-9_]*)\1/', $line, $m) !== 1
-      || preg_match($interpreter, $line) === 1) {
+      || (preg_match($interpreter, $line) === 1 && !operator_commands_feeds_code($line))) {
       continue;
     }
-    // A data heredoc: skip to its terminator, keeping the terminator line.
+    // A data heredoc, or one fed to php, python, perl, node or ruby: skip to
+    // its terminator, keeping the terminator line. A CODE body is not shell,
+    // and tokenising it as shell is what refused P6 run 6's `python3 -
+    // <<'EOF'` edit: Python's `'''` flipped the quote parity and a PHP line
+    // like `  $values = [];` read as a command whose program was a variable
+    // (F-78). Its verbs and its writes to the enforcement are checked as code,
+    // by `operator_commands_code_heredocs()`, as `python3 -c` code already is.
     $tag = $m[2];
     for ($i++; $i < $count; $i++) {
       if (trim($lines[$i]) === $tag) {
@@ -774,6 +780,78 @@ function operator_commands_scan_text(string $command): string {
     }
   }
   return implode("\n", $kept);
+}
+
+/**
+ * Whether a heredoc line feeds its body to an interpreter that is not a shell.
+ *
+ * @param string $line
+ *   The line carrying the `<<`.
+ *
+ * @return bool
+ *   TRUE when the command the heredoc belongs to is php, python, perl, node
+ *   or ruby, or drush's PHP runners, once the wrappers and container runners
+ *   in front of it are set aside, so the body is code in another language.
+ *   Anything else, a shell or `ssh` or `docker` included, is FALSE, and its
+ *   body is read as it always was.
+ *
+ *   The old reading asked the whole LINE for an interpreter's name, so
+ *   `ddev drush php:script - <<'PHP'` matched none, and its body was dropped
+ *   as data: a PHP write to the run record through it was never looked at.
+ */
+function operator_commands_feeds_code(string $line): bool {
+  $at = strpos($line, '<<');
+  if ($at === FALSE) {
+    return FALSE;
+  }
+  // The command the heredoc belongs to: what follows the last separator.
+  $parts = preg_split('/&&|\|\||[;|&(`]|\$\(/', substr($line, 0, $at)) ?: [];
+  $words = preg_split('/\s+/', trim((string) end($parts))) ?: [];
+  // Past the wrappers, the assignments and the container runners that hand
+  // the command on unchanged: `sudo`, `FOO=1`, `ddev exec`, `ddev drush`.
+  $skip = '/^(?:' . operator_commands_wrapper_words() . '|ddev|lando|fin|exec|-\S*|\S+=\S*|\d+(?:\.\d+)?[smhd]?)$/';
+  while ($words !== [] && preg_match($skip, $words[0]) === 1) {
+    array_shift($words);
+  }
+  $head = strtolower(basename($words[0] ?? ''));
+  if (preg_match('/^(?:php|python[0-9.]*|perl|node|ruby)$/', $head) === 1) {
+    return TRUE;
+  }
+
+  return $head === 'drush' && preg_match('/^(?:php:?\S*|ev|scr)$/', $words[1] ?? '') === 1;
+}
+
+/**
+ * The bodies of heredocs fed to an interpreter that is not a shell.
+ *
+ * `operator_commands_scan_text()` leaves them out of what is read as shell,
+ * so they are read here as what they are: code, whose operator verbs and
+ * writes to the enforcement are checked as text, exactly as `python3 -c` code
+ * is.
+ *
+ * @param string $command
+ *   The command as the agent sent it.
+ *
+ * @return list<string>
+ *   Each body, its lines joined.
+ */
+function operator_commands_code_heredocs(string $command): array {
+  $lines = preg_split('/\R/', $command) ?: [];
+  $bodies = [];
+  $count = count($lines);
+  for ($i = 0; $i < $count; $i++) {
+    if (preg_match('/<<-?\s*([\'"]?)([A-Za-z_][A-Za-z0-9_]*)\1/', $lines[$i], $m) !== 1
+      || !operator_commands_feeds_code($lines[$i])) {
+      continue;
+    }
+    $body = [];
+    for ($i++; $i < $count && trim($lines[$i]) !== $m[2]; $i++) {
+      $body[] = $lines[$i];
+    }
+    $bodies[] = implode("\n", $body);
+  }
+
+  return $bodies;
 }
 
 /**
@@ -873,6 +951,15 @@ function operator_commands_guard(string $stdin): void {
     $searchSub = strtolower(ltrim($verbHead[1] ?? '', "\x01"));
     if (in_array($searchHead, ['grep', 'egrep', 'fgrep', 'rg', 'ripgrep', 'ag', 'ack'], TRUE)
       || ($searchHead === 'git' && in_array($searchSub, ['log', 'grep', 'show', 'diff', 'blame'], TRUE))) {
+      continue;
+    }
+    // ASKING HOW A VERB WORKS IS NOT RUNNING IT (F-79). drush prints a
+    // command's help and runs nothing when given `--help`, and droost-workflow
+    // prints the verb's usage. P6 run 6's agent read `gate-waive --help` before
+    // proposing a waiver and was refused as though it had waived. Only a
+    // help-ONLY invocation passes: `--help` beside any other argument is still
+    // the verb, and so is anything that is not a droost workflow verb.
+    if (operator_commands_help_only($verbHead)) {
       continue;
     }
     $which = NULL;
@@ -1506,6 +1593,13 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
       // .claude/settings.json` has `cat` at the front, and a read-verb check
       // that did not know about the `>` let it write. The target is marked, so
       // the caller can tell a command's arguments from what it is writing to.
+      //
+      // The digits right before it are the descriptor it redirects, as the
+      // shell reads them, not an argument: `cmd 2>&1` runs `cmd` with no `2`.
+      if ($started && $quote === '' && $current !== '' && ctype_digit($current)) {
+        $current = '';
+        $started = FALSE;
+      }
       $endToken();
       // A DESCRIPTOR IS NOT A FILE. `2>&1`, `>&2`, `3>&-` and `<&3` copy or
       // close a file descriptor and write nothing. The `&` used to end the
@@ -1861,6 +1955,41 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
 }
 
 /**
+ * Whether an invocation only asks a droost workflow verb for its help.
+ *
+ * @param list<string> $plain
+ *   The invocation's unwrapped tokens.
+ *
+ * @return bool
+ *   TRUE when a `droost:workflow:*` verb, its `dwf*` alias, or a
+ *   `droost-workflow` verb is followed by `--help` or `-h` and nothing else
+ *   but redirection targets.
+ */
+function operator_commands_help_only(array $plain): bool {
+  $words = array_values(array_map(static fn (string $token): string => ltrim($token, "\x01"), array_filter(
+    $plain,
+    static fn (string $token): bool => !str_starts_with($token, "\x01"),
+  )));
+  $verb = NULL;
+  foreach ($words as $index => $word) {
+    if (preg_match('/^(?:droost:workflow:[a-z-]+|dwf[a-z]+)$/', $word) === 1) {
+      $verb = $index;
+      break;
+    }
+    if (basename($word) === 'droost-workflow' && isset($words[$index + 1])) {
+      $verb = $index + 1;
+      break;
+    }
+  }
+  if ($verb === NULL) {
+    return FALSE;
+  }
+  $rest = array_slice($words, $verb + 1);
+
+  return $rest === ['--help'] || $rest === ['-h'];
+}
+
+/**
  * Whether an argument list carries a flag, as its own argument.
  *
  * @param list<string> $tokens
@@ -2073,6 +2202,30 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
   // body quoting the waiver this guard's own refusal tells the agent to show
   // the operator. Writing a PHP file with a heredoc is routine here, and a
   // guard that refuses that is a guard somebody deletes.
+  // CODE HEREDOCS ARE CODE (F-78): checked as text for the two things that
+  // matter, as `python3 -c` code is below, and left out of the shell parse.
+  foreach (is_string($command) ? operator_commands_code_heredocs($command) : [] as $body) {
+    if (preg_match(operator_verb_pattern(), $body) === 1) {
+      guard_refuse('operator-command:in-interpreter', sprintf(
+        'This hands an interpreter code carrying one of the operator-only '
+        . 'verbs. Putting the command inside a program does not make it the '
+        . 'agent\'s to run — show the OPERATOR the command and the reason, '
+        . 'and let them run it. (Refused: %s)',
+        trim($command),
+      ));
+    }
+    if (preg_match(enforcement_path_markers(), $body) === 1 && code_writes($body)) {
+      guard_refuse('protected-path:interpreter', sprintf(
+        'This hands an interpreter code that names the enforcement itself — the '
+        . 'guard, the run record, the evidence store, the baseline or the '
+        . 'settings — and code is not a command line this guard can read, so '
+        . 'what it writes cannot be checked. Do the work through the pipeline, '
+        . 'or if a file genuinely must change, that is the OPERATOR\'s at a '
+        . 'terminal. (Refused: %s)',
+        trim($command),
+      ));
+    }
+  }
   $command = is_string($command) ? operator_commands_scan_text($command) : '';
   if ($command === '') {
     return;
