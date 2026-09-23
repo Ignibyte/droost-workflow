@@ -1990,6 +1990,27 @@ function operator_commands_help_only(array $plain): bool {
 }
 
 /**
+ * Whether a `sed` invocation edits the files it is given in place.
+ *
+ * @param list<string> $tokens
+ *   The invocation's tokens.
+ *
+ * @return bool
+ *   TRUE for `-i`, `-i.bak`, a short flag cluster carrying `i` (`-ni`), or
+ *   `--in-place` in any spelling.
+ */
+function sed_edits_in_place(array $tokens): bool {
+  foreach ($tokens as $token) {
+    $word = ltrim($token, "\x01");
+    if (str_starts_with($word, '--in-place') || preg_match('/^-[A-Za-z]*i/', $word) === 1) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+/**
  * Whether an argument list carries a flag, as its own argument.
  *
  * @param list<string> $tokens
@@ -2612,7 +2633,13 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       // recording the enforcement, not rewriting it; it was refused as the
       // latter. `checkout`, `restore`, `reset`, `stash`, `rm`, `mv` and
       // `clean` all DO write the working tree and stay out of this list.
-      || ($verb === 'git' && in_array($sub, ['diff', 'log', 'show', 'status', 'blame', 'grep', 'add', 'commit'], TRUE)));
+      || ($verb === 'git' && in_array($sub, ['diff', 'log', 'show', 'status', 'blame', 'grep', 'add', 'commit'], TRUE))
+      // `sed` READS unless it edits in place (F-83). Its program writes only
+      // through `w`, and the program is read as code above, so what is left
+      // for this tier is `-i`: `sed -n 60,200p droost/droost-workflow/run.json`
+      // printed part of the record and was refused as rewriting it, while
+      // `cat` and `head` over the same file passed.
+      || ($verb === 'sed' && !sed_edits_in_place($tokens)));
     $reading = !$writesTo && $isReader;
     if ($reading) {
       continue;
