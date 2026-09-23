@@ -1377,12 +1377,18 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
     $current = '';
     $started = FALSE;
   };
-  $endCommand = static function () use (&$invocations, &$tokens, $endToken): void {
+  $endCommand = static function () use (&$invocations, &$tokens, &$redirect, $endToken): void {
     $endToken();
     if ($tokens !== []) {
       $invocations[] = $tokens;
     }
     $tokens = [];
+    // A redirection never outlives its command. The mark used to survive a
+    // `&`, `|` or `;` that ended a command before its target began, which
+    // is how the `1` in `2>&1` became a file. Every spelling that puts an
+    // operator between `>` and its file, `>&file` and `>|`, is read as one
+    // redirection below, so nothing is lost by ending the mark here.
+    $redirect = FALSE;
   };
 
   for ($i = 0; $i < $length; $i++) {
@@ -1501,8 +1507,36 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
       // that did not know about the `>` let it write. The target is marked, so
       // the caller can tell a command's arguments from what it is writing to.
       $endToken();
+      // A DESCRIPTOR IS NOT A FILE. `2>&1`, `>&2`, `3>&-` and `<&3` copy or
+      // close a file descriptor and write nothing. The `&` used to end the
+      // command while the redirect mark survived it, so in `2>&1` the `1`
+      // became a file this command writes. At `hard` the shell's plan wall
+      // refuses such a write, and it refused the first command of the first
+      // run to reach it (P6 run 6): `ddev drush … 2>&1 | tail`.
+      if (($command[$i + 1] ?? '') === '&') {
+        $end = $i + 2;
+        while ($end < $length && (ctype_digit($command[$end]) || $command[$end] === '-')) {
+          $end++;
+        }
+        $descriptor = substr($command, $i + 2, $end - $i - 2);
+        $bounded = $end >= $length || preg_match('/[\s;|&()<>]/', $command[$end]) === 1;
+        if ($bounded && preg_match('/^(\d+-?|-)$/', $descriptor) === 1) {
+          $i = $end - 1;
+          continue;
+        }
+        // `>&word` sends both streams to the FILE `word`: the `&` joins the
+        // redirection and ends nothing.
+        $redirect = $char === '>';
+        $i++;
+        continue;
+      }
       if ($char === '>') {
         $redirect = TRUE;
+        // `>|` writes past noclobber. The `|` is part of the redirection,
+        // not a pipe.
+        if (($command[$i + 1] ?? '') === '|') {
+          $i++;
+        }
       }
       continue;
     }

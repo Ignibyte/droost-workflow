@@ -154,6 +154,20 @@ final class RunStateStore {
   }
 
   /**
+   * The state directory as shown to an operator, relative to the project root.
+   *
+   * Where the spec is written. `label()` names the run record inside it, and
+   * the plan phase's first remedy was built from that, so it told every run
+   * to write `droost/droost-workflow/run.json/spec-<slug>.md` (F-73).
+   *
+   * @return string
+   *   The relative path.
+   */
+  public function directoryLabel(): string {
+    return $this->stateDir;
+  }
+
+  /**
    * Whether a run is recorded.
    *
    * @return bool

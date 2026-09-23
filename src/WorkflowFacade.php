@@ -1815,7 +1815,7 @@ final class WorkflowFacade {
    *   The row.
    */
   private static function awaitingSpecRow(RunStateStore $store): array {
-    $dir = $store->label();
+    $dir = $store->directoryLabel();
 
     return [
       'check' => 'spec',
