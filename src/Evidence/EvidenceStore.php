@@ -60,7 +60,7 @@ final class EvidenceStore {
    * build does not know about costs it nothing. A store written by an older one
    * is migrated up in place.
    */
-  public const int SCHEMA_VERSION = 10;
+  public const int SCHEMA_VERSION = 11;
 
   /**
    * Substrings that identify a browser tool in a host's tool name.
@@ -230,6 +230,7 @@ final class EvidenceStore {
         8 => $this->migrateToV8($pdo),
         9 => $this->migrateToV9($pdo),
         10 => $this->migrateToV10($pdo),
+        11 => $this->migrateToV11($pdo),
         default => NULL,
       };
       // Stamped per rung, so an interrupted upgrade resumes where it stopped
@@ -1128,31 +1129,121 @@ final class EvidenceStore {
    *   The path, class or method.
    * @param string|null $at
    *   The timestamp, ISO-8601.
+   * @param int|null $revision
+   *   Which declaration of this kind the row belongs to, as returned by
+   *   supersedeDeclarations(); NULL joins the current one, or opens the next
+   *   when the current one has been superseded.
    */
-  public function declare(string $runId, string $phase, string $kind, string $value, ?string $at = NULL): void {
+  public function declare(string $runId, string $phase, string $kind, string $value, ?string $at = NULL, ?int $revision = NULL): void {
     $this->connection()
-      ->prepare('INSERT INTO declaration (run_id, phase, kind, value, declared_at) VALUES (?, ?, ?, ?, ?)')
-      ->execute([$runId, $phase, $kind, $value, $at ?? date('c')]);
+      ->prepare('INSERT INTO declaration (run_id, phase, kind, value, declared_at, revision) VALUES (?, ?, ?, ?, ?, ?)')
+      ->execute([
+        $runId,
+        $phase,
+        $kind,
+        $value,
+        $at ?? date('c'),
+        $revision ?? $this->openDeclarationRevision($runId, $kind),
+      ]);
   }
 
   /**
-   * Clears a run's declarations of one kind, so a re-declaration replaces.
+   * The revision a new row of a kind joins: the current one, else the next.
+   *
+   * Rows from before V11 carry no revision and count as the first.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $kind
+   *   The kind.
+   *
+   * @return int
+   *   The revision.
+   */
+  private function openDeclarationRevision(string $runId, string $kind): int {
+    $statement = $this->connection()->prepare(
+      'SELECT MAX(CASE WHEN superseded_at IS NULL THEN COALESCE(revision, 1) END) AS current,
+              MAX(COALESCE(revision, 1)) AS latest
+         FROM declaration WHERE run_id = ? AND kind = ?'
+    );
+    $statement->execute([$runId, $kind]);
+    $row = self::rows($statement)[0] ?? [];
+    if (is_numeric($row['current'] ?? NULL)) {
+      return (int) $row['current'];
+    }
+
+    return is_numeric($row['latest'] ?? NULL) ? (int) $row['latest'] + 1 : 1;
+  }
+
+  /**
+   * Supersedes a run's declarations of one kind, so a re-declaration replaces.
    *
    * Insert-only was a trap. `declared()` reads across the whole run, so an
    * agent correcting a bad declaration ADDED a second one and inherited both —
    * and with no `undeclare` verb, a declaration that could not be satisfied had
-   * no legal move except abandoning the run. Re-declaring is now the escape it
-   * always looked like.
+   * no legal move except abandoning the run. Re-declaring is the escape.
+   *
+   * SUPERSEDED, NOT DELETED. This used to DELETE, and the escape became a
+   * laundry: in P6 run 2 the agent declared 23 paths as the code phase opened,
+   * then re-declared by piping `git status` into `declare-changes` just before
+   * the audit, and `declared_files` reported "25 declared path(s), no
+   * undeclared changes" — the diff held to a transcription of itself. The
+   * plan's prediction was gone, so nothing could say that two paths it never
+   * named had arrived. Kept under a `superseded_at` stamp, as V10 keeps a
+   * restated criterion beside its original, the first declaration survives for
+   * the audit to compare against.
+   *
+   * A NUMBER, NOT A TIME, tells one declaration from the next. Two
+   * `declare-changes` calls in the same second share a `declared_at`, so "the
+   * earliest stamp" merged them, and the first declaration read as both.
    *
    * @param string $runId
    *   The run.
    * @param string $kind
    *   Either 'file' or 'test'.
+   * @param string|null $at
+   *   When, ISO-8601.
+   *
+   * @return int
+   *   The revision the replacing declaration's rows must carry.
    */
-  public function clearDeclarations(string $runId, string $kind): void {
+  public function supersedeDeclarations(string $runId, string $kind, ?string $at = NULL): int {
     $this->connection()
-      ->prepare('DELETE FROM declaration WHERE run_id = ? AND kind = ?')
-      ->execute([$runId, $kind]);
+      ->prepare('UPDATE declaration SET superseded_at = ? WHERE run_id = ? AND kind = ? AND superseded_at IS NULL')
+      ->execute([$at ?? date('c'), $runId, $kind]);
+
+    return $this->openDeclarationRevision($runId, $kind);
+  }
+
+  /**
+   * The first declaration a run made of one kind, superseded or not.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $kind
+   *   Either 'file' or 'test'.
+   *
+   * @return array{at: string|null, values: list<string>}
+   *   When it was made and what it named; `at` is NULL when nothing was.
+   */
+  public function firstDeclaration(string $runId, string $kind): array {
+    $statement = $this->connection()->prepare(
+      'SELECT value, declared_at FROM declaration
+        WHERE run_id = ? AND kind = ?
+          AND COALESCE(revision, 1) = (SELECT MIN(COALESCE(revision, 1)) FROM declaration WHERE run_id = ? AND kind = ?)
+        ORDER BY value'
+    );
+    $statement->execute([$runId, $kind, $runId, $kind]);
+    $rows = self::rows($statement);
+    if ($rows === []) {
+      return ['at' => NULL, 'values' => []];
+    }
+    $stamps = array_map(static fn (array $row): string => self::text($row, 'declared_at'), $rows);
+
+    return [
+      'at' => min($stamps),
+      'values' => array_values(array_unique(array_map(static fn (array $row): string => self::text($row, 'value'), $rows))),
+    ];
   }
 
   /**
@@ -1172,7 +1263,7 @@ final class EvidenceStore {
    */
   public function declared(string $runId, string $kind): array {
     $statement = $this->connection()
-      ->prepare('SELECT DISTINCT value FROM declaration WHERE run_id = ? AND kind = ? ORDER BY value');
+      ->prepare('SELECT DISTINCT value FROM declaration WHERE run_id = ? AND kind = ? AND superseded_at IS NULL ORDER BY value');
     $statement->execute([$runId, $kind]);
 
     return array_map(static fn (array $row): string => self::text($row, 'value'), self::rows($statement));
@@ -2783,6 +2874,27 @@ SQL);
     }
     catch (\PDOException) {
       // As above.
+    }
+  }
+
+  /**
+   * V11 — a re-declaration supersedes rather than deletes, and is numbered.
+   *
+   * See supersedeDeclarations(): the first declaration is what the plan
+   * predicted, and the audit needs it after the agent has re-declared.
+   * Additive and idempotent, as V7 to V9.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   */
+  private function migrateToV11(\PDO $pdo): void {
+    foreach (['superseded_at TEXT', 'revision INTEGER'] as $column) {
+      try {
+        $pdo->exec('ALTER TABLE declaration ADD COLUMN ' . $column);
+      }
+      catch (\PDOException) {
+        // Already there.
+      }
     }
   }
 

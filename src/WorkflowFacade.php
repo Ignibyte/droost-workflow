@@ -1419,7 +1419,9 @@ final class WorkflowFacade {
     // inherited both the old promise and the new one, and with no `undeclare`
     // verb a declaration it could not satisfy left no move but abandoning the
     // run. Only the kinds actually passed are touched, so `--tests=` alone does
-    // not silently wipe the file declaration.
+    // not silently wipe the file declaration. Replaced, not erased: the
+    // superseded rows stay, so the audit can still name the paths the first
+    // declaration never predicted (see supersedeDeclarations()).
     // `work_item` is the third kind because a check shipped that READS it and
     // nothing anywhere could write it. Any site adding the documented
     // `work_item:` block got a blocking check with fault `agent`, whose own
@@ -1435,9 +1437,9 @@ final class WorkflowFacade {
       if ($values === []) {
         continue;
       }
-      $store->clearDeclarations($state->runId, $kind);
+      $revision = $store->supersedeDeclarations($state->runId, $kind, $now);
       foreach ($values as $value) {
-        $store->declare($state->runId, $phase, $kind, $value, $now);
+        $store->declare($state->runId, $phase, $kind, $value, $now, $revision);
       }
     }
 
@@ -2307,6 +2309,7 @@ final class WorkflowFacade {
       $store = new EvidenceStore($projectRoot);
       $files = $store->declared($state->runId, 'file');
       $tests = $store->declared($state->runId, 'test');
+      $first = $store->firstDeclaration($state->runId, 'file');
       $gatesOff = array_values(array_unique(array_merge(
         self::gatesOff($state),
         $store->unmeasurableGates($state->runId),
@@ -2349,6 +2352,10 @@ final class WorkflowFacade {
         // An empty diff is "nothing changed" only when there is a repository
         // to ask. head() is NULL without one, and so is the base (F-36).
         diffVisible: $this->vcs->head($projectRoot) !== NULL,
+        // What the plan predicted, which a re-declaration made from the
+        // finished diff must not be allowed to stand in for (F-54).
+        firstDeclaredFiles: $first['values'],
+        firstDeclaredAt: $first['at'],
       );
       $blocked = FALSE;
       $emitted = [];

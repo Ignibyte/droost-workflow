@@ -45,6 +45,12 @@ three outcomes stop the phase:
   the file list; declaring only the file you just added drops everything you
   declared at plan, and every one of those files then reads as scope creep. The
   verb is not `add`.
+
+  **The first declaration is kept.** A changed path that only a later
+  re-declaration covers is named in the record, and `declared_files` reads
+  `recorded` rather than `satisfied`: the evaluation shows what the plan did
+  not predict. That is the record, not a penalty. A re-declaration piped from
+  `git status` covers the diff and predicts none of it.
 - **a test you named is RECORDED, never held against you.** droost sees that a
   suite ran and how many tests it held; it cannot see which ones, so it does not
   pretend to. What DOES block is the suite failing — that is the phpunit gate,

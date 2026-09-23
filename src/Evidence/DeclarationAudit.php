@@ -205,6 +205,13 @@ final class DeclarationAudit {
    *   mutagen, `/.git` is not synced into the container where the gates run.
    *   P6 run 1's record read "3 declared and not touched" about a module,
    *   22 config files and a spec that the agent had just written.
+   * @param list<string>|null $firstDeclaredFiles
+   *   The run's FIRST file declaration, superseded or not, or NULL when the
+   *   caller has no history. $declaredFiles is the latest, and re-declaring
+   *   replaces it, so on its own it cannot tell a prediction from a
+   *   transcription of the finished diff (F-54).
+   * @param string|null $firstDeclaredAt
+   *   When the first declaration was made, ISO-8601.
    */
   public function __construct(
     private readonly array $declaredFiles,
@@ -215,6 +222,8 @@ final class DeclarationAudit {
     private readonly array $gatesOff = [],
     private readonly ?string $projectRoot = NULL,
     private readonly bool $diffVisible = TRUE,
+    private readonly ?array $firstDeclaredFiles = NULL,
+    private readonly ?string $firstDeclaredAt = NULL,
   ) {}
 
   /**
@@ -232,6 +241,36 @@ final class DeclarationAudit {
     return array_values(array_filter(
       $this->changedFiles,
       fn (string $file): bool => !$this->covered($file) && !$this->exempt($file),
+    ));
+  }
+
+  /**
+   * Changed files that only a later re-declaration covers, not the first one.
+   *
+   * THE PREDICTION, NOT THE TRANSCRIPTION. Re-declaring replaces, which is the
+   * escape a wrong declaration needs, and it is also a way round this whole
+   * audit: in P6 run 2 the agent declared 23 paths as the code phase opened,
+   * then re-declared from `git status` just before the audit ran. The check
+   * compared the diff with a copy of the diff and said "no undeclared changes",
+   * a green that could not have failed. Two paths the plan never named were
+   * among them, and nothing could say so.
+   *
+   * These paths are not scope creep in the blocking sense, since the agent did
+   * declare them. What they lack is the plan's prediction, so the check records
+   * them by name instead of vouching for them.
+   *
+   * @return list<string>
+   *   The paths, empty when the caller supplied no history.
+   */
+  public function declaredLate(): array {
+    if ($this->firstDeclaredFiles === NULL) {
+      return [];
+    }
+    return array_values(array_filter(
+      $this->changedFiles,
+      fn (string $file): bool => !$this->exempt($file)
+        && self::coveredBy($this->declaredFiles, $file)
+        && !self::coveredBy($this->firstDeclaredFiles, $file),
     ));
   }
 
@@ -325,15 +364,24 @@ final class DeclarationAudit {
   public function checks(?string $phase = NULL): array {
     $undeclared = $this->undeclared();
     $untouched = $this->untouched();
+    $late = $undeclared === [] ? $this->declaredLate() : [];
 
     $scopeSummary = $undeclared === []
       ? sprintf(
-        '%d declared path(s), no undeclared changes%s',
+        '%d declared path(s), no undeclared changes%s%s',
         count($this->declaredFiles),
         $untouched === [] ? '' : sprintf(
           '; %d declared and not touched: %s',
           count($untouched),
           self::someOf($untouched),
+        ),
+        $late === [] ? '' : sprintf(
+          '. But %d changed path(s) are covered only by a later re-declaration, '
+          . 'not by the first declaration (%s): %s. Re-declaring is allowed; '
+          . 'what the plan did not predict is recorded, not vouched for',
+          count($late),
+          $this->firstDeclaredAt ?? 'time unknown',
+          self::someOf($late),
         ),
       )
       : sprintf(
@@ -375,7 +423,11 @@ final class DeclarationAudit {
       $checks[] = new CheckRecord(
         'declaration',
         'declared_files',
-        $undeclared === [] ? CheckState::Satisfied : CheckState::Blocked,
+        match (TRUE) {
+          $undeclared !== [] => CheckState::Blocked,
+          $late !== [] => CheckState::Recorded,
+          default => CheckState::Satisfied,
+        },
         $undeclared === [] ? Fault::None : Fault::Agent,
         $scopeSummary,
       );
@@ -770,8 +822,23 @@ final class DeclarationAudit {
    *   TRUE when it was declared, directly or by a declared directory.
    */
   private function covered(string $file): bool {
+    return self::coveredBy($this->declaredFiles, $file);
+  }
+
+  /**
+   * Whether one of a set of declared paths covers a file.
+   *
+   * @param list<string> $declarations
+   *   The declared paths; a directory covers the files under it.
+   * @param string $file
+   *   The changed path.
+   *
+   * @return bool
+   *   TRUE when covered.
+   */
+  private static function coveredBy(array $declarations, string $file): bool {
     $file = self::normalise($file);
-    foreach ($this->declaredFiles as $declared) {
+    foreach ($declarations as $declared) {
       $declared = self::normalise($declared);
       if ($declared === '') {
         continue;

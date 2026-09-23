@@ -276,6 +276,7 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     $runId = $state->runId;
 
     $this->assertSame(['src/right'], $store->declared($runId, 'file'));
+    $this->assertSame(['src/wrong'], $store->firstDeclaration($runId, 'file')['values'], 'replaced, not erased (F-54)');
   }
 
   /**
@@ -751,6 +752,47 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
       $first['guidance'],
       'and says what kind of problem it is: work to do, not setup to fix',
     );
+  }
+
+  /**
+   * A re-declaration copied from the diff is recorded, not vouched for.
+   *
+   * P6 run 2, end to end (F-54): the agent declared its scope as the code phase
+   * opened, built, then re-declared by piping `git status` into
+   * `declare-changes`. The audit compared the diff with that copy of itself and
+   * reported "no undeclared changes". Now the first declaration survives the
+   * re-declaration, and the file only the copy covers is named.
+   */
+  public function testRedeclarationFromTheDiffIsRecordedNotVouchedFor(): void {
+    $root = $this->makeRootWithConfig("preset: low\nmode: agentic\n");
+    exec(sprintf('cd %s && git init -q . && git add -A && git commit -q -m base', escapeshellarg($root)));
+    $spec = $this->writeSpec($root);
+    $facade = $this->facade();
+
+    $facade->run($root, $spec);
+    $facade->declareChanges($root, ['src'], [], 'code');
+    @mkdir($root . '/src', 0775, TRUE);
+    file_put_contents($root . '/src/Planned.php', "<?php // the plan named src\n");
+    file_put_contents($root . '/unplanned.php', "<?php // the plan never named this\n");
+    $facade->declareChanges($root, ['src', 'unplanned.php'], [], 'code');
+
+    $outcome = $facade->run($root, $spec);
+    $this->assertNotSame(Outcome::Blocked, $outcome->outcome, 're-declaring is still a legal way to cover a path');
+
+    $state = (new RunStateStore($root))->load();
+    $this->assertNotNull($state);
+    $files = NULL;
+    foreach ((new EvidenceStore($root))->checklist($state->runId, 'code') as $row) {
+      if ($row['name'] === 'declared_files') {
+        $files = $row;
+      }
+    }
+    $this->assertIsArray($files, 'the code phase audited the declaration');
+    $this->assertSame('recorded', $files['state'], 'recorded, not satisfied: the plan did not predict it');
+    $this->assertIsString($files['summary']);
+    $this->assertStringContainsString('covered only by a later re-declaration', $files['summary']);
+    $this->assertStringContainsString('unplanned.php', $files['summary']);
+    $this->assertStringNotContainsString('src/Planned.php', $files['summary']);
   }
 
 }

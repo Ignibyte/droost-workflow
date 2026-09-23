@@ -1210,8 +1210,11 @@ final class ArgvDispatcher {
                        --files=<a,b> --tests=<X,Y> [--type=<kind>]
                        [--work-item=<id>]. The code
                        phase audits the claim against the real diff, so a file
-                       nobody declared blocks and a declared test that never
-                       ran blocks. --type is one of code, content_model,
+                       nobody declared blocks; declared tests are recorded,
+                       since droost cannot see which tests a suite ran.
+                       Re-declaring replaces the list, and the first one is
+                       kept: a path only a later declaration covers is
+                       recorded by name. --type is one of code, content_model,
                        theme, content, docs, mixed and never turns a gate off;
                        it says which gates must have MEASURED something.
       declare-route    declare a path this change serves, which is what

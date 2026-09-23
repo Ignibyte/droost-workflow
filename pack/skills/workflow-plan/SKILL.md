@@ -149,7 +149,9 @@ Then produce the spec:
    droost rather than written in prose. They are not the same kind of claim:
 
    - **`--files` is AUDITED** against the real diff at the code phase. Touch a
-     file nobody declared and the phase stops.
+     file nobody declared and the phase stops. Declare before you build: this
+     first list is the plan's prediction, and it is kept even after you
+     re-declare.
    - **`--tests` is RECORDED, not verified.** droost sees that a suite ran and
      how many tests it held; it cannot see WHICH tests ran, because the gate
      reports totals rather than names. Naming them is still worth doing — it is
