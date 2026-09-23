@@ -814,6 +814,13 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       }
     }
 
+    if ($gate->name === 'wiki_fresh') {
+      $wiki = self::wikiResult($exit, $elapsed, $stdout, $invocation);
+      if ($wiki !== NULL) {
+        return $wiki;
+      }
+    }
+
     return GateResult::ran(
       $gate->name,
       $exit === 0 ? GateStatus::Passed : GateStatus::Failed,
@@ -821,6 +828,88 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $elapsed,
       $this->summarise($gate->name, $exit, $stdout, $stderr),
       $this->findings($stdout, $gate->name, $root),
+      $invocation,
+    );
+  }
+
+  /**
+   * What the wiki gate looked at, said in its verdict.
+   *
+   * The exit code still decides: drush fails on any stale, orphaned or invalid
+   * page. But "wiki_fresh passed" was the entire record. In P6 run 3 it stood
+   * over one page written that same run while three extensions had none, and
+   * the status command put that in a note nothing kept. Without `--strict` an
+   * uncovered extension never fails, so the summary names them. A wiki with no
+   * managed page is fresh only by vacuity and measured nothing, so it is a
+   * labelled pass, as phpunit's NO TESTS RAN is.
+   *
+   * @param int $exit
+   *   The exit code.
+   * @param int $elapsed
+   *   Milliseconds.
+   * @param string $stdout
+   *   The status report, JSON.
+   * @param string $invocation
+   *   The command line.
+   *
+   * @return \Droost\Workflow\Gate\GateResult|null
+   *   The result, or NULL when the command failed without a report (no bundle,
+   *   wiki disabled), which the generic failure summary already explains.
+   */
+  private static function wikiResult(int $exit, int $elapsed, string $stdout, string $invocation): ?GateResult {
+    $report = json_decode($stdout, TRUE);
+    $summary = is_array($report) && is_array($report['summary'] ?? NULL) ? $report['summary'] : NULL;
+    if ($summary === NULL) {
+      if ($exit !== 0) {
+        return NULL;
+      }
+      return GateResult::labelledPass(
+        'wiki_fresh',
+        $exit,
+        $elapsed,
+        'wiki_fresh passed — its status report could not be read, so what it checked is unknown; read this as unverified rather than as a pass.',
+        $invocation,
+      );
+    }
+    $count = static fn (string $key): int => is_numeric($summary[$key] ?? NULL) ? (int) $summary[$key] : 0;
+    $uncovered = array_values(array_filter(
+      is_array($report['uncovered'] ?? NULL) ? $report['uncovered'] : [],
+      'is_string',
+    ));
+    $gap = $uncovered === [] ? '' : sprintf(
+      '; %d extension(s) have no page: %s',
+      count($uncovered),
+      implode(', ', array_slice($uncovered, 0, 10)) . (count($uncovered) > 10 ? ', …' : ''),
+    );
+    $pages = $count('pages');
+    if ($exit !== 0) {
+      return GateResult::ran(
+        'wiki_fresh',
+        GateStatus::Failed,
+        $exit,
+        $elapsed,
+        sprintf('wiki_fresh FAILED — %d stale, %d orphaned, %d invalid of %d page(s)%s', $count('stale'), $count('orphaned'), $count('invalid'), $pages, $gap),
+        [],
+        $invocation,
+      );
+    }
+    if ($pages === 0) {
+      return GateResult::labelledPass(
+        'wiki_fresh',
+        $exit,
+        $elapsed,
+        sprintf('wiki_fresh passed — NO PAGE TO CHECK: the wiki holds no managed page, so freshness was not measured%s.', $gap),
+        $invocation,
+      );
+    }
+
+    return GateResult::ran(
+      'wiki_fresh',
+      GateStatus::Passed,
+      $exit,
+      $elapsed,
+      sprintf('wiki_fresh passed — %d of %d page(s) fresh%s', $count('fresh'), $pages, $gap),
+      [],
       $invocation,
     );
   }
@@ -1577,8 +1666,9 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       'stylelint' => [$binary, '--formatter=json', ...$this->frontEndConfigArgs($gate, $root)],
       'prettier' => [$binary, '--check', ...$this->frontEndConfigArgs($gate, $root)],
       // Drush exits non-zero when any page is stale, orphaned or invalid, so
-      // the gate needs no parsing — the command IS the verdict.
-      'wiki_fresh' => [$binary, 'droost:wiki:status'],
+      // the exit code IS the verdict. The JSON report is read only to say
+      // what was measured (see wikiResult()).
+      'wiki_fresh' => [$binary, 'droost:wiki:status', '--format=json'],
       // The empty-suite flag (PHPUnit >= 10; core-dev ships 11.5) turns "no
       // tests yet" into exit zero, which execute() then LABELS rather than
       // reporting as a clean suite — the same honesty shape as the static

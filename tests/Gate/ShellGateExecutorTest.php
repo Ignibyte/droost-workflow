@@ -1291,6 +1291,98 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * The wiki gate's verdict says what it measured.
+   *
+   * "wiki_fresh passed" was the whole record. In P6 run 3 it stood over one
+   * page written that same run, while three extensions had no page at all, and
+   * without --strict an uncovered extension never fails. A wiki with no managed
+   * page is fresh only by vacuity, which is phpunit's NO TESTS RAN in another
+   * form. The first report is that run's shape, with the names made generic.
+   *
+   * @param int $exit
+   *   The status command's exit code.
+   * @param string $stdout
+   *   Its JSON report.
+   * @param \Droost\Workflow\Gate\GateStatus $status
+   *   The verdict expected.
+   * @param bool $labelled
+   *   Whether the pass must be labelled as not a measurement.
+   * @param list<string> $says
+   *   Fragments the summary must carry.
+   */
+  #[DataProvider('wikiReports')]
+  public function testWikiFreshSaysWhatItMeasured(int $exit, string $stdout, GateStatus $status, bool $labelled, array $says): void {
+    $root = $this->rootWithBinaries(['drush']);
+    $executor = new ShellGateExecutor(
+      static fn (array $argv): array => [$exit, $stdout, ''],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('wiki_fresh', TRUE), $root);
+
+    $this->assertSame($status, $result->status);
+    $this->assertSame($labelled, $result->labelledPass);
+    foreach ($says as $fragment) {
+      $this->assertStringContainsString($fragment, $result->summary);
+    }
+  }
+
+  /**
+   * Status reports, as droost:wiki:status --format=json prints them.
+   *
+   * @return array<string, array{int, string, \Droost\Workflow\Gate\GateStatus, bool, list<string>}>
+   *   Label => [exit, stdout, status, labelled, fragments].
+   */
+  public static function wikiReports(): array {
+    $report = static fn (array $summary, array $uncovered): string => (string) json_encode([
+      'bundle_path' => 'droost/wiki',
+      'summary' => $summary + ['unmanaged' => 0],
+      'pages' => [],
+      'uncovered' => $uncovered,
+      'ok' => TRUE,
+    ]);
+    return [
+      'one fresh page, three extensions uncovered' => [
+        0,
+        $report(
+          ['pages' => 1, 'fresh' => 1, 'stale' => 0, 'orphaned' => 0, 'invalid' => 0, 'uncovered_modules' => 3],
+          ['example_one', 'example_two', 'example_three'],
+        ),
+        GateStatus::Passed,
+        FALSE,
+        ['1 of 1 page(s) fresh', '3 extension(s) have no page: example_one, example_two, example_three'],
+      ],
+      'no managed page at all' => [
+        0,
+        $report(
+          ['pages' => 0, 'fresh' => 0, 'stale' => 0, 'orphaned' => 0, 'invalid' => 0, 'uncovered_modules' => 2],
+          ['example_one', 'example_two'],
+        ),
+        GateStatus::Passed,
+        TRUE,
+        ['NO PAGE TO CHECK', 'freshness was not measured', '2 extension(s) have no page'],
+      ],
+      'a stale page fails, and says which counts' => [
+        1,
+        $report(
+          ['pages' => 2, 'fresh' => 1, 'stale' => 1, 'orphaned' => 0, 'invalid' => 0, 'uncovered_modules' => 0],
+          [],
+        ),
+        GateStatus::Failed,
+        FALSE,
+        ['wiki_fresh FAILED — 1 stale, 0 orphaned, 0 invalid of 2 page(s)'],
+      ],
+      'an unreadable report is not a measurement' => [
+        0,
+        'not json',
+        GateStatus::Passed,
+        TRUE,
+        ['could not be read'],
+      ],
+    ];
+  }
+
+  /**
    * No drush means no site to ask, not a broken environment.
    *
    * `wiki_fresh` runs `drush droost:wiki:status`. On a checkout with no drush
