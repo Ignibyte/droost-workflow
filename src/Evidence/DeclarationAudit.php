@@ -197,6 +197,14 @@ final class DeclarationAudit {
    *   The repository, when the caller has one. With it the audit can READ
    *   a gate binary and see whether a package manager wrote it; without it
    *   it falls back to asking whether a manifest changed in the same diff.
+   * @param bool $diffVisible
+   *   Whether version control could be asked at all. An empty $changedFiles
+   *   means "nothing changed" only when it is TRUE. Without a repository
+   *   `VcsInterface::changedFiles()` returns the same empty list, and the
+   *   audit reported `satisfied` over a build it never saw (F-36): on ddev with
+   *   mutagen, `/.git` is not synced into the container where the gates run.
+   *   P6 run 1's record read "3 declared and not touched" about a module,
+   *   22 config files and a spec that the agent had just written.
    */
   public function __construct(
     private readonly array $declaredFiles,
@@ -206,6 +214,7 @@ final class DeclarationAudit {
     private readonly array $measuredGates = [],
     private readonly array $gatesOff = [],
     private readonly ?string $projectRoot = NULL,
+    private readonly bool $diffVisible = TRUE,
   ) {}
 
   /**
@@ -350,7 +359,19 @@ final class DeclarationAudit {
     // phase can speak for, so `code` never reports phpunit as unmeasured.
     $coverageIsDue = $phase === NULL || $phase === 'code' || $phase === 'test';
     $checks = [];
-    if ($scopeIsDue) {
+    if ($scopeIsDue && !$this->diffVisible) {
+      $checks[] = new CheckRecord(
+        'declaration',
+        'declared_files',
+        CheckState::Skipped,
+        Fault::None,
+        'NOT MEASURED: no repository is visible where the gates run, so the declared '
+        . 'files could not be held to a diff. An empty diff here means "cannot tell", '
+        . 'not "nothing changed". On ddev with mutagen, /.git is not synced into the '
+        . 'container: expose it there, or run the workflow where the repository is.',
+      );
+    }
+    elseif ($scopeIsDue) {
       $checks[] = new CheckRecord(
         'declaration',
         'declared_files',
@@ -369,7 +390,20 @@ final class DeclarationAudit {
     //
     // `Docs` is the type with contradictions, so re-asking at test is exactly
     // where the escape is.
-    if ($this->workType !== NULL && ($scopeIsDue || $coverageIsDue)) {
+    if ($this->workType !== NULL && ($scopeIsDue || $coverageIsDue) && !$this->diffVisible) {
+      $checks[] = new CheckRecord(
+        'declaration',
+        'work_type',
+        CheckState::Skipped,
+        Fault::None,
+        sprintf(
+          'NOT MEASURED: declared "%s", but no repository is visible where the gates run, '
+          . 'so the declaration could not be checked against the diff.',
+          $this->workType->value,
+        ),
+      );
+    }
+    elseif ($this->workType !== NULL && ($scopeIsDue || $coverageIsDue)) {
       // Exempt paths filtered FIRST. Without it the audit was blocked by the
       // database recording the block: evidence.sqlite, its -wal and -shm, and
       // run.json counted as "not that kind of work" and outvoted the diff.

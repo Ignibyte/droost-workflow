@@ -2346,6 +2346,9 @@ final class WorkflowFacade {
         // So the audit can READ a gate binary rather than infer from the diff
         // whether a package manager wrote it.
         $projectRoot,
+        // An empty diff is "nothing changed" only when there is a repository
+        // to ask. head() is NULL without one, and so is the base (F-36).
+        diffVisible: $this->vcs->head($projectRoot) !== NULL,
       );
       $blocked = FALSE;
       $emitted = [];
