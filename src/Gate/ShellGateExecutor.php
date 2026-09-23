@@ -1430,7 +1430,14 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     string $invocation,
     ?float $floor = NULL,
   ): GateResult {
-    if ($exit !== 0) {
+    // NO DRIVER IS NO MEASUREMENT, whatever the exit code. PHPUnit 10 and
+    // later report a missing driver as a test-runner warning and exit 1 for
+    // it, so the failing-suite branch below took it for the agent's failing
+    // test: fault `agent`, retries spent on a suite that passes, and no
+    // operator remedy (F-76). The same remedy as the exit-0 case below.
+    $noDriver = str_contains($stdout . $stderr, 'No code coverage driver available');
+
+    if ($exit !== 0 && !$noDriver) {
       return GateResult::ran(
         $gate->name,
         GateStatus::Failed,
@@ -1442,7 +1449,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       );
     }
 
-    if (preg_match('/^\s*Lines:\s+([0-9.]+)%/m', $stdout, $matches) !== 1) {
+    if ($noDriver || preg_match('/^\s*Lines:\s+([0-9.]+)%/m', $stdout, $matches) !== 1) {
       return GateResult::toolMissing(
         $gate->name,
         $invocation . ' — the suite passed but no coverage was measured; '

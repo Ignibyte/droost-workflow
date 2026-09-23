@@ -319,6 +319,29 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * PHPUnit 10 and later exit 1 when there is no driver, and that is no test.
+   *
+   * The case above was written on the belief that phpunit exits 0 without a
+   * driver. PHPUnit 11.5 and 12.5, run with `--coverage-text` on a PHP with
+   * neither pcov nor xdebug, print a test-runner WARNING, "No code coverage
+   * driver available", and exit 1. The exit-code branch took that for a
+   * failing suite: fault `agent`, the retries spent on tests that pass, and
+   * no operator remedy, because an agent's fault offers none. Measured by
+   * probes/probe-gate-xhigh.php on a host with no driver (F-76). The output
+   * below is PHPUnit 11.5.56's, verbatim.
+   */
+  public function testCoverageWithoutDriverIsToolMissingWhenPhpunitExitsOne(): void {
+    $stdout = "PHPUnit 11.5.56 by Sebastian Bergmann and contributors.\n\nRuntime:       PHP 8.4.25\n\n"
+      . "There was 1 PHPUnit test runner warning:\n\n1) No code coverage driver available\n\n"
+      . "OK, but there were issues!\nTests: 1, Assertions: 1, PHPUnit Warnings: 1.\n";
+    $result = $this->coverageRun(80, [1, $stdout, '']);
+
+    $this->assertSame(GateStatus::ErrorToolMissing, $result->status);
+    $this->assertTrue($result->status->blocksAdvance());
+    $this->assertStringContainsString('xdebug or pcov', $result->summary);
+  }
+
+  /**
    * A failing suite fails the coverage gate before coverage is a question.
    */
   public function testCoverageWithFailingSuiteFails(): void {
