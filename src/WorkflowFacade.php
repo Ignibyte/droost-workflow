@@ -924,7 +924,7 @@ final class WorkflowFacade {
       // phase and records `stopped_by_operator`. What they cannot do is
       // advance past a check that is still blocked, because the answer does
       // not change what the check found.
-      $unresolved = $phase === Phase::Code || $phase === Phase::Test
+      $unresolved = in_array($phase, [Phase::Code, Phase::Test, Phase::Complete], TRUE)
         ? $this->auditDeclarationsFor($answered, $phase, $projectRoot)
         : self::blockingRows($answered, $phase, $projectRoot) !== [];
       if ($unresolved) {
@@ -1756,8 +1756,12 @@ final class WorkflowFacade {
     // Asking the cheap machine question first is also the kind thing to do: a
     // scope block costs one `declare-changes`, and a seeker round costs a
     // review.
-    if (!in_array($phase, [Phase::Code, Phase::Test], TRUE)
-      || !in_array($outcome->outcome, [Outcome::Advanced, Outcome::InspectionDue], TRUE)) {
+    // Complete too, and on Completed as well as Advanced: the final phase
+    // passes as Completed, and scope is asked wherever the diff can still grow
+    // (see DeclarationAudit::checks()). This runs before advanceIfDue() writes
+    // the terminal state, so a block holds the phase open.
+    if (!in_array($phase, [Phase::Code, Phase::Test, Phase::Complete], TRUE)
+      || !in_array($outcome->outcome, [Outcome::Advanced, Outcome::InspectionDue, Outcome::Completed], TRUE)) {
       return $outcome;
     }
 

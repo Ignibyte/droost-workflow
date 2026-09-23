@@ -169,6 +169,15 @@ final class DeclarationAudit {
     '.stylelintcache',
     'infection.log',
     '.infection/',
+    // What the browser tool droost wires writes. `droost:workflow:install`
+    // puts the Playwright MCP server in .mcp.json, and that server saves every
+    // snapshot and screenshot under `.playwright-mcp/` in the project root. P6
+    // run 3 was blocked twice on four of those files, "changed without being
+    // declared", and got past the audit by deleting its own browser evidence.
+    // That is the inversion this list exists to prevent: droost blaming the
+    // agent for droost's own install, and the cheapest move was to destroy
+    // what it had checked.
+    '.playwright-mcp/',
   ];
 
   /**
@@ -393,14 +402,23 @@ final class DeclarationAudit {
 
     // WHICH PHASES REACH HERE IS DECIDED BY THE CALLER, and this condition has
     // to agree with it or it is fiction. `WorkflowFacade::auditDeclarations()`
-    // calls this at code and test only, so the `'complete'` this used to name
-    // was a branch no run could enter — a rule that looked enforced, read as
-    // enforced, and was not. Asking at complete would add nothing anyway: the
-    // test phase has already asked, and a run that reached complete answered.
+    // calls this at code, test and complete, and
+    // testTheAuditAnswersForThePhasesTheFacadeAsksAbout holds the two lists
+    // equal.
+    //
+    // SCOPE IS ASKED WHEREVER THE DIFF CAN STILL GROW. It was asked at code
+    // alone, on the theory that scope is "did you build what you said", and
+    // building does not stop at code: a test that fails is fixed in the test
+    // phase, and complete writes documentation. In P6 run 3 a wiki page
+    // written at complete reached the diff after the only audit that could
+    // have seen it. The agent declared it anyway, voluntarily, and nothing
+    // held it to anything. Each later phase now asks again, so a path that
+    // arrives late is scope creep there or, if a re-declaration covered it,
+    // recorded by name (see declaredLate()).
     //
     // NULL means "no phase named", which is how the audit is exercised
     // directly; both questions are then due.
-    $scopeIsDue = $phase === NULL || $phase === 'code';
+    $scopeIsDue = $phase === NULL || in_array($phase, ['code', 'test', 'complete'], TRUE);
     // CODE TOO, now that each gate is asked about where it runs: phpcs and
     // phpstan are code-phase gates, and asking about them only at test is what
     // made this check unanswerable. `gatesDueAt()` narrows it to the gates the

@@ -28,6 +28,11 @@ record and the report from drifting apart.
 
 ## Work
 
+**Anything you write here is held to your declaration.** The scope audit runs
+at complete as it did at code and test. A README, a wiki page or any other file
+this phase adds must be covered by the declaration, or re-declared with the
+whole list before the phase is gated.
+
 ### Before capture: what the export carries
 
 If this run exported site configuration, read what moved and say so in the

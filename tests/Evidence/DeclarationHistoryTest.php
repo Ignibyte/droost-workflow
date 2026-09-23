@@ -109,6 +109,46 @@ final class DeclarationHistoryTest extends TestCase {
   }
 
   /**
+   * Scope is asked again at test and at complete, where the diff still grows.
+   *
+   * It was asked at code alone. In P6 run 3 a wiki page written at complete
+   * reached the diff after the only audit that could have seen it, and a fix
+   * made during the test phase would have gone the same way.
+   */
+  public function testScopeIsAskedWhereverTheDiffCanStillGrow(): void {
+    $audit = new DeclarationAudit(['src'], [], ['src/A.php', 'docs/late.md']);
+
+    foreach (['test', 'complete'] as $phase) {
+      $files = NULL;
+      foreach ($audit->checks($phase) as $check) {
+        if ($check->name === 'declared_files') {
+          $files = $check;
+        }
+      }
+      $this->assertNotNull($files, sprintf('%s asks the scope question', $phase));
+      $this->assertSame(CheckState::Blocked, $files->state, $phase);
+      $this->assertStringContainsString('docs/late.md', (string) $files->summary, $phase);
+    }
+  }
+
+  /**
+   * What the browser tool droost wires writes is not the agent's scope.
+   *
+   * P6 run 3 was blocked twice on `.playwright-mcp/` snapshots and screenshots
+   * and got past the audit by deleting its own browser evidence.
+   */
+  public function testBrowserToolArtifactsAreNotScopeCreep(): void {
+    $audit = new DeclarationAudit(
+      ['src'],
+      [],
+      ['src/A.php', '.playwright-mcp/page-2026-09-23T05-38-28-716Z.yml', '.playwright-mcp/t3-rinks.png'],
+    );
+
+    $this->assertSame([], $audit->undeclared());
+    $this->assertSame(CheckState::Satisfied, $this->check($audit, 'declared_files')->state);
+  }
+
+  /**
    * The store keeps the first declaration when a later one replaces it.
    */
   public function testRedeclaringKeepsTheFirstDeclaration(): void {

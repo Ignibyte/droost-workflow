@@ -32,6 +32,11 @@ method named in lowerCamel, or a fixture phpstan cannot follow, fails phpcs or
 phpstan here rather than surfacing at complete. Write tests to the same
 standard as the code they test. Everything enabled re-runs at complete.
 
+**Your declaration is audited here too, and again at complete.** A file you
+change in this phase that the declaration does not cover blocks, as it would
+at code: a fix made because a test failed is still building. Re-declare with
+the whole list if the work genuinely grew, and say why in the spec.
+
 `droost_verify` runs the static and test legs — **but only the ones you ask
 for**, and the default is narrower than people expect:
 

@@ -819,6 +819,39 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
   }
 
   /**
+   * A path that arrives after the code phase is still held to the declaration.
+   *
+   * Scope was audited at code alone. In P6 run 3 a page written at complete
+   * reached the diff after that audit, and nothing held it to anything. Here a
+   * file lands during the test phase, undeclared, and the test phase blocks
+   * on it.
+   */
+  public function testChangeAfterCodeIsHeldToTheDeclaration(): void {
+    $root = $this->makeRootWithConfig("preset: low\nmode: agentic\n");
+    $this->commitBase($root);
+    $spec = $this->writeSpec($root);
+    $facade = $this->facade();
+
+    $facade->run($root, $spec);
+    $facade->declareChanges($root, ['src'], [], 'code');
+    @mkdir($root . '/src', 0775, TRUE);
+    file_put_contents($root . '/src/Planned.php', "<?php // declared\n");
+    $this->assertNotSame(Outcome::Blocked, $facade->run($root, $spec)->outcome, 'the code phase has nothing to object to');
+
+    file_put_contents($root . '/late.php', "<?php // written in the test phase, never declared\n");
+    $outcome = $facade->run($root, $spec);
+
+    $this->assertSame(Outcome::Blocked, $outcome->outcome, 'the test phase asks the scope question too');
+    $blocked = $outcome->toArray()['blocked'] ?? [];
+    $this->assertIsArray($blocked);
+    $this->assertNotSame([], $blocked);
+    $this->assertIsArray($blocked[0]);
+    $this->assertSame('declared_files', $blocked[0]['check']);
+    $this->assertIsString($blocked[0]['why']);
+    $this->assertStringContainsString('late.php', $blocked[0]['why']);
+  }
+
+  /**
    * Makes the project a repository with one commit, or fails the test.
    *
    * The commit names its own author. A CI runner has no git identity, so a
