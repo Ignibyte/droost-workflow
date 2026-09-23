@@ -132,7 +132,7 @@ class EffortSwitchTest extends WorkflowTestCase {
 
     $delta = EffortSwitch::apply($root, 'max')->delta();
 
-    $this->assertContains('phpunit: off → on (required to exist)', $delta);
+    $this->assertContains('phpunit: off → on (required to exist, a test in any diff that changes src/)', $delta);
     // NOT playwright. It is on and required at EVERY preset since the browser
     // check became a committed spec rather than an MCP call, so moving the
     // dial changes nothing about it — and a delta that named it would be
@@ -186,7 +186,7 @@ class EffortSwitchTest extends WorkflowTestCase {
     $this->assertSame('factory', $change->alias);
     $this->assertTrue($change->moved());
     $this->assertSame('max', $change->config->preset);
-    $this->assertContains('phpunit: required (unset) → yes', $change->delta());
+    $this->assertContains('phpunit: required (unset) → yes, in_diff (unset) → yes', $change->delta());
     $this->assertNotContains('enforcement: soft → hard', $change->delta(), 'the file spells enforcement out, so the move leaves it');
     $this->assertSame($before, file_get_contents($root . '/' . WorkflowConfig::FILENAME), 'a preview writes nothing');
     $this->assertSame('custom', WorkflowConfig::load($root)->preset);

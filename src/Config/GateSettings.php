@@ -140,6 +140,12 @@ final class GateSettings {
    * FAILURE rather than the labelled nothing-to-run pass. The default, off,
    * is right for a fresh site whose first test the test phase will write.
    *
+   * `in_diff` (a flag on phpunit, set from `medium` up) is the demand that the
+   * run test what it wrote: a change to a class under `src/` with no phpunit
+   * test file in the same diff blocks the test phase. Without it, phpunit's
+   * green over a suite the run never touched read as coverage of the run,
+   * twice (F-61).
+   *
    * Only the static pair takes `paths`: they are the two tools that can be
    * pointed at a directory with nothing but argv, which is what a repo with
    * no tool configs of its own — a Drupal site root, most importantly —
@@ -157,7 +163,7 @@ final class GateSettings {
   private const GATE_OPTIONS = [
     'phpcs' => ['standard' => 'string', 'paths' => 'paths', 'timeout' => 'seconds'],
     'phpstan' => ['level' => 'level', 'paths' => 'paths', 'timeout' => 'seconds'],
-    'phpunit' => ['required' => 'flag', 'timeout' => 'seconds'],
+    'phpunit' => ['required' => 'flag', 'in_diff' => 'flag', 'timeout' => 'seconds'],
     'mutation' => ['msi_min' => 'percent', 'timeout' => 'seconds'],
     'playwright' => ['required' => 'flag', 'timeout' => 'seconds'],
     'coverage' => ['min' => 'percent', 'timeout' => 'seconds'],

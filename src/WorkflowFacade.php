@@ -2361,6 +2361,9 @@ final class WorkflowFacade {
         // finished diff must not be allowed to stand in for (F-54).
         firstDeclaredFiles: $first['values'],
         firstDeclaredAt: $first['at'],
+        // The level's demand that the run test what it wrote (F-61), read
+        // from the levers frozen when the run began.
+        testsInDiff: ($state->resolvedGates['phpunit']['in_diff'] ?? FALSE) === TRUE,
       );
       $blocked = FALSE;
       $emitted = [];

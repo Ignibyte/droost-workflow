@@ -156,7 +156,7 @@ Anchored to the existing presets so three of five levels change nothing.
 | phpcs | on, Drupal | on, Drupal,DrupalPractice | on | on | on |
 | phpstan | on, level **1** | on, level 2 | on, level 6 | on, level **8** | on, **max** |
 | eslint / stylelint / prettier | — | — | — | **on** | on |
-| phpunit | **— (off by preset)** | on | on | on | on, **required** |
+| phpunit | **— (off by preset)** | on, **in_diff** | on, in_diff (`custom`: without) | on, in_diff | on, **required**, in_diff |
 | mutation | — | — | — | on, msi **60** | on, msi 80 |
 | playwright | — | — | — | **on** | on, **required** |
 | coverage | — | — | — | on, min **60** | on, min 80 |
@@ -177,7 +177,8 @@ Notes:
 - `config_clean` stays on everywhere: cheap, and a dirty config export is a
   correctness bug at any rigor.
 - `medium` is `light` unchanged, `high` is the `custom` baseline unchanged, so
-  a repo on either today keeps its behaviour under the new name.
+  a repo on either today keeps its behaviour under the new name. **Amended
+  2026-09-23:** both gained phpunit's `in_diff` (§6b), and `custom` did not.
 - The front-end trio at `xhigh`/`max`: a repo with no node toolchain reports
   tool-missing (blocks) — that is the existing gate contract, and it is correct
   at those levels. **OWNER (answered 2026-09-07): no conditional at `high`.**
@@ -203,6 +204,27 @@ you cannot complete a `max` run without regression coverage that actually
 exists and passes. It applies to the functional gates (`phpunit`, `playwright`;
 arguably `coverage`/`mutation`, whose thresholds already force existence).
 Off at every level below `max`.
+
+## 6b. `in_diff` — a test for what the run wrote (2026-09-23)
+
+`required` asks whether a suite exists. It cannot ask whether the suite tests
+this run: at `medium`, P6 runs 3 and 4 each passed phpunit on one test a
+scaffold had written two rungs earlier, and run 4 had added an importer and a
+deploy hook with no test (F-61). The green could not have failed for anything
+either run did.
+
+```yaml
+phpunit: { on: true, in_diff: true }
+```
+
+`in_diff: true` means: **a run that changes a class under `src/` must change a
+phpunit test file in the same diff**, or the test-phase audit blocks with
+`tests_in_diff` (fault: agent). A deploy hook or an `.install` file stays a
+recorded note; test support code under `tests/` is not the product; a level
+that turned phpunit off never blocks for its absence. **Owner, 2026-09-23:**
+on from `medium` up; `custom` carries no opinion beyond its file, so it does
+not get it. A presence check can be met by a trivial test. The seeker, and an
+observer's mutation case on the new code, are what catch that.
 
 ## 7. Two layers read the same frozen name
 

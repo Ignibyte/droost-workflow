@@ -37,6 +37,14 @@ change in this phase that the declaration does not cover blocks, as it would
 at code: a fix made because a test failed is still building. Re-declare with
 the whole list if the work genuinely grew, and say why in the spec.
 
+**From `medium` up, a class you wrote needs a phpunit test.** When phpunit
+carries `in_diff` (every level from `medium`), a run that changed a file under
+a module's `src/` must also change a phpunit test (`tests/…/*Test.php`), or
+the `tests_in_diff` check blocks this phase. A Playwright spec proves a
+criterion; it does not test the class. A deploy hook or an `.install` file is
+not held to this, and a test the declaration does not cover blocks like any
+other file, so declare it.
+
 `droost_verify` runs the static and test legs — **but only the ones you ask
 for**, and the default is narrower than people expect:
 

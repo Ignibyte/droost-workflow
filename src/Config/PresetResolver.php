@@ -176,7 +176,11 @@ final class PresetResolver {
    * instead of the full table, phpstan at level 2 instead of max, no
    * mutation/browser/coverage tiers, and documentation presented in chat
    * rather than recorded artefacts. Unchanged from `light` on purpose, so a
-   * repo on it today keeps its behaviour under the new name.
+   * repo on it today keeps its behaviour under the new name — with one
+   * addition, because this is the level the dial arms phpunit at: a run
+   * that writes a class under `src/` must change a phpunit test too
+   * (`in_diff`). Two medium runs added PHP, wrote no test and passed on a
+   * suite they never touched (F-61, owner 2026-09-23).
    *
    * @return \Droost\Workflow\Config\Preset
    *   The base lever set.
@@ -190,7 +194,7 @@ final class PresetResolver {
       'eslint' => new GateSettings('eslint', FALSE),
       'stylelint' => new GateSettings('stylelint', FALSE),
       'prettier' => new GateSettings('prettier', FALSE),
-      'phpunit' => new GateSettings('phpunit', TRUE),
+      'phpunit' => new GateSettings('phpunit', TRUE, ['in_diff' => TRUE]),
       'mutation' => new GateSettings('mutation', FALSE, ['msi_min' => 0]),
       'playwright' => new GateSettings('playwright', TRUE, ['required' => TRUE]),
       'coverage' => new GateSettings('coverage', FALSE, ['min' => 0]),
@@ -206,13 +210,17 @@ final class PresetResolver {
    *
    * The same gate set as the shipped `custom` baseline — a repo on that
    * baseline keeps its behaviour under the new name — with enforcement hard,
-   * because from here up the phase discipline is meant to hold.
+   * because from here up the phase discipline is meant to hold, and with
+   * phpunit's `in_diff`, which every level from medium up sets. `custom`
+   * carries no opinion beyond its file, so it does not get it.
    *
    * @return \Droost\Workflow\Config\Preset
    *   The base lever set.
    */
   private static function high(): Preset {
-    return new Preset('high', Mode::Agentic, 2, enforcement: Enforcement::Hard, gates: self::baselineGates());
+    $gates = self::baselineGates();
+    $gates['phpunit'] = new GateSettings('phpunit', TRUE, ['in_diff' => TRUE]);
+    return new Preset('high', Mode::Agentic, 2, enforcement: Enforcement::Hard, gates: $gates);
   }
 
   /**
@@ -238,7 +246,7 @@ final class PresetResolver {
       'eslint' => new GateSettings('eslint', TRUE),
       'stylelint' => new GateSettings('stylelint', TRUE),
       'prettier' => new GateSettings('prettier', TRUE),
-      'phpunit' => new GateSettings('phpunit', TRUE),
+      'phpunit' => new GateSettings('phpunit', TRUE, ['in_diff' => TRUE]),
       'mutation' => new GateSettings('mutation', TRUE, ['msi_min' => 60, 'timeout' => 1800]),
       'playwright' => new GateSettings('playwright', TRUE, ['required' => TRUE]),
       'coverage' => new GateSettings('coverage', TRUE, ['min' => 60, 'timeout' => 900]),
@@ -274,7 +282,7 @@ final class PresetResolver {
       'eslint' => new GateSettings('eslint', TRUE),
       'stylelint' => new GateSettings('stylelint', TRUE),
       'prettier' => new GateSettings('prettier', TRUE),
-      'phpunit' => new GateSettings('phpunit', TRUE, ['required' => TRUE]),
+      'phpunit' => new GateSettings('phpunit', TRUE, ['required' => TRUE, 'in_diff' => TRUE]),
       'mutation' => new GateSettings('mutation', TRUE, ['msi_min' => 80, 'timeout' => 1800]),
       'playwright' => new GateSettings('playwright', TRUE, ['required' => TRUE]),
       'coverage' => new GateSettings('coverage', TRUE, ['min' => 80, 'timeout' => 900]),

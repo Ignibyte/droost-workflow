@@ -96,11 +96,11 @@ know. Consent (the write wall, `require_run`) is not in a preset at all.
 | Level | Verification |
 |---|---|
 | **`low`** | basic static checks (phpcs, phpstan 1); **no tests**; the browser check; no wiki. Seeker off, enforcement `soft`. The one level whose base turns a mandatory gate off — allowed here and only here, because `preset: low` is one loud reviewable line, never the default; the gate is recorded `off`, never `passed`. |
-| **`medium`** | the mandatory trio with phpstan 2, the rendered check, a shorter EARS spec, docs in chat. (Formerly `light`, unchanged.) |
-| **`high`** | solid static analysis + unit tests (phpstan 6), no slow tiers; enforcement `hard`. (The shipped `custom` gate set, named on the dial.) |
+| **`medium`** | the mandatory trio with phpstan 2, the rendered check, a shorter EARS spec, docs in chat. From here up phpunit carries **`in_diff`**: a run that changes a class under `src/` must change a phpunit test too, or the test phase blocks (`tests_in_diff`). (Formerly `light`, plus `in_diff`.) |
+| **`high`** | solid static analysis + unit tests (phpstan 6), no slow tiers; enforcement `hard`. (The shipped `custom` gate set, named on the dial, plus `in_diff`.) |
 | **`xhigh`** | + coverage and mutation at 60, the front-end trio, phpstan 8. |
 | **`max`** | everything on, strict — phpstan max, mutation 80, coverage 80 — and tests **required to exist**: `phpunit` and `playwright` carry `required: true`, so a missing or empty suite is a *failure*, not a labelled pass. (Formerly `factory`, plus `required`.) |
-| **`custom`** | not a point on the dial: "no opinion — my `gates:` block is the truth", the spelled-out baseline `init` writes so choosing it is visible in a diff. Same gates as `high`. |
+| **`custom`** | not a point on the dial: "no opinion — my `gates:` block is the truth", the spelled-out baseline `init` writes so choosing it is visible in a diff. Same gates as `high`, without `in_diff`. |
 
 `factory` and `light` still load as **aliases** of `max` and `medium` — the run
 records the canonical name and a notice says so. (`fast` was retired in 0.3

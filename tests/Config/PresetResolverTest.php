@@ -45,8 +45,9 @@ class PresetResolverTest extends TestCase {
    */
   public static function presetTable(): array {
     $standard = 'Drupal,DrupalPractice';
-    // Custom and high share the shipped baseline; medium is light unchanged;
-    // max is factory plus `required`. Only low and xhigh are new points.
+    // Custom and high share the shipped baseline, except that from medium up
+    // phpunit demands a test for the classes a run writes (`in_diff`, F-61);
+    // max adds `required`. Only low and xhigh are new points.
     $baseline = [
       'phpcs' => ['on' => TRUE, 'standard' => $standard],
       'phpstan' => ['on' => TRUE, 'level' => 6],
@@ -62,6 +63,8 @@ class PresetResolverTest extends TestCase {
       'grounding_check' => ['on' => TRUE],
       'wiki_fresh' => ['on' => TRUE],
     ];
+    $high = $baseline;
+    $high['phpunit'] = ['on' => TRUE, 'in_diff' => TRUE];
     $low = [
       'phpcs' => ['on' => TRUE, 'standard' => 'Drupal'],
       'phpstan' => ['on' => TRUE, 'level' => 1],
@@ -83,7 +86,7 @@ class PresetResolverTest extends TestCase {
       'eslint' => ['on' => FALSE],
       'stylelint' => ['on' => FALSE],
       'prettier' => ['on' => FALSE],
-      'phpunit' => ['on' => TRUE],
+      'phpunit' => ['on' => TRUE, 'in_diff' => TRUE],
       'mutation' => ['on' => FALSE, 'msi_min' => 0],
       'playwright' => ['on' => TRUE, 'required' => TRUE],
       'coverage' => ['on' => FALSE, 'min' => 0],
@@ -98,7 +101,7 @@ class PresetResolverTest extends TestCase {
       'eslint' => ['on' => TRUE],
       'stylelint' => ['on' => TRUE],
       'prettier' => ['on' => TRUE],
-      'phpunit' => ['on' => TRUE],
+      'phpunit' => ['on' => TRUE, 'in_diff' => TRUE],
       'mutation' => ['on' => TRUE, 'msi_min' => 60, 'timeout' => 1800],
       'playwright' => ['on' => TRUE, 'required' => TRUE],
       'coverage' => ['on' => TRUE, 'min' => 60, 'timeout' => 900],
@@ -113,7 +116,7 @@ class PresetResolverTest extends TestCase {
       'eslint' => ['on' => TRUE],
       'stylelint' => ['on' => TRUE],
       'prettier' => ['on' => TRUE],
-      'phpunit' => ['on' => TRUE, 'required' => TRUE],
+      'phpunit' => ['on' => TRUE, 'required' => TRUE, 'in_diff' => TRUE],
       'mutation' => ['on' => TRUE, 'msi_min' => 80, 'timeout' => 1800],
       'playwright' => ['on' => TRUE, 'required' => TRUE],
       'coverage' => ['on' => TRUE, 'min' => 80, 'timeout' => 900],
@@ -126,7 +129,7 @@ class PresetResolverTest extends TestCase {
       'custom' => ['custom', $baseline],
       'low' => ['low', $low],
       'medium' => ['medium', $medium],
-      'high' => ['high', $baseline],
+      'high' => ['high', $high],
       'xhigh' => ['xhigh', $xhigh],
       'max' => ['max', $max],
       // The aliases resolve to their canonical set, byte for byte.

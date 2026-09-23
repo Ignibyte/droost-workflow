@@ -8,6 +8,7 @@ use Droost\Workflow\Evidence\CheckRecord;
 use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\Evidence\DeclarationAudit;
 use Droost\Workflow\Evidence\EvidenceStore;
+use Droost\Workflow\Evidence\Fault;
 use Droost\Workflow\Evidence\WorkType;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -182,6 +183,71 @@ final class DeclarationHistoryTest extends TestCase {
   }
 
   /**
+   * Where the level demands it, classes the run wrote need a phpunit test.
+   *
+   * F-61's forcing half (owner, 2026-09-23): two `medium` rungs added PHP,
+   * wrote no phpunit test, and passed. With `gates.phpunit.in_diff` a change
+   * under `src/` and no test file in the diff blocks the test phase.
+   */
+  public function testLevelDemandsTestForClassesTheRunWrote(): void {
+    $changed = [
+      'web/modules/custom/example_contact/src/Hook/ContactHooks.php',
+      'config/sync/webform.webform.contact.yml',
+    ];
+    $declared = ['web/modules/custom/example_contact', 'config/sync'];
+
+    $untested = new DeclarationAudit($declared, [], $changed, NULL, ['phpcs', 'phpunit'], testsInDiff: TRUE);
+    $row = $this->checkAt($untested, 'test', 'tests_in_diff');
+    $this->assertNotNull($row);
+    $this->assertSame(CheckState::Blocked, $row->state);
+    $this->assertSame(Fault::Agent, $row->fault);
+    $this->assertStringContainsString('ContactHooks.php', $row->summary);
+    $this->assertStringContainsString('gates.phpunit.in_diff', $row->summary);
+
+    // No suite at all is exactly when a test is due, so a phpunit that
+    // measured nothing does not excuse the demand.
+    $noSuite = new DeclarationAudit($declared, [], $changed, NULL, ['phpcs'], testsInDiff: TRUE);
+    $this->assertSame(CheckState::Blocked, $this->checkAt($noSuite, 'test', 'tests_in_diff')?->state);
+
+    $withTest = [...$changed, 'web/modules/custom/example_contact/tests/src/Kernel/ContactHooksTest.php'];
+    $tested = new DeclarationAudit($declared, [], $withTest, NULL, ['phpcs', 'phpunit'], testsInDiff: TRUE);
+    $satisfied = $this->checkAt($tested, 'test', 'tests_in_diff');
+    $this->assertNotNull($satisfied);
+    $this->assertSame(CheckState::Satisfied, $satisfied->state);
+    $this->assertStringContainsString('ContactHooksTest.php', $satisfied->summary);
+
+    // A level that turned phpunit off never blocks for its absence, and the
+    // code phase is too early to ask.
+    $off = new DeclarationAudit($declared, [], $changed, NULL, ['phpcs'], ['phpunit'], testsInDiff: TRUE);
+    $this->assertNull($this->checkAt($off, 'test', 'tests_in_diff'));
+    $this->assertNull($this->checkAt($untested, 'code', 'tests_in_diff'));
+  }
+
+  /**
+   * The demand covers classes under src/, and says when there were none.
+   *
+   * A deploy hook or an .install file stays the recorded note it was, and a
+   * run that wrote no class gets a row saying the lever had nothing to ask.
+   */
+  public function testDemandCoversOnlyClassesUnderSrc(): void {
+    $declared = ['web/modules/custom/example_directory', 'config/sync'];
+
+    $hook = ['web/modules/custom/example_directory/example_directory.deploy.php'];
+    $deploy = new DeclarationAudit($declared, [], $hook, NULL, ['phpcs', 'phpunit'], testsInDiff: TRUE);
+    $this->assertSame(CheckState::Recorded, $this->checkAt($deploy, 'test', 'tests_in_diff')?->state);
+
+    $support = ['web/modules/custom/example_directory/tests/src/Traits/SeedTrait.php', 'config/sync/node.type.a.yml'];
+    $trait = new DeclarationAudit($declared, [], $support, NULL, ['phpcs', 'phpunit'], testsInDiff: TRUE);
+    $this->assertSame(CheckState::NotApplicable, $this->checkAt($trait, 'test', 'tests_in_diff')?->state, 'test support code is not a class the run must test');
+
+    $config = new DeclarationAudit($declared, [], ['config/sync/node.type.a.yml'], NULL, ['phpcs', 'phpunit'], testsInDiff: TRUE);
+    $none = $this->checkAt($config, 'test', 'tests_in_diff');
+    $this->assertNotNull($none);
+    $this->assertSame(CheckState::NotApplicable, $none->state);
+    $this->assertFalse($none->state->blocksAdvance());
+  }
+
+  /**
    * The store keeps the first declaration when a later one replaces it.
    */
   public function testRedeclaringKeepsTheFirstDeclaration(): void {
@@ -221,6 +287,28 @@ final class DeclarationHistoryTest extends TestCase {
     $upgraded->supersedeDeclarations('r1', 'file', '2026-09-23T13:52:47+10:00');
     $this->assertSame([], $upgraded->declared('r1', 'file'), 'and can be superseded');
     $this->assertSame(['src'], $upgraded->firstDeclaration('r1', 'file')['values']);
+  }
+
+  /**
+   * One named check at a phase, or NULL when that phase does not emit it.
+   *
+   * @param \Droost\Workflow\Evidence\DeclarationAudit $audit
+   *   The audit.
+   * @param string $phase
+   *   The phase asked.
+   * @param string $name
+   *   The check's name.
+   *
+   * @return \Droost\Workflow\Evidence\CheckRecord|null
+   *   The check.
+   */
+  private function checkAt(DeclarationAudit $audit, string $phase, string $name): ?CheckRecord {
+    foreach ($audit->checks($phase) as $check) {
+      if ($check->name === $name) {
+        return $check;
+      }
+    }
+    return NULL;
   }
 
   /**

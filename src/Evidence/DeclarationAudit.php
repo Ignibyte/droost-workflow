@@ -221,6 +221,10 @@ final class DeclarationAudit {
    *   transcription of the finished diff (F-54).
    * @param string|null $firstDeclaredAt
    *   When the first declaration was made, ISO-8601.
+   * @param bool $testsInDiff
+   *   Whether the level demands a phpunit test for the classes the run wrote
+   *   (`gates.phpunit.in_diff`, set from `medium` up). Without it the check
+   *   below only records what a phpunit green was about.
    */
   public function __construct(
     private readonly array $declaredFiles,
@@ -233,6 +237,7 @@ final class DeclarationAudit {
     private readonly bool $diffVisible = TRUE,
     private readonly ?array $firstDeclaredFiles = NULL,
     private readonly ?string $firstDeclaredAt = NULL,
+    private readonly bool $testsInDiff = FALSE,
   ) {}
 
   /**
@@ -637,14 +642,54 @@ final class DeclarationAudit {
     // Whether a level should demand a test in the diff is a policy the
     // operator sets, and the pack allows a Playwright spec as a criterion's
     // proof. What this refuses is a green that reads as coverage of the run.
-    if ($coverageIsDue && $phase !== 'code' && $this->diffVisible && in_array('phpunit', $this->measuredGates, TRUE)) {
+    //
+    // AND WHERE THE LEVEL SAYS SO, A DEMAND (F-61's forcing half, owner
+    // 2026-09-23). With `gates.phpunit.in_diff`, which medium and up set, a run
+    // that changed a class under `src/` and no phpunit test is BLOCKED here.
+    // `src/` is the line because that is where a module's classes live,
+    // Drupal 11 hooks included; a deploy hook or an .install file stays the
+    // recorded note. It asks whether phpunit measured nothing too, since a
+    // site with no suite yet is exactly where the first test is due. A level
+    // that turned phpunit off never blocks for its absence.
+    if ($coverageIsDue && $phase !== 'code' && $this->diffVisible) {
       $subject = array_values(array_filter($this->changedFiles, fn (string $file): bool => !$this->exempt($file)));
       $tests = array_values(array_filter($subject, static fn (string $file): bool => self::isTestFile($file)));
       $php = array_values(array_filter(
         $subject,
-        static fn (string $file): bool => preg_match('/\.(php|module|inc|install|theme)$/', $file) === 1 && !self::isTestFile($file),
+        static fn (string $file): bool => preg_match('/\.(php|module|inc|install|theme)$/', $file) === 1 && !self::isTestCode($file),
       ));
-      if ($php !== [] && $tests === []) {
+      $classes = array_values(array_filter($php, static fn (string $file): bool => self::isClassFile($file)));
+      $demanded = $this->testsInDiff && !in_array('phpunit', $this->gatesOff, TRUE);
+      if ($demanded && $classes !== []) {
+        $checks[] = $tests === []
+          ? new CheckRecord(
+            'declaration',
+            'tests_in_diff',
+            CheckState::Blocked,
+            Fault::Agent,
+            sprintf(
+              'This level requires a phpunit test for the code the run wrote (gates.phpunit.in_diff): '
+              . '%d file(s) under src/ changed (%s) and no phpunit test file did. Write a test under '
+              . 'tests/ (a *Test.php) that exercises them, then run the test phase again. A browser '
+              . 'spec proves a criterion; it does not test these classes.',
+              count($classes),
+              self::someOf($classes),
+            ),
+          )
+          : new CheckRecord(
+            'declaration',
+            'tests_in_diff',
+            CheckState::Satisfied,
+            Fault::None,
+            sprintf(
+              '%d phpunit test file(s) changed alongside %d file(s) under src/: %s',
+              count($tests),
+              count($classes),
+              self::someOf($tests),
+            ),
+          );
+      }
+      elseif (in_array('phpunit', $this->measuredGates, TRUE) && $php !== [] && $tests === []) {
         $checks[] = new CheckRecord(
           'declaration',
           'tests_in_diff',
@@ -657,6 +702,15 @@ final class DeclarationAudit {
             count($php),
             self::someOf($php),
           ),
+        );
+      }
+      elseif ($demanded && $classes === []) {
+        $checks[] = new CheckRecord(
+          'declaration',
+          'tests_in_diff',
+          CheckState::NotApplicable,
+          Fault::None,
+          'No file under src/ changed, so gates.phpunit.in_diff had no class to require a test for.',
         );
       }
     }
@@ -675,6 +729,34 @@ final class DeclarationAudit {
    */
   private static function isTestFile(string $file): bool {
     return preg_match('#(^|/)tests/.*Test\.php$#', self::normalise($file)) === 1;
+  }
+
+  /**
+   * Whether a path is a class the run wrote, which `in_diff` wants tested.
+   *
+   * @param string $file
+   *   The changed path.
+   *
+   * @return bool
+   *   TRUE for a `.php` file under a `src/` directory, outside `tests/`:
+   *   `tests/src/Traits/…` is test support code, not the product.
+   */
+  private static function isClassFile(string $file): bool {
+    $path = self::normalise($file);
+    return preg_match('#(^|/)src/.+\.php$#', $path) === 1 && !self::isTestCode($path);
+  }
+
+  /**
+   * Whether a path is test code of any kind: a test, a trait, a fixture.
+   *
+   * @param string $file
+   *   The changed path.
+   *
+   * @return bool
+   *   TRUE for anything under a `tests/` directory.
+   */
+  private static function isTestCode(string $file): bool {
+    return preg_match('#(^|/)tests/#', self::normalise($file)) === 1;
   }
 
   /**

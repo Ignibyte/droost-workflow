@@ -120,6 +120,7 @@ final class EffortChange {
       }
       $parts[] = match ($option) {
         'required' => $value === TRUE ? 'required to exist' : 'not required to exist',
+        'in_diff' => $value === TRUE ? 'a test in any diff that changes src/' : 'no test demanded of a diff',
         'msi_min' => 'msi ≥ ' . self::render($value),
         'timeout' => 'timeout ' . self::render($value) . 's',
         default => $option . ' ' . self::render($value),
