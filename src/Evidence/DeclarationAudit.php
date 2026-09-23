@@ -628,8 +628,53 @@ final class DeclarationAudit {
           ),
       );
     }
+    // WHAT THE PHPUNIT GREEN WAS ABOUT. The gate records a count and nothing
+    // else, so "phpunit passed — 1 test(s)" reads the same whether the suite
+    // tests this run's code or predates it entirely. In P6 runs 3 and 4 it was
+    // the second, at `medium`, the level the ladder arms phpunit for: neither
+    // run wrote a phpunit test, run 4 added an importer, and the one test that
+    // ran was a T1 scaffold's attribute check. RECORDED, never blocking.
+    // Whether a level should demand a test in the diff is a policy the
+    // operator sets, and the pack allows a Playwright spec as a criterion's
+    // proof. What this refuses is a green that reads as coverage of the run.
+    if ($coverageIsDue && $phase !== 'code' && $this->diffVisible && in_array('phpunit', $this->measuredGates, TRUE)) {
+      $subject = array_values(array_filter($this->changedFiles, fn (string $file): bool => !$this->exempt($file)));
+      $tests = array_values(array_filter($subject, static fn (string $file): bool => self::isTestFile($file)));
+      $php = array_values(array_filter(
+        $subject,
+        static fn (string $file): bool => preg_match('/\.(php|module|inc|install|theme)$/', $file) === 1 && !self::isTestFile($file),
+      ));
+      if ($php !== [] && $tests === []) {
+        $checks[] = new CheckRecord(
+          'declaration',
+          'tests_in_diff',
+          CheckState::Recorded,
+          Fault::None,
+          sprintf(
+            'phpunit passed over tests this run did not touch: %d PHP file(s) changed (%s) and no '
+            . 'phpunit test file did, so its green is a regression pass over tests that predate the '
+            . 'run, not a test of this code.',
+            count($php),
+            self::someOf($php),
+          ),
+        );
+      }
+    }
 
     return $checks;
+  }
+
+  /**
+   * Whether a path is a PHPUnit test file.
+   *
+   * @param string $file
+   *   The changed path.
+   *
+   * @return bool
+   *   TRUE for a `*Test.php` under a `tests/` directory.
+   */
+  private static function isTestFile(string $file): bool {
+    return preg_match('#(^|/)tests/.*Test\.php$#', self::normalise($file)) === 1;
   }
 
   /**

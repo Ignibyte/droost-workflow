@@ -149,6 +149,39 @@ final class DeclarationHistoryTest extends TestCase {
   }
 
   /**
+   * A phpunit pass over a suite the run did not touch says so.
+   *
+   * In P6 runs 3 and 4, at `medium`, phpunit passed on one test, a T1
+   * scaffold's attribute check. Run 4 had added an importer and no test, and
+   * the record read "phpunit passed — 1 test(s)" either way.
+   */
+  public function testPhpunitPassOverAnUntouchedSuiteIsRecorded(): void {
+    $changed = ['web/modules/custom/example_directory/src/Importer.php', 'config/sync/node.type.a.yml'];
+    $declared = ['web/modules/custom/example_directory', 'config/sync'];
+
+    $untested = new DeclarationAudit($declared, [], $changed, NULL, ['phpcs', 'phpunit']);
+    $row = NULL;
+    foreach ($untested->checks('test') as $check) {
+      if ($check->name === 'tests_in_diff') {
+        $row = $check;
+      }
+    }
+    $this->assertNotNull($row, 'the test phase records what the green was about');
+    $this->assertSame(CheckState::Recorded, $row->state);
+    $this->assertFalse($row->state->blocksAdvance());
+    $this->assertStringContainsString('Importer.php', (string) $row->summary);
+
+    $withTest = [...$changed, 'web/modules/custom/example_directory/tests/src/Kernel/ImporterTest.php'];
+    $tested = new DeclarationAudit($declared, [], $withTest, NULL, ['phpcs', 'phpunit']);
+    $unmeasured = new DeclarationAudit($declared, [], $changed, NULL, ['phpcs']);
+    foreach ([$tested, $unmeasured] as $audit) {
+      foreach ($audit->checks('test') as $check) {
+        $this->assertNotSame('tests_in_diff', $check->name, 'silent when a test changed, or when phpunit measured nothing');
+      }
+    }
+  }
+
+  /**
    * The store keeps the first declaration when a later one replaces it.
    */
   public function testRedeclaringKeepsTheFirstDeclaration(): void {
