@@ -1,8 +1,9 @@
 # Using droost from the workflow
 
 [droost](https://www.drupal.org/project/droost) is what the agent knows about
-Drupal; this workflow is how it works. Every phase leans on it, and every
-phase has to cope with it being unavailable.
+this site — its code, its structure, its live state; this workflow is how it
+works. Every phase leans on it, and every phase has to cope with it being
+unavailable.
 
 ## The one thing to understand: no site, no droost
 
