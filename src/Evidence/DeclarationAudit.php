@@ -225,6 +225,10 @@ final class DeclarationAudit {
    *   Whether the level demands a phpunit test for the classes the run wrote
    *   (`gates.phpunit.in_diff`, set from `medium` up). Without it the check
    *   below only records what a phpunit green was about.
+   * @param list<string> $untouchedScaffolds
+   *   Project-relative files a scaffold wrote that still hold exactly what it
+   *   wrote (ScaffoldRecord::untouched()). A test among them is the
+   *   generator's, not the run's, so it does not meet the demand (F-65).
    */
   public function __construct(
     private readonly array $declaredFiles,
@@ -238,6 +242,7 @@ final class DeclarationAudit {
     private readonly ?array $firstDeclaredFiles = NULL,
     private readonly ?string $firstDeclaredAt = NULL,
     private readonly bool $testsInDiff = FALSE,
+    private readonly array $untouchedScaffolds = [],
   ) {}
 
   /**
@@ -651,9 +656,23 @@ final class DeclarationAudit {
     // recorded note. It asks whether phpunit measured nothing too, since a
     // site with no suite yet is exactly where the first test is due. A level
     // that turned phpunit off never blocks for its absence.
+    //
+    // A TEST THE SCAFFOLD WROTE IS NOT THE RUN'S TEST (F-65). droost's hook
+    // blueprint writes a reflection check for every hook class, so counting
+    // test FILES met the demand the moment a hook was scaffolded. A test file
+    // still byte-identical to what a scaffold wrote is set aside, named, and
+    // counts for nothing; one edit makes it the run's.
     if ($coverageIsDue && $phase !== 'code' && $this->diffVisible) {
       $subject = array_values(array_filter($this->changedFiles, fn (string $file): bool => !$this->exempt($file)));
-      $tests = array_values(array_filter($subject, static fn (string $file): bool => self::isTestFile($file)));
+      $untouched = array_map(self::normalise(...), $this->untouchedScaffolds);
+      $anyTests = array_values(array_filter($subject, static fn (string $file): bool => self::isTestFile($file)));
+      $generated = array_values(array_filter($anyTests, static fn (string $file): bool => in_array(self::normalise($file), $untouched, TRUE)));
+      $tests = array_values(array_diff($anyTests, $generated));
+      $setAside = $generated === [] ? '' : sprintf(
+        ' %d test file(s) are still exactly what droost\'s scaffold wrote and count for nothing: %s.',
+        count($generated),
+        self::someOf($generated),
+      );
       $php = array_values(array_filter(
         $subject,
         static fn (string $file): bool => preg_match('/\.(php|module|inc|install|theme)$/', $file) === 1 && !self::isTestCode($file),
@@ -669,11 +688,13 @@ final class DeclarationAudit {
             Fault::Agent,
             sprintf(
               'This level requires a phpunit test for the code the run wrote (gates.phpunit.in_diff): '
-              . '%d file(s) under src/ changed (%s) and no phpunit test file did. Write a test under '
-              . 'tests/ (a *Test.php) that exercises them, then run the test phase again. A browser '
-              . 'spec proves a criterion; it does not test these classes.',
+              . '%d file(s) under src/ changed (%s) and no phpunit test file the run wrote did.%s Write a '
+              . 'test under tests/ (a *Test.php) that exercises them, or edit a generated one until it '
+              . 'does, then run the test phase again. A browser spec proves a criterion; it does not '
+              . 'test these classes.',
               count($classes),
               self::someOf($classes),
+              $setAside,
             ),
           )
           : new CheckRecord(
@@ -682,10 +703,11 @@ final class DeclarationAudit {
             CheckState::Satisfied,
             Fault::None,
             sprintf(
-              '%d phpunit test file(s) changed alongside %d file(s) under src/: %s',
+              '%d phpunit test file(s) changed alongside %d file(s) under src/: %s.%s',
               count($tests),
               count($classes),
               self::someOf($tests),
+              $setAside,
             ),
           );
       }
@@ -696,11 +718,12 @@ final class DeclarationAudit {
           CheckState::Recorded,
           Fault::None,
           sprintf(
-            'phpunit passed over tests this run did not touch: %d PHP file(s) changed (%s) and no '
-            . 'phpunit test file did, so its green is a regression pass over tests that predate the '
-            . 'run, not a test of this code.',
+            'phpunit passed over tests this run did not write: %d PHP file(s) changed (%s) and no '
+            . 'phpunit test file the run wrote did, so its green is a regression pass over tests '
+            . 'that predate the run, or that a scaffold generated, not a test of this code.%s',
             count($php),
             self::someOf($php),
+            $setAside,
           ),
         );
       }

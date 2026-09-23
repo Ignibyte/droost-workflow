@@ -45,6 +45,12 @@ criterion; it does not test the class. A deploy hook or an `.install` file is
 not held to this, and a test the declaration does not cover blocks like any
 other file, so declare it.
 
+**A test droost's scaffold wrote does not count until you change it.** The
+hook blueprint's test checks that the `#[Hook]` attribute is there, and a
+kernel-test skeleton checks nothing yet. Neither tests what your code does,
+so a test file still exactly as the scaffold wrote it is set aside by name.
+Make it exercise the class, or write your own.
+
 `droost_verify` runs the static and test legs — **but only the ones you ask
 for**, and the default is narrower than people expect:
 

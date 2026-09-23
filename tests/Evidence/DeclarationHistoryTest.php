@@ -224,6 +224,47 @@ final class DeclarationHistoryTest extends TestCase {
   }
 
   /**
+   * A test the scaffold wrote, left as it wrote it, does not meet the demand.
+   *
+   * F-65: in P6 run 5 the hook blueprint's reflection check, written for every
+   * hook class it scaffolds, satisfied the demand the moment the hooks were
+   * scaffolded. The record of what the scaffold wrote sets such a test aside,
+   * by name, and an edited one counts again.
+   */
+  public function testUntouchedScaffoldedTestDoesNotMeetTheDemand(): void {
+    $generated = 'web/modules/custom/example_contact/tests/src/Unit/Hook/ContactHooksTest.php';
+    $changed = ['web/modules/custom/example_contact/src/Hook/ContactHooks.php', $generated];
+    $declared = ['web/modules/custom/example_contact'];
+
+    $boilerplate = new DeclarationAudit($declared, [], $changed, NULL, ['phpcs', 'phpunit'], testsInDiff: TRUE, untouchedScaffolds: [$generated]);
+    $row = $this->checkAt($boilerplate, 'test', 'tests_in_diff');
+    $this->assertNotNull($row);
+    $this->assertSame(CheckState::Blocked, $row->state, 'a generated test is not the run\'s test');
+    $this->assertStringContainsString('ContactHooks.php', $row->summary);
+    $this->assertStringContainsString('still exactly what droost\'s scaffold wrote', $row->summary);
+    $this->assertStringContainsString('ContactHooksTest.php', $row->summary, 'the set-aside file is named');
+
+    $edited = new DeclarationAudit($declared, [], $changed, NULL, ['phpcs', 'phpunit'], testsInDiff: TRUE, untouchedScaffolds: []);
+    $this->assertSame(CheckState::Satisfied, $this->checkAt($edited, 'test', 'tests_in_diff')?->state, 'an edited scaffold test counts');
+
+    $written = [...$changed, 'web/modules/custom/example_contact/tests/src/Kernel/RecipientTest.php'];
+    $both = new DeclarationAudit($declared, [], $written, NULL, ['phpcs', 'phpunit'], testsInDiff: TRUE, untouchedScaffolds: ['./' . $generated]);
+    $mixed = $this->checkAt($both, 'test', 'tests_in_diff');
+    $this->assertNotNull($mixed);
+    $this->assertSame(CheckState::Satisfied, $mixed->state);
+    $this->assertStringContainsString('1 phpunit test file(s) changed', $mixed->summary, 'only the run\'s own test is counted');
+    $this->assertStringContainsString('RecipientTest.php', $mixed->summary);
+    $this->assertStringContainsString('1 test file(s) are still exactly what', $mixed->summary);
+
+    // Where the level does not demand a test, the recorded note says the same.
+    $low = new DeclarationAudit($declared, [], $changed, NULL, ['phpcs', 'phpunit'], untouchedScaffolds: [$generated]);
+    $note = $this->checkAt($low, 'test', 'tests_in_diff');
+    $this->assertNotNull($note);
+    $this->assertSame(CheckState::Recorded, $note->state);
+    $this->assertStringContainsString('a scaffold generated', $note->summary);
+  }
+
+  /**
    * The demand covers classes under src/, and says when there were none.
    *
    * A deploy hook or an .install file stays the recorded note it was, and a

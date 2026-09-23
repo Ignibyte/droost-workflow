@@ -227,6 +227,16 @@ on from `medium` up; `custom` carries no opinion beyond its file, so it does
 not get it. A presence check can be met by a trivial test. The seeker, and an
 observer's mutation case on the new code, are what catch that.
 
+**Not by a generated one (F-65, 2026-09-23).** P6 run 5 met the demand with
+the tests droost's hook blueprint writes: a reflection check that the
+`#[Hook]` attribute is present, one per scaffolded hook class, which existed
+before the agent had written a line and could not fail after. droost now
+records every file a blueprint writes, with its hash, in `scaffolded.jsonl`
+beside the tool-call ledger. The audit sets aside, by name, any changed test
+whose content still hashes to what the scaffold wrote. One edit makes it the
+run's, and `reset` archives the record with the two ledgers. The owner's
+call stands as it was: it is still a demand for a test, not for a good one.
+
 ## 6c. `cover_diff` — a page for what the run changed (2026-09-23)
 
 `droost:wiki:status` fails on a stale, orphaned or invalid page, and names an

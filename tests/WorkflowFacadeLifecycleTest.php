@@ -172,6 +172,10 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
     $state = $root . '/droost/droost-workflow';
     file_put_contents($state . '/tool-calls.jsonl', json_encode(['tool' => 'droost_search', 'outcome' => 'ok']) . "\n");
     file_put_contents($state . '/guard-calls.jsonl', json_encode(['mode' => 'pre-tool-use', 'verdict' => 'invoked']) . "\n");
+    // And the scaffold's record of what it wrote (F-65), which a next run
+    // must not inherit either.
+    $scaffolded = ['path' => 'm/tests/src/Unit/ATest.php', 'hash' => 'sha256:0'];
+    file_put_contents($state . '/scaffolded.jsonl', json_encode($scaffolded) . "\n");
 
     $archived = $this->facade($executor)->reset($root);
 
@@ -189,6 +193,8 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
     $this->assertFileDoesNotExist($state . '/guard-calls.jsonl', 'nor does the guard ledger');
     $this->assertFileExists($base . '.tool-calls.jsonl', 'it is archived beside the record, same base name');
     $this->assertFileExists($base . '.guard-calls.jsonl');
+    $this->assertFileDoesNotExist($state . '/scaffolded.jsonl', 'nor does the scaffold record');
+    $this->assertFileExists($base . '.scaffolded.jsonl');
     $this->assertStringContainsString(
       'droost_search',
       (string) file_get_contents($base . '.tool-calls.jsonl'),

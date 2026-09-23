@@ -26,6 +26,7 @@ use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\Evidence\DeclarationAudit;
 use Droost\Workflow\Evidence\EvaluationReport;
 use Droost\Workflow\Evidence\EvidenceStore;
+use Droost\Workflow\Evidence\ScaffoldRecord;
 use Droost\Workflow\Evidence\Fault;
 use Droost\Workflow\Evidence\SpecFreeze;
 use Droost\Workflow\Evidence\SubjectHasher;
@@ -1049,7 +1050,7 @@ final class WorkflowFacade {
     if (@rename($path, $target) === FALSE) {
       throw StateError::archiveFailed($target, 'the record could not be moved');
     }
-    // The two append-only ledgers go into history beside the run they belong
+    // The append-only ledgers go into history beside the run they belong
     // to. They used to stay put: `tool-calls.jsonl` outlived every reset, its
     // rows carried no run id, and the next run's ingest — a count watermark
     // from zero — took the whole file as its own. Measured: round two of a
@@ -1057,7 +1058,9 @@ final class WorkflowFacade {
     // "the plan named a tool that was never called" drift check was satisfied
     // by the previous round having called it (F-6). Same base name as the
     // record, same collision suffix, so history/<run>.* is one complete run.
-    foreach (['tool-calls.jsonl', 'guard-calls.jsonl'] as $ledger) {
+    // The scaffold's record of what it wrote goes with them, for the same
+    // reason: the next run must not inherit this run's generated files (F-65).
+    foreach (['tool-calls.jsonl', 'guard-calls.jsonl', ScaffoldRecord::FILE] as $ledger) {
       $source = $stateDir . '/' . $ledger;
       if (!is_file($source)) {
         continue;
@@ -2364,6 +2367,13 @@ final class WorkflowFacade {
         // The level's demand that the run test what it wrote (F-61), read
         // from the levers frozen when the run began.
         testsInDiff: ($state->resolvedGates['phpunit']['in_diff'] ?? FALSE) === TRUE,
+        // The scaffold's own files, still as it wrote them: a generated test
+        // is not the run's test (F-65).
+        untouchedScaffolds: ScaffoldRecord::untouched(
+          $projectRoot,
+          (new RunStateStore($projectRoot))->directory(),
+          $state->runId,
+        ),
       );
       $blocked = FALSE;
       $emitted = [];
