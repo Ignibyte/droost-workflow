@@ -96,8 +96,8 @@ hand-written-what-a-generator-covers are graded identically at every level;
    `yml:links:menu` and `controller` exist, and a live round hand-wrote all
    three), is drift: cite the row and the generator by name. This is
    **MEDIUM at minimum** when the row itself declared a scaffold surface —
-   the plan was right and the hands ignored it (a live round declared
-   `droost_scaffold blueprint=event-subscriber`, then wrote the whole file
+   the plan was right and the hands ignored it (a live round declared a
+   scaffold surface for its event subscriber, then wrote the whole file
    through a shell heredoc). Whole files written via `cat <<` into
    modules/custom are the tell; editing a scaffolded skeleton's method
    bodies with file tools is the sanctioned shape and is NOT this finding.

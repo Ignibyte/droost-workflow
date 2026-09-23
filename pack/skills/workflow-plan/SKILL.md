@@ -127,9 +127,17 @@ Then produce the spec:
    last — hand-written, WITH the reason stated on the same line.
 
    **Droost extends drush; it never competes with it** (owner ruling,
-   2026-09-01). Droost ships blueprints only for what drush's generators do
-   not cover, so "droost has no blueprint for this" is the EXPECTED state
-   for many constructs and is never, by itself, a reason to hand-write.
+   2026-09-01). Droost ships blueprints only where drush's generators stop
+   short: constructs drush has no generator for (an access handler, a
+   plugin deriver, a media source, a CKEditor 5 plugin, a recipe, an MCP
+   tool), and ones whose drush template leaves out what the construct needs
+   (an OOP `#[Hook]` class, a module SDC, a Views filter or sort with its
+   registration, config schema, kernel and functional tests, migrations).
+   Services, forms, blocks, event subscribers, entity types, drush commands
+   and most plugin types are `drush generate`'s, and asking `droost_scaffold`
+   for one returns the generator's name, not a file. So "droost has no
+   blueprint for this" is the EXPECTED state for most constructs and is
+   never, by itself, a reason to hand-write.
    Ask the map instead of eyeballing two lists: `droost_decide
    graph=build-surface query="<construct>"` returns the resolved surface —
    the droost tool or blueprint, the exact `drush generate` command, or an

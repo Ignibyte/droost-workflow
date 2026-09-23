@@ -89,8 +89,15 @@ structure is consistent structure, and the generator already knows the
 conventions you would have to remember. Every tool below needs a booted
 site, `droost_scaffold` included:
 
-- `droost_scaffold` — modules, plugins, services, tests, the shapes a Drupal
-  module is made of.
+- `drush generate` — modules, services, forms, blocks and most other plugin
+  types, event subscribers, entity types. Run it bare to list what this
+  site's drush offers.
+- `droost_scaffold` — where drush stops short: `#[Hook]` classes, SDCs,
+  Views filters and sorts, config schema, kernel and functional tests,
+  migrations, access handlers, plugin derivers, media sources, CKEditor 5
+  plugins, recipes, MCP tools.
+- `droost_decide graph=build-surface query="<construct>"` — which of the
+  two builds a construct, when the lists above do not settle it.
 - `droost_structure_create` — content types, fields, bundles.
 - `droost_entity_create` / `droost_entity_update` — content.
 - `droost_config_set` — configuration.
