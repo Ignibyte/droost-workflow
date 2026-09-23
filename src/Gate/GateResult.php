@@ -180,6 +180,23 @@ final class GateResult {
   }
 
   /**
+   * This result with its summary replaced, everything else kept.
+   *
+   * For a note added after the tool ran, such as the levers the runner re-read
+   * at gate time. The note used to be added by rebuilding the result from
+   * eleven positional arguments, which dropped every field after them (F-64).
+   *
+   * @param string $summary
+   *   The new summary.
+   *
+   * @return self
+   *   The result.
+   */
+  public function withSummary(string $summary): self {
+    return $this->rebuilt(summary: $summary);
+  }
+
+  /**
    * This result with a different verdict, everything else kept.
    *
    * For a judgement made after the tool ran, over what it reported: the
@@ -200,6 +217,26 @@ final class GateResult {
   }
 
   /**
+   * This result demoted to another status, remembering the one it had.
+   *
+   * Report mode's move: a failure becomes Reported, and `demotedFrom` keeps
+   * what the tool actually concluded, so a tool that never ran still reads
+   * as unmeasured. It rebuilt the result by hand and lost the captured output
+   * on the way (F-64).
+   *
+   * @param \Droost\Workflow\Gate\GateStatus $status
+   *   The status it is demoted to.
+   * @param string $summary
+   *   The sentence saying why.
+   *
+   * @return self
+   *   The result.
+   */
+  public function demotedTo(GateStatus $status, string $summary): self {
+    return $this->rebuilt(status: $status, summary: $summary, demotedFrom: $this->status);
+  }
+
+  /**
    * A copy of this result with some fields replaced, and every other kept.
    *
    * The one place the constructor is called with the whole field list, so a
@@ -216,6 +253,8 @@ final class GateResult {
    *   The verdict, when replacing it.
    * @param string|null $summary
    *   The summary, when replacing it.
+   * @param \Droost\Workflow\Gate\GateStatus|null $demotedFrom
+   *   The status a demotion replaced, when recording one.
    *
    * @return self
    *   The copy.
@@ -226,6 +265,7 @@ final class GateResult {
     ?array $subjects = NULL,
     ?GateStatus $status = NULL,
     ?string $summary = NULL,
+    ?GateStatus $demotedFrom = NULL,
   ): self {
     $copy = new self(
       gate: $this->gate,
@@ -243,7 +283,7 @@ final class GateResult {
       remedy: $this->remedy,
       declaredFault: $this->declaredFault,
       subjects: $subjects ?? $this->subjects,
-      demotedFrom: $this->demotedFrom,
+      demotedFrom: $demotedFrom ?? $this->demotedFrom,
     );
     $copy->stdout = $this->stdout;
     $copy->stderr = $this->stderr;

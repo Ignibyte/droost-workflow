@@ -107,6 +107,8 @@ final class GateModeTest extends WorkflowTestCase {
     $this->assertSame(1, $report->tally()['reported']);
     $this->assertStringContainsString('1 reported', $report->summaryLine());
     $this->assertFalse($eslint->status->isPass(), 'reported is never counted as a pass');
+    $this->assertSame('eslint: 3 problems', $eslint->stdout, 'the tool\'s transcript survives the demotion (F-64)');
+    $this->assertSame('warning: deprecated rule', $eslint->stderr);
   }
 
   /**
@@ -207,7 +209,7 @@ final class GateModeTest extends WorkflowTestCase {
           return GateResult::toolMissing($gate->name, 'node_modules/.bin/' . $gate->name);
         }
         $fails = in_array($gate->name, $this->failing, TRUE);
-        return GateResult::ran(
+        $result = GateResult::ran(
           $gate->name,
           $fails ? GateStatus::Failed : GateStatus::Passed,
           $fails ? 1 : 0,
@@ -216,6 +218,7 @@ final class GateModeTest extends WorkflowTestCase {
           [],
           'vendor/bin/' . $gate->name,
         );
+        return $fails ? $result->withOutput($gate->name . ': 3 problems', 'warning: deprecated rule') : $result;
       }
 
     };

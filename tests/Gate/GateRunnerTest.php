@@ -409,6 +409,61 @@ class GateRunnerTest extends WorkflowTestCase {
   }
 
   /**
+   * A verdict noted for drifted levers keeps every field it had (F-64).
+   *
+   * The drift note rebuilt the result from eleven positional arguments and
+   * dropped the rest. So a labelled pass, a gate that ran and measured
+   * nothing, came out of a drifted gate reading as a plain pass, and its
+   * remedy, subjects and captured output went with it.
+   */
+  public function testLeverDriftKeepsTheWholeVerdict(): void {
+    $root = $this->makeRootWithConfig("preset: custom\ngates:\n  phpcs: { standard: \"Drupal\" }\n");
+    $state = RunState::begin('run-1', '2026-09-23T09:00:00+00:00', WorkflowConfig::load($root));
+    $executor = new class() implements GateExecutorInterface {
+
+      /**
+       * {@inheritdoc}
+       */
+      public function execute(GateSettings $gate, string $projectRoot): GateResult {
+        if ($gate->name !== 'phpcs') {
+          return GateResult::ran($gate->name, GateStatus::Passed, 0, 1, $gate->name . ' passed', [], $gate->name);
+        }
+        return (new GateResult(
+          'phpcs',
+          GateStatus::Passed,
+          exitCode: 0,
+          durationMs: 5,
+          summary: 'phpcs passed — NOTHING TO ANALYSE: the paths hold no PHP',
+          findings: [['file' => 'web/x.php', 'message' => 'note']],
+          invocation: 'vendor/bin/phpcs web/x',
+          labelledPass: TRUE,
+          remedy: 'point gates.phpcs.paths at the code',
+          subjects: ['web/x'],
+        ))->withOutput('the tool said this', 'and this');
+      }
+
+    };
+    $runner = new GateRunner($executor, new NullSiteDriver());
+    file_put_contents($root . '/droost.workflow.yml', "preset: custom\ngates:\n  phpcs: { standard: \"phpcs.xml\" }\n");
+
+    $phpcs = NULL;
+    foreach ($runner->run($state, Phase::Complete, $root)->results as $result) {
+      if ($result->gate === 'phpcs') {
+        $phpcs = $result;
+      }
+    }
+
+    $this->assertInstanceOf(GateResult::class, $phpcs);
+    $this->assertStringContainsString('levers re-read at gate time: standard Drupal → phpcs.xml', $phpcs->summary);
+    $this->assertTrue($phpcs->labelledPass, 'a gate that measured nothing still says so');
+    $this->assertSame('point gates.phpcs.paths at the code', $phpcs->remedy);
+    $this->assertSame(['web/x'], $phpcs->subjects);
+    $this->assertSame([['file' => 'web/x.php', 'message' => 'note']], $phpcs->findings);
+    $this->assertSame('the tool said this', $phpcs->stdout);
+    $this->assertSame('and this', $phpcs->stderr);
+  }
+
+  /**
    * Tuning is re-read at gate time; on/off stays frozen (R24-F4).
    *
    * Round 24: the subject pointed phpcs.standard at a ruleset excluding

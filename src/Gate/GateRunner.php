@@ -161,18 +161,11 @@ final class GateRunner {
           $this->runOne($name, $levers, $projectRoot, $state->preset, $context),
         ));
         if ($drift !== []) {
-          $result = new GateResult(
-            $result->gate,
-            $result->status,
-            $result->exitCode,
-            $result->durationMs,
+          // Through the one helper that carries every field: the positional
+          // rebuild this replaced turned a labelled pass into a plain one
+          // and dropped the remedy, subjects and output with it (F-64).
+          $result = $result->withSummary(
             rtrim($result->summary, '. ') . sprintf(' [levers re-read at gate time: %s]', implode('; ', $drift)),
-            $result->findings,
-            $result->truncated,
-            $result->skipReason,
-            $result->invocation,
-            $result->inherited,
-            $result->new,
           );
         }
       }
@@ -445,25 +438,13 @@ final class GateRunner {
       || !$result->status->blocksAdvance()) {
       return $result;
     }
-    return new GateResult(
-      $result->gate,
+    // demotedFrom is kept, so the record can still say the tool never ran
+    // (F-KCH3: snyk absent from the PATH read as "recorded, unproven" for
+    // three phases), and so is everything else, the tool's output included
+    // (F-64).
+    return $result->demotedTo(
       GateStatus::Reported,
-      $result->exitCode,
-      $result->durationMs,
       sprintf('report — %s (mode: report; would block in mode: block)', $result->summary),
-      $result->findings,
-      $result->truncated,
-      $result->skipReason,
-      $result->invocation,
-      $result->inherited,
-      $result->new,
-      labelledPass: $result->labelledPass,
-      remedy: $result->remedy,
-      declaredFault: $result->declaredFault,
-      subjects: $result->subjects,
-      // Kept, so the record can still say the tool never ran (F-KCH3: snyk
-      // absent from the PATH read as "recorded, unproven" for three phases).
-      demotedFrom: $result->status,
     );
   }
 
