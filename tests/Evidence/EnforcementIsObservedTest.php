@@ -70,20 +70,20 @@ final class EnforcementIsObservedTest extends WorkflowTestCase {
 
     $rendered = (new EvaluationReport($store))->render('run-live');
 
-    $this->assertStringContainsString('9 invocation(s), 2 refusal(s)', $rendered);
+    $this->assertStringContainsString('9 invocation(s), 2 refusal(s), 0 nudge(s)', $rendered);
     $this->assertStringContainsString('demonstrably live', $rendered);
     $this->assertStringContainsString('operator-command:bypass', $rendered);
     $this->assertStringContainsString('require-run', $rendered);
   }
 
   /**
-   * The refusal count is presented as a FLOOR, never as a total.
+   * Rows from an older guard make the refusal count a FLOOR, never a total.
    *
-   * The guard has 26 exit paths and no chokepoint, so most rows carry
-   * `invoked` — "the hook ran; this row does not say what it decided".
-   * Counting those as allows would turn a gap into evidence, which is the
-   * exact mistake that made the tool-call ledger report `0:0` on a run that
-   * had spent twenty-five minutes grounding.
+   * Before 0.10.13 the guard set a verdict on two of its twenty-seven
+   * refusals, so most rows carry `invoked`: "the hook ran; this row does not
+   * say what it decided". Counting those as allows would turn a gap into
+   * evidence, which is the exact mistake that made the tool-call ledger
+   * report `0:0` on a run that had spent twenty-five minutes grounding.
    */
   public function testTheRefusalCountIsPresentedAsTheFloor(): void {
     $root = $this->makeRoot();
@@ -96,6 +96,80 @@ final class EnforcementIsObservedTest extends WorkflowTestCase {
     $this->assertStringContainsString('is not a verdict', $rendered);
     $this->assertStringContainsString('FLOOR and not a total', $rendered);
     $this->assertStringContainsString('Counting `invoked` as an allow', $rendered);
+  }
+
+  /**
+   * When every row carries a verdict, the counts are totals.
+   *
+   * From 0.10.13 every refusal leaves the guard through one exit that names
+   * its rule, so a record with no `invoked` row can say what the guard did,
+   * and must not keep calling its own count a floor.
+   */
+  public function testRowsThatAllCarryVerdictsGiveTotals(): void {
+    $root = $this->makeRoot();
+    $store = new EvidenceStore($root);
+    $store->upsertRun('run-totals', ['enforcement' => 'hard']);
+    for ($i = 0; $i < 3; $i++) {
+      $store->recordGuardCall('run-totals', 'code', 'pre-tool-use', 'allow');
+    }
+    $store->recordGuardCall('run-totals', 'plan', 'pre-tool-use', 'refuse', 'plan-wall');
+    $store->recordGuardCall('run-totals', 'code', 'stop', 'nudge', 'stop-hold:soft');
+
+    $rendered = (new EvaluationReport($store))->render('run-totals');
+
+    $this->assertStringContainsString('5 invocation(s), 1 refusal(s), 1 nudge(s)', $rendered);
+    $this->assertStringContainsString('Every row says what the guard decided', $rendered);
+    $this->assertStringContainsString('counts above are totals', $rendered);
+    $this->assertStringNotContainsString('FLOOR', $rendered);
+    $this->assertStringContainsString('plan-wall', $rendered, 'the wall that refused is named');
+  }
+
+  /**
+   * A hard run whose walls refused nothing did not test them, and says so.
+   *
+   * Zero refusals is a clean run or an untested wall, and the record cannot
+   * tell which. Without the sentence, §7a at `hard` reads as proof that the
+   * walls hold.
+   */
+  public function testHardWithNothingRefusedSaysTheWallsWentUntested(): void {
+    $cases = [
+      'hard, only allows' => ['hard', 'allow', NULL, TRUE],
+      'hard, one refusal' => ['hard', 'refuse', 'plan-wall', FALSE],
+      'hard, one nudge' => ['hard', 'nudge', 'stop-hold:soft', FALSE],
+      'soft, only allows' => ['soft', 'allow', NULL, FALSE],
+    ];
+    foreach ($cases as $label => [$level, $verdict, $rule, $untested]) {
+      $root = $this->makeRoot();
+      $store = new EvidenceStore($root);
+      $store->upsertRun('run-walls', ['enforcement' => $level]);
+      $store->recordGuardCall('run-walls', 'code', 'pre-tool-use', 'allow');
+      $store->recordGuardCall('run-walls', 'code', 'pre-tool-use', $verdict, $rule);
+
+      $rendered = (new EvaluationReport($store))->render('run-walls');
+
+      if ($untested) {
+        $this->assertStringContainsString('Nothing reached a wall', $rendered, $label);
+        $this->assertStringContainsString('that they' . "\n" . 'hold is not', $rendered, $label);
+      }
+      else {
+        $this->assertStringNotContainsString('Nothing reached a wall', $rendered, $label);
+      }
+    }
+  }
+
+  /**
+   * A crash is counted beside the refusals, not folded into them.
+   */
+  public function testCrashesAreCounted(): void {
+    $root = $this->makeRoot();
+    $store = new EvidenceStore($root);
+    $store->upsertRun('run-crash', ['enforcement' => 'hard']);
+    $store->recordGuardCall('run-crash', 'code', 'pre-tool-use', 'crash', 'crash:fatal');
+
+    $rendered = (new EvaluationReport($store))->render('run-crash');
+
+    $this->assertStringContainsString('1 invocation(s), 0 refusal(s), 0 nudge(s), 1 crash(es)', $rendered);
+    $this->assertStringContainsString('crash:fatal', $rendered);
   }
 
   /**

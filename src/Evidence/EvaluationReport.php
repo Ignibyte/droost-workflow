@@ -1948,12 +1948,12 @@ final class EvaluationReport {
     }
 
     $total = 0;
-    $refusals = 0;
+    $counts = ['refuse' => 0, 'nudge' => 0, 'crash' => 0, 'invoked' => 0];
     $lines = [];
     foreach ($calls as $call) {
       $total += $call['calls'];
-      if ($call['verdict'] === 'refuse') {
-        $refusals += $call['calls'];
+      if (array_key_exists($call['verdict'], $counts)) {
+        $counts[$call['verdict']] += $call['calls'];
       }
       $lines[] = sprintf(
         '| %s | %s | %s | %d |',
@@ -1973,19 +1973,80 @@ final class EvaluationReport {
       . "| Mode | Verdict | Rule | Calls |\n|---|---|---|---|\n"
       . implode("\n", $lines) . "\n\n"
       . sprintf(
-        "**%d invocation(s), %d refusal(s).** The hook was demonstrably live,\n"
-        . "so %s in §1 describes something that was actually there.\n",
+        "**%d invocation(s), %d refusal(s), %d nudge(s)%s.** The hook was\n"
+        . "demonstrably live, so %s in §1 describes something that was actually\n"
+        . "there.\n",
         $total,
-        $refusals,
+        $counts['refuse'],
+        $counts['nudge'],
+        $counts['crash'] > 0 ? sprintf(', %d crash(es)', $counts['crash']) : '',
         self::code($requested),
       )
-      . "\n**A verdict of `invoked` is not a verdict.** The guard has 26 exit\n"
-      . "paths and no single chokepoint, so a row says `invoked` unless it came\n"
-      . "from one of the two branches that are centralised — the operator-only\n"
-      . "commands, and the require_run wall. It means \"the hook ran; this row\n"
-      . "does not say what it decided\", which is why the refusal count above is\n"
-      . "a FLOOR and not a total. Counting `invoked` as an allow would turn a\n"
-      . "gap into evidence.\n";
+      . self::verdictReading($counts['invoked'])
+      . self::untestedWalls($requested, $counts['refuse'], $counts['nudge']);
+  }
+
+  /**
+   * What the verdict column can be trusted to say, given who wrote it.
+   *
+   * A guard from 0.10.13 on sends every refusal through one exit and names
+   * its rule, so its counts are totals. An older guard set a verdict on two
+   * of its twenty-seven refusals and wrote `invoked` for the rest, and a run
+   * that ingested any of those rows has only a floor.
+   *
+   * @param int $invoked
+   *   How many rows read `invoked`.
+   *
+   * @return string
+   *   The paragraph.
+   */
+  private static function verdictReading(int $invoked): string {
+    if ($invoked > 0) {
+      return sprintf(
+        "\n**%d row(s) read `invoked`, and `invoked` is not a verdict.** They\n"
+        . "came from a guard older than droost/workflow 0.10.13, which set a\n"
+        . "verdict on two of its twenty-seven refusals: the operator-only\n"
+        . "commands and the require_run wall. `invoked` means \"the hook ran;\n"
+        . "this row does not say what it decided\", so the refusal count above\n"
+        . "is a FLOOR and not a total. Counting `invoked` as an allow would turn\n"
+        . "a gap into evidence.\n",
+        $invoked,
+      );
+    }
+
+    return "\n**Every row says what the guard decided.** Each refusal left\n"
+      . "through the guard's one blocking exit and names the wall that refused\n"
+      . "it; a `nudge` is a soft wall that let the call through, counted on\n"
+      . "every hit and not only the first; `allow` means nothing objected. The\n"
+      . "counts above are totals.\n";
+  }
+
+  /**
+   * A hard level whose walls refused nothing did not test them.
+   *
+   * Zero refusals at `hard` is a good sign or no sign, and the record cannot
+   * tell which: an agent that never tried an out-of-phase edit never met the
+   * wall. Saying so keeps the section from reading as proof that the walls
+   * hold, which is the thing a run that never pushed on one cannot show.
+   *
+   * @param string $requested
+   *   The enforcement level the run asked for.
+   * @param int $refusals
+   *   How many calls the guard refused.
+   * @param int $nudges
+   *   How many calls a soft wall let through.
+   *
+   * @return string
+   *   The paragraph, or '' when there is nothing to say.
+   */
+  private static function untestedWalls(string $requested, int $refusals, int $nudges): string {
+    if ($requested !== 'hard' || $refusals > 0 || $nudges > 0) {
+      return '';
+    }
+
+    return "\n**Nothing reached a wall.** The run asked for `hard`, and no call\n"
+      . "was refused. That the walls were present is shown above; that they\n"
+      . "hold is not, because nothing this run did pushed on one.\n";
   }
 
   /**

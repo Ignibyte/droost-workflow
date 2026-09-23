@@ -196,6 +196,8 @@ $crashExit = static function (): int {
     && ($GLOBALS['workflow_guard_continued'] ?? FALSE) === TRUE) ? 0 : 2;
 };
 set_exception_handler(static function (\Throwable $error) use ($crashExit): void {
+  $GLOBALS['workflow_guard_verdict'] = 'crash';
+  $GLOBALS['workflow_guard_rule'] = 'crash:' . $error::class;
   fwrite(STDERR, sprintf(
     'The droost workflow guard could not complete this check (%s: %s at %s:%d), '
     . 'so it refused rather than permitted. A guard that cannot decide has not '
@@ -211,6 +213,8 @@ set_exception_handler(static function (\Throwable $error) use ($crashExit): void
 register_shutdown_function(static function () use ($crashExit): void {
   $fatal = error_get_last();
   if ($fatal !== NULL && ($fatal['type'] & (E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR)) !== 0) {
+    $GLOBALS['workflow_guard_verdict'] = 'crash';
+    $GLOBALS['workflow_guard_rule'] = 'crash:fatal';
     fwrite(STDERR, sprintf(
       'The droost workflow guard died before it could decide (%s at %s:%d), so '
       . 'it refused. The OPERATOR reinstalls the hook with `droost-workflow init`.',
@@ -218,6 +222,15 @@ register_shutdown_function(static function () use ($crashExit): void {
       basename($fatal['file']),
       $fatal['line'],
     ));
+    // WRITTEN HERE, because the ledger's own shutdown function never runs
+    // after this one. An exit() inside a shutdown function ends every
+    // shutdown function registered after it, and the ledger's is registered
+    // later, once the root is known. So a fatal left no row at all, while the
+    // comment on the ledger promised one "however this script leaves".
+    $record = $GLOBALS['workflow_guard_record'] ?? NULL;
+    if ($record instanceof \Closure) {
+      $record();
+    }
     exit($crashExit());
   }
 });
@@ -238,20 +251,42 @@ register_shutdown_function(static function () use ($crashExit): void {
 // `exit(2)`, an uncaught throw, a fatal. A run whose store holds no guard rows
 // while claiming `hard` is now a finding rather than an unknown.
 //
-// VERDICTS ARE NOT CLAIMED HERE. There are 26 exit sites and no chokepoint, so
-// a row says `invoked` unless a branch that IS centralised has set something
-// better. `invoked` means exactly "the hook ran; this row does not say what it
-// decided" — a refusal count derived from rows that default to "allow" would
-// be worse than no count, because it would read as evidence.
+// EVERY ROW SAYS WHAT THE GUARD DECIDED, in one of four verdicts:
+//
+//   refuse: the call was blocked (exit 2). Every refusal leaves through
+//   `guard_refuse()`, the only exit(2) in this file, and names its rule;
+//   `GuardVerdictLedgerTest` fails if a second exit(2) appears.
+//
+//   nudge: a soft wall was hit and let the call through, with a message the
+//   first time in a phase and silently after. The rule names the wall, so
+//   every hit is counted, not only the first.
+//
+//   crash: the guard failed, and the crash handlers answered for it.
+//
+//   allow: nothing objected.
+//
+// Until this chokepoint existed, only the operator-command refusals and the
+// require_run wall set a verdict, and every other row read `invoked`: "the
+// hook ran, and this row does not say what it decided". At `soft` that hid
+// little, because soft walls let the call through anyway. At `hard` the plan
+// wall and the shell's plan wall REFUSE, and the record could not say so.
+// Rows from a guard older than this one still read `invoked`.
 //
 // JSONL, ingested by the engine at phase close, rather than a write to the
 // evidence store: this file reads that database strictly read-only (see
 // `unresolved_checks()`) and must not become a writer of it. The tool-call
 // ledger has the same shape for the same reason. The state directory is
 // already a protected path, so the agent cannot edit what this writes.
-$GLOBALS['workflow_guard_verdict'] = 'invoked';
+$GLOBALS['workflow_guard_verdict'] = 'allow';
 $GLOBALS['workflow_guard_rule'] = NULL;
-register_shutdown_function(static function () use ($root, $stateDir): void {
+$recordCall = static function () use ($root, $stateDir): void {
+  // Once, whoever calls first: the fatal-error handler writes the row itself
+  // (see above), and the shutdown function would otherwise write it again.
+  static $written = FALSE;
+  if ($written) {
+    return;
+  }
+  $written = TRUE;
   $directory = $root . '/' . $stateDir;
   // Only where the run state already lives. Creating the directory to record
   // that the hook fired would make this file a writer on every project that
@@ -281,7 +316,7 @@ register_shutdown_function(static function () use ($root, $stateDir): void {
     'phase' => $phase,
     'tool' => $GLOBALS['workflow_guard_tool'] ?? NULL,
     'mode' => $GLOBALS['workflow_guard_mode'] ?? '',
-    'verdict' => $GLOBALS['workflow_guard_verdict'] ?? 'invoked',
+    'verdict' => $GLOBALS['workflow_guard_verdict'] ?? 'allow',
     'rule' => $GLOBALS['workflow_guard_rule'] ?? NULL,
     'at' => date('c'),
   ], JSON_UNESCAPED_SLASHES);
@@ -293,7 +328,9 @@ register_shutdown_function(static function () use ($root, $stateDir): void {
   // the record is worth having and worth nothing if it can block the thing it
   // is recording. LOCK_EX because several tool calls can overlap.
   @file_put_contents($directory . '/guard-calls.jsonl', $line . "\n", FILE_APPEND | LOCK_EX);
-});
+};
+$GLOBALS['workflow_guard_record'] = $recordCall;
+register_shutdown_function($recordCall);
 
 // The payload is read ONCE: several branches below consult it, and a stream
 // read twice is empty the second time.
@@ -391,12 +428,11 @@ if (str_contains($stdin, "\0") || $carriesNul($payload)) {
   if ($mode === 'stop' && $stopHookActive) {
     exit(0);
   }
-  fwrite(STDERR,
+  guard_refuse('nul-byte',
     'A NUL byte appeared in this tool call. No path or command legitimately '
     . 'carries one, and it is the classic way to make a guard read one name '
     . 'while the system acts on another — so this is refused without being '
     . 'interpreted. If you meant an ordinary path, write it without the byte.');
-  exit(2);
 }
 
 if ($mode === 'operator-commands') {
@@ -474,7 +510,7 @@ if (!is_array($document)) {
   // A file that EXISTS and cannot be parsed is not "no run". It is a run whose
   // record is damaged, and a turn does not end on one.
   if ($mode === 'stop' && !$stopHookActive) {
-    fwrite(STDERR, sprintf(
+    guard_refuse('run-record-unreadable', sprintf(
       'The run record at %s/run.json cannot be read. That is not the same as '
       . 'having no run: something wrote junk into it, or it was truncated '
       . 'mid-write. Nothing can say which phase this run is in or what it has '
@@ -483,7 +519,6 @@ if (!is_array($document)) {
       . 'it.',
       $stateDir,
     ));
-    exit(2);
   }
   require_run_guard($root, $mode, $stdin, $stateDir);
   exit(0);
@@ -541,7 +576,13 @@ $runMode = is_string($runMode) ? $runMode : '';
 /**
  * Emits a soft nudge, at most once per phase per mode.
  */
-$warnOnce = static function (string $message) use ($root, $stateDir, $mode, $phase): void {
+$warnOnce = static function (string $message, string $rule) use ($root, $stateDir, $mode, $phase): void {
+  // EVERY HIT IS COUNTED, the silent ones too. The message goes out once per
+  // phase; the call it lets through is a soft wall doing its job each time,
+  // and a record that counted only the first would say an agent pushed on a
+  // wall once when it pushed on it twelve times.
+  $GLOBALS['workflow_guard_verdict'] = 'nudge';
+  $GLOBALS['workflow_guard_rule'] = $rule;
   $marker = $root . '/' . $stateDir . '/.guard-warned-' . $mode . '-' . $phase;
   if (is_file($marker)) {
     return;
@@ -591,10 +632,9 @@ if ($mode === 'pre-tool-use') {
     . 'under ' . $stateDir . '/ and advance the run (/droost:workflow:continue) before '
     . 'editing project files.';
   if ($enforcement === 'hard') {
-    fwrite(STDERR, $message);
-    exit(2);
+    guard_refuse('plan-wall', $message);
   }
-  $warnOnce($message . ' (enforcement is soft: proceeding.)');
+  $warnOnce($message . ' (enforcement is soft: proceeding.)', 'plan-wall:soft');
   exit(0);
 }
 
@@ -646,21 +686,43 @@ if ($mode === 'stop') {
   // did — an operator reading "enforcement is soft" while the stop is blocked
   // would reasonably think the guard was broken.
   if ($enforcement === 'hard') {
-    fwrite(STDERR, $message);
-    exit(2);
+    guard_refuse('stop-hold', $message);
   }
   if ($runMode === 'agentic') {
-    fwrite(STDERR, $message . ' (enforcement is soft, but mode is agentic,'
+    guard_refuse('stop-hold:agentic', $message . ' (enforcement is soft, but mode is agentic,'
       . ' which is a promise to run plan through complete without stopping:'
       . ' holding the boundary. Set mode: interactive to converse between'
       . ' phases, or enforcement: off to silence the harness entirely.)');
-    exit(2);
   }
-  $warnOnce($message . ' (enforcement is soft and mode is ' . ($runMode !== '' ? $runMode : 'unset') . ': allowing the stop.)');
+  $warnOnce($message . ' (enforcement is soft and mode is ' . ($runMode !== '' ? $runMode : 'unset') . ': allowing the stop.)', 'stop-hold:soft');
   exit(0);
 }
 
 exit(0);
+
+/**
+ * Refuses the call, and says why in the guard's own ledger.
+ *
+ * THE ONLY exit(2) IN THIS FILE. Every refusal leaves through here, so every
+ * refusal is a row in `guard-calls.jsonl` that names its rule. There used to
+ * be twenty-seven exits, and two of them set a verdict first. The other
+ * twenty-five, among them the plan-phase wall that `enforcement: hard` exists
+ * for, recorded "invoked", and a run at `hard` could not show a single thing
+ * the wall had stopped. `GuardVerdictLedgerTest` fails when a second exit(2)
+ * appears anywhere, so a new refusal cannot skip the ledger by accident.
+ *
+ * @param string $rule
+ *   The wall that refused, as an evaluator would count it:
+ *   `plan-wall`, `stop-hold`, `protected-path:editor`, `require-run`, ...
+ * @param string $message
+ *   The reason, for the agent to act on.
+ */
+function guard_refuse(string $rule, string $message): never {
+  $GLOBALS['workflow_guard_verdict'] = 'refuse';
+  $GLOBALS['workflow_guard_rule'] = $rule;
+  fwrite(STDERR, $message);
+  exit(2);
+}
 
 /**
  * The part of a Bash command the operator-command patterns may read.
@@ -757,14 +819,13 @@ function operator_commands_guard(string $stdin): void {
     '/(?:^|[;&|(]|\s)(?:\S*\/)?(?:drush|droost-workflow)\b[^;&|\n]*(?:\$\(|`|\$\{)/',
     operator_commands_unquoted($command),
   ) === 1) {
-    fwrite(STDERR,
+    guard_refuse('operator-command:substitution',
       'This command builds a droost command out of a substitution, so what it '
       . 'actually runs cannot be read here — and the operator-only verbs '
       . '(bypass, gate-waive, baseline, effort, arming a write gate) are '
       . 'exactly what that hides. Write the drush command out in full. If you '
       . 'genuinely need a computed argument, compute it into a variable on its '
       . 'own line first; it is the VERB that has to be legible.');
-    exit(2);
   }
   // Per INVOCATION, from TOKENS. Asking the raw line three different questions
   // let each answer come from a different command: `bypass "hotfix"; echo
@@ -790,14 +851,13 @@ function operator_commands_guard(string $stdin): void {
       static fn (string $token): bool => preg_match('/\s/', $token) !== 1,
     ));
     if (operator_commands_opaque_head($tokens)) {
-      fwrite(STDERR,
+      guard_refuse('operator-command:variable-program',
         'This command runs whatever a variable happens to hold, so what it '
         . 'actually does cannot be read here — and the operator-only verbs '
         . '(bypass, gate-waive, baseline, effort, arming a write gate) are '
         . 'exactly what that hides. Write the program name out: `bash -c "…"`, '
         . '`drush …`, `vendor/bin/phpunit …`. A variable is fine in an '
         . 'ARGUMENT; it is the program that has to be legible.');
-      exit(2);
     }
     // A SEARCHER CARRIES THE VERB AS A PATTERN, IT DOES NOT RUN IT. This tier
     // matched the operator verbs anywhere on the line and never looked at the
@@ -871,11 +931,9 @@ function operator_commands_guard(string $stdin): void {
       $cli => 'droost-workflow ' . $which,
       default => 'droost:workflow:' . $which,
     };
-    // One of the two branches that ARE centralised, so this row can say what
-    // it decided instead of only that the hook ran. The rule tag is the verb,
-    // which is what an evaluator wants to see counted.
-    $GLOBALS['workflow_guard_verdict'] = 'refuse';
-    $GLOBALS['workflow_guard_rule'] = 'operator-command:' . $which;
+    // The rule tag is the verb, which is what an evaluator wants to see
+    // counted.
+    //
     // The RUNNABLE command, which is not the same string as the verb's name.
     // A drush verb is not a command without `drush` in front of it, and the
     // hand-over line is the whole point of this refusal: printing
@@ -883,7 +941,7 @@ function operator_commands_guard(string $stdin): void {
     // shell does not have. The standalone binary IS the command, so it stands
     // alone. Caught by GuardTest, which pins the hand-over's exact shape.
     $handover = $cli ? $name : 'drush ' . $name;
-    fwrite(STDERR, sprintf(
+    guard_refuse('operator-command:' . $which, sprintf(
       '%1$s is the OPERATOR\'s command — an agent may propose it, never run it. '
       . 'Show the operator the exact command with your reason and ask them to '
       . 'run it in THEIR terminal (in Claude Code: `! %2$s …`), then '
@@ -893,7 +951,6 @@ function operator_commands_guard(string $stdin): void {
       $handover,
       $gate ? ' (Disarming a gate — `off` — needs no operator; only arming does.)' : '',
     ));
-    exit(2);
   }
 }
 
@@ -1660,7 +1717,7 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
           $unreadable = 'larger than 64KB';
         }
         if ($unreadable !== '') {
-          fwrite(STDERR, sprintf(
+          guard_refuse('operator-command:script-unreadable', sprintf(
             'This runs a script droost cannot read — %s is %s. What it does '
             . 'cannot be judged from here, and the operator-only verbs and '
             . 'this guard\'s own file are exactly what that hides. Run the '
@@ -1670,7 +1727,6 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
             $unreadable,
             trim($command),
           ));
-          exit(2);
         }
         $script = (string) @file_get_contents($path, FALSE, NULL, 0, 65536);
         if ($script === '' || str_contains($script, "\0")) {
@@ -1699,7 +1755,7 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
           || preg_match('#^\#!\S*/(?:env\s+)?(?:ba|z|k|da)?sh\b#', $script) === 1;
         if (!$isShell) {
           if (preg_match($verbs, $script) === 1) {
-            fwrite(STDERR, sprintf(
+            guard_refuse('operator-command:in-script', sprintf(
               'This runs %s, and that file contains one of the operator-only '
               . 'verbs. Putting the command in a file does not make it the '
               . 'agent\'s to run — show the OPERATOR the command and the '
@@ -1707,7 +1763,6 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
               $file,
               trim($command),
             ));
-            exit(2);
           }
           continue;
         }
@@ -1923,7 +1978,7 @@ function shell_phase_guard(
       if (plan_exempts($absolute, $root, $stateDir, $document)) {
         continue;
       }
-      fwrite(STDERR, sprintf(
+      guard_refuse('plan-wall:shell', sprintf(
         'droost:workflow:continue: the active run is still in PLAN, and this '
         . 'command writes to %s. Write the spec under %s/ and advance the run '
         . '(/droost:workflow:continue) before building. A shell redirect is '
@@ -1932,7 +1987,6 @@ function shell_phase_guard(
         $target,
         $stateDir,
       ));
-      exit(2);
     }
   }
 }
@@ -2050,7 +2104,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // reaches every protected path as surely as `cp` does, and the tokeniser
     // that feeds both walls is blind in the same way.
     if (operator_commands_opaque_head($tokens)) {
-      fwrite(STDERR, sprintf(
+      guard_refuse('protected-path:variable-program', sprintf(
         'This command runs whatever a variable happens to hold, so where it '
         . 'writes cannot be read here — and the run record, the evidence store '
         . 'and this guard are all one redirect away. Write the program name '
@@ -2058,7 +2112,6 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
         . 'to be legible. (Refused: %s)',
         trim($command),
       ));
-      exit(2);
     }
     // A READ is not a write, and refusing one costs more than it buys. The
     // tier's own docblock says a shell string does not reliably tell them
@@ -2122,19 +2175,18 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // reading the run record got refused), so the verbs are looked for in the
     // text, the same way the script reader looks for them in a `.py`.
     if ($inlineCode !== NULL && preg_match(operator_verb_pattern(), $inlineCode) === 1) {
-      fwrite(STDERR, sprintf(
+      guard_refuse('operator-command:in-interpreter', sprintf(
         'This hands an interpreter code carrying one of the operator-only '
         . 'verbs. Putting the command inside a program does not make it the '
         . 'agent\'s to run — show the OPERATOR the command and the reason, '
         . 'and let them run it. (Refused: %s)',
         trim($command),
       ));
-      exit(2);
     }
     if ($inlineCode !== NULL
       && preg_match(enforcement_path_markers(), $inlineCode) === 1
       && code_writes($inlineCode)) {
-      fwrite(STDERR, sprintf(
+      guard_refuse('protected-path:interpreter', sprintf(
         'This hands an interpreter code that names the enforcement itself — the '
         . 'guard, the run record, the evidence store, the baseline or the '
         . 'settings — and code is not a command line this guard can read, so '
@@ -2143,7 +2195,6 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
         . 'terminal. (Refused: %s)',
         trim($command),
       ));
-      exit(2);
     }
     // THE CONTAINING DIRECTORIES, not only the files in them. Every rule below
     // names a file, so the cheapest way past all of them was to take away
@@ -2232,7 +2283,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
               : $spelled;
           }
           if (in_array($landing, $protectedDirs, TRUE)) {
-            fwrite(STDERR, sprintf(
+            guard_refuse('protected-path:directory', sprintf(
               'A shell command in this run acts on `%s` itself — the directory, '
               . 'not something in it. That directory holds the run\'s record, the '
               . 'evidence store, the adoption baseline or the guard, depending on '
@@ -2244,7 +2295,6 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
               $landing,
               trim($command),
             ));
-            exit(2);
           }
         }
       }
@@ -2320,7 +2370,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
         // gets a guard switched off.
         $reach = pipe_feeder_reaches($previousPlain, $cwd, $root, $stateDir);
         if ($reach !== '') {
-          fwrite(STDERR, sprintf(
+          guard_refuse('protected-path:xargs', sprintf(
             '`xargs %s` acts on whatever the pipe carries, and this guard never '
             . 'sees those names — here the command feeding it reaches `%s`. A '
             . '`find … -delete` or `find … -exec %s {} +` is judged by its '
@@ -2331,7 +2381,6 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
             $program,
             trim($command),
           ));
-          exit(2);
         }
       }
     }
@@ -2345,7 +2394,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       $reached = find_reaches_enforcement($plain, $cwd, $root, $stateDir);
       if ($reached !== []) {
         $more = count($reached) - 1;
-        fwrite(STDERR, sprintf(
+        guard_refuse('protected-path:find', sprintf(
           '`find` here removes or rewrites what it matches, and what it '
           . 'matches includes `%s`%s — part of the enforcement this run rests '
           . 'on (the guard, its wiring, the run record, the evidence store, a '
@@ -2357,7 +2406,6 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
           $more > 0 ? sprintf(' and %d more', $more) : '',
           trim($command),
         ));
-        exit(2);
       }
     }
     $isReader = (in_array($verb, [
@@ -2467,23 +2515,21 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
           }
           $refusedBranch = enforcement_refusal($branch, $root, $stateDir);
           if ($refusedBranch !== '') {
-            fwrite(STDERR, sprintf(
+            guard_refuse('protected-path:brace-expansion', sprintf(
               '%s A brace expansion in this command produces it. (Refused: %s)',
               $refusedBranch,
               trim($command),
             ));
-            exit(2);
           }
         }
         foreach (glob($pattern, GLOB_BRACE) ?: [] as $expanded) {
           $refused = enforcement_refusal($expanded, $root, $stateDir);
           if ($refused !== '') {
-            fwrite(STDERR, sprintf(
+            guard_refuse('protected-path:wildcard', sprintf(
               '%s A wildcard in this command expands onto it. (Refused: %s)',
               $refused,
               trim($command),
             ));
-            exit(2);
           }
         }
       }
@@ -2523,8 +2569,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
           $stateDir,
         );
         if ($globRefusal !== '') {
-          fwrite(STDERR, sprintf('%s (Refused: %s)', $globRefusal, trim($command)));
-          exit(2);
+          guard_refuse('protected-path:wildcard-directory', sprintf('%s (Refused: %s)', $globRefusal, trim($command)));
         }
       }
       $absolute = str_starts_with($operand, '/') ? $operand : $cwd . '/' . $operand;
@@ -2542,14 +2587,13 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
         continue;
       }
       if ($refusal !== '') {
-        fwrite(STDERR, sprintf('%s (Refused: %s)', $refusal, trim($command)));
-        exit(2);
+        guard_refuse('protected-path:shell', sprintf('%s (Refused: %s)', $refusal, trim($command)));
       }
     }
   }
 
   if (preg_match('#evidence\.sqlite#', $command) === 1) {
-    fwrite(STDERR, sprintf(
+    guard_refuse('protected-path:evidence-store:shell', sprintf(
       'A shell command in this run reaches the evidence store. That store is the '
       . 'run\'s own record of what droost measured — gate verdicts, which '
       . 'citations resolved, which tools were called — and a record its subject '
@@ -2560,11 +2604,10 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       . 'OPERATOR clears it. (Refused: %s)',
       trim($command),
     ));
-    exit(2);
   }
 
   if (preg_match('#(^|[\s\'"=/])droost/baseline(/|\s|$)#', $command) === 1) {
-    fwrite(STDERR, sprintf(
+    guard_refuse('protected-path:baseline:shell', sprintf(
       'A shell command in this run reaches droost/baseline/. That is the '
       . 'OPERATOR\'s adoption record, written by `droost-workflow baseline` from '
       . 'their terminal and never by hand — editing it is the one move that turns '
@@ -2573,7 +2616,6 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       . 'paid, ask the operator for `baseline --refresh`. (Refused: %s)',
       trim($command),
     ));
-    exit(2);
   }
 }
 
@@ -4036,8 +4078,7 @@ function baseline_dir_guard(string $stdin, string $root, string $stateDir): void
   // guard, and neither is a settings file it can blank.
   $refusal = enforcement_refusal($file, $root, $stateDir);
   if ($refusal !== '') {
-    fwrite(STDERR, sprintf('%s (Refused: %s)', $refusal, $file));
-    exit(2);
+    guard_refuse('protected-path:editor', sprintf('%s (Refused: %s)', $refusal, $file));
   }
   // The evidence store belongs here for the same reason the baseline does: it
   // is the run's own record, and a record the subject can edit is not evidence.
@@ -4052,7 +4093,7 @@ function baseline_dir_guard(string $stdin, string $root, string $stateDir): void
     return;
   }
   if ($isStore) {
-    fwrite(STDERR, sprintf(
+    guard_refuse('protected-path:evidence-store', sprintf(
       'The evidence store is the run\'s own record of what droost measured — '
       . 'gate verdicts, which citations resolved, which tools were called. It is '
       . 'written by droost and never by hand, and a record its subject can edit '
@@ -4062,9 +4103,8 @@ function baseline_dir_guard(string $stdin, string $root, string $stateDir): void
       . '(Refused: %s)',
       $file,
     ));
-    exit(2);
   }
-  fwrite(STDERR, sprintf(
+  guard_refuse('protected-path:baseline', sprintf(
     'droost/baseline/ is the OPERATOR\'s adoption record — it is written by '
     . '`drush droost:workflow:baseline` (or `droost-workflow baseline`) from '
     . 'their terminal and never edited by hand or by an agent. If debt was '
@@ -4073,7 +4113,6 @@ function baseline_dir_guard(string $stdin, string $root, string $stateDir): void
     . '(Refused: %s)',
     $file,
   ));
-  exit(2);
 }
 
 /**
@@ -4195,14 +4234,9 @@ function require_run_guard(string $root, string $mode, string $stdin, string $st
       $file,
     );
   if ($level === 'hard') {
-    // The second centralised branch, so the wall's firings are countable. This
-    // is the one an evaluator most wants a number for: it is the moment the
-    // pipeline actually stopped ungoverned work, and until now the only trace
-    // was a sentence in a transcript nobody could query.
-    $GLOBALS['workflow_guard_verdict'] = 'refuse';
-    $GLOBALS['workflow_guard_rule'] = 'require-run';
-    fwrite(STDERR, $message);
-    exit(2);
+    // The one an evaluator most wants a number for: it is the moment the
+    // pipeline actually stopped ungoverned work.
+    guard_refuse('require-run', $message);
   }
   // soft: nudge once, then allow.
   //
