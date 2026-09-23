@@ -129,6 +129,24 @@ final class FindingParsersTest extends WorkflowTestCase {
   }
 
   /**
+   * The summary infection 0.35 prints, with no MSI line (F-89).
+   *
+   * Without `--with-uncovered` it mutates only covered lines, so the MSI its
+   * `--min-msi` checks is the Covered Code MSI; with the flag it prints both,
+   * and the MSI line is the one that counts.
+   */
+  public function testInfectionThreeFiveSummary(): void {
+    $summary = "3 mutations were generated:\n       2 mutants were killed by Test Framework\n       1 covered mutants were not detected\n\nMetrics:\n         Mutation Code Coverage: 100%\n         Covered Code MSI: 66%\n";
+    $this->assertSame(66.0, FindingParsers::msiPercent($summary));
+    $this->assertSame(3, FindingParsers::mutantCount($summary));
+
+    $withUncovered = "Metrics:\n         Mutation Score Indicator (MSI): 40%\n         Mutation Code Coverage: 60%\n         Covered Code MSI: 66%\n";
+    $this->assertSame(40.0, FindingParsers::msiPercent($withUncovered), 'the whole-code MSI wins when printed');
+    $this->assertSame(0, FindingParsers::mutantCount("0 mutations were generated:\n"));
+    $this->assertNull(FindingParsers::mutantCount("In CoverageChecker.php line 89:\n"));
+  }
+
+  /**
    * The phpstan JSON report: messages under files, and the analyser's own.
    *
    * `phpstanErrorCount()` above reads the totals; this reads the MESSAGES,

@@ -39,6 +39,8 @@ class ShellGateExecutorTest extends WorkflowTestCase {
     array $expected,
   ): void {
     $root = $this->rootWithBinaries(['phpcs', 'phpstan', 'phpunit', 'infection']);
+    // Infection runs only with a config naming what to mutate (F-85).
+    file_put_contents($root . '/infection.json5', "{}\n");
     $seen = [];
     $executor = new ShellGateExecutor(
       function (array $argv) use (&$seen): array {
@@ -58,6 +60,7 @@ class ShellGateExecutorTest extends WorkflowTestCase {
    */
   public function testTheRunnerGetsTheGatesTimeout(): void {
     $root = $this->rootWithBinaries(['infection', 'phpcs']);
+    file_put_contents($root . '/infection.json5', "{}\n");
     $seen = [];
     $executor = new ShellGateExecutor(
       function (array $argv, string $dir, int $timeout) use (&$seen): array {
@@ -82,6 +85,7 @@ class ShellGateExecutorTest extends WorkflowTestCase {
    */
   public function testKilledAtTheTimeoutNamesTheLever(): void {
     $root = $this->rootWithBinaries(['infection']);
+    file_put_contents($root . '/infection.json5', "{}\n");
     $executor = new ShellGateExecutor(
       static fn (): array => [ShellGateExecutor::EXIT_KILLED, '', ''],
       static fn (): int => 0,
@@ -165,7 +169,9 @@ class ShellGateExecutorTest extends WorkflowTestCase {
       'mutation carries its floor' => [
         'mutation',
         ['msi_min' => 70],
-        ['--no-progress', '--min-msi=70'],
+        // Never a prompt: with no config infection asked its setup
+        // questions, and answered by nobody wrote infection.json5 (F-85).
+        ['--no-progress', '--no-interaction', '--min-msi=70'],
       ],
     ];
   }

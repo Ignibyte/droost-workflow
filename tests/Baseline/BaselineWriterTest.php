@@ -45,6 +45,11 @@ final class BaselineWriterTest extends WorkflowTestCase {
   private float $msi = 41.0;
 
   /**
+   * Whether the fake infection prints 0.35's summary, which has no MSI line.
+   */
+  private bool $infectionThreeFive = FALSE;
+
+  /**
    * The first write records what the level judges; the rest is skipped by name.
    */
   public function testFirstWriteRecordsTheMeasuredDebt(): void {
@@ -109,6 +114,37 @@ final class BaselineWriterTest extends WorkflowTestCase {
     $baseline = BaselineStore::load($root);
     $this->assertNotNull($baseline);
     $this->assertSame(0, $baseline->phpstanInheritedCount());
+  }
+
+  /**
+   * The MSI in infection 0.35's summary is recorded too (F-89).
+   *
+   * It prints "Covered Code MSI" and no "Mutation Score Indicator" line, so
+   * every baseline skipped mutation with "infection printed no MSI — fix the
+   * mutation run before baselining it" over a run that was fine.
+   */
+  public function testInfectionThreeFiveMsiIsRecorded(): void {
+    $this->infectionThreeFive = TRUE;
+    $this->msi = 66.0;
+    $measured = $this->writer()->measure(WorkflowConfig::load($this->legacyRoot()), $this->legacyRoot());
+
+    $this->assertArrayNotHasKey('mutation', $measured->skipped);
+    $this->assertSame(66, $measured->bill()['mutation'] ?? NULL);
+  }
+
+  /**
+   * Adoption never starts infection with nothing naming what to mutate.
+   *
+   * It would ask its setup questions (F-85), so mutation is skipped by name.
+   */
+  public function testMutationWithNoConfigIsNotRun(): void {
+    $root = $this->legacyRoot();
+    unlink($root . '/infection.json5');
+    $measured = $this->writer()->measure(WorkflowConfig::load($root), $root);
+
+    $this->assertArrayNotHasKey('mutation', $measured->bill());
+    $this->assertArrayHasKey('mutation', $measured->skipped);
+    $this->assertStringContainsString('no suite config', $measured->skipped['mutation']);
   }
 
   /**
@@ -298,6 +334,12 @@ final class BaselineWriterTest extends WorkflowTestCase {
     file_put_contents($root . '/phpstan.neon', "parameters:\n  level: 6\n");
     mkdir($root . '/web', 0775, TRUE);
     file_put_contents($root . '/web/a.php', "<?php\n\$one = 1;\n\$two = 2;\n\$three = 3;\n");
+    // What the fake prettier may report must be on disk, since it is handed
+    // only the project's own files (F-87); infection runs only with a config
+    // (F-85).
+    mkdir($root . '/js', 0775, TRUE);
+    file_put_contents($root . '/js/x.js', "var x=1\n");
+    file_put_contents($root . '/infection.json5', "{}\n");
     return $root;
   }
 
@@ -368,13 +410,20 @@ final class BaselineWriterTest extends WorkflowTestCase {
             ];
 
           case 'prettier':
-            $lines = array_map(static fn (string $f): string => '[warn] ' . $f, $this->unformatted);
-            return [$this->unformatted === [] ? 0 : 1, '', implode("\n", $lines) . "\n"];
+            // Only what it was handed: a real prettier reports nothing else.
+            $handed = array_values(array_intersect($this->unformatted, $argv));
+            $lines = array_map(static fn (string $f): string => '[warn] ' . $f, $handed);
+            return [$handed === [] ? 0 : 1, '', implode("\n", $lines) . "\n"];
 
           case 'phpunit':
             return [0, sprintf("OK\n  Lines:   %.2f%% (34/100)\n", $this->coverage), ''];
 
           case 'infection':
+            if ($this->infectionThreeFive) {
+              $summary = "3 mutations were generated:\n\nMetrics:\n"
+                . "         Mutation Code Coverage: 100%%\n         Covered Code MSI: %d%%\n";
+              return [0, sprintf($summary, (int) $this->msi), ''];
+            }
             return [0, sprintf("Mutation Score Indicator (MSI): %d%%\n", (int) $this->msi), ''];
         }
         return [127, '', 'not found'];

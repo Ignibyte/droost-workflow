@@ -40,7 +40,16 @@ final class CliProcess {
    *   rather than showing a bare non-zero.
    */
   public static function run(array $argv, string $cwd, int $timeout): array {
+    // STDIN IS A PIPE CLOSED AT ONCE, never the caller's (F-84). With no
+    // descriptor 0 the child inherited this process's stdin, and in
+    // `drush mcp:server` that is the protocol pipe, open for the session.
+    // infection with no config asked its setup questions there, and
+    // stylelint and prettier handed no files read their code from it: each
+    // blocked until the gate's timeout, and anything the client sent
+    // meanwhile was the tool's to read. Nothing a gate runs takes input, so
+    // every child reads an immediate end of file instead.
     $descriptors = [
+      0 => ['pipe', 'r'],
       1 => ['pipe', 'w'],
       2 => ['pipe', 'w'],
     ];
@@ -51,6 +60,7 @@ final class CliProcess {
       return [127, '', 'could not start ' . ($argv[0] ?? '(no command)')];
     }
 
+    fclose($pipes[0]);
     stream_set_blocking($pipes[1], FALSE);
     stream_set_blocking($pipes[2], FALSE);
 

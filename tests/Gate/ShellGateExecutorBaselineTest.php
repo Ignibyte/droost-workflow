@@ -123,6 +123,12 @@ final class ShellGateExecutorBaselineTest extends WorkflowTestCase {
    */
   public function testPrettierInheritsRecordedFilesUntilTouched(): void {
     $root = $this->rootWithTools(['node_modules/.bin/prettier']);
+    // The files are on disk: with no `paths` lever prettier is handed the
+    // project's own code, and a file it is not handed is one it never read
+    // (F-87).
+    mkdir($root . '/js');
+    file_put_contents($root . '/js/legacy.js', "var a=1\n");
+    file_put_contents($root . '/js/touched.js', "var b=2\n");
     $this->writeBaseline($root, ['prettier' => ['file' => 'prettier.txt', 'count' => 2]], [
       'prettier.txt' => "js/legacy.js\njs/touched.js\n",
     ]);
@@ -132,6 +138,7 @@ final class ShellGateExecutorBaselineTest extends WorkflowTestCase {
 
     $result = $this->executor([1, '', $stderr])->executeWithBaseline($gate, $root, $context);
 
+    $this->assertSame(['js/legacy.js', 'js/touched.js'], array_slice($this->argv[0], 2), 'prettier was handed the files it judged');
     $this->assertSame(GateStatus::Failed, $result->status);
     $this->assertSame(1, $result->inherited, 'legacy.js is untouched, so inherited');
     $this->assertSame(1, $result->new, 'touched.js was changed by the run: formatting it is part of the change');
@@ -171,6 +178,7 @@ final class ShellGateExecutorBaselineTest extends WorkflowTestCase {
    */
   public function testMutationFloorReplacesMinMsi(): void {
     $root = $this->rootWithTools(['vendor/bin/infection']);
+    file_put_contents($root . '/infection.json5', "{}\n");
     $this->writeBaseline($root, ['mutation' => ['file' => 'metrics.json', 'count' => 41]], [
       'metrics.json' => json_encode(['msi' => 41.0], JSON_THROW_ON_ERROR),
     ]);

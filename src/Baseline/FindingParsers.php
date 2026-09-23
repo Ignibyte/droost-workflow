@@ -266,6 +266,14 @@ final class FindingParsers {
   /**
    * The Mutation Score Indicator from infection's summary.
    *
+   * Infection 0.35 prints "Mutation Score Indicator (MSI)" only under
+   * `--with-uncovered`, which the gate never passes, so this read nothing on
+   * any real run and no baseline could record an MSI (F-89). Without that
+   * flag infection mutates only the lines the tests cover
+   * (`MutationGenerator::generate(bool $onlyCovered)`), so the MSI its
+   * `--min-msi` checks IS the "Covered Code MSI" it does print. Measured:
+   * "3 mutations were generated", "Covered Code MSI: 66%", no MSI line.
+   *
    * @param string $stdout
    *   Standard output.
    *
@@ -273,7 +281,24 @@ final class FindingParsers {
    *   The percentage, or NULL when none was printed.
    */
   public static function msiPercent(string $stdout): ?float {
-    return preg_match('/Mutation Score Indicator \(MSI\):\s*([0-9.]+)%/', $stdout, $m) === 1 ? (float) $m[1] : NULL;
+    if (preg_match('/Mutation Score Indicator \(MSI\):\s*([0-9.]+)%/', $stdout, $m) === 1) {
+      return (float) $m[1];
+    }
+
+    return preg_match('/^\s*Covered Code MSI:\s*([0-9.]+)%/m', $stdout, $m) === 1 ? (float) $m[1] : NULL;
+  }
+
+  /**
+   * How many mutants infection generated, from its summary.
+   *
+   * @param string $stdout
+   *   Standard output.
+   *
+   * @return int|null
+   *   The count, or NULL when the summary was not printed.
+   */
+  public static function mutantCount(string $stdout): ?int {
+    return preg_match('/^\s*(\d+) mutations were generated:/m', $stdout, $m) === 1 ? (int) $m[1] : NULL;
   }
 
   /**

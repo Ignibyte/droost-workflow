@@ -166,6 +166,11 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   private const PHPCS_CONFIGS = ['phpcs.xml.dist', 'phpcs.xml'];
 
   /**
+   * The config files infection 0.35 looks for, in its loader's order.
+   */
+  private const INFECTION_CONFIGS = ['infection.json5', 'infection.json', 'infection.json5.dist', 'infection.json.dist'];
+
+  /**
    * Where a Drupal site's own code lives inside its docroot.
    */
   private const DRUPAL_OWN_TREES = ['modules/custom', 'themes/custom', 'profiles/custom'];
@@ -372,6 +377,10 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       && !is_file($root . '/phpunit.xml.dist')) {
       return NULL;
     }
+    // Nor infection with nothing naming what to mutate: it would ask (F-85).
+    if ($gate->name === 'mutation' && !$this->configuresItself($root, self::INFECTION_CONFIGS)) {
+      return NULL;
+    }
     $kept = array_values(array_filter(
       $prepared['argv'],
       static function (string $arg) use ($withoutPrefixes): bool {
@@ -431,7 +440,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       // non-empty scope to the concrete matching files (the empty case is
       // still the labeled "nothing to analyse" pass below).
       if ($scoped !== [] && in_array($gate->name, self::FILE_SCOPED, TRUE)) {
-        $scoped = $this->analysableFiles($gate, $root);
+        $scoped = $this->analysableFiles($gate, $root, $scoped);
       }
       $argv = array_merge($argv, $scoped);
     }
@@ -561,21 +570,41 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       );
     }
 
+    if ($gate->name === 'mutation' && !$this->configuresItself($root, self::INFECTION_CONFIGS)) {
+      // THE SAME HONESTY AS phpunit.xml, and for a worse reason (F-85). With
+      // no config, infection starts a setup wizard. Answered by nobody it
+      // took its defaults, WROTE `infection.json5` into the project under
+      // review, and the gate recorded the wizard's first question as the
+      // code's failure; with the MCP server's stdin it waited for an answer
+      // until the gate's timeout. `--no-interaction` stops the wizard, and
+      // this says what is actually missing.
+      return GateResult::toolMissing(
+        $gate->name,
+        $invocation . ' (no ' . implode(', ', self::INFECTION_CONFIGS) . ' at the project root)',
+        'infection IS installed — what is missing is its configuration, which '
+        . 'names what to mutate. Write an infection.json5 at the project root '
+        . 'naming the project\'s own source directories, for example '
+        . '{"source": {"directories": ["web/modules/custom"]}}; infection runs '
+        . 'the suite the phpunit.xml there describes. If this project has '
+        . 'nothing to mutate yet, that is the OPERATOR\'s call: '
+        . '`gates.mutation.on: false` in droost.workflow.yml.',
+      );
+    }
+
     if ($scoped === []) {
       // Every configured path is absent or holds nothing the tool reads.
       // Running anyway would make phpstan's "no files found" error read as a
       // failing gate on a repo whose custom-code directories are still
       // empty. A pass that SAYS it analysed nothing is the honest verdict —
       // and it is labeled, so it can never be mistaken for a clean scan.
+      $lever = $gate->option('paths');
       return GateResult::labelledPass(
         $gate->name,
         0,
         0,
-        sprintf(
-          '%s passed — the configured paths (%s) contain nothing to analyse',
-          $gate->name,
-          (string) $gate->option('paths'),
-        ),
+        is_string($lever) && $lever !== ''
+          ? sprintf('%s passed — the configured paths (%s) contain nothing to analyse', $gate->name, $lever)
+          : sprintf('%s passed — the project\'s own code holds no file %s reads, so nothing was analysed', $gate->name, $gate->name),
         $invocation,
       );
     }
@@ -613,6 +642,26 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         self::causeLine($stderr, $stdout),
         self::toolFailedHint($gate->name, self::causeLine($stderr, $stdout)),
         $invocation,
+      );
+    }
+
+    if ($gate->name === 'mutation' && $exit !== 0 && self::noCoverageDriver($stdout . "\n" . $stderr)) {
+      // F-76'S TWIN (F-86). infection needs a coverage driver to know which
+      // tests reach which line, and without one it exits 1 before mutating
+      // anything. The gate read that exit as the code failing, with the
+      // summary "In CoverageChecker.php line 89:". The coverage gate has
+      // said error-tool-missing for the same environment since 0.10.15.
+      return GateResult::toolMissing(
+        $gate->name,
+        $invocation . ' — infection found no code coverage driver, so nothing was mutated',
+        'A coverage driver is a PHP EXTENSION, so no composer or npm install '
+        . 'reaches it: ask the OPERATOR to enable pcov (or xdebug with '
+        . 'xdebug.mode=coverage) for the PHP that runs the gates; `php -m | '
+        . 'grep -iE "xdebug|pcov"` confirms it. If this project does not '
+        . 'mutation-test, `gates.mutation.on: false` in droost.workflow.yml. '
+        . 'This says nothing about the tests.',
+        $exit,
+        $elapsed,
       );
     }
 
@@ -705,6 +754,20 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         $exit,
         $elapsed,
         'phpcs found nothing to check under the configured paths — a labeled pass, not a measurement.',
+        $invocation,
+      );
+    }
+
+    if ($gate->name === 'mutation' && $exit === 0 && FindingParsers::mutantCount($stdout) === 0) {
+      // A SCORE OVER NOTHING (F-88). infection scores zero mutants as MSI 0,
+      // which fails `--min-msi`, unless its config sets
+      // `ignoreMsiWithNoMutations`, and whoever writes the config chooses
+      // that. Before the baseline partition, which would call it a pass.
+      return GateResult::labelledPass(
+        $gate->name,
+        $exit,
+        $elapsed,
+        'mutation passed — infection generated NO MUTANTS, so nothing was measured: the tests execute no code in its configured sources that a mutator could change, or its config ignores an empty run (ignoreMsiWithNoMutations). Read this as unverified rather than as a pass.',
         $invocation,
       );
     }
@@ -1267,8 +1330,23 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   private function scopedPaths(GateSettings $gate, string $root): ?array {
     $extensions = self::ANALYSABLE[$gate->name] ?? NULL;
     $paths = $gate->option('paths');
-    if ($extensions === NULL || !is_string($paths) || $paths === '') {
+    if ($extensions === NULL) {
       return NULL;
+    }
+    if (!is_string($paths) || $paths === '') {
+      // THE FRONT-END TRIO CANNOT FIND A SUBJECT OF THEIR OWN (F-87). phpcs
+      // and phpstan with no lever get the project's own code from argvFor();
+      // the trio got nothing, because each is handed files and there were
+      // none to hand. `scopeTrioLikeThePair()` lends them phpcs's paths, and
+      // the standalone `init` file writes phpcs with none, so at xhigh the
+      // tools ran with no file argument at all. Measured: eslint 8.57.1,
+      // core's pin, exited 0 with `[]`; prettier 3.6.2 exited 0 with "No
+      // parser and no file path given"; stylelint 16.26.1 linted its own
+      // empty stdin and failed on `no-empty-source`. Two passes over nothing
+      // and a failure nobody could fix. The same rule the PHP pair uses:
+      // the project's own trees holding a file this tool reads, and none at
+      // all is the labelled "nothing to analyse" pass.
+      return in_array($gate->name, self::FILE_SCOPED, TRUE) ? $this->ownCodePaths($root, $gate) : NULL;
     }
     $scoped = [];
     foreach (explode(',', $paths) as $path) {
@@ -1324,7 +1402,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   /**
    * The concrete files a file-scoped gate should analyse, root-relative.
    *
-   * Walks the gate's configured paths and returns every file the tool owns
+   * Walks the gate's scoped paths and returns every file the tool owns
    * (by extension), skipping vendored trees — so the front-end trio see only
    * the JS/CSS under the custom-code dirs, never the .yml/.php/.twig a bare
    * directory would sweep in. A directly-named file with a matching extension
@@ -1335,19 +1413,17 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   The gate's resolved levers.
    * @param string $root
    *   The project root (already trimmed).
+   * @param list<string> $paths
+   *   The scoped paths: the `paths` lever narrowed to what holds a file the
+   *   tool reads, or the project's own code when there is no lever.
    *
    * @return list<string>
    *   Root-relative file paths, sorted.
    */
-  private function analysableFiles(GateSettings $gate, string $root): array {
+  private function analysableFiles(GateSettings $gate, string $root, array $paths): array {
     $extensions = self::ANALYSABLE[$gate->name] ?? [];
-    $paths = $gate->option('paths');
     $files = [];
-    foreach (explode(',', is_string($paths) ? $paths : '') as $path) {
-      $path = trim($path);
-      if ($path === '') {
-        continue;
-      }
+    foreach ($paths as $path) {
       $abs = $root . '/' . $path;
       if (is_file($abs)) {
         if (in_array(strtolower(pathinfo($abs, PATHINFO_EXTENSION)), $extensions, TRUE)) {
@@ -1711,9 +1787,14 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         '--coverage-text',
         '--only-summary-for-coverage-text',
       ],
+      // `--no-interaction`, because infection with no config asks its setup
+      // questions: answered by nobody, it wrote `infection.json5` into the
+      // project under review, and the gate recorded the first question as
+      // the code's failure (F-85). A missing config is caught before the run.
       'mutation' => [
         $binary,
         '--no-progress',
+        '--no-interaction',
         '--min-msi=' . (string) ($msi ?? 0),
       ],
       // `playwright test` is the suite runner; bare `playwright` prints
@@ -1961,8 +2042,8 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    * otherwise the same default the argv was built from. A gate that
    * discovers its own subject from a config file this cannot read — a
    * `phpstan.neon`, a ruleset with `<file>` entries — has no answer here,
-   * and the record says so rather than guessing. The front-end trio have
-   * only the lever.
+   * and the record says so rather than guessing. The front-end trio read no
+   * config for a subject: the lever, or the project's own code (F-87).
    *
    * @param \Droost\Workflow\Config\GateSettings $gate
    *   The gate.
@@ -2161,6 +2242,29 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   }
 
   /**
+   * Whether a coverage-driven tool is saying the PHP has no coverage driver.
+   *
+   * Infection's own words when it cannot start, and PHPUnit's when the
+   * initial run infection starts has none (F-86).
+   *
+   * @param string $output
+   *   The tool's combined output.
+   *
+   * @return bool
+   *   TRUE when no driver was found.
+   */
+  public static function noCoverageDriver(string $output): bool {
+    // Console output wraps, so the phrase is matched with its whitespace
+    // collapsed: infection 0.35 breaks "phpdbg or xdebug" across two lines.
+    $flat = (string) preg_replace('/\s+/', ' ', $output);
+
+    return preg_match(
+      '/no code coverage generator \(pcov, phpdbg or xdebug\) has been detected|No code coverage driver available/i',
+      $flat,
+    ) === 1;
+  }
+
+  /**
    * Whether a tool's stdout carries a report it produced.
    *
    * The difference between "I ran and found problems" and "I could not run",
@@ -2322,6 +2426,22 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     string $root = '',
   ): string {
     if ($exit === 0) {
+      // WHAT A MUTATION PASS MEASURED (F-88). "mutation passed" was the
+      // whole record, the same words over three mutants or three hundred.
+      if ($gate === 'mutation') {
+        $mutants = FindingParsers::mutantCount($stdout);
+        $msi = FindingParsers::msiPercent($stdout);
+        $min = $settings?->option('msi_min');
+        if ($mutants !== NULL && $msi !== NULL) {
+          return sprintf(
+            'mutation passed — MSI %s%% over %d mutant%s%s',
+            rtrim(rtrim(sprintf('%.2f', $msi), '0'), '.'),
+            $mutants,
+            $mutants === 1 ? '' : 's',
+            is_int($min) ? sprintf(' (min %d%%)', $min) : '',
+          );
+        }
+      }
       return $gate . ' passed';
     }
     // NOT THE FIRST LINE. A tool's first line is its banner, and the summary
@@ -2461,7 +2581,11 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     $lines = preg_split('/\R/', trim($stderr) !== '' ? $stderr : $stdout) ?: [];
     $banner = '/^(PHPUnit \d|PHP_CodeSniffer|PHPStan|Instructions for|Runtime:'
       . '|Configuration:|Note: Using|Each error has|This page contains|Before fixing'
-      . '|The error usually|Do not |^-+$|^\.+$|^\s*$)/i';
+      . '|The error usually|Do not |^-+$|^\.+$|^\s*$'
+      // Symfony console's exception header, "In CoverageChecker.php line
+      // 89:", is where the message was thrown; the message is the next line
+      // (F-86).
+      . '|In \S+ line \d+:$)/i';
     $tells = '/^(There (was|were) \d|Tests: |FAILURES|ERRORS|OK, but|\[ERROR\]'
       . '|\d+\)\s|FOUND \d+ ERROR|Found \d+ error)/i';
     $fallback = '';
