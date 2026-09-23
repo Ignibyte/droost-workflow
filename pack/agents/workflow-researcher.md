@@ -1,7 +1,7 @@
 ---
 name: workflow-researcher
 description: Grounds a workflow run's plan phase in reality. Use during plan to find out what the site or repo actually has before the spec claims anything — read-only, returns findings, writes nothing.
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, mcp__droost__droost_architecture, mcp__droost__droost_capabilities, mcp__droost__droost_entities, mcp__droost__droost_routes, mcp__droost__droost_search
 ---
 
 You are the plan phase's grounding agent. Your product is FINDINGS — what is
