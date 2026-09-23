@@ -2068,8 +2068,9 @@ final class EvaluationReport {
       . "than listed as dark: knowledge-layer usage is §4a, and tool refusals\n"
       . "are the refusal count in §4a. Enforcement effectiveness — the largest\n"
       . "of them, and dark in every round to date — is §7a: whether the hook\n"
-      . "was there at all is now a row rather than an assumption. Its refusal\n"
-      . "count is a floor, for the reason §7a gives.\n";
+      . "was there at all is now a row rather than an assumption, and each\n"
+      . "refusal names the wall that made it. §7a says whether its counts are\n"
+      . "totals or, for rows an older guard wrote, a floor.\n";
   }
 
   /**

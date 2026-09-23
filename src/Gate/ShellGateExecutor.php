@@ -826,7 +826,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $exit === 0 ? GateStatus::Passed : GateStatus::Failed,
       $exit,
       $elapsed,
-      $this->summarise($gate->name, $exit, $stdout, $stderr),
+      $this->summarise($gate->name, $exit, $stdout, $stderr, $gate, $root),
       $this->findings($stdout, $gate->name, $root),
       $invocation,
     );
@@ -2304,6 +2304,11 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   Standard output.
    * @param string $stderr
    *   Standard error.
+   * @param \Droost\Workflow\Config\GateSettings|null $settings
+   *   The gate's settings, when the caller has them, for the level it ran at.
+   * @param string $root
+   *   The project root, when the caller has it, so findings are named by the
+   *   path a reader knows.
    *
    * @return string
    *   The summary.
@@ -2313,6 +2318,8 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     int $exit,
     string $stdout,
     string $stderr,
+    ?GateSettings $settings = NULL,
+    string $root = '',
   ): string {
     if ($exit === 0) {
       return $gate . ' passed';
@@ -2334,10 +2341,34 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     // prefix, let a continuation line through and the summary became "or
     // `return.missing`.", a fragment of the advice, not the cause. The JSON
     // report on stdout has the real number; use it.
+    //
+    // AND SAYS WHERE, AND AT WHICH LEVEL (F-80). "phpstan failed (exit 1): 1
+    // error" was all P6 run 6's agent had when the first run at `high` failed
+    // on a line in a file it never touched. It spent five calls finding out
+    // which line, and still could not see why an unchanged file failed now:
+    // the level had gone from 2 to 6. The report names both.
     if ($gate === 'phpstan') {
       $count = FindingParsers::phpstanErrorCount($stdout);
       if ($count !== NULL && $count > 0) {
-        return sprintf('phpstan failed (exit %d): %d error%s', $exit, $count, $count === 1 ? '' : 's');
+        $level = $settings?->option('level');
+        $where = [];
+        if ($root !== '') {
+          foreach (FindingParsers::phpstan($stdout, $root) as $finding) {
+            if ($finding['file'] !== '') {
+              $where[$finding['file'] . ':' . $finding['line']] = TRUE;
+            }
+          }
+        }
+        $shown = array_slice(array_keys($where), 0, 3);
+
+        return sprintf(
+          'phpstan%s failed (exit %d): %d error%s%s',
+          is_int($level) || is_string($level) ? ' (level ' . $level . ')' : '',
+          $exit,
+          $count,
+          $count === 1 ? '' : 's',
+          $shown === [] ? '' : ', at ' . implode(', ', $shown) . (count($where) > 3 ? ', and more' : ''),
+        );
       }
     }
     $line = self::failureLine($stderr, $stdout);

@@ -55,7 +55,9 @@ final class FailureNamesTheCauseTest extends WorkflowTestCase {
     ))->execute(new GateSettings('phpstan', TRUE, ['level' => 6]), $root);
 
     $this->assertSame(GateStatus::Failed, $result->status);
-    $this->assertSame('phpstan failed (exit 1): 2 errors', $result->summary);
+    // The level it ran at and where, so an unchanged file that fails only
+    // because the level rose says both (F-80).
+    $this->assertSame('phpstan (level 6) failed (exit 1): 2 errors, at src/Money.php:9, src/Money.php:14', $result->summary);
     $this->assertStringNotContainsString('return.missing', $result->summary, 'not the advice fragment');
     $this->assertStringNotContainsString('Instructions', $result->summary);
   }
