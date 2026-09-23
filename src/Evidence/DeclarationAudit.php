@@ -667,12 +667,24 @@ final class DeclarationAudit {
       $untouched = array_map(self::normalise(...), $this->untouchedScaffolds);
       $anyTests = array_values(array_filter($subject, static fn (string $file): bool => self::isTestFile($file)));
       $generated = array_values(array_filter($anyTests, static fn (string $file): bool => in_array(self::normalise($file), $untouched, TRUE)));
-      $tests = array_values(array_diff($anyTests, $generated));
-      $setAside = $generated === [] ? '' : sprintf(
+      // AND A TEST DRUSH GENERATED, which no record names (F-77). The router
+      // sends a unit test to `drush generate test:unit`, whose only test
+      // asserts TRUE, so the placeholder is read off the file itself.
+      $placeholders = array_values(array_filter(
+        array_diff($anyTests, $generated),
+        fn (string $file): bool => $this->isGeneratorPlaceholder($file),
+      ));
+      $tests = array_values(array_diff($anyTests, $generated, $placeholders));
+      $setAside = ($generated === [] ? '' : sprintf(
         ' %d test file(s) are still exactly what droost\'s scaffold wrote and count for nothing: %s.',
         count($generated),
         self::someOf($generated),
-      );
+      )) . ($placeholders === [] ? '' : sprintf(
+        ' %d test file(s) still hold only a code generator\'s placeholder test (drush generate test:*\'s '
+        . 'testSomething) and count for nothing: %s.',
+        count($placeholders),
+        self::someOf($placeholders),
+      ));
       $php = array_values(array_filter(
         $subject,
         static fn (string $file): bool => preg_match('/\.(php|module|inc|install|theme)$/', $file) === 1 && !self::isTestCode($file),
@@ -739,6 +751,30 @@ final class DeclarationAudit {
     }
 
     return $checks;
+  }
+
+  /**
+   * Whether a changed test file is still only a generator's placeholder.
+   *
+   * @param string $file
+   *   The changed path, relative to the project root.
+   *
+   * @return bool
+   *   TRUE when the file reads as drupal-code-generator's untouched test. A
+   *   project root the audit was not given, or a file it cannot read, is
+   *   FALSE: nothing is set aside that could not be looked at.
+   */
+  private function isGeneratorPlaceholder(string $file): bool {
+    if ($this->projectRoot === NULL) {
+      return FALSE;
+    }
+    $relative = self::normalise($file);
+    if (str_contains('/' . $relative . '/', '/../')) {
+      return FALSE;
+    }
+    $contents = @file_get_contents(rtrim($this->projectRoot, '/') . '/' . $relative);
+
+    return is_string($contents) && GeneratorPlaceholder::isPlaceholderTest($contents);
   }
 
   /**
