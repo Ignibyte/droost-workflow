@@ -58,7 +58,7 @@ final class LintReportTest extends WorkflowTestCase {
   }
 
   /**
-   * A prettier failure lists every file, from stderr, where prettier 3 puts them.
+   * A prettier failure lists every file, from stderr, where prettier 3 writes.
    *
    * It recorded no findings and named one file of four (F-95). The output is
    * prettier 3.9.9's --check, with the paths made neutral.
