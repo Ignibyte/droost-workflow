@@ -164,6 +164,7 @@ final class GateRunner {
           $this->runOne($name, $levers, $projectRoot, $state->preset, $context),
         ));
         $result = $this->steeredByTheRun($name, $levers, $state, $projectRoot, $result, $changed);
+        $result = $this->outsideTheDiff($state, $projectRoot, $result, $changed);
         if ($drift !== []) {
           // Through the one helper that carries every field: the positional
           // rebuild this replaced turned a labelled pass into a plain one
@@ -279,6 +280,63 @@ final class GateRunner {
     return $result->withSteeredBy($steering)->withSummary(
       rtrim($result->summary, '. ') . sprintf(' [steered by config this run changed: %s]', implode(', ', $steering)),
     );
+  }
+
+  /**
+   * Which of a failing gate's findings lie in files the run did not change.
+   *
+   * The other half of F-80. The summary names a failure's level and its first
+   * lines, and P6 run 6's agent still could not tell that the one phpstan
+   * error at `high` was in T1's code, which the run never touched: it asked
+   * the operator instead. At `max` every custom file meets phpstan at level
+   * max, so most of a first failure is inherited. Errors only: a warning
+   * never fails a gate. A diff that cannot be read says nothing, rather than
+   * calling everything inherited.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run, for its base commit.
+   * @param string $projectRoot
+   *   The repository.
+   * @param \Droost\Workflow\Gate\GateResult $result
+   *   What the gate reported.
+   * @param list<string>|null $changed
+   *   The run's changed files, read on first use and kept for the phase.
+   *
+   * @return \Droost\Workflow\Gate\GateResult
+   *   The result, its summary naming the untouched files when there are any.
+   */
+  private function outsideTheDiff(RunState $state, string $projectRoot, GateResult $result, ?array &$changed): GateResult {
+    if (($result->demotedFrom ?? $result->status) !== GateStatus::Failed
+      || $this->vcs === NULL || !$this->vcs->isRepository($projectRoot)) {
+      return $result;
+    }
+    $errors = [];
+    foreach ($result->findings as $finding) {
+      $file = $finding['file'] ?? NULL;
+      if (is_string($file) && $file !== '' && ($finding['detail'] ?? 'error') !== 'warning') {
+        $errors[] = ltrim(str_replace('\\', '/', $file), '/');
+      }
+    }
+    if ($errors === []) {
+      return $result;
+    }
+    $changed ??= $this->vcs->changedFiles($projectRoot, $state->baseCommit);
+    $touched = array_flip(array_map(static fn (string $path): string => ltrim(str_replace('\\', '/', $path), '/'), $changed));
+    $outside = array_values(array_filter($errors, static fn (string $file): bool => !isset($touched[$file])));
+    if ($outside === []) {
+      return $result;
+    }
+    $files = array_values(array_unique($outside));
+
+    return $result->withSummary(rtrim($result->summary, '. ') . sprintf(
+      ' [%d of %d %s in %s this run did not change: %s%s]',
+      count($outside),
+      count($errors),
+      count($errors) === 1 ? 'error is' : 'errors are',
+      count($files) === 1 ? 'a file' : 'files',
+      implode(', ', array_slice($files, 0, 3)),
+      count($files) > 3 ? sprintf(', and %d more', count($files) - 3) : '',
+    ));
   }
 
   /**
