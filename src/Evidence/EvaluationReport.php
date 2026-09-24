@@ -723,6 +723,7 @@ final class EvaluationReport {
     $earlier = [];
     $measured = 0;
     $subsidised = 0;
+    $steered = 0;
     foreach ($byItem as $attempts) {
       $latest = $attempts[count($attempts) - 1];
       $state = CheckState::tryFrom((string) (self::text($latest, 'state') ?? ''));
@@ -736,6 +737,10 @@ final class EvaluationReport {
       if (($latest['inherited'] ?? NULL) !== NULL && self::number($latest, 'inherited') > 0) {
         $subsidised++;
       }
+      $steering = self::steeredCell($latest);
+      if ($steering !== '—') {
+        $steered++;
+      }
       $rows[] = [
         self::code(self::text($latest, 'name')),
         self::code(self::text($latest, 'phase')),
@@ -746,6 +751,8 @@ final class EvaluationReport {
         self::text($latest, 'invocation') === NULL ? 'no' : 'yes',
         $verdict,
         $baseline,
+        $steering,
+        // LAST, always: expiryNote() reads the final cell.
         $this->stillDescribesTheCode($runId, $latest),
       ];
       // ONLY GATES THAT RAN. A gate that is off or has no site here is
@@ -785,10 +792,17 @@ final class EvaluationReport {
       . "- `0 inherited` — a baseline was consulted and subsidised nothing.\n"
       . "- `**N inherited**, M new` — the verdict rests on M findings and set\n"
       . "  N aside. A `satisfied` beside a non-zero N is a pass over debt.\n\n"
+      . "**Config the run changed** is the third. A config file is the\n"
+      . "project's, and a run may change one and declare it, but a verdict\n"
+      . "reached under rules the run set is not the verdict a reader assumes:\n\n"
+      . "- `—` — the run changed none of the files this gate's tool read.\n"
+      . "- a file — the run wrote, edited or deleted it, and the tool reads\n"
+      . "  it. Read that file's diff before the verdict beside it.\n\n"
       . self::table(
         [
           'Gate', 'Phase', 'State', 'Fault', 'Exit', '`duration_ms`',
-          'Invocation recorded', 'Measured anything?', 'Baseline', 'Still true?',
+          'Invocation recorded', 'Measured anything?', 'Baseline',
+          'Config the run changed', 'Still true?',
         ],
         $rows,
       )
@@ -808,6 +822,14 @@ final class EvaluationReport {
         . "different one is a baseline edited under the run.\n",
         $subsidised,
         $subsidised === 1 ? 'it' : 'them',
+      ))
+      . ($steered === 0 ? '' : sprintf(
+        "\n**%d of those verdicts %s reached under config this run changed.**\n"
+        . "The column names each file. Its diff is the rule the run set, and\n"
+        . "nothing in this record says whether that rule is the one the\n"
+        . "project would have held the work to.\n",
+        $steered,
+        $steered === 1 ? 'was' : 'were',
       ))
       . $this->expiryNote($rows);
 
@@ -2186,6 +2208,28 @@ final class EvaluationReport {
     }
 
     return $rows;
+  }
+
+  /**
+   * The configs this run changed that one verdict was reached under.
+   *
+   * An em dash means the run changed none of the files the gate's tool read,
+   * which includes a row written before droost/workflow recorded it. Bold
+   * otherwise, because it is the cell a reader skims past (F-102).
+   *
+   * @param array<array-key, mixed> $row
+   *   The stored check row.
+   *
+   * @return string
+   *   The cell.
+   */
+  private static function steeredCell(array $row): string {
+    $files = array_values(array_filter(explode("\n", self::text($row, 'steered_by') ?? ''), static fn (string $file): bool => $file !== ''));
+    if ($files === []) {
+      return '—';
+    }
+
+    return '**' . implode(', ', array_map(static fn (string $file): string => self::code($file), $files)) . '**';
   }
 
   /**

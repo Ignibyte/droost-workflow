@@ -164,17 +164,17 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    * When one exists the tool is handed no path and reads its own; the argv
    * and the recorded subject both defer to it, from these same lists.
    */
-  private const PHPSTAN_CONFIGS = ['phpstan.neon', 'phpstan.neon.dist', 'phpstan.dist.neon'];
+  public const PHPSTAN_CONFIGS = ['phpstan.neon', 'phpstan.neon.dist', 'phpstan.dist.neon'];
 
   /**
    * The phpcs rulesets, in the order phpcs itself looks for them.
    */
-  private const PHPCS_CONFIGS = ['phpcs.xml.dist', 'phpcs.xml'];
+  public const PHPCS_CONFIGS = ['phpcs.xml.dist', 'phpcs.xml'];
 
   /**
    * The config files infection 0.35 looks for, in its loader's order.
    */
-  private const INFECTION_CONFIGS = ['infection.json5', 'infection.json', 'infection.json5.dist', 'infection.json.dist'];
+  public const INFECTION_CONFIGS = ['infection.json5', 'infection.json', 'infection.json5.dist', 'infection.json.dist'];
 
   /**
    * Where a Drupal site's own code lives inside its docroot.

@@ -83,6 +83,9 @@ final class GateResult {
    *   known here, or when nothing ran.
    * @param \Droost\Workflow\Gate\GateStatus|null $demotedFrom
    *   The status report mode demoted this result from, when it did.
+   * @param list<string> $steeredBy
+   *   The config files this run changed that the tool read, project-relative.
+   *   Empty when it read none, or when the run's diff could not be read.
    */
   public function __construct(
     public readonly string $gate,
@@ -143,6 +146,12 @@ final class GateResult {
     // In-process only: CheckRecord::fromGate reads it from the live result,
     // and the wire shape toArray() agrees to stays as it is.
     public readonly ?GateStatus $demotedFrom = NULL,
+    // THE RULES THE RUN SET (F-102). A config is a project file a run may
+    // change, and changing one is often right, but at xhigh a stylelint
+    // config the agent wrote judged the CSS it was tuned to (0 problems under
+    // it, 89 under core's), and the record said "stylelint passed". What the
+    // verdict was reached under rides beside it, as a column, not a sentence.
+    public readonly array $steeredBy = [],
   ) {}
 
   /**
@@ -177,6 +186,19 @@ final class GateResult {
    */
   public function withSubjects(array $subjects): self {
     return $this->rebuilt(subjects: $subjects);
+  }
+
+  /**
+   * This result with the configs the run changed that steered it recorded.
+   *
+   * @param list<string> $files
+   *   Project-relative config files the tool read and the run changed.
+   *
+   * @return self
+   *   The result.
+   */
+  public function withSteeredBy(array $files): self {
+    return $this->rebuilt(steeredBy: $files);
   }
 
   /**
@@ -255,6 +277,8 @@ final class GateResult {
    *   The summary, when replacing it.
    * @param \Droost\Workflow\Gate\GateStatus|null $demotedFrom
    *   The status a demotion replaced, when recording one.
+   * @param list<string>|null $steeredBy
+   *   The configs the run changed that steered it, when replacing them.
    *
    * @return self
    *   The copy.
@@ -266,6 +290,7 @@ final class GateResult {
     ?GateStatus $status = NULL,
     ?string $summary = NULL,
     ?GateStatus $demotedFrom = NULL,
+    ?array $steeredBy = NULL,
   ): self {
     $copy = new self(
       gate: $this->gate,
@@ -284,6 +309,7 @@ final class GateResult {
       declaredFault: $this->declaredFault,
       subjects: $subjects ?? $this->subjects,
       demotedFrom: $demotedFrom ?? $this->demotedFrom,
+      steeredBy: $steeredBy ?? $this->steeredBy,
     );
     $copy->stdout = $this->stdout;
     $copy->stderr = $this->stderr;

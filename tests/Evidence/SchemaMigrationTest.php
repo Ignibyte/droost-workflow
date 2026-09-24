@@ -146,6 +146,36 @@ final class SchemaMigrationTest extends TestCase {
   }
 
   /**
+   * An existing store gains the column naming a verdict's run-changed config.
+   *
+   * F-102. A row written before v12 has no such column, recomputes its digest
+   * exactly as it did, and reads as steered by nothing.
+   */
+  public function testAnOlderStoreGainsTheSteeredByColumn(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'xhigh']);
+    $store->record('r1', 'code', new CheckRecord(
+      'gate', 'phpcs', CheckState::Satisfied, Fault::None, 'phpcs passed', NULL, NULL, 0, 'phpcs', NULL, 800,
+    ));
+    unset($store);
+    $pdo = $this->raw();
+    $pdo->exec('ALTER TABLE check_result DROP COLUMN steered_by');
+    $pdo->exec('PRAGMA user_version = 11');
+    unset($pdo);
+
+    $upgraded = new EvidenceStore($this->root);
+    $this->assertNull($upgraded->integrity('r1'), 'the v11 row still verifies');
+    $this->assertSame(EvidenceStore::SCHEMA_VERSION, $this->version(), 'the rung ran');
+
+    $upgraded->record('r1', 'code', new CheckRecord(
+      'gate', 'stylelint', CheckState::Satisfied, Fault::None, 'stylelint passed', NULL, NULL, 0, 'stylelint', NULL, 700,
+      steeredBy: ['.stylelintrc.json'],
+    ));
+    $this->assertSame('.stylelintrc.json', $this->storeValue($this->raw(), "SELECT steered_by FROM check_result WHERE name = 'stylelint'"));
+    $this->assertNull($upgraded->integrity('r1'), 'and the chain holds across the upgrade');
+  }
+
+  /**
    * An EXISTING store gains the guard ledger, not just a fresh one.
    *
    * THIS IS THE CASE EVERY OTHER TEST IN THIS SUITE MISSES, and it cost a live

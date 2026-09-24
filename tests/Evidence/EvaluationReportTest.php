@@ -547,9 +547,9 @@ final class EvaluationReportTest extends TestCase {
     // of it. Kept in step with §4's header by hand, which is the only place
     // in this suite that still needs to be.
     $this->assertSame(
-      10,
+      11,
       substr_count(str_replace('\\|', '', $row), '|') - 1,
-      'the gate row still has its ten columns: ' . $row,
+      'the gate row still has its eleven columns: ' . $row,
     );
     $this->assertStringContainsString("phpcs | tee out.txt", $report, 'the invocation is printed raw, outside the table, so it can be run');
   }

@@ -119,6 +119,9 @@ final class GateRunner {
     $report = new PhaseReport($phase);
     $live = $this->liveTuning($projectRoot);
     [$context, $tamper] = $this->baselineFor($state, $projectRoot);
+    // Read once per phase and only when a gate ran: no gate here writes a
+    // file, so the diff does not move between them.
+    $changed = NULL;
 
     foreach ($state->gatesDueFor($phase) as $name => $levers) {
       $waiver = $state->gateWaivers[$name] ?? NULL;
@@ -160,6 +163,7 @@ final class GateRunner {
           $projectRoot,
           $this->runOne($name, $levers, $projectRoot, $state->preset, $context),
         ));
+        $result = $this->steeredByTheRun($name, $levers, $state, $projectRoot, $result, $changed);
         if ($drift !== []) {
           // Through the one helper that carries every field: the positional
           // rebuild this replaced turned a labelled pass into a plain one
@@ -232,6 +236,49 @@ final class GateRunner {
       count($own) === 1 ? 'it' : 'each of them',
       $result->summary,
     ));
+  }
+
+  /**
+   * The config files this run changed that the gate's tool read (F-102).
+   *
+   * A verdict reached under rules the run itself set is not the verdict a
+   * reader assumes. P6 run 7's agent wrote the stylelint config its CSS was
+   * judged by, tuned to that CSS, and the record said "stylelint passed". The
+   * files are kept as a field for the record's column and named in the
+   * summary, which is the line the agent and the operator read as the phase
+   * runs. A gate that did not run read nothing, and a diff that cannot be
+   * read names nothing, so neither is marked.
+   *
+   * @param string $name
+   *   The gate.
+   * @param array<string, mixed> $levers
+   *   Its levers, for a pinned config.
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run, for its base commit.
+   * @param string $projectRoot
+   *   The repository.
+   * @param \Droost\Workflow\Gate\GateResult $result
+   *   What the gate reported.
+   * @param list<string>|null $changed
+   *   The run's changed files, read on first use and kept for the phase.
+   *
+   * @return \Droost\Workflow\Gate\GateResult
+   *   The result, with the steering configs when there are any.
+   */
+  private function steeredByTheRun(string $name, array $levers, RunState $state, string $projectRoot, GateResult $result, ?array &$changed): GateResult {
+    if (in_array($result->status, [GateStatus::Off, GateStatus::SkippedNoSite, GateStatus::Waived], TRUE)
+      || $this->vcs === NULL || !$this->vcs->isRepository($projectRoot)) {
+      return $result;
+    }
+    $changed ??= $this->vcs->changedFiles($projectRoot, $state->baseCommit);
+    $steering = SteeringConfigs::changed($name, $levers, $projectRoot, $changed);
+    if ($steering === []) {
+      return $result;
+    }
+
+    return $result->withSteeredBy($steering)->withSummary(
+      rtrim($result->summary, '. ') . sprintf(' [steered by config this run changed: %s]', implode(', ', $steering)),
+    );
   }
 
   /**

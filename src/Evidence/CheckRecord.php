@@ -79,6 +79,9 @@ final class CheckRecord {
    *   How many findings the baseline does NOT record — the ones the verdict
    *   actually turns on. `new_findings` in the store, because `new` is a
    *   reserved word in enough SQL dialects to be worth avoiding.
+   * @param list<string> $steeredBy
+   *   The config files this run changed that the gate's tool read (F-102):
+   *   the rules the verdict was reached under, where the run set them.
    */
   public function __construct(
     public readonly string $kind,
@@ -99,6 +102,7 @@ final class CheckRecord {
     public readonly ?bool $measured = NULL,
     public readonly ?int $inherited = NULL,
     public readonly ?int $newFindings = NULL,
+    public readonly array $steeredBy = [],
   ) {
     if ($this->kind === '' || $this->name === '') {
       throw new \InvalidArgumentException('A check record needs both a kind and a name.');
@@ -196,6 +200,7 @@ final class CheckRecord {
       // on a project that has never adopted one.
       $result->inherited,
       $result->new,
+      $result->steeredBy,
     );
   }
 

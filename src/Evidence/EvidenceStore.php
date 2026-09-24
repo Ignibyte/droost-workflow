@@ -60,7 +60,7 @@ final class EvidenceStore {
    * build does not know about costs it nothing. A store written by an older one
    * is migrated up in place.
    */
-  public const int SCHEMA_VERSION = 11;
+  public const int SCHEMA_VERSION = 12;
 
   /**
    * Substrings that identify a browser tool in a host's tool name.
@@ -231,6 +231,7 @@ final class EvidenceStore {
         9 => $this->migrateToV9($pdo),
         10 => $this->migrateToV10($pdo),
         11 => $this->migrateToV11($pdo),
+        12 => $this->migrateToV12($pdo),
         default => NULL,
       };
       // Stamped per rung, so an interrupted upgrade resumes where it stopped
@@ -282,7 +283,8 @@ final class EvidenceStore {
         adjudicated_at  TEXT NOT NULL,
         provider        TEXT,
         inherited       INTEGER,
-        new_findings    INTEGER
+        new_findings    INTEGER,
+        steered_by      TEXT
       );
       CREATE INDEX IF NOT EXISTS check_by_run   ON check_result (run_id, phase, name);
       CREATE INDEX IF NOT EXISTS check_by_state ON check_result (run_id, state);
@@ -582,8 +584,8 @@ final class EvidenceStore {
       'INSERT INTO check_result
         (run_id, phase, attempt, kind, name, state, fault, summary, remedy,
          subject_hash, exit_code, invocation, started_at, duration_ms, adjudicated_at,
-         provider, measured, inherited, new_findings, row_digest)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+         provider, measured, inherited, new_findings, steered_by, row_digest)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     $statement->execute([
       $runId,
@@ -605,6 +607,7 @@ final class EvidenceStore {
       $check->measured === NULL ? NULL : (int) $check->measured,
       $check->inherited,
       $check->newFindings,
+      $check->steeredBy === [] ? NULL : implode("\n", $check->steeredBy),
       $digest = self::chain($previous, $runId, $phase, $attempt, $check, $adjudicatedAt),
     ]);
     // Per RUN. Without the WHERE, two runs sharing a store carried one global
@@ -2418,6 +2421,8 @@ final class EvidenceStore {
         (string) ($check->inherited ?? -1),
         (string) ($check->newFindings ?? -1),
       ]),
+      // Conditionally too, for the same reason: see migrateToV12().
+      ...($check->steeredBy === [] ? [] : ['steered_by', implode("\n", $check->steeredBy)]),
     ]));
   }
 
@@ -2525,6 +2530,7 @@ final class EvidenceStore {
           ($row['inherited'] ?? NULL) === NULL ? '-1' : (string) self::number($row, 'inherited'),
           ($row['new_findings'] ?? NULL) === NULL ? '-1' : (string) self::number($row, 'new_findings'),
         ]),
+        ...(($row['steered_by'] ?? NULL) === NULL ? [] : ['steered_by', self::text($row, 'steered_by')]),
       ]));
       if (!hash_equals($expected, $stored)) {
         return [
@@ -2895,6 +2901,30 @@ SQL);
       catch (\PDOException) {
         // Already there.
       }
+    }
+  }
+
+  /**
+   * V12 — the configs a run changed, beside the verdicts they steered.
+   *
+   * F-102. P6 run 7's agent wrote the stylelint config its CSS was judged
+   * by, tuned to that CSS: 0 problems under it, 89 under core's. The record
+   * said "stylelint passed". Newline-separated project-relative paths, NULL
+   * when the run changed none of the files the tool read.
+   *
+   * Digested only when set, as V9's counts are, so every row written before
+   * this version recomputes exactly as it did, and moving the column into or
+   * out of NULL changes the input either way.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   */
+  private function migrateToV12(\PDO $pdo): void {
+    try {
+      $pdo->exec('ALTER TABLE check_result ADD COLUMN steered_by TEXT');
+    }
+    catch (\PDOException) {
+      // Already there — V1's DDL carries it for a new store.
     }
   }
 
