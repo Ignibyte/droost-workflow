@@ -120,6 +120,25 @@ OUT;
   }
 
   /**
+   * A failure names its score and its bar, not one escaped mutant (F-94).
+   *
+   * Infection 0.35.4's output over a weak suite, as the subject's container
+   * printed it, cut to the lines that matter.
+   */
+  public function testFailureNamesTheScoreAndTheBar(): void {
+    $stdout = "Escaped mutants:\n================\n\n"
+      . "1) /tmp/probe/src/ProbeAge.php:6    [M] LessThanNegotiation [ID] 5b683562122b3c2cbe348e69c0d5ab8f\n\n"
+      . "3 mutations were generated:\n       1 mutants were killed by Test Framework\n       2 covered mutants were not detected\n\n"
+      . "Metrics:\n         Mutation Code Coverage: 100%\n         Covered Code MSI: 33%\n\n"
+      . " [ERROR] The minimum required MSI percentage should be 60%, but actual is       \n"
+      . "         33.33%. Improve your tests!                                            \n";
+    $result = $this->verdict([1, $stdout, '']);
+
+    $this->assertSame(GateStatus::Failed, $result->status);
+    $this->assertSame('mutation failed (exit 1): MSI 33% over 3 mutants, under the min 60% (2 escaped)', $result->summary);
+  }
+
+  /**
    * Zero mutants measured nothing, however the config makes that exit 0.
    */
   public function testZeroMutantsIsLabelledPass(): void {

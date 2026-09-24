@@ -2627,6 +2627,32 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         );
       }
     }
+    // A MUTATION FAILURE NAMES ITS SCORE AND ITS BAR (F-94), as its pass has
+    // since F-88. The failure line matched "1) …ProbeAge.php:6 [M]
+    // LessThanNegotiation", the first escaped mutant, because PHPUnit's
+    // failures are numbered the same way. The minimum is infection's own
+    // (a baseline's floor replaces the level's in argv), else the lever's.
+    if ($gate === 'mutation') {
+      $mutants = FindingParsers::mutantCount($stdout);
+      $msi = FindingParsers::msiPercent($stdout);
+      if ($mutants !== NULL && $msi !== NULL) {
+        $flat = (string) preg_replace('/\s+/', ' ', $stdout);
+        $min = preg_match('/minimum required MSI percentage should be ([0-9.]+)%/', $flat, $m) === 1
+          ? rtrim(rtrim(sprintf('%.2f', (float) $m[1]), '0'), '.')
+          : (is_int($settings?->option('msi_min')) ? (string) $settings->option('msi_min') : NULL);
+        $escaped = preg_match('/^\s*(\d+) covered mutants were not detected/m', $stdout, $e) === 1 ? (int) $e[1] : NULL;
+
+        return sprintf(
+          'mutation failed (exit %d): MSI %s%% over %d mutant%s%s%s',
+          $exit,
+          rtrim(rtrim(sprintf('%.2f', $msi), '0'), '.'),
+          $mutants,
+          $mutants === 1 ? '' : 's',
+          $min !== NULL ? ', under the min ' . $min . '%' : '',
+          $escaped !== NULL ? sprintf(' (%d escaped)', $escaped) : '',
+        );
+      }
+    }
     // THE TRIO'S TWO LINTERS, THE SAME WAY (F-90). Their summary was the
     // head of the JSON report: "eslint failed (exit 1): [{"filePath":"/var/
     // www/…", cut at 200 characters, which is where a reader looks first.
