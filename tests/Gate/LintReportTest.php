@@ -79,6 +79,44 @@ final class LintReportTest extends WorkflowTestCase {
   }
 
   /**
+   * A phpcs failure is counted and located, not quoted (F-100).
+   *
+   * Its summary was `phpcs failed (exit 2): {"totals":{"errors":14,…`, opening
+   * on a file with no errors in it.
+   */
+  public function testPhpcsSummaryCountsAndLocates(): void {
+    $root = $this->rootWithFile('js', 'x');
+    mkdir($root . '/vendor/bin', 0775, TRUE);
+    file_put_contents($root . '/vendor/bin/phpcs', '');
+    mkdir($root . '/web/modules/custom/probe_module/src', 0775, TRUE);
+    file_put_contents($root . '/web/modules/custom/probe_module/src/A.php', "<?php\n");
+    $file = $root . '/web/modules/custom/probe_module/src/A.php';
+    $report = (string) json_encode([
+      'totals' => ['errors' => 2, 'warnings' => 1, 'fixable' => 0],
+      'files' => [
+        $root . '/web/modules/custom/probe_module/probe.css' => ['errors' => 0, 'warnings' => 0, 'messages' => []],
+        $file => [
+          'errors' => 2,
+          'warnings' => 1,
+          'messages' => [
+            $this->phpcsMessage('ERROR', 233, 'Drupal.Arrays.Array.LongLineDeclaration'),
+            $this->phpcsMessage('ERROR', 258, 'Drupal.Arrays.Array.LongLineDeclaration'),
+            $this->phpcsMessage('WARNING', 12, 'Drupal.Files.LineLength.TooLong'),
+          ],
+        ],
+      ],
+    ]);
+    $executor = new ShellGateExecutor(static fn (): array => [2, $report, ''], static fn (): int => 0);
+    $result = $executor->execute(new GateSettings('phpcs', TRUE, ['paths' => 'web/modules/custom']), $root);
+
+    $this->assertSame(GateStatus::Failed, $result->status);
+    $this->assertSame(
+      'phpcs failed (exit 2): 2 errors and 1 warning, at web/modules/custom/probe_module/src/A.php:233, web/modules/custom/probe_module/src/A.php:258',
+      $result->summary,
+    );
+  }
+
+  /**
    * Stylelint's own crash is still a tool that could not run.
    */
   public function testStylelintWithoutConfigCouldNotRun(): void {
@@ -108,6 +146,31 @@ final class LintReportTest extends WorkflowTestCase {
     $prettier = ShellGateExecutor::toolFailedHint('prettier');
     $this->assertStringContainsString('.prettierrc.json', $prettier);
     $this->assertStringContainsString('opposite formatting', $prettier, 'a pinned prettier config is invisible to the linters\' prettier rules');
+  }
+
+  /**
+   * One message in a phpcs JSON report.
+   *
+   * @param string $type
+   *   ERROR or WARNING.
+   * @param int $line
+   *   The line.
+   * @param string $source
+   *   The sniff.
+   *
+   * @return array<string, mixed>
+   *   The message, as phpcs writes it.
+   */
+  private function phpcsMessage(string $type, int $line, string $source): array {
+    return [
+      'message' => $source,
+      'source' => $source,
+      'severity' => 5,
+      'fixable' => FALSE,
+      'type' => $type,
+      'line' => $line,
+      'column' => 1,
+    ];
   }
 
   /**

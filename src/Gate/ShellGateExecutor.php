@@ -52,13 +52,19 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    * Used only to tell "this path holds nothing for the tool" from "the tool
    * found problems": phpstan errors out on a path set with no PHP in it, and
    * that exit code would otherwise read as a failing gate on every repo whose
-   * custom-code directories are still empty. phpcs's set is wider because
-   * the Drupal standard genuinely sniffs css and js.
+   * custom-code directories are still empty. phpcs's set is PHP's, as
+   * phpstan's is: the Drupal standard's sniffs are PHP's, and the front-end
+   * trio own css and js (F-99).
    */
   private const ANALYSABLE = [
     'phpcs' => [
       'php', 'module', 'install', 'inc', 'theme', 'profile', 'engine',
-      'css', 'js',
+      // NOT css OR js (F-99). The Drupal standard's sniffs are PHP's, and
+      // PHP_CodeSniffer 3 still tokenises JavaScript, so it demanded `TRUE`
+      // and `NULL` in a script, which breaks it: 10 of the 14 errors that
+      // blocked a code phase were PHP sniffs reading JavaScript, and the
+      // agent had to disable one in the file. Core's own phpcs.xml.dist lists
+      // neither extension, and the front-end trio own both.
     ],
     'phpstan' => [
       'php', 'module', 'install', 'inc', 'theme', 'profile', 'engine',
@@ -2674,9 +2680,15 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     // THE TRIO'S TWO LINTERS, THE SAME WAY (F-90). Their summary was the
     // head of the JSON report: "eslint failed (exit 1): [{"filePath":"/var/
     // www/…", cut at 200 characters, which is where a reader looks first.
-    if (in_array($gate, ['eslint', 'stylelint'], TRUE) && $root !== '') {
+    // And phpcs's, whose summary was the same JSON, opening on `{"totals":`
+    // and a file with no errors in it (F-100).
+    if (in_array($gate, ['phpcs', 'eslint', 'stylelint'], TRUE) && $root !== '') {
       $report = self::lintReport($gate, $stdout, $stderr);
-      $found = $gate === 'eslint' ? FindingParsers::eslint($report, $root) : FindingParsers::stylelint($report, $root);
+      $found = match ($gate) {
+        'phpcs' => FindingParsers::phpcs($report, $root),
+        'eslint' => FindingParsers::eslint($report, $root),
+        default => FindingParsers::stylelint($report, $root),
+      };
       if ($found !== []) {
         $errors = count(array_filter($found, static fn (array $finding): bool => $finding['error']));
         $warnings = count($found) - $errors;

@@ -2235,7 +2235,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
         trim($command),
       ));
     }
-    if (preg_match(enforcement_path_markers(), $body) === 1 && code_writes($body)) {
+    if (code_names_enforcement($body) && code_writes($body)) {
       guard_refuse('protected-path:interpreter', sprintf(
         'This hands an interpreter code that names the enforcement itself — the '
         . 'guard, the run record, the evidence store, the baseline or the '
@@ -2392,7 +2392,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       ));
     }
     if ($inlineCode !== NULL
-      && preg_match(enforcement_path_markers(), $inlineCode) === 1
+      && code_names_enforcement($inlineCode)
       && code_writes($inlineCode)) {
       guard_refuse('protected-path:interpreter', sprintf(
         'This hands an interpreter code that names the enforcement itself — the '
@@ -2639,7 +2639,14 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       // for this tier is `-i`: `sed -n 60,200p droost/droost-workflow/run.json`
       // printed part of the record and was refused as rewriting it, while
       // `cat` and `head` over the same file passed.
-      || ($verb === 'sed' && !sed_edits_in_place($tokens)));
+      || ($verb === 'sed' && !sed_edits_in_place($tokens))
+      // `find` READS unless an action writes (F-97). With no `-delete`,
+      // `-exec` and the like it only prints names, and a find that does
+      // write is judged above by what its filters reach. Its quoted
+      // `-path '*droost*'` was glob-expanded here as if the shell would
+      // expand it, landed on the lever file, and a search of vendor/ for
+      // PHP files was refused as editing the dial.
+      || ($verb === 'find' && !find_action_writes($plain)));
     $reading = !$writesTo && $isReader;
     if ($reading) {
       continue;
@@ -3114,6 +3121,37 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
       . 'close it again with `bypass --off`.';
   }
 
+  // THE REST OF THE STATE DIRECTORY (F-96). The comment on the find tier
+  // below says these trees are enforcement top to bottom, and this function
+  // held two files of them. `tool-calls.jsonl`, `guard-calls.jsonl`,
+  // `scaffolded.jsonl`, `pack.lock` and the archived runs took a Write, a
+  // redirect or a `sed -i`, run or no run. `grounding_check` reads the
+  // tool-call ledger straight from its file, so one appended line satisfied
+  // the gate that holds a run to the tools its plan named. The guard's own
+  // rows are what §7a counts, and the scaffold record is what sets an
+  // untouched scaffold aside from `tests_in_diff`. No run open is no
+  // exception: a row written before the run opens is attributed to it. The
+  // spec is the one file here the agent writes.
+  //
+  // BY NAME, OR BY BEING THERE. The operand loop hands this every word of a
+  // command, resolved against its `cd`, so after `cd droost/droost-workflow`
+  // the `echo` in `echo x > spec-b.md` is `droost/droost-workflow/echo`. A
+  // rule for "anything in the directory" refused that. The files the record
+  // is made of are named; the archive is a directory; and a file already in
+  // the directory is protected whatever it is called.
+  if (preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/([A-Za-z0-9._/-]+)$#', $relative, $inState) === 1
+    && preg_match('#^(tmp-)?spec(-[A-Za-z0-9._-]+)?\.md$#', $inState[3]) !== 1
+    && (preg_match('#^(tool-calls\.jsonl|guard-calls\.jsonl|scaffolded\.jsonl|pack\.lock)$|^history(/|$)#', $inState[3]) === 1
+      || is_file(rtrim($root, '/') . '/' . $relative))) {
+    return 'That file is part of the run\'s own evidence: the tool-call ledger '
+      . '`grounding_check` reads, the guard\'s record of itself, the scaffold '
+      . 'record, the pack lock or an archived run. droost and the pipeline '
+      . 'write it. A line written by hand is a forged entry in the record the '
+      . 'gates and the evaluation are built from, with a run open or not. The '
+      . 'spec is the one file in this directory that is yours: write it with '
+      . 'the Write or Edit tool.';
+  }
+
   // The second tier applies only while a run is under way — which is not the
   // same as "a run.json exists". A FINISHED run leaves its record behind with
   // `current_phase: null`; that file is the run's history, and the phase
@@ -3438,6 +3476,28 @@ function code_writes(string $code): bool {
 }
 
 /**
+ * Whether a program's text names the enforcement, the run's spec aside.
+ *
+ * THE SPEC IS THE AGENT'S, in code as with the Write tool (F-98). The
+ * markers name the state directory whole, so a Python edit filling in the
+ * spec's Verified By cells was refused as writing the enforcement, and told
+ * the file was the operator's, while the Write tool and a plain `sed -i`
+ * both allow it. The spec's own path is set aside before the markers are
+ * asked; any other mention of the directory, or of a file in it, counts.
+ *
+ * @param string $code
+ *   A program's text: a heredoc's body, or inline `-c`/`-r` code.
+ *
+ * @return bool
+ *   TRUE when it names something the enforcement rests on.
+ */
+function code_names_enforcement(string $code): bool {
+  $named = (string) preg_replace('#(droost/droost-workflow|\.droost-workflow)/(tmp-)?spec(-[A-Za-z0-9._-]+)?\.md#', '', $code);
+
+  return preg_match(enforcement_path_markers(), $named) === 1;
+}
+
+/**
  * The pattern that says a piece of TEXT names the enforcement.
  *
  * Asked by the interpreter-code rule and by the `printf … | xargs` feeder,
@@ -3450,6 +3510,7 @@ function code_writes(string $code): bool {
  */
 function enforcement_path_markers(): string {
   return '#droost-workflow-guard\.php|\brun\.json|\bbypass\.json|evidence\.sqlite'
+    . '|tool-calls\.jsonl|guard-calls\.jsonl|scaffolded\.jsonl|\bpack\.lock'
     . '|settings\.local\.json|\bsettings\.json|settings\.droost\.php'
     . '|droost\.workflow\.yml|\.claude/hooks|\.claude/(?:skills|agents|commands)'
     . '|droost/droost-workflow|\.droost-workflow|droost/baseline#';

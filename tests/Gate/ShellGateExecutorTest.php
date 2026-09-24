@@ -122,7 +122,9 @@ class ShellGateExecutorTest extends WorkflowTestCase {
           // Without this, PHP_CodeSniffer 4 checks `php` only and a Drupal
           // project whose code is .module/.theme/.install files gets
           // "No files were checked" — a hard failure on healthy code.
-          '--extensions=php,module,install,inc,theme,profile,engine,css,js',
+          // Not css or js: the Drupal standard's sniffs are PHP's, and core's
+          // own phpcs.xml.dist lists neither (F-99).
+          '--extensions=php,module,install,inc,theme,profile,engine',
           '--ignore=*/node_modules/*,*/vendor/*,*/.claude/*,'
           . '*/droost/droost-workflow/*,*/droost/baseline/*,*/.droost-workflow/*',
         ],
@@ -836,11 +838,14 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   /**
    * What counts as analysable is the gate's call, not one shared list.
    *
-   * The Drupal standard genuinely sniffs css, so a css-only theme directory
-   * is real work for phpcs — and nothing at all for phpstan.
+   * A css-only theme directory is real work for stylelint, and nothing at all
+   * for phpcs or phpstan, whose sniffs are PHP's (F-99: the Drupal standard
+   * once took css and js here, and demanded `TRUE` in JavaScript).
    */
   public function testPathsAnalysabilityIsPerGate(): void {
     $root = $this->rootWithBinaries(['phpcs', 'phpstan']);
+    mkdir($root . '/node_modules/.bin', 0755, TRUE);
+    file_put_contents($root . '/node_modules/.bin/stylelint', '');
     mkdir($root . '/web/themes/custom/fxt/css', 0755, TRUE);
     file_put_contents($root . '/web/themes/custom/fxt/css/tokens.css', "a {}\n");
     $spawned = 0;
@@ -860,12 +865,17 @@ class ShellGateExecutorTest extends WorkflowTestCase {
       new GateSettings('phpstan', TRUE, ['paths' => 'web/themes/custom']),
       $root,
     );
+    $stylelint = $executor->execute(
+      new GateSettings('stylelint', TRUE, ['paths' => 'web/themes/custom']),
+      $root,
+    );
 
-    $this->assertSame(1, $spawned, 'Only phpcs had something to run on.');
+    $this->assertSame(1, $spawned, 'Only stylelint had something to run on.');
     $this->assertSame(GateStatus::Passed, $phpcs->status);
     $this->assertSame(GateStatus::Passed, $phpstan->status);
+    $this->assertStringContainsString('nothing to analyse', $phpcs->summary);
     $this->assertStringContainsString('nothing to analyse', $phpstan->summary);
-    $this->assertStringNotContainsString('nothing to analyse', $phpcs->summary);
+    $this->assertStringNotContainsString('nothing to analyse', $stylelint->summary);
   }
 
   /**

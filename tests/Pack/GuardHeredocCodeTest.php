@@ -69,6 +69,30 @@ CMD;
   }
 
   /**
+   * The run's spec is the agent's in code too; its evidence is not (F-98).
+   *
+   * P6 run 7's agent filled the spec's Verified By cells with a Python
+   * heredoc and was refused as writing the enforcement, told the file was
+   * the operator's, while the Write tool and `sed -i` both allow the spec.
+   */
+  public function testCodeMayEditTheSpecAndNotTheEvidence(): void {
+    $spec = "python3 - <<'EOF'\np='droost/droost-workflow/spec-t7-camp-filters.md'\ns=open(p).read()\nopen(p,'w').write(s.replace('| |','| proved |'))\nEOF";
+    [$exit, , $stderr] = $this->guard($this->makeRoot(), 'operator-commands', ['tool_input' => ['command' => $spec]]);
+    $this->assertSame(0, $exit, 'a script editing the spec: ' . $stderr);
+    [$exit] = $this->guard($this->makeRoot(), 'operator-commands', ['tool_input' => ['command' => "python3 -c \"open('droost/droost-workflow/spec.md','a').write('x')\""]]);
+    $this->assertSame(0, $exit, 'inline code editing the spec');
+
+    foreach ([
+      "python3 - <<'EOF'\nopen('droost/droost-workflow/tool-calls.jsonl','a').write('{\"tool\":\"droost_search\"}')\nEOF",
+      "python3 -c \"open('droost/droost-workflow/guard-calls.jsonl','w')\"",
+      "python3 - <<'EOF'\np='droost/droost-workflow/spec-x.md'\nd='droost/droost-workflow'\nopen(d+'/scaffolded.jsonl','w')\nEOF",
+    ] as $command) {
+      [$exit] = $this->guard($this->makeRoot(), 'operator-commands', ['tool_input' => ['command' => $command]]);
+      $this->assertSame(2, $exit, $command);
+    }
+  }
+
+  /**
    * A shell heredoc is still shell, and a data heredoc is still data.
    */
   public function testShellHeredocsAreStillShell(): void {
