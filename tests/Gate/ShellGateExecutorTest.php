@@ -345,6 +345,8 @@ class ShellGateExecutorTest extends WorkflowTestCase {
     $this->assertSame(GateStatus::ErrorToolMissing, $result->status);
     $this->assertTrue($result->status->blocksAdvance());
     $this->assertStringContainsString('xdebug or pcov', $result->summary);
+    // And where installing one leads with JIT on (F-93).
+    $this->assertStringContainsString('opcache.jit=disable', (string) $result->remedy);
   }
 
   /**

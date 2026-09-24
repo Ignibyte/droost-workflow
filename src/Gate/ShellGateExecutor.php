@@ -645,6 +645,32 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       );
     }
 
+    $startup = self::startupDiagnostic($stdout . "\n" . $stderr);
+    if ($startup !== NULL && $exit !== 0 && self::startupBrokeTheRun($gate->name, $stdout . "\n" . $stderr)) {
+      // A PHP THAT SPEAKS AT STARTUP, IN EVERY PROCESS (F-93). With pcov or
+      // xdebug beside JIT, PHP prints "JIT is incompatible with third party
+      // extensions that override zend_execute_ex(). JIT disabled." each time
+      // it starts. PHPUnit reports a separate process's stderr as an error,
+      // and every Drupal kernel test runs in one; infection stops its initial
+      // test run at the first line on stderr. So the suite's result said
+      // nothing about the tests, and the gates said the tests failed: on the
+      // subject, 9 of 25 tests errored and a mutation run over a suite that
+      // kills every mutant was `failed`. The coverage gate's own remedy,
+      // "enable pcov", led there.
+      return GateResult::toolFailed(
+        $gate->name,
+        $exit,
+        'PHP prints this at startup, in every process: ' . $startup,
+        'PHPUnit reports that output from a test run in its own process as an '
+        . 'error, and infection stops its initial test run at it, so this '
+        . 'result says nothing about the tests. Silence it in the PHP that runs '
+        . 'the gates: for JIT beside pcov or xdebug, `opcache.jit=disable` (on '
+        . 'ddev, in a .ddev/php/*.ini, then `ddev restart`). That is the '
+        . 'OPERATOR\'s to change: it is the environment, not the project\'s code.',
+        $invocation,
+      );
+    }
+
     if ($gate->name === 'mutation' && $exit !== 0 && self::noCoverageDriver($stdout . "\n" . $stderr)) {
       // F-76'S TWIN (F-86). infection needs a coverage driver to know which
       // tests reach which line, and without one it exits 1 before mutating
@@ -1556,9 +1582,12 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         . 'reaches it: ask the OPERATOR to enable xdebug or pcov for the PHP '
         . 'binary that runs the suite (`pecl install pcov`, then '
         . '`extension=pcov` and `pcov.enabled=1` in php.ini; `php -m | grep '
-        . '-iE "xdebug|pcov"` confirms it). If this project does not measure '
-        . 'coverage, `gates.coverage.on: false` in droost.workflow.yml. The '
-        . 'suite itself is fine — re-running it reports the same thing.',
+        . '-iE "xdebug|pcov"` confirms it). With JIT on, set '
+        . '`opcache.jit=disable` too: a driver turns JIT off with a warning at '
+        . 'every startup, which fails every test that runs in its own process. '
+        . 'If this project does not measure coverage, `gates.coverage.on: '
+        . 'false` in droost.workflow.yml. The suite itself is fine — re-running '
+        . 'it reports the same thing.',
       );
     }
 
@@ -2264,6 +2293,52 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   }
 
   /**
+   * A diagnostic PHP printed while starting up, or NULL.
+   *
+   * PHP names no file for a warning raised before any script runs: it says
+   * "in Unknown on line 0". Such a line is the environment speaking, in every
+   * process the tool starts (F-93).
+   *
+   * @param string $output
+   *   The tool's combined output.
+   *
+   * @return string|null
+   *   The first such diagnostic, without its location, or NULL.
+   */
+  public static function startupDiagnostic(string $output): ?string {
+    return preg_match('/(?:PHP )?(?:Warning|Notice|Deprecated): +(.+?) in Unknown on line 0/', $output, $m) === 1
+      ? trim($m[1])
+      : NULL;
+  }
+
+  /**
+   * Whether a startup diagnostic is what made the run fail.
+   *
+   * PHPUnit turns a separate process's stderr into an exception carrying it,
+   * and infection gives up on its initial run; either names the diagnostic as
+   * the cause. A suite that merely ran on a noisy PHP and failed on its own
+   * assertions shows neither, and stays the tests' failure.
+   *
+   * @param string $gate
+   *   The gate.
+   * @param string $output
+   *   The tool's combined output.
+   *
+   * @return bool
+   *   TRUE when the diagnostic broke the run.
+   */
+  public static function startupBrokeTheRun(string $gate, string $output): bool {
+    if ($gate === 'mutation') {
+      return str_contains($output, 'Project tests must be in a passing state');
+    }
+    if (in_array($gate, ['phpunit', 'coverage'], TRUE)) {
+      return preg_match('/PHPUnit\\\\Framework\\\\Exception: (?:PHP )?(?:Warning|Notice|Deprecated): [^\n]* in Unknown on line 0/', $output) === 1;
+    }
+
+    return FALSE;
+  }
+
+  /**
    * Whether a coverage-driven tool is saying the PHP has no coverage driver.
    *
    * Infection's own words when it cannot start, and PHPUnit's when the
@@ -2674,7 +2749,10 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       // Symfony console's exception header, "In CoverageChecker.php line
       // 89:", is where the message was thrown; the message is the next line
       // (F-86).
-      . '|In \S+ line \d+:$)/i';
+      . '|In \S+ line \d+:$'
+      // PHP's own startup noise, "... in Unknown on line 0", which every
+      // process on such a PHP prints before the tool says anything (F-93).
+      . '|(PHP )?(Warning|Notice|Deprecated): .* in Unknown on line 0$)/i';
     $tells = '/^(There (was|were) \d|Tests: |FAILURES|ERRORS|OK, but|\[ERROR\]'
       . '|\d+\)\s|FOUND \d+ ERROR|Found \d+ error)/i';
     $fallback = '';
