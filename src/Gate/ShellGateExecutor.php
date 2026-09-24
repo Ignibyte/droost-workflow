@@ -2653,6 +2653,24 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         );
       }
     }
+    // AND PRETTIER, WHOSE FILES ARE ON STDERR (F-95). Its summary was the
+    // first `[warn]` line, one file of four on the subject, and its findings
+    // were read from stdout, which holds only "Checking formatting...".
+    if ($gate === 'prettier' && $root !== '') {
+      $files = FindingParsers::prettierUnformatted($stdout, $stderr, $root);
+      if ($files !== []) {
+        $shown = array_slice($files, 0, 3);
+
+        return sprintf(
+          'prettier failed (exit %d): %d file%s not formatted, %s%s',
+          $exit,
+          count($files),
+          count($files) === 1 ? '' : 's',
+          implode(', ', $shown),
+          count($files) > 3 ? ', and more' : '',
+        );
+      }
+    }
     // THE TRIO'S TWO LINTERS, THE SAME WAY (F-90). Their summary was the
     // head of the JSON report: "eslint failed (exit 1): [{"filePath":"/var/
     // www/…", cut at 200 characters, which is where a reader looks first.
@@ -2832,6 +2850,16 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   The findings, or an empty list.
    */
   private function findings(string $stdout, string $gate = '', string $root = '', string $stderr = ''): array {
+    if ($gate === 'prettier' && $root !== '') {
+      // One per file prettier would rewrite, from whichever stream it used.
+      return array_map(static fn (string $file): array => [
+        'file' => $file,
+        'line' => 0,
+        'rule' => 'prettier',
+        'message' => 'not formatted as prettier would format it',
+        'detail' => 'error',
+      ], FindingParsers::prettierUnformatted($stdout, $stderr, $root));
+    }
     $stdout = self::lintReport($gate, $stdout, $stderr);
     if (trim($stdout) === '') {
       return [];

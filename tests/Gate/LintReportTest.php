@@ -58,6 +58,27 @@ final class LintReportTest extends WorkflowTestCase {
   }
 
   /**
+   * A prettier failure lists every file, from stderr, where prettier 3 puts them.
+   *
+   * It recorded no findings and named one file of four (F-95). The output is
+   * prettier 3.9.9's --check, with the paths made neutral.
+   */
+  public function testPrettierFilesAreCountedAndRecorded(): void {
+    $root = $this->rootWithFile('css', 'a{color:red}');
+    $stderr = "[warn] web/modules/custom/a/a.css\n[warn] web/modules/custom/b/b.css\n"
+      . "[warn] web/modules/custom/c/c.css\n[warn] web/modules/custom/d/d.css\n"
+      . "[warn] Code style issues found in 4 files. Run Prettier with --write to fix.\n";
+    $result = $this->lint('prettier', $root, [1, "Checking formatting...\n", $stderr]);
+
+    $this->assertSame(GateStatus::Failed, $result->status);
+    $this->assertCount(4, $result->findings);
+    $this->assertSame(
+      'prettier failed (exit 1): 4 files not formatted, web/modules/custom/a/a.css, web/modules/custom/b/b.css, web/modules/custom/c/c.css, and more',
+      $result->summary,
+    );
+  }
+
+  /**
    * Stylelint's own crash is still a tool that could not run.
    */
   public function testStylelintWithoutConfigCouldNotRun(): void {
