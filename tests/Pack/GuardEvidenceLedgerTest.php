@@ -73,6 +73,38 @@ final class GuardEvidenceLedgerTest extends WorkflowTestCase {
   }
 
   /**
+   * The store answers with its own rule, and says how to read it (F-108).
+   *
+   * The state directory's rule answered first for every file already in it,
+   * the store included. P6 run 8's seeker ran `sqlite3 evidence.sqlite
+   * ".tables"` and was told a hand-written line is a forged ledger entry and
+   * to write its spec with Edit, under `protected-path:shell`. The store's own
+   * refusal names it and the command that renders it. The refusal is right:
+   * sqlite3 can write files and run commands, so no call of it on the store
+   * is a read the guard can allow.
+   */
+  public function testTheStoreIsRefusedInItsOwnWords(): void {
+    $root = $this->rootWithEvidence(TRUE);
+    file_put_contents($root . '/droost/droost-workflow/evidence.sqlite', 'x');
+
+    foreach ([
+      'cd droost/droost-workflow && sqlite3 evidence.sqlite ".tables"',
+      'sqlite3 droost/droost-workflow/evidence.sqlite "select 1"',
+    ] as $command) {
+      [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
+      $this->assertSame(2, $exit, $command);
+      $this->assertStringContainsString('reaches the evidence store', $stderr, $command);
+      $this->assertStringContainsString('droost-workflow evidence', $stderr, $command);
+      $this->assertStringNotContainsString('forged entry', $stderr, $command);
+    }
+
+    [$exit, , $stderr] = $this->guard($root, 'pre-tool-use', $this->write($root . '/droost/droost-workflow/evidence.sqlite'));
+    $this->assertSame(2, $exit);
+    $this->assertStringContainsString('The evidence store is the run\'s own record', $stderr);
+    $this->assertStringNotContainsString('forged entry', $stderr);
+  }
+
+  /**
    * A Write tool call's payload.
    *
    * @param string $path

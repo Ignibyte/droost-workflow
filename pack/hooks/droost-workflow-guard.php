@@ -3139,8 +3139,15 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
   // rule for "anything in the directory" refused that. The files the record
   // is made of are named; the archive is a directory; and a file already in
   // the directory is protected whatever it is called.
+  //
+  // EXCEPT THE STORE, which has its own rule and its own words, and this one
+  // answered first for it (F-108). P6 run 8's seeker ran `sqlite3
+  // evidence.sqlite ".tables"` and was told a hand-written line forges a
+  // ledger and to write its spec with Edit, under a generic rule name. The
+  // store's own refusal names it and says how to read it.
   if (preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/([A-Za-z0-9._/-]+)$#', $relative, $inState) === 1
     && preg_match('#^(tmp-)?spec(-[A-Za-z0-9._-]+)?\.md$#', $inState[3]) !== 1
+    && preg_match('#^evidence\.sqlite(-wal|-shm|-journal)?$#', $inState[3]) !== 1
     && (preg_match('#^(tool-calls\.jsonl|guard-calls\.jsonl|scaffolded\.jsonl|pack\.lock)$|^history(/|$)#', $inState[3]) === 1
       || is_file(rtrim($root, '/') . '/' . $relative))) {
     return 'That file is part of the run\'s own evidence: the tool-call ledger '
