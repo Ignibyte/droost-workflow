@@ -89,6 +89,28 @@ final class FindingsOutsideTheDiffTest extends WorkflowTestCase {
   }
 
   /**
+   * Past the findings cap, the note counts what the record kept, and says so.
+   *
+   * P6 run 8's first phpstan failure at `max` read "69 errors, … [50 of 50
+   * errors are in files this run did not change …]". The result keeps a
+   * gate's first 50 findings, so the note counted 50 beside a total of 69
+   * and called it the whole (F-105).
+   */
+  public function testCappedFindingsAreCountedAsKept(): void {
+    $findings = [];
+    for ($i = 1; $i <= 69; $i++) {
+      $findings[] = $this->error(sprintf('web/modules/custom/example_rinks/src/F%02d.php', $i % 16), $i);
+    }
+
+    $phpstan = $this->phpstanAfter($findings, ['web/modules/custom/example_camps/src/New.php']);
+
+    $this->assertTrue($phpstan->truncated, 'the result keeps the first 50 findings');
+    $this->assertStringNotContainsString('[50 of 50 errors are', $phpstan->summary);
+    $this->assertStringContainsString('[50 of the 50 errors kept in the record are in files this run did not change: ', $phpstan->summary);
+    $this->assertStringContainsString(', and 13 more. The record keeps a gate\'s first 50 findings, so the rest are not counted here]', $phpstan->summary);
+  }
+
+  /**
    * One error finding.
    *
    * @param string $file

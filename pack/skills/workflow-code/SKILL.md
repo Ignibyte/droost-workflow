@@ -65,16 +65,27 @@ the seeker's ledgers belong in this file.
 
 **So when a gate tells you to change the plan, change it.** `grounding_check`
 fails with `planned-not-called` when the Tooling plan names a tool the ledger
-never saw, and its remedy says to "change the plan to a hand-written row with
-its reason stated". That is a real instruction and the edit goes through.
+never saw, and its remedy says to change the row to the surface that did the
+work. That is a real instruction and the edit goes through.
 A live run read this paragraph's earlier wording — *"editing one is refused by
 name"*, true until 0.9.4 and false after — declined the remedy it was given,
 spent its one retry, escalated to a waiver it is not allowed to run, and
 stopped. It was wedged by a wall that no longer exists.
 
-State the reason in the row you write. The record then says "I planned X and
-needed Y", which is the thing the freeze was protecting and could only protect
-by forbidding the edit.
+State the reason in the row you write, so the record says "I planned X and
+needed Y". How to write X depends on the surface that replaced it:
+
+- **Hand-written, hand-edited or drush:** name the tool you declined in the
+  row's last cell. A row with a hand or drush surface is not read as a
+  promise to call anything.
+- **Another droost tool:** name only the tool you used, and describe the one
+  you planned in words ("the views composer"). In a row whose surface is
+  a droost tool, every `droost_*` id is read as a promise, so writing
+  "planned: `droost_views_compose` first" re-arms the failure and spends a
+  retry. A live run at `max` did exactly that.
+
+The plan as it froze is kept in the record, so nothing is lost by not naming
+it again.
 
 ## Entry gate
 

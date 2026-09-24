@@ -327,16 +327,36 @@ final class GateRunner {
       return $result;
     }
     $files = array_values(array_unique($outside));
+    $where = count($files) === 1 ? 'a file' : 'files';
+    $named = implode(', ', array_slice($files, 0, 3))
+      . (count($files) > 3 ? sprintf(', and %d more', count($files) - 3) : '');
+    if (!$result->truncated) {
+      $note = sprintf(
+        '%d of %d %s in %s this run did not change: %s',
+        count($outside),
+        count($errors),
+        count($errors) === 1 ? 'error is' : 'errors are',
+        $where,
+        $named,
+      );
+    }
+    else {
+      // The findings stop at the cap and the summary's own total does not,
+      // so a count of the kept ones read as the whole: "69 errors, …
+      // [50 of 50 errors are in files this run did not change …]" (F-105).
+      $note = sprintf(
+        '%d of the %d %s kept in the record %s in %s this run did not change: %s. The record keeps a gate\'s first %d findings, so the rest are not counted here',
+        count($outside),
+        count($errors),
+        count($errors) === 1 ? 'error' : 'errors',
+        count($errors) === 1 ? 'is' : 'are',
+        $where,
+        $named,
+        GateResult::FINDINGS_CAP,
+      );
+    }
 
-    return $result->withSummary(rtrim($result->summary, '. ') . sprintf(
-      ' [%d of %d %s in %s this run did not change: %s%s]',
-      count($outside),
-      count($errors),
-      count($errors) === 1 ? 'error is' : 'errors are',
-      count($files) === 1 ? 'a file' : 'files',
-      implode(', ', array_slice($files, 0, 3)),
-      count($files) > 3 ? sprintf(', and %d more', count($files) - 3) : '',
-    ));
+    return $result->withSummary(rtrim($result->summary, '. ') . ' [' . $note . ']');
   }
 
   /**
