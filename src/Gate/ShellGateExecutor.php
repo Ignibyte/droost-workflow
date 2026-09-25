@@ -909,6 +909,13 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       }
     }
 
+    if ($gate->name === 'playwright') {
+      $browser = self::playwrightResult($gate, $exit, $elapsed, $stdout, $invocation);
+      if ($browser !== NULL) {
+        return $browser;
+      }
+    }
+
     if ($gate->name === 'wiki_fresh') {
       $wiki = self::wikiResult($exit, $elapsed, $stdout, $invocation);
       if ($wiki !== NULL) {
@@ -925,6 +932,110 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $this->findings($stdout, $gate->name, $root, $stderr),
       $invocation,
     );
+  }
+
+  /**
+   * A browser suite's verdict, with what it ran said beside it.
+   *
+   * "playwright passed" was the whole summary, so a suite of one test and a
+   * suite of 128 wrote the same record. So did a suite whose every test was
+   * skipped: `playwright test` exits 0 on "2 skipped", and only "No tests
+   * found" was caught above, so at `required: true` a green that could not
+   * have failed was one `test.skip()` away. Measured 2026-09-25 against
+   * `@playwright/test` 1.63 (P6 run 9, F-111). The counts come from the
+   * epilogue every text reporter prints (list, line, dot). A project whose
+   * only reporter prints none keeps the generic summary, because nothing here
+   * can count for it.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate, for its `required` lever.
+   * @param int $exit
+   *   The exit code.
+   * @param int $elapsed
+   *   Milliseconds.
+   * @param string $stdout
+   *   The runner's output.
+   * @param string $invocation
+   *   The command line.
+   *
+   * @return \Droost\Workflow\Gate\GateResult|null
+   *   The result, or NULL when the output carries no epilogue to count from.
+   */
+  private static function playwrightResult(GateSettings $gate, int $exit, int $elapsed, string $stdout, string $invocation): ?GateResult {
+    $counts = self::playwrightTotals($stdout);
+    if ($counts === NULL) {
+      return NULL;
+    }
+    $parts = [];
+    foreach (['passed', 'failed', 'flaky', 'skipped', 'interrupted', 'did not run'] as $key) {
+      if ($counts[$key] > 0) {
+        $parts[] = sprintf('%d %s', $counts[$key], $key === 'flaky' ? 'flaky (passed only on a retry)' : $key);
+      }
+    }
+    $said = implode(', ', $parts);
+    $totals = [['key' => 'totals', 'detail' => $counts]];
+
+    if ($exit === 0 && $counts['passed'] + $counts['flaky'] === 0) {
+      if ($gate->option('required') === TRUE) {
+        return GateResult::ran(
+          $gate->name,
+          GateStatus::Failed,
+          $exit,
+          $elapsed,
+          sprintf('playwright FAILED — no test ran to a pass (%s), so nothing was measured, and this preset requires a browser suite (required: true). A skipped test proves nothing: run it or delete it.', $said),
+          $totals,
+          $invocation,
+        );
+      }
+      return GateResult::labelledPass(
+        $gate->name,
+        $exit,
+        $elapsed,
+        sprintf('playwright passed — NO TEST RAN TO A PASS (%s), so nothing was measured; read this as unverified rather than as a pass.', $said),
+        $invocation,
+        $totals,
+      );
+    }
+    if ($exit === 0) {
+      return GateResult::ran($gate->name, GateStatus::Passed, $exit, $elapsed, 'playwright passed — ' . $said, $totals, $invocation);
+    }
+    // Where the failures are, from the epilogue's "N failed" block: a flaky
+    // test's first attempt prints a ✘ line too, and it did not fail.
+    $where = [];
+    if (preg_match('/^\s+\d+ failed\s*$(.*?)(?=^\s+\d+ (?:passed|flaky|skipped|interrupted|did not run)\b|\z)/ms', $stdout, $block) === 1) {
+      preg_match_all('/^\s+(?:\[[^\]]+\]\s+›\s+)?(\S+:\d+):\d+/mu', $block[1], $m);
+      $where = array_values(array_unique($m[1]));
+    }
+    $shown = array_slice($where, 0, 3);
+    return GateResult::ran(
+      $gate->name,
+      GateStatus::Failed,
+      $exit,
+      $elapsed,
+      sprintf('playwright failed (exit %d): %s%s', $exit, $said, $shown === [] ? '' : ', at ' . implode(', ', $shown) . (count($where) > 3 ? ', and more' : '')),
+      $totals,
+      $invocation,
+    );
+  }
+
+  /**
+   * The totals in a Playwright text reporter's epilogue, or NULL without one.
+   *
+   * @param string $stdout
+   *   The runner's output.
+   *
+   * @return array{passed: int, failed: int, flaky: int, skipped: int, interrupted: int, 'did not run': int}|null
+   *   The counts, every key present, or NULL when no epilogue line was found.
+   */
+  private static function playwrightTotals(string $stdout): ?array {
+    if (preg_match_all('/^\s+(\d+) (passed|failed|flaky|skipped|interrupted|did not run)\b/m', $stdout, $m, PREG_SET_ORDER) === 0) {
+      return NULL;
+    }
+    $counts = ['passed' => 0, 'failed' => 0, 'flaky' => 0, 'skipped' => 0, 'interrupted' => 0, 'did not run' => 0];
+    foreach ($m as $line) {
+      $counts[$line[2]] = (int) $line[1];
+    }
+    return $counts;
   }
 
   /**
