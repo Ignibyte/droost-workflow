@@ -1647,6 +1647,24 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
     return $invocations;
   }
 
+  // A COMMAND SUBSTITUTION RUNS. `$( … )` is kept as one word, which is right
+  // for what it produces, a value, and it hid what it does: the shell runs the
+  // command inside first. `X=$(echo pwned > .claude/hooks/droost-workflow-
+  // guard.php)` and `echo "$(rm droost/droost-workflow/run.json)"` were both
+  // ALLOWED, because nothing looked inside, except by accident: a pipe into an
+  // interpreter anywhere on the line turned every multi-word argument into a
+  // command line (`$piped` below). That accident is also how a curl format
+  // string, `-w "$p %{http_code}"`, came to be refused as a program named `$p`
+  // (P6 run 10, F-114). So each substitution's command is tokenised as the
+  // command it is and judged by every rule, and `$piped` reads only the pipes
+  // outside substitutions.
+  $substituted = [];
+  foreach (operator_commands_substitution_spans($command)[0] as $inner) {
+    foreach (operator_commands_invocations($inner, $depth + 1) as $one) {
+      $substituted[] = $one;
+    }
+  }
+
   // PIPED INTO AN INTERPRETER, the whole pipeline is a program. `echo "drush
   // droost:workflow:bypass x" | sh` put the verb in a quoted argument to
   // `echo`, which is not a runner, so it was dropped as prose — and `sh` on the
@@ -1659,7 +1677,7 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
   $piped = preg_match(
     '/\|\s*(?:(?:' . operator_commands_wrapper_words() . ')\s+(?:-\S+\s+|\S+=\S*\s+|\d+[smhd]?\s+)*)*'
     . '(?:\S*\/)?(?:' . operator_commands_interpreter_words() . ')\b/',
-    $command,
+    operator_commands_without_substitutions($command),
   ) === 1;
 
   // A token carrying a whole command line is one: `ddev exec "drush …"`.
@@ -1950,8 +1968,146 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
       $resolved[] = $inner;
     }
   }
+  foreach ($substituted as $one) {
+    $resolved[] = $one;
+  }
 
   return $resolved;
+}
+
+/**
+ * Every command substitution in a command line, and where each one sits.
+ *
+ * `$( … )` and backticks, where the shell expands them: bare or inside double
+ * quotes, never inside single quotes. `$(( … ))` is arithmetic and is not one.
+ * A substitution nested in another is found when the outer one's command is
+ * tokenised in turn.
+ *
+ * @param string $command
+ *   The command line, heredoc bodies already dropped.
+ *
+ * @return array{0: list<string>, 1: list<array{0: int, 1: int}>}
+ *   Each substitution's command, and its span as [start, end) offsets.
+ */
+function operator_commands_substitution_spans(string $command): array {
+  $inners = [];
+  $spans = [];
+  $length = strlen($command);
+  $quote = '';
+  for ($i = 0; $i < $length; $i++) {
+    $char = $command[$i];
+    if ($quote === '\'') {
+      if ($char === '\'') {
+        $quote = '';
+      }
+      continue;
+    }
+    if ($char === '\\' && $i + 1 < $length) {
+      $i++;
+      continue;
+    }
+    if ($char === '\'' && $quote === '') {
+      $quote = '\'';
+      continue;
+    }
+    if ($char === '"') {
+      $quote = $quote === '"' ? '' : '"';
+      continue;
+    }
+    if ($char === '$' && ($command[$i + 1] ?? '') === '(' && ($command[$i + 2] ?? '') !== '(') {
+      $close = operator_commands_closing_paren($command, $i + 1);
+      $inners[] = substr($command, $i + 2, max(0, $close - $i - 2));
+      $spans[] = [$i, min($close + 1, $length)];
+      $i = $close;
+      continue;
+    }
+    if ($char === '`') {
+      $close = strpos($command, '`', $i + 1);
+      $close = $close === FALSE ? $length : $close;
+      $inners[] = substr($command, $i + 1, max(0, $close - $i - 1));
+      $spans[] = [$i, min($close + 1, $length)];
+      $i = $close;
+    }
+  }
+
+  return [$inners, $spans];
+}
+
+/**
+ * The command line with every substitution blanked, offsets kept.
+ *
+ * For the questions that belong to this line's own words, such as whether it
+ * pipes into an interpreter. A pipe inside `$( … )` belongs to the command in
+ * the substitution, which is tokenised and judged on its own.
+ *
+ * @param string $command
+ *   The command line.
+ *
+ * @return string
+ *   The same text, each substitution replaced by spaces.
+ */
+function operator_commands_without_substitutions(string $command): string {
+  foreach (array_reverse(operator_commands_substitution_spans($command)[1]) as [$start, $end]) {
+    $command = substr_replace($command, str_repeat(' ', $end - $start), $start, $end - $start);
+  }
+
+  return $command;
+}
+
+/**
+ * Where the `)` closing the `(` at an offset sits, as the shell reads it.
+ *
+ * Quotes and nested parentheses inside are honoured, so `$(python3 -c
+ * 'print(")")')` closes at its last parenthesis. An unclosed one runs to the
+ * end of the line.
+ *
+ * @param string $command
+ *   The command line.
+ * @param int $open
+ *   The offset of the opening parenthesis.
+ *
+ * @return int
+ *   The offset of the closing one, or the line's length.
+ */
+function operator_commands_closing_paren(string $command, int $open): int {
+  $depth = 0;
+  $quote = '';
+  $length = strlen($command);
+  for ($i = $open; $i < $length; $i++) {
+    $char = $command[$i];
+    if ($quote === '\'') {
+      if ($char === '\'') {
+        $quote = '';
+      }
+      continue;
+    }
+    if ($char === '\\' && $i + 1 < $length) {
+      $i++;
+      continue;
+    }
+    if ($quote === '"') {
+      if ($char === '"') {
+        $quote = '';
+      }
+      continue;
+    }
+    if ($char === '\'' || $char === '"') {
+      $quote = $char;
+      continue;
+    }
+    if ($char === '(') {
+      $depth++;
+      continue;
+    }
+    if ($char === ')') {
+      $depth--;
+      if ($depth === 0) {
+        return $i;
+      }
+    }
+  }
+
+  return $length;
 }
 
 /**
