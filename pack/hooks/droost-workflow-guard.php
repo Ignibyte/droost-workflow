@@ -2746,9 +2746,18 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
         foreach (glob($pattern, GLOB_BRACE) ?: [] as $expanded) {
           $refused = enforcement_refusal($expanded, $root, $stateDir);
           if ($refused !== '') {
+            // A loop's list is not a read. The body can write to every name
+            // the list expands to, through a variable the guard cannot
+            // resolve, so the loop is refused where `cat` over the same glob
+            // is not. P6 run 9's agent looped `head -1` over archived specs
+            // and was told only that a hand-written line forges the record
+            // (F-112), so the refusal says why a loop is different.
             guard_refuse('protected-path:wildcard', sprintf(
-              '%s A wildcard in this command expands onto it. (Refused: %s)',
+              '%s A wildcard in this command expands onto it.%s (Refused: %s)',
               $refused,
+              in_array($verb, ['for', 'select'], TRUE)
+                ? ' A `' . $verb . '` loop\'s body can write to every name its list expands to, and the guard cannot see what it does with them, so a loop over these files is refused where naming them to a reader is not.'
+                : '',
               trim($command),
             ));
           }
@@ -3156,7 +3165,9 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
       . 'write it. A line written by hand is a forged entry in the record the '
       . 'gates and the evaluation are built from, with a run open or not. The '
       . 'spec is the one file in this directory that is yours: write it with '
-      . 'the Write or Edit tool.';
+      . 'the Write or Edit tool. Reading the rest is not refused: `cat`, `head` '
+      . 'and `grep` read it, so does the Read tool, and `droost-workflow '
+      . 'evidence` renders the whole record.';
   }
 
   // The second tier applies only while a run is under way — which is not the

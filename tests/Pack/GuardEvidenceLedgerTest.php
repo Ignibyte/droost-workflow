@@ -105,6 +105,35 @@ final class GuardEvidenceLedgerTest extends WorkflowTestCase {
   }
 
   /**
+   * A loop over the archive is refused in words that say how to read it.
+   *
+   * P6 run 9's agent ran `for f in droost/droost-workflow/history/*.spec.md;
+   * do echo "$f: $(head -1 $f)"; done` and was told only that a hand-written
+   * line forges the record and to write its spec with Edit. It read the same
+   * files with `grep -r` a call later, allowed. The refusal stands, since a
+   * loop's body can write to every name its list expands to, and now it says
+   * why, and how to read (F-112). Naming the files to a reader stays open.
+   */
+  public function testLoopOverTheArchiveSaysHowToRead(): void {
+    $root = $this->rootWithEvidence(TRUE);
+    file_put_contents($root . '/droost/droost-workflow/history/run-a.spec.md', "# A\n");
+
+    [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => 'for f in droost/droost-workflow/history/*.spec.md; do echo "$f: $(head -1 $f)"; done']]);
+    $this->assertSame(2, $exit);
+    $this->assertStringContainsString('`for` loop\'s body can write to every name its list expands to', $stderr);
+    $this->assertStringContainsString('the Read tool', $stderr);
+    $this->assertStringContainsString('droost-workflow evidence', $stderr);
+
+    foreach ([
+      'head -1 droost/droost-workflow/history/*.spec.md',
+      'grep -m1 -r "^# " droost/droost-workflow/history --include="*.spec.md"',
+    ] as $command) {
+      [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
+      $this->assertSame(0, $exit, $command . ': ' . $stderr);
+    }
+  }
+
+  /**
    * A Write tool call's payload.
    *
    * @param string $path
