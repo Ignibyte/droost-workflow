@@ -1292,6 +1292,86 @@ function operator_commands_interpreter_words(): string {
 }
 
 /**
+ * What an interpreter at the reading end of a pipe runs from it, if anything.
+ *
+ * `echo "…" | sh` runs the pipe as shell, and `echo "…" | python3` runs it as
+ * Python. `curl … | python3 -c "…"` does neither: the program is the `-c`
+ * code, and the pipe is its input. A program flag, or an operand that is the
+ * script, means the pipe is data. A shell's `-s` means the pipe is the program
+ * whatever follows it, and the flags that take a value have it skipped, so
+ * `bash -o pipefail` still reads its program from the pipe (F-122).
+ *
+ * @param list<string> $tokens
+ *   The reading command's tokens.
+ *
+ * @return string|null
+ *   'shell' for a shell (and `eval`, `source`, `xargs`, `expect`, `script`,
+ *   which hand what they read to one), the interpreter's name for code in
+ *   another language (php, python, perl, ruby, node), or NULL when the
+ *   command runs nothing it reads.
+ */
+function operator_commands_stdin_program(array $tokens): ?string {
+  [$bare] = operator_commands_strip_wrappers($tokens);
+  $words = array_values(array_filter($bare, static fn (string $token): bool => !str_starts_with($token, "\x01")));
+  $head = strtolower(basename($words[0] ?? ''));
+  if (preg_match('/^(?:' . operator_commands_interpreter_words() . ')(?![A-Za-z0-9_])/', $head, $match) !== 1) {
+    return NULL;
+  }
+  $family = match (TRUE) {
+    preg_match('/^(?:sh|bash|zsh|dash|ksh|fish)$/', $match[0]) === 1 => 'shell',
+    str_starts_with($match[0], 'python') => 'python',
+    in_array($match[0], ['php', 'perl', 'ruby', 'node'], TRUE) => $match[0],
+    // `eval`, `source`, `.`, `xargs`, `expect`, `script`: as before, what
+    // they read reaches a shell.
+    default => NULL,
+  };
+  if ($family === NULL) {
+    return 'shell';
+  }
+  $program = [
+    'shell' => '/^-[A-Za-z]*c[A-Za-z]*$/',
+    'python' => '/^-[A-Za-z]*[cm]$/',
+    // `-c` is PHP's ini file, not code.
+    'php' => '/^-[A-Za-z]*[rRBEFf]$/',
+    'perl' => '/^-[A-Za-z]*[eE]$/',
+    'ruby' => '/^-[A-Za-z]*e$/',
+    'node' => '/^(?:-[A-Za-z]*[ep]|--(?:eval|print)(?:=.*)?)$/',
+  ][$family];
+  $valued = [
+    'shell' => ['-o', '+o', '-O', '+O', '--rcfile', '--init-file'],
+    'python' => ['-W', '-X', '--check-hash-based-pycs'],
+    'php' => ['-d', '-c', '-z', '-t'],
+    'perl' => ['-I', '-M'],
+    'ruby' => ['-I', '-r', '-C', '-E'],
+    'node' => ['-r', '--require', '--import', '--loader', '-C', '--conditions'],
+  ][$family];
+  $skip = FALSE;
+  foreach (array_slice($words, 1) as $word) {
+    if ($skip) {
+      $skip = FALSE;
+      continue;
+    }
+    if (preg_match($program, $word) === 1) {
+      return NULL;
+    }
+    if ($family === 'shell' && preg_match('/^-[A-Za-z]*s[A-Za-z]*$/', $word) === 1) {
+      return 'shell';
+    }
+    if (in_array($word, $valued, TRUE)) {
+      $skip = TRUE;
+      continue;
+    }
+    if (str_starts_with($word, '-') || str_starts_with($word, '+')) {
+      continue;
+    }
+    // An operand: the script. The pipe is its input.
+    return NULL;
+  }
+
+  return $family;
+}
+
+/**
  * The programs that run whatever follows them.
  *
  * @return string
@@ -1471,12 +1551,21 @@ function guard_named_root(): string {
  *   The command, heredoc bodies already dropped.
  * @param int $depth
  *   Recursion guard.
+ * @param list<array{0: list<string>, 1: list<string>}>|null $pipes
+ *   Filled, when passed, with each pipe on this line outside a substitution:
+ *   the command that writes into it and the one that reads from it, as
+ *   tokenised before any argument is recursed into.
  *
  * @return list<list<string>>
  *   One argument list per command.
  */
-function operator_commands_invocations(string $command, int $depth = 0): array {
+function operator_commands_invocations(string $command, int $depth = 0, ?array &$pipes = NULL): array {
   $invocations = [];
+  // Whether each command reads a pipe: the one after a single `|`, and not
+  // after `;`, `&&`, `||` or `&`. A pipe at the end of a line carries on to
+  // the next, as the shell's does.
+  $consumes = [];
+  $pipeIn = FALSE;
   $tokens = [];
   $current = '';
   $started = FALSE;
@@ -1495,7 +1584,7 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
     $current = '';
     $started = FALSE;
   };
-  $endCommand = static function () use (&$invocations, &$tokens, &$redirect, $endToken): void {
+  $endCommand = static function () use (&$invocations, &$tokens, &$redirect, &$consumes, &$pipeIn, $endToken): void {
     $endToken();
     // A CLOSING keyword takes only redirections after it, and an output
     // target carries the redirection mark, so an unmarked word after `done`,
@@ -1508,6 +1597,8 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
     }
     if ($tokens !== []) {
       $invocations[] = $tokens;
+      $consumes[] = $pipeIn;
+      $pipeIn = FALSE;
     }
     $tokens = [];
     // A redirection never outlives its command. The mark used to survive a
@@ -1551,15 +1642,29 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
     }
     if ($char === ';' || $char === "\n" || $char === "\r") {
       $endCommand();
+      if ($char === ';') {
+        $pipeIn = FALSE;
+      }
       continue;
     }
     if (($char === '&' || $char === '|') && $i + 1 < $length && $command[$i + 1] === $char) {
       $endCommand();
+      $pipeIn = FALSE;
       $i++;
       continue;
     }
-    if ($char === '&' || $char === '|') {
+    if ($char === '|') {
       $endCommand();
+      // `|&` pipes standard error as well, and is one pipe.
+      if (($command[$i + 1] ?? '') === '&') {
+        $i++;
+      }
+      $pipeIn = TRUE;
+      continue;
+    }
+    if ($char === '&') {
+      $endCommand();
+      $pipeIn = FALSE;
       continue;
     }
     if ($char === '{' || $char === '}') {
@@ -1705,7 +1810,7 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
     }
   }
 
-  // PIPED INTO AN INTERPRETER, the whole pipeline is a program. `echo "drush
+  // PIPED INTO A SHELL, the whole pipeline is a program. `echo "drush
   // droost:workflow:bypass x" | sh` put the verb in a quoted argument to
   // `echo`, which is not a runner, so it was dropped as prose — and `sh` on the
   // other side of the pipe had no argument for anything to look at. The
@@ -1714,11 +1819,23 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
   // `env` nor `command`, so `echo "drush …bypass" | env sh` was permitted
   // while `| sh` was refused — and `env` is the canonical way to pipe into
   // a shell with a modified environment.
-  $piped = preg_match(
-    '/\|\s*(?:(?:' . operator_commands_wrapper_words() . ')\s+(?:-\S+\s+|\S+=\S*\s+|\d+[smhd]?\s+)*)*'
-    . '(?:\S*\/)?(?:' . operator_commands_interpreter_words() . ')\b/',
-    operator_commands_without_substitutions($command),
-  ) === 1;
+  // ONLY A READER THAT RUNS WHAT IT READS, AS SHELL (F-122). This asked
+  // whether a pipe fed ANY interpreter, so `curl … | python3 -c "…json…"`,
+  // which hands python a program of its own and the pipe as data, turned every
+  // quoted argument on the whole line into a command line: P6 run 11's
+  // `…| python3 -c "…"; ddev drush php:eval '$n=…; $n->set(…)'` was refused
+  // as a program named `$n`. A reader with its own program (`-c`, `-m`, a
+  // script file) reads data. And code fed to PHP, Python, Perl, Ruby or Node
+  // is not shell: it is judged as code, by the path tier (F-123), as `-c`
+  // code is.
+  $piped = FALSE;
+  foreach ($invocations as $n => $one) {
+    if (($consumes[$n] ?? FALSE) && $n > 0) {
+      $pipes[] = [$invocations[$n - 1], $one];
+      $family = operator_commands_stdin_program($one);
+      $piped = $piped || $family === 'shell';
+    }
+  }
 
   // A token carrying a whole command line is one: `ddev exec "drush …"`.
   //
@@ -2483,26 +2600,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
   // CODE HEREDOCS ARE CODE (F-78): checked as text for the two things that
   // matter, as `python3 -c` code is below, and left out of the shell parse.
   foreach (is_string($command) ? operator_commands_code_heredocs($command) : [] as $body) {
-    if (preg_match(operator_verb_pattern(), $body) === 1) {
-      guard_refuse('operator-command:in-interpreter', sprintf(
-        'This hands an interpreter code carrying one of the operator-only '
-        . 'verbs. Putting the command inside a program does not make it the '
-        . 'agent\'s to run — show the OPERATOR the command and the reason, '
-        . 'and let them run it. (Refused: %s)',
-        trim($command),
-      ));
-    }
-    if (code_names_enforcement($body) && code_writes($body)) {
-      guard_refuse('protected-path:interpreter', sprintf(
-        'This hands an interpreter code that names the enforcement itself — the '
-        . 'guard, the run record, the evidence store, the baseline or the '
-        . 'settings — and code is not a command line this guard can read, so '
-        . 'what it writes cannot be checked. Do the work through the pipeline, '
-        . 'or if a file genuinely must change, that is the OPERATOR\'s at a '
-        . 'terminal. (Refused: %s)',
-        trim($command),
-      ));
-    }
+    guard_judge_code($body, $command);
   }
   $command = is_string($command) ? operator_commands_scan_text($command) : '';
   if ($command === '') {
@@ -2526,7 +2624,24 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
   // rm` splits into two invocations and the xargs tier has to judge the
   // `find` that feeds the pipe; precomputed and indexed so the predecessor is
   // always available regardless of which `continue` this iteration takes.
-  $invocations = with_find_exec_commands(operator_commands_invocations($command));
+  $pipes = [];
+  $invocations = with_find_exec_commands(operator_commands_invocations($command, 0, $pipes));
+  // CODE FED THROUGH A PIPE IS CODE (F-123). `python3 -c '<code>'` is judged
+  // as code below, and the same program piped in, `echo '<code>' | python3`,
+  // was judged by nothing: the tokeniser re-read `echo`'s argument as shell,
+  // where Python has no command to find, so code that emptied this guard ran
+  // at `hard`. Found bisecting F-122. What the writing end hands over is read
+  // when it can be: an `echo` or `printf` argument, or a `cat`'d file.
+  foreach ($pipes as [$producer, $reader]) {
+    $family = operator_commands_stdin_program($reader);
+    if ($family === NULL || $family === 'shell') {
+      continue;
+    }
+    $code = operator_commands_piped_text($producer, $root);
+    if ($code !== NULL) {
+      guard_judge_code($code, $command);
+    }
+  }
   $unwrappedByIndex = array_map(
     static fn (array $one): array => operator_commands_unwrapped($one),
     $invocations,
@@ -2639,27 +2754,8 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // longer re-scanned as shell (tokenising Python as a command line is how
     // reading the run record got refused), so the verbs are looked for in the
     // text, the same way the script reader looks for them in a `.py`.
-    if ($inlineCode !== NULL && preg_match(operator_verb_pattern(), $inlineCode) === 1) {
-      guard_refuse('operator-command:in-interpreter', sprintf(
-        'This hands an interpreter code carrying one of the operator-only '
-        . 'verbs. Putting the command inside a program does not make it the '
-        . 'agent\'s to run — show the OPERATOR the command and the reason, '
-        . 'and let them run it. (Refused: %s)',
-        trim($command),
-      ));
-    }
-    if ($inlineCode !== NULL
-      && code_names_enforcement($inlineCode)
-      && code_writes($inlineCode)) {
-      guard_refuse('protected-path:interpreter', sprintf(
-        'This hands an interpreter code that names the enforcement itself — the '
-        . 'guard, the run record, the evidence store, the baseline or the '
-        . 'settings — and code is not a command line this guard can read, so '
-        . 'what it writes cannot be checked. Do the work through the pipeline, '
-        . 'or if a file genuinely must change, that is the OPERATOR\'s at a '
-        . 'terminal. (Refused: %s)',
-        trim($command),
-      ));
+    if ($inlineCode !== NULL) {
+      guard_judge_code($inlineCode, $command);
     }
     // THE CONTAINING DIRECTORIES, not only the files in them. Every rule below
     // names a file, so the cheapest way past all of them was to take away
@@ -3789,6 +3885,77 @@ function enforcement_path_markers(): string {
     . '|settings\.local\.json|\bsettings\.json|settings\.droost\.php'
     . '|droost\.workflow\.yml|\.claude/hooks|\.claude/(?:skills|agents|commands)'
     . '|droost/droost-workflow|\.droost-workflow|droost/baseline#';
+}
+
+/**
+ * Refuses code that carries an operator verb, or writes the enforcement.
+ *
+ * One judgement for every way code reaches an interpreter: a heredoc body,
+ * `-c`/`-r`/`-e` code, and a program fed through a pipe.
+ *
+ * @param string $code
+ *   The program's text.
+ * @param string $command
+ *   The command line, for the refusal.
+ */
+function guard_judge_code(string $code, string $command): void {
+  if (preg_match(operator_verb_pattern(), $code) === 1) {
+    guard_refuse('operator-command:in-interpreter', sprintf(
+      'This hands an interpreter code carrying one of the operator-only '
+      . 'verbs. Putting the command inside a program does not make it the '
+      . 'agent\'s to run — show the OPERATOR the command and the reason, '
+      . 'and let them run it. (Refused: %s)',
+      trim($command),
+    ));
+  }
+  if (code_names_enforcement($code) && code_writes($code)) {
+    guard_refuse('protected-path:interpreter', sprintf(
+      'This hands an interpreter code that names the enforcement itself — the '
+      . 'guard, the run record, the evidence store, the baseline or the '
+      . 'settings — and code is not a command line this guard can read, so '
+      . 'what it writes cannot be checked. Do the work through the pipeline, '
+      . 'or if a file genuinely must change, that is the OPERATOR\'s at a '
+      . 'terminal. (Refused: %s)',
+      trim($command),
+    ));
+  }
+}
+
+/**
+ * The text the writing end of a pipe hands over, when it can be read.
+ *
+ * `echo` and `printf` hand over their arguments, and `cat` the files it is
+ * given. Anything else (a download, a command's output) is not known before
+ * it runs, and is NULL.
+ *
+ * @param list<string> $producer
+ *   The writing command's tokens.
+ * @param string $root
+ *   The project root, where a relative file is looked for.
+ *
+ * @return string|null
+ *   The text, or NULL.
+ */
+function operator_commands_piped_text(array $producer, string $root): ?string {
+  [$bare] = operator_commands_strip_wrappers($producer);
+  $words = array_values(array_filter($bare, static fn (string $token): bool => !str_starts_with($token, "\x01")));
+  $head = strtolower(basename($words[0] ?? ''));
+  $operands = array_values(array_filter(array_slice($words, 1), static fn (string $word): bool => !str_starts_with($word, '-')));
+  if (in_array($head, ['echo', 'printf'], TRUE)) {
+    return implode(' ', $operands);
+  }
+  if ($head !== 'cat') {
+    return NULL;
+  }
+  $text = [];
+  foreach ($operands as $file) {
+    $where = str_starts_with($file, '/') ? $file : rtrim($root, '/') . '/' . $file;
+    if (is_file($where) && is_readable($where)) {
+      $text[] = (string) file_get_contents($where, FALSE, NULL, 0, 1048576);
+    }
+  }
+
+  return $text === [] ? NULL : implode("\n", $text);
 }
 
 /**
