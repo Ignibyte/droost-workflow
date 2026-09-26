@@ -1372,6 +1372,184 @@ function operator_commands_stdin_program(array $tokens): ?string {
 }
 
 /**
+ * A line's own variables, read as what they hold before anything is judged.
+ *
+ * `f=droost/droost-workflow/run.json; rm $f` deleted the run record at `hard`:
+ * no rule could read `$f`, and this file said so ("what still escapes is a
+ * shell VARIABLE"). The one thing stopping the loop form, `for f in <record>;
+ * do rm "$f"; done`, was an accident: the loop's word list was read as the
+ * operands of a command named `for`, which also refused every loop that only
+ * READ protected files (F-124, P6 run 14's `for f in …/history/*.spec.md; do
+ * head -1 $f; done`). F-125 is the hole.
+ *
+ * So a literal a line binds, `NAME=value` alone or after `export`, `declare`,
+ * `typeset`, `local` or `readonly`, or the words of `for NAME in …`, stands in
+ * for `$NAME` and `${NAME}`, with any literal suffix (`$NAME/rest`,
+ * `$NAME:rest`), in the commands after it, one command per word, and the loop
+ * header itself is not a command. A value, or a loop word, that is itself
+ * such a reference is read through it (`g=$f`, `for f in $D/*`).
+ *
+ * EVERY VALUE A NAME WAS GIVEN IS JUDGED. Which assignment ran is decided at
+ * run time: `W=rm; false && W=ls; $W <record>` runs `rm`. A value holding any
+ * other `$` or a backtick is not known here, binds nothing new, and leaves
+ * what the name already held, since the earlier value may still be the one it
+ * holds. Only a token that begins with the reference is replaced, so a
+ * variable inside code (`php -r '$f=1;'`) stays code.
+ *
+ * What this does not follow, and says so: a value built from a substitution
+ * or around a reference (`$(…)`, `x$f`, `${f%.md}`), `read`, arrays,
+ * `eval`'s strings, `${!name}` and shell functions.
+ *
+ * @param list<list<string>> $invocations
+ *   The line's commands, as tokenised.
+ *
+ * @return list<list<string>>
+ *   The same, variables read.
+ */
+function operator_commands_bind_variables(array $invocations): array {
+  // Name => the values it may hold, each value the words it expands to.
+  $vars = [];
+  $out = [];
+  foreach ($invocations as $index => $tokens) {
+    $plain = array_map(static fn (string $t): string => ltrim($t, "\x01"), $tokens);
+    if (in_array($plain[0] ?? '', ['for', 'select'], TRUE) && preg_match('/^[A-Za-z_]\w*$/', $plain[1] ?? '') === 1 && ($plain[2] ?? '') === 'in') {
+      // ONLY A BODY THAT USES THE NAME READABLY. F-112 refused every loop
+      // over protected files, since its body can write to every name its list
+      // expands to. A body that says `$f`, `${f}`, `$f/rest` or `$f.bak` is
+      // judged here name by name instead; one that says `${f%.md}` or `"$f:
+      // $(…)"` builds a name this cannot read, and the loop keeps F-112's
+      // refusal.
+      $name = $plain[1];
+      $unreadable = FALSE;
+      foreach (array_slice($invocations, $index + 1) as $later) {
+        foreach ($later as $token) {
+          $bare = ltrim($token, "\x01");
+          if (preg_match('/\$\{?' . $name . '(?![A-Za-z0-9_])/', $bare) === 1
+            && operator_commands_variable_values($bare, [$name => [['']]]) === NULL) {
+            $unreadable = TRUE;
+            break 2;
+          }
+        }
+      }
+      if ($unreadable) {
+        unset($vars[$name]);
+        $out[] = $tokens;
+        continue;
+      }
+      $words = [];
+      foreach (array_slice($plain, 3) as $word) {
+        if ($word === '') {
+          continue;
+        }
+        foreach (operator_commands_variable_values($word, $vars) ?? [[$word]] as $value) {
+          foreach ($value as $one) {
+            $words[] = [$one];
+          }
+        }
+      }
+      $vars[$name] = array_slice($words, 0, 16);
+      continue;
+    }
+    $body = $plain;
+    if (in_array($body[0] ?? '', ['export', 'declare', 'typeset', 'local', 'readonly'], TRUE)) {
+      $body = array_slice($body, 1);
+      while (str_starts_with($body[0] ?? '', '-')) {
+        $body = array_slice($body, 1);
+      }
+    }
+    $assigns = [];
+    foreach ($body as $token) {
+      if (preg_match('/^([A-Za-z_]\w*)=(.*)$/s', $token, $m) !== 1) {
+        $assigns = [];
+        break;
+      }
+      $assigns[$m[1]] = $m[2];
+    }
+    if ($assigns !== []) {
+      foreach ($assigns as $name => $value) {
+        $held = operator_commands_variable_values($value, $vars);
+        if ($held === NULL) {
+          if (str_contains($value, '$') || str_contains($value, '`')) {
+            continue;
+          }
+          // An unquoted expansion splits on whitespace; a value in quotes was
+          // one word when written, and is split as the shell would when used.
+          $held = [preg_split('/\s+/', trim($value)) ?: [$value]];
+        }
+        $vars[$name] = array_slice([...($vars[$name] ?? []), ...$held], 0, 16);
+      }
+      $out[] = $tokens;
+      continue;
+    }
+    $expansions = [[]];
+    foreach ($tokens as $token) {
+      $mark = str_starts_with($token, "\x01") ? "\x01" : '';
+      $bare = ltrim($token, "\x01");
+      $values = operator_commands_variable_values($bare, $vars);
+      if ($values !== NULL) {
+        $next = [];
+        foreach ($expansions as $partial) {
+          foreach ($values as $words) {
+            if (count($words) > 1 && $partial === []) {
+              // A program held in a variable: its words are the command, as
+              // `W="ddev drush droost:workflow"; $W:declare-criterion …` runs
+              // `ddev drush droost:workflow:declare-criterion …`.
+              $next[] = $words;
+              continue;
+            }
+            foreach ($words as $word) {
+              $next[] = [...$partial, $mark . $word];
+            }
+          }
+        }
+        $expansions = array_slice($next, 0, 64);
+        continue;
+      }
+      foreach ($expansions as $i => $partial) {
+        $expansions[$i][] = $token;
+      }
+    }
+    foreach ($expansions as $expanded) {
+      $out[] = $expanded;
+    }
+  }
+  return $out;
+}
+
+/**
+ * What a word that is a reference to a bound variable holds.
+ *
+ * The reference may carry a literal suffix, as `$D/run.json`, `$f.bak` and
+ * `$W:declare-criterion` do. The shell joins it to the value's LAST word, so
+ * `W="ddev drush droost:workflow"; $W:bypass` runs `ddev drush
+ * droost:workflow:bypass`, and that is what is judged.
+ *
+ * @param string $word
+ *   The word, unquoted.
+ * @param array<string, list<list<string>>> $vars
+ *   The line's variables so far.
+ *
+ * @return list<list<string>>|null
+ *   Each value it may hold, as words, the suffix joined to the last; NULL
+ *   when the word is not `$NAME` or `${NAME}` followed by a literal, or names
+ *   nothing bound.
+ */
+function operator_commands_variable_values(string $word, array $vars): ?array {
+  if (preg_match('/^\$(?:([A-Za-z_]\w*)|\{([A-Za-z_]\w*)\})([^$`]*)$/s', $word, $m) !== 1) {
+    return NULL;
+  }
+  $name = $m[1] !== '' ? $m[1] : $m[2];
+  if (!isset($vars[$name])) {
+    return NULL;
+  }
+  $rest = $m[3] ?? '';
+  return array_map(static function (array $words) use ($rest): array {
+    $words[array_key_last($words)] .= $rest;
+    return $words;
+  }, $vars[$name]);
+}
+
+/**
  * The programs that run whatever follows them.
  *
  * @return string
@@ -1836,6 +2014,8 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
       $piped = $piped || $family === 'shell';
     }
   }
+  // A VARIABLE THE LINE BINDS IS READ AS WHAT IT HOLDS (F-124, F-125).
+  $invocations = operator_commands_bind_variables($invocations);
 
   // A token carrying a whole command line is one: `ddev exec "drush …"`.
   //
@@ -2777,10 +2957,12 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // by the same move. The main loop had been following `cd` for exactly
     // this reason since the forged-bypass round, one screen above.
     //
-    // What still escapes is a shell VARIABLE: `rm -rf "$PWD/droost"` is a
-    // path this cannot resolve without running the shell. An absolute path
-    // is caught; an unexpanded one is not, and that is stated rather than
-    // left to be discovered.
+    // What still escapes is a variable the LINE does not bind: `rm -rf
+    // "$PWD/droost"` is a path this cannot resolve without running the
+    // shell. An absolute path is caught, and so is a literal the line binds
+    // (`f=…/run.json; rm $f`, F-125, `operator_commands_bind_variables()`);
+    // one from the environment or a substitution is not, and that is stated
+    // rather than left to be discovered.
     $destructive = '/^\\\\?(?:\/\S+\/)?'
       . '(?:rm|unlink|rmdir|mv|cp|ln|install|rsync|shred|truncate|dd|mktemp)\b/';
     // THE VERB, not the whole line. This matched the joined tokens, so a
@@ -2986,7 +3168,9 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       // recording the enforcement, not rewriting it; it was refused as the
       // latter. `checkout`, `restore`, `reset`, `stash`, `rm`, `mv` and
       // `clean` all DO write the working tree and stay out of this list.
-      || ($verb === 'git' && in_array($sub, ['diff', 'log', 'show', 'status', 'blame', 'grep', 'add', 'commit'], TRUE))
+      || ($verb === 'git' && in_array($sub, [
+        'diff', 'log', 'show', 'status', 'blame', 'grep', 'add', 'commit', 'check-ignore', 'check-attr', 'ls-files',
+      ], TRUE))
       // `sed` READS unless it edits in place (F-83). Its program writes only
       // through `w`, and the program is read as code above, so what is left
       // for this tier is `-i`: `sed -n 60,200p droost/droost-workflow/run.json`
