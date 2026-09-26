@@ -78,9 +78,19 @@ the verification AND the artefact: it re-runs on every later ticket, where a
 browser tool call proves nothing the moment the session ends.
 
 ```bash
-npx playwright test                     # the gate runs exactly this
-npx playwright test tests/e2e/rinks.spec.ts   # while you iterate
+node_modules/.bin/playwright test                   # what the gate runs
+node_modules/.bin/playwright test tests/e2e/x.spec.ts   # while you iterate
 ```
+
+**Run it where the gate runs it.** The gate runs in the process that runs
+the phase. On a project with a site behind a runner, the phase goes through
+drush in that runner, so on DDEV the gate runs the suite inside the
+container, and so should you: `ddev exec node_modules/.bin/playwright test
+tests/e2e/x.spec.ts`. From the host, every `ddev drush` a spec makes costs
+seconds where it costs a fraction of one inside, and a suite the gate passes
+times out; two runs spent most of a test phase chasing exactly those
+timeouts. The command each gate ran is in the invocations table of the
+evaluation `droost-workflow evidence` prints.
 
 **An empty suite is a FAILURE, not a labelled pass** — that is what
 `required: true` means. If playwright is not installed the gate REPORTS
