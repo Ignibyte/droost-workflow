@@ -28,6 +28,9 @@ final class GuardOperatorHelpTest extends WorkflowTestCase {
       'drush droost:workflow:effort --help',
       'drush droost:workflow:baseline --help',
       'vendor/bin/droost-workflow gate-waive --help',
+      // F-130: drush's own help command, as P6 run 15's agent asked it.
+      'ddev drush help droost:workflow:gate-waive 2>&1 | head -30',
+      'drush help droost:workflow:bypass',
     ] as $command) {
       [$exit, , $stderr] = $this->guard($this->makeRoot(), 'operator-commands', ['tool_input' => ['command' => $command]]);
       $this->assertSame(0, $exit, $command . ' only reads the help: ' . $stderr);
@@ -45,6 +48,9 @@ final class GuardOperatorHelpTest extends WorkflowTestCase {
       'drush droost:workflow:effort max --help',
       'drush droost:gate allow_entity_write on --help',
       'drush droost:workflow:gate-waive phpstan "x"',
+      'drush help droost:workflow:gate-waive phpstan "x"',
+      'drush help droost:workflow:gate-waive; drush droost:workflow:gate-waive phpstan "x"',
+      'help droost:workflow:bypass',
     ] as $command) {
       [$exit] = $this->guard($this->makeRoot(), 'operator-commands', ['tool_input' => ['command' => $command]]);
       $this->assertSame(2, $exit, $command . ' is the operator\'s');

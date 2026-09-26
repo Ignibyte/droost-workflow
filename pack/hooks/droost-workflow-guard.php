@@ -2517,7 +2517,7 @@ function operator_commands_generators(string $command): array {
  * @return bool
  *   TRUE when a `droost:workflow:*` verb, its `dwf*` alias, or a
  *   `droost-workflow` verb is followed by `--help` or `-h` and nothing else
- *   but redirection targets.
+ *   but redirection targets, or is the whole argument of `drush help`.
  */
 function operator_commands_help_only(array $plain): bool {
   $words = array_values(array_map(static fn (string $token): string => ltrim($token, "\x01"), array_filter(
@@ -2539,6 +2539,13 @@ function operator_commands_help_only(array $plain): bool {
     return FALSE;
   }
   $rest = array_slice($words, $verb + 1);
+  // drush's own `help` command, `drush help <verb>`, prints and runs nothing
+  // too. P6 run 15's agent, stopped by grounding_check, asked it before
+  // proposing a waiver and was refused (F-130), so it handed the operator a
+  // command whose syntax it could not check.
+  if ($rest === [] && ($words[$verb - 1] ?? '') === 'help' && basename($words[$verb - 2] ?? '') === 'drush') {
+    return TRUE;
+  }
 
   return $rest === ['--help'] || $rest === ['-h'];
 }
