@@ -43,13 +43,18 @@ run_leg() {
 
 echo "droost_workflow gate"
 
+# phpcs's variable-analysis sniff holds the whole of a file's scopes at once,
+# and the guard (pack/hooks/droost-workflow-guard.php) is five thousand lines:
+# at PHP's default 128M the sniff runs out of memory on it and the leg fails
+# as if the code did. phpstan below has its own --memory-limit for the same
+# reason.
 if require_bin vendor/bin/phpcs; then
   if [ ${#TARGETS[@]} -gt 0 ]; then
     run_leg "phpcs (Drupal,DrupalPractice)" \
-      vendor/bin/phpcs --standard=./phpcs.xml.dist -s "${TARGETS[@]}"
+      vendor/bin/phpcs -d memory_limit=512M --standard=./phpcs.xml.dist -s "${TARGETS[@]}"
   else
     run_leg "phpcs (Drupal,DrupalPractice)" \
-      vendor/bin/phpcs --standard=./phpcs.xml.dist -s
+      vendor/bin/phpcs -d memory_limit=512M --standard=./phpcs.xml.dist -s
   fi
 else
   FAIL=1

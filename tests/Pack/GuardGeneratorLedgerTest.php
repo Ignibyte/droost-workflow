@@ -72,6 +72,16 @@ final class GuardGeneratorLedgerTest extends WorkflowTestCase {
         'drush generate service:custom -a a; drush generate service:custom -a b',
         ['service:custom'],
       ],
+      // A keyword leads the invocation the semicolons split off, and P6 run
+      // 10's three unit tests were generated exactly so (F-118).
+      'in a loop' => [
+        'for c in A B; do ddev drush generate test:unit --answer=m --answer=$c; done',
+        ['test:unit'],
+      ],
+      'in an if' => [
+        'if true; then drush generate module -a x; fi',
+        ['module'],
+      ],
     ];
   }
 
@@ -106,6 +116,7 @@ final class GuardGeneratorLedgerTest extends WorkflowTestCase {
       'named in a message' => ['git commit -m "drush generate module"'],
       'named in an echo' => ['echo drush generate module'],
       'another drush verb' => ['ddev drush cr'],
+      'the console\'s list' => ['cd web && ddev drush generate list'],
     ];
   }
 

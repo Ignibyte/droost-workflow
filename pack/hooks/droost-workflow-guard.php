@@ -1351,6 +1351,18 @@ function operator_commands_strip_wrappers(array $tokens): array {
   $wrappers = operator_commands_wrapper_pattern();
   $stripped = 0;
   for ($strip = 0; $strip < 8 && $tokens !== []; $strip++) {
+    // A SHELL RESERVED WORD IS A PREFIX TOO (F-118). `for i in 1; do php -r
+    // '…'; done` splits at the semicolons into `do php -r '…'`, whose head
+    // is `do`, and every rule that asks what the command IS read the
+    // keyword. The interpreter rule never saw the `php`: code that emptied
+    // the guard or deleted the run record ran at `hard` inside any loop or
+    // `if`, where the same line on its own is refused. Not counted as a
+    // wrapper: a keyword does not run a string it is handed.
+    if (in_array(ltrim($tokens[0], "\x01"), ['do', 'then', 'else', 'elif', 'if', 'while', 'until', '!'], TRUE)) {
+      array_shift($tokens);
+      continue;
+    }
+
     // A LEADING ASSIGNMENT IS A PREFIX TOO. `FOO=bar bash -c "…"` is `bash -c
     // "…"` with one variable set for it, and that is how the shell runs it —
     // but the head here was the literal `FOO=bar`, which is not a wrapper word
@@ -1485,6 +1497,15 @@ function operator_commands_invocations(string $command, int $depth = 0): array {
   };
   $endCommand = static function () use (&$invocations, &$tokens, &$redirect, $endToken): void {
     $endToken();
+    // A CLOSING keyword takes only redirections after it, and an output
+    // target carries the redirection mark, so an unmarked word after `done`,
+    // `fi` or `esac` is an INPUT redirection's file: `while read l; do …;
+    // done < ledger` reads it. Its head was `done`, which no rule knows as a
+    // reader, so the read was refused as a write. Kept: the marked targets,
+    // so `done > run.json` is judged as the write it is.
+    if (in_array(ltrim($tokens[0] ?? '', "\x01"), ['done', 'fi', 'esac'], TRUE)) {
+      $tokens = array_values(array_filter(array_slice($tokens, 1), static fn (string $token): bool => str_starts_with($token, "\x01")));
+    }
     if ($tokens !== []) {
       $invocations[] = $tokens;
     }
@@ -2179,7 +2200,8 @@ function operator_commands_generators(string $command): array {
       if (str_starts_with($arg, '-')) {
         continue;
       }
-      if (preg_match('/^[a-z][\w.:-]*$/', $arg) === 1 && !in_array($arg, $names, TRUE)) {
+      // `list` and `help` are the console's own commands, not generators.
+      if (preg_match('/^[a-z][\w.:-]*$/', $arg) === 1 && !in_array($arg, ['list', 'help'], TRUE) && !in_array($arg, $names, TRUE)) {
         $names[] = $arg;
       }
       break;
