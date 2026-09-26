@@ -107,8 +107,11 @@ site, `droost_scaffold` included:
   Views filters and sorts, config schema, kernel and functional tests,
   migrations, access handlers, plugin derivers, media sources, CKEditor 5
   plugins, recipes, MCP tools.
-- `droost_decide graph=build-surface query="<construct>"` — which of the
-  two builds a construct, when the lists above do not settle it.
+- `droost_decide graph=build-surface kind="<kind>"` — every surface that
+  builds a kind on this site, best first, when the lists above do not
+  settle it. With no kind it lists the kinds. A file you add that has the
+  shape of one must come from one of its surfaces, or be declared
+  hand-written in the Tooling plan: grounding_check reads the diff.
 - `droost_structure_create` — content types, fields, bundles.
 - `droost_entity_create` / `droost_entity_update` — content.
 - `droost_config_set` — configuration.

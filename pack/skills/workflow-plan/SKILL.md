@@ -138,21 +138,34 @@ Then produce the spec:
    for one returns the generator's name, not a file. So "droost has no
    blueprint for this" is the EXPECTED state for most constructs and is
    never, by itself, a reason to hand-write.
-   Ask the map instead of eyeballing two lists: `droost_decide
-   graph=build-surface query="<construct>"` returns the resolved surface —
-   the droost tool or blueprint, the exact `drush generate` command, or an
-   explicit hand-written verdict — with gate states probed live. One call
-   per construct IS the Tooling plan row. Where the tool is unavailable,
-   run `drush generate` (the bare command lists every generator) and check
-   the construct against THAT list — a
-   validation round hand-wrote `.permissions.yml`, `.links.menu.yml` and a
-   route while `yml:permissions`, `yml:links:menu` and `controller` sat in
-   the list it had itself printed. A hand-written row's reason must name
-   what was checked: "no droost blueprint AND no drush generator", the
-   gate is off and the operator declined, or the construct is genuinely
-   novel. The seeker grades the diff against this map — building by hand
-   what your own plan said a tool would build is drift, and so is a
-   hand-written row whose construct a listed generator covers.
+   Ask droost by KIND, not by description. `droost_decide
+   graph=build-surface` with no kind and no query lists every kind this
+   site can build, one line each: ask it once. Then, for each construct,
+   `droost_decide graph=build-surface kind="<kind>"` returns every surface
+   that builds that kind here, best first (the droost tool or blueprint,
+   the exact `drush generate` command, or a hand-written verdict with its
+   reason), with gate states probed live. Choose one and record it as the
+   construct's Tooling plan row. A surface below the first, or
+   hand-written, carries its reason on the same line. A `query` in your own
+   words is only a search: it names the three nearest kinds and picks none
+   of them. Where the tool is unavailable, run `drush generate` (the bare
+   command lists every generator) and check the construct against THAT
+   list: a validation round hand-wrote `.permissions.yml`,
+   `.links.menu.yml` and a route while `yml:permissions`, `yml:links:menu`
+   and `controller` sat in the list it had itself printed. A hand-written
+   row's reason must name what was checked: "no kind in droost's catalogue
+   builds this", the gate is off and the operator declined, or the
+   construct is genuinely novel.
+
+   **The code is checked, not the question.** At code and at complete,
+   `grounding_check` reads every file the run ADDED. One that has the shape
+   of a kind droost builds (a `*.permissions.yml`, a block plugin, a
+   component, a kernel test, a controller) must come from one of that
+   kind's surfaces: a file a blueprint wrote, a `drush generate` the guard
+   saw run, or a droost tool call. Otherwise a Tooling plan row must name
+   the file, its class or its kind and say hand-written, with the reason.
+   Scaffold or generate, then edit the result: that is always allowed.
+   Writing the file by hand is allowed too, when the row says so.
 5. **Declare what will change, before it changes.** Two lists, recorded by
    droost rather than written in prose. They are not the same kind of claim:
 
