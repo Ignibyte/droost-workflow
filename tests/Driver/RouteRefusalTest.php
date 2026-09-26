@@ -14,6 +14,7 @@ use Droost\Workflow\Spec\SpecContract;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 
 /**
@@ -123,6 +124,37 @@ final class RouteRefusalTest extends WorkflowTestCase {
     $problem = $result->findings[0]['problem'] ?? NULL;
     $this->assertIsString($problem);
     $this->assertStringContainsString('declare-route /admin/content/registrations --status=403', $problem);
+  }
+
+  /**
+   * A refusal Drupal THROWS is read as the status it carries.
+   *
+   * The booted driver's sub-request runs with catching off, so Drupal's
+   * access denied arrives as an exception, not a 403 response. The first
+   * version of this fix compared response statuses only, and the tests above
+   * faked a 403 response: all green here, while the subject's render-probe
+   * reported the declared refusal as a thrown exception.
+   */
+  public function testThrownRefusalIsReadAsItsStatus(): void {
+    $throws = new class() implements HttpKernelInterface {
+
+      /**
+       * {@inheritdoc}
+       */
+      public function handle(Request $request, int $type = self::MAIN_REQUEST, bool $catch = TRUE): Response {
+        throw new AccessDeniedHttpException("The 'access content overview' permission is required.");
+      }
+
+    };
+
+    $declared = (new BootedSiteDriver($throws, static fn (): int => 0))->run(new GateSettings('rendered_check', TRUE, ['routes' => '/admin/content@403']), '/tmp');
+    $this->assertSame(GateStatus::Passed, $declared->status);
+
+    $bare = (new BootedSiteDriver($throws, static fn (): int => 0))->run(new GateSettings('rendered_check', TRUE, ['routes' => '/admin/content']), '/tmp');
+    $this->assertSame(GateStatus::Failed, $bare->status);
+    $problem = $bare->findings[0]['problem'] ?? NULL;
+    $this->assertIsString($problem);
+    $this->assertStringContainsString('declare-route /admin/content --status=403', $problem);
   }
 
   /**

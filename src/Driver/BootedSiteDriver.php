@@ -10,6 +10,8 @@ use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\SiteDriverInterface;
 use Droost\Workflow\Gate\GateRemedy;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 
 /**
@@ -167,6 +169,14 @@ final class BootedSiteDriver implements SiteDriverInterface {
         HttpKernelInterface::SUB_REQUEST,
         FALSE,
       );
+    }
+    catch (HttpExceptionInterface $e) {
+      // The sub-request runs with catching off, so Drupal ANSWERS a refusal
+      // by throwing it: access denied is an AccessDeniedHttpException, not a
+      // 403 response. It is read as the status it carries, and judged like
+      // one (F-120). A refusal faked as a response in a test passed while a
+      // real site's threw.
+      $response = new Response('', $e->getStatusCode());
     }
     catch (\Throwable $e) {
       // An exception IS the finding. Letting it escape would fail the whole
