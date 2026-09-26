@@ -262,6 +262,10 @@ mutation 1800 and coverage 900 because infection over one kernel-test-heavy
 module already outruns ten minutes. One is easy to miss:
 `rendered_check.routes` is a comma-separated list of internal paths the
 live surface renders (`routes: "/,/pricing"`); omitted, it renders `/`.
+The render is an anonymous visitor's, so a page only some users may see is
+listed with the refusal it must give, `/admin/reports@403`, and a run
+declares one with `declare-route /admin/reports --status=403`; the gate then
+checks that it refuses, and a declared refusal that renders fails as public.
 On a Drupal site the render happens in a **fresh drush process**
 (`droost:workflow:render-probe`, answering in the gate result's own JSON),
 never inside the process running the gates: round 30 watched an in-process
