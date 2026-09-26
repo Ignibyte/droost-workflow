@@ -311,7 +311,7 @@ $recordCall = static function () use ($root, $stateDir): void {
       $phase = $decoded['current_phase'];
     }
   }
-  $line = json_encode([
+  $row = [
     'run' => $run,
     'phase' => $phase,
     'tool' => $GLOBALS['workflow_guard_tool'] ?? NULL,
@@ -319,7 +319,22 @@ $recordCall = static function () use ($root, $stateDir): void {
     'verdict' => $GLOBALS['workflow_guard_verdict'] ?? 'allow',
     'rule' => $GLOBALS['workflow_guard_rule'] ?? NULL,
     'at' => date('c'),
-  ], JSON_UNESCAPED_SLASHES);
+  ];
+  // WHICH GENERATORS THIS COMMAND RAN, when it was allowed to run. droost's
+  // grounding_check asks the diary whether a file the run added came from
+  // the surface that makes it, and a `drush generate` left no other trace:
+  // the scaffold ledger holds droost's blueprints only, and the tool-call
+  // ledger holds MCP tools. Only an allowed command counts, and only one
+  // that writes (not `--dry-run`, not `--help`). Absent, not empty, when
+  // there is nothing to say, so every older row reads the same.
+  $command = $GLOBALS['workflow_guard_command'] ?? '';
+  if ($row['verdict'] === 'allow' && is_string($command) && $command !== '') {
+    $generated = operator_commands_generators($command);
+    if ($generated !== []) {
+      $row['generated'] = $generated;
+    }
+  }
+  $line = json_encode($row, JSON_UNESCAPED_SLASHES);
   if ($line === FALSE) {
     return;
   }
@@ -373,6 +388,10 @@ $toolName = $payload['tool_name'] ?? $payload['tool'] ?? NULL;
 $GLOBALS['workflow_guard_tool'] = is_string($toolName) && $toolName !== ''
   ? substr($toolName, 0, 120)
   : NULL;
+// The shell command, kept for the diary: which `drush generate` an ALLOWED
+// command ran is evidence droost's grounding_check reads (below, at the row).
+$guardInput = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
+$GLOBALS['workflow_guard_command'] = is_string($guardInput['command'] ?? NULL) ? $guardInput['command'] : '';
 
 // RECORD MODE ENDS HERE, and ending here is the whole design (F-37).
 //
@@ -2108,6 +2127,66 @@ function operator_commands_closing_paren(string $command, int $open): int {
   }
 
   return $length;
+}
+
+/**
+ * The drush generators a command runs for real, in order.
+ *
+ * `drush generate <name>`, `drush gen <name>` and every spelling the
+ * tokeniser already unwraps (`ddev drush`, `vendor/bin/drush`, `ddev exec
+ * "…"`, `bash -c '…'`). A run that only looks — `--dry-run`, `--help`, `-h`,
+ * or no generator named, which lists them — writes nothing and is not
+ * recorded: the ledger is evidence that a file came from a generator, and a
+ * dry run is not.
+ *
+ * @param string $command
+ *   The shell command as the agent sent it.
+ *
+ * @return list<string>
+ *   The generator names, each once.
+ */
+function operator_commands_generators(string $command): array {
+  $names = [];
+  foreach (operator_commands_invocations(operator_commands_scan_text($command)) as $tokens) {
+    $words = array_values(array_map(
+      static fn (string $token): string => ltrim($token, "\x01"),
+      array_filter(operator_commands_unwrapped($tokens), static fn (string $token): bool => !str_starts_with($token, "\x01")),
+    ));
+    // The command is drush, or `ddev drush`: a drush named anywhere else on
+    // the line is an argument (`echo drush generate module`).
+    $at = basename($words[0] ?? '') === 'ddev' ? 1 : 0;
+    if (!in_array(basename($words[$at] ?? ''), ['drush', 'drush.php'], TRUE)
+      || !in_array($words[$at + 1] ?? '', ['generate', 'gen'], TRUE)) {
+      continue;
+    }
+    $rest = array_slice($words, $at + 2);
+    if (operator_commands_flagged($rest, ['--dry-run', '--help', '-h'])) {
+      continue;
+    }
+    // The generator is the first word that is neither a flag nor the value of
+    // one written apart from it (`-a my_module`). None named is the
+    // listing, which writes nothing.
+    $takesValue = FALSE;
+    foreach ($rest as $arg) {
+      if ($takesValue) {
+        $takesValue = FALSE;
+        continue;
+      }
+      if (in_array($arg, ['-a', '--answer', '-d', '--destination', '--directory'], TRUE)) {
+        $takesValue = TRUE;
+        continue;
+      }
+      if (str_starts_with($arg, '-')) {
+        continue;
+      }
+      if (preg_match('/^[a-z][\w.:-]*$/', $arg) === 1 && !in_array($arg, $names, TRUE)) {
+        $names[] = $arg;
+      }
+      break;
+    }
+  }
+
+  return $names;
 }
 
 /**
