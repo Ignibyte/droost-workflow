@@ -92,8 +92,9 @@ final class BootedSiteDriver implements SiteDriverInterface {
 
     $elapsed = $this->tick() - $started;
     $failed = count($findings);
+    $refusals = count(array_filter($routes, static fn (string $route): bool => RenderedRoutes::expectation($route)['status'] !== 200));
     $summary = $failed === 0
-      ? sprintf('%d route(s) rendered', count($routes))
+      ? sprintf('%d route(s) rendered', count($routes) - $refusals) . ($refusals === 0 ? '' : sprintf(', %d refused an anonymous visitor as declared', $refusals))
       : sprintf('%d of %d route(s) did not render', $failed, count($routes));
     // Where the routes came from, when a run's spec was consulted. Under the
     // render-probe there is no run to read (the probe is handed the merged
@@ -149,15 +150,17 @@ final class BootedSiteDriver implements SiteDriverInterface {
   }
 
   /**
-   * Checks one route, returning a finding when it did not render.
+   * Checks one route, returning a finding when it did not answer as declared.
    *
-   * @param string $path
-   *   The internal path.
+   * @param string $route
+   *   The internal path, with `@401` or `@403` when it must refuse an
+   *   anonymous visitor.
    *
    * @return array<string, mixed>|null
    *   The finding, or NULL when the route rendered.
    */
-  private function check(string $path): ?array {
+  private function check(string $route): ?array {
+    ['path' => $path, 'status' => $expected] = RenderedRoutes::expectation($route);
     try {
       $response = $this->kernel->handle(
         Request::create($path),
@@ -188,8 +191,25 @@ final class BootedSiteDriver implements SiteDriverInterface {
     $status = $response->getStatusCode();
     $body = (string) $response->getContent();
 
+    // A route declared to refuse anonymous visitors must refuse them, with
+    // exactly the status it declared: a 200 is a page that is public (F-120).
+    if ($expected !== 200) {
+      return $status === $expected ? NULL : [
+        'route' => $route,
+        'status' => $status,
+        'problem' => $status === 200
+          ? sprintf('declared to refuse anonymous visitors with %d, and it rendered for one: the page is public', $expected)
+          : sprintf('declared to refuse with %d, answered %d', $expected, $status),
+      ];
+    }
     if ($status !== 200) {
-      return ['route' => $path, 'status' => $status, 'problem' => 'not 200'];
+      return [
+        'route' => $path,
+        'status' => $status,
+        'problem' => in_array($status, RenderedRoutes::REFUSALS, TRUE)
+          ? sprintf('not 200: it refused an anonymous visitor (%d). If it is meant to, declare it so and the gate checks the refusal instead: declare-route %s --status=%d', $status, $path, $status)
+          : 'not 200',
+      ];
     }
     // A 200 with nothing in it is a rendered page in name only, and is
     // exactly what a broken theme or an empty view produces.

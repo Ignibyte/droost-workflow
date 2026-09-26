@@ -296,6 +296,19 @@ Then produce the spec:
    declared anything, the document is not consulted for routes at all — two
    sources for one fact is a disagreement waiting to happen.
 
+   **The gate renders as an anonymous visitor.** A page only some users may
+   see (an admin listing, a members-only page) is declared with the refusal
+   an anonymous visitor must get, and the gate then checks it refuses: a
+   page declared `--status=403` that renders for anyone fails as public.
+
+   ```bash
+   vendor/bin/droost-workflow declare-route /admin/content/registrations --status=403 "editors only"
+   ```
+
+   In the section it is `/admin/content/registrations (403)`. Declaring a
+   path again replaces its expectation, so a route declared bare that turns
+   out to be admin-only is corrected by declaring it again with its status.
+
    The section is still the fallback for a run that declared nothing, and
    there it reads however you wrote it: a plain list, a table, or a fenced
    block — **this section reads its fences, and it is the only one that

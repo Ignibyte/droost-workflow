@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow;
 
+use Droost\Workflow\Driver\RenderedRoutes;
 use Droost\Workflow\Baseline\BaselineError;
 use Droost\Workflow\Baseline\BaselineStore;
 use Droost\Workflow\Baseline\BaselineWriter;
@@ -1192,21 +1193,36 @@ final class WorkflowFacade {
    *   requested, because the alternative is a gate rendering it and failing.
    * @param string|null $reason
    *   Why the route is in scope, for the reader. Never read mechanically.
+   * @param int $status
+   *   What the route must answer an anonymous visitor with: 200 to render,
+   *   or 401 or 403 for a page that must refuse one (an admin listing).
+   *   Declaring a path again replaces its expectation, so a plan that named
+   *   an admin page bare can correct it (F-120).
    *
    * @return array<string, mixed>
    *   The routes the run now declares.
    *
    * @throws \InvalidArgumentException
-   *   When the path is not a path.
+   *   When the path is not a path, or the status is neither.
    */
-  public function declareRoute(string $projectRoot, string $path, ?string $reason = NULL): array {
+  public function declareRoute(string $projectRoot, string $path, ?string $reason = NULL, int $status = 200): array {
     $path = trim($path);
-    if ($path === '' || !str_starts_with($path, '/')) {
+    if ($path === '' || !str_starts_with($path, '/') || str_contains($path, '@')) {
       throw new \InvalidArgumentException(sprintf(
         'A route is a path the site serves and must begin with "/" — got "%s"',
         $path,
       ));
     }
+    if ($status !== 200 && !in_array($status, RenderedRoutes::REFUSALS, TRUE)) {
+      throw new \InvalidArgumentException(sprintf(
+        'A route is declared to render (200) or to refuse an anonymous visitor (%s) — got %d',
+        implode(' or ', RenderedRoutes::REFUSALS),
+        $status,
+      ));
+    }
+    // Stored with its status on it, so every reader of the declaration
+    // (rendered_check's two drivers, the record) sees the same route.
+    $path = RenderedRoutes::withStatus($path, $status);
     $state = $this->requireRun(new RunStateStore($projectRoot));
     $store = new EvidenceStore($projectRoot);
     $store->declareRoute($state->runId, self::openPhase($state), $path, $reason, $this->now());

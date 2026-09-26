@@ -42,6 +42,46 @@ final class RenderedRoutes {
   public const DEFAULT = '/';
 
   /**
+   * The statuses a route may be declared to answer an anonymous visitor with.
+   *
+   * A route is expected to render (200) unless it says otherwise. An admin
+   * page is expected to refuse, and a declared refusal is still measured: a
+   * page declared `@403` that answers 200 is public, and fails (F-120).
+   */
+  public const REFUSALS = [401, 403];
+
+  /**
+   * A route's path and the status it must answer an anonymous visitor with.
+   *
+   * @param string $route
+   *   A route as declared: `/camps`, or `/admin/content/x@403`.
+   *
+   * @return array{path: string, status: int}
+   *   The path, and 200 unless the route names a refusal.
+   */
+  public static function expectation(string $route): array {
+    if (preg_match('/^(\/.*)@(\d{3})$/', trim($route), $m) === 1 && in_array((int) $m[2], self::REFUSALS, TRUE)) {
+      return ['path' => $m[1], 'status' => (int) $m[2]];
+    }
+    return ['path' => trim($route), 'status' => 200];
+  }
+
+  /**
+   * A route string carrying its expected status, as expectation() reads it.
+   *
+   * @param string $path
+   *   The path.
+   * @param int $status
+   *   200, or one of REFUSALS.
+   *
+   * @return string
+   *   The path alone for 200, else `path@status`.
+   */
+  public static function withStatus(string $path, int $status): string {
+    return $status === 200 ? $path : $path . '@' . $status;
+  }
+
+  /**
    * Resolves the routes for one gate run.
    *
    * @param \Droost\Workflow\Config\GateSettings $gate
@@ -57,8 +97,26 @@ final class RenderedRoutes {
    */
   public static function resolve(GateSettings $gate, string $projectRoot): array {
     $sources = [];
+    // One route per PATH. A later declaration of a path replaces an earlier
+    // one, so a plan that declared an admin page bare can correct it to the
+    // refusal it is (`declare-route /admin/x --status=403`) instead of being
+    // held to a render no anonymous visitor can get (F-120).
+    // The same route declared again keeps its first label: the lever's
+    // standing list is a stronger claim than this ticket repeating it.
+    $add = static function (string $route, string $source, bool $replace) use (&$sources): void {
+      $path = self::expectation($route)['path'];
+      foreach (array_keys($sources) as $existing) {
+        if (self::expectation($existing)['path'] === $path) {
+          if (!$replace || $existing === $route) {
+            return;
+          }
+          unset($sources[$existing]);
+        }
+      }
+      $sources[$route] = $source;
+    };
     foreach (self::fromOption($gate->option('routes')) as $route) {
-      $sources[$route] = 'lever';
+      $add($route, 'lever', FALSE);
     }
     if ($sources === []) {
       $sources[self::DEFAULT] = 'default';
@@ -67,7 +125,7 @@ final class RenderedRoutes {
     $none = FALSE;
     $declared = self::declaredRoutes($projectRoot);
     foreach ($declared as $route) {
-      $sources[$route] ??= 'spec-declared';
+      $add($route, 'spec-declared', TRUE);
     }
 
     // The document, only when nothing was declared. A run that called the
@@ -83,7 +141,7 @@ final class RenderedRoutes {
       else {
         $none = $parsed['none'];
         foreach ($parsed['routes'] as $route) {
-          $sources[$route] ??= 'spec-parsed';
+          $add($route, 'spec-parsed', FALSE);
         }
       }
     }

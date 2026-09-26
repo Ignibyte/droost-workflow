@@ -655,7 +655,7 @@ final class ArgvDispatcher {
   }
 
   /**
-   * Declares a route: `declare-route <path> [reason]`.
+   * Declares a route: `declare-route <path> [--status=403] [reason]`.
    *
    * @param string $projectRoot
    *   The repository.
@@ -666,19 +666,32 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function declareRoute(string $projectRoot, array $argv): int {
-    $path = $argv[1] ?? '';
+    // `--status=403` may sit anywhere after the verb; everything else is the
+    // path and then the reason, in that order.
+    $status = 200;
+    $words = [];
+    foreach (array_slice($argv, 1) as $word) {
+      if (preg_match('/^--status=(\d{3})$/', $word, $m) === 1) {
+        $status = (int) $m[1];
+        continue;
+      }
+      $words[] = $word;
+    }
+    $path = $words[0] ?? '';
     if ($path === '') {
-      $this->fail('declare-route needs the path: declare-route /rinks "the new listing"');
+      $this->fail('declare-route needs the path: declare-route /rinks "the new listing", or declare-route /admin/content/x --status=403 "editors only"');
       return self::EXIT_USAGE;
     }
     $declared = $this->facade($projectRoot)->declareRoute(
       $projectRoot,
       $path,
-      ($argv[2] ?? '') === '' ? NULL : $argv[2],
+      ($words[1] ?? '') === '' ? NULL : $words[1],
+      $status,
     );
     $this->say(sprintf(
-      'route: %s — %d declared in this run',
+      'route: %s%s — %d declared in this run',
       $path,
+      $status === 200 ? '' : sprintf(' (must refuse an anonymous visitor with %d)', $status),
       is_array($declared['routes'] ?? NULL) ? count($declared['routes']) : 0,
     ));
 
@@ -1219,7 +1232,10 @@ final class ArgvDispatcher {
                        it says which gates must have MEASURED something.
       declare-route    declare a path this change serves, which is what
                        rendered_check renders: `declare-route /rinks "the new
-                       listing"`. Repeatable and idempotent. `## Routes` stays
+                       listing"`. A page that must refuse an anonymous
+                       visitor (an admin listing) takes `--status=403`, and
+                       the gate checks it refuses; declaring a path again
+                       replaces it. Repeatable and idempotent. `## Routes` stays
                        in the spec for a human; nothing mechanical reads it,
                        so a fenced list or a heading in the wrong place can no
                        longer cost a run

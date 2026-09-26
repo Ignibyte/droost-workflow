@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Spec;
 
+use Droost\Workflow\Driver\RenderedRoutes;
 use Droost\Workflow\State\RunStateStore;
 
 /**
@@ -590,6 +591,13 @@ final class SpecContract {
       // reason a reader needs.
       if (preg_match('~^`?(/[^\s`|]*)`?~', $item, $r) === 1) {
         $route = rtrim($r[1], '`');
+        // A refusal the page must give an anonymous visitor rides after the
+        // path in brackets: `- /admin/content/x (403) — editors only`
+        // (F-120). Carried as `path@403`, as a declared row carries it.
+        if (preg_match('~^\s*\((\d{3})\)~', substr($item, strlen($r[0])), $status) === 1
+          && in_array((int) $status[1], RenderedRoutes::REFUSALS, TRUE)) {
+          $route = RenderedRoutes::withStatus($route, (int) $status[1]);
+        }
         if (!in_array($route, $routes, TRUE)) {
           $routes[] = $route;
         }
