@@ -87,7 +87,20 @@ async function read(browser, url, width) {
   // header: on a cross-origin font request one forces a CORS preflight a font
   // host may fail, and the page falls back to another typeface.
   const ctx = await browser.newContext({ viewport: { width, height: 900 }, ignoreHTTPSErrors: true });
+  // Images are asked for without AVIF, as a browser that lacks it asks. The
+  // Chromium a Linux container runs crashed decoding an AVIF an image host
+  // served for "auto=format", which ended the whole reading. The judge reads
+  // text, never pixels, and the same image in another format looks the same.
+  await ctx.route('**/*', (route) => {
+    const req = route.request();
+    if (req.resourceType() !== 'image') return route.continue();
+    return route.continue({ headers: { ...req.headers(), accept: 'image/webp,image/apng,image/svg+xml,image/*;q=0.8,*/*;q=0.5' } });
+  });
   const page = await ctx.newPage();
+  // A page that crashes the browser is a page not read: INVALID for that
+  // route, never the end of every other route's reading.
+  let crashed = false;
+  page.on('crash', () => { crashed = true; });
   let status = 'ERR';
   try {
     const res = await page.goto(url, { waitUntil: 'load', timeout: 60000 });
@@ -95,16 +108,19 @@ async function read(browser, url, width) {
   } catch (e) {
     status = 'ERR ' + String(e.message || e).slice(0, 160);
   }
+  const unread = (why) => ({ url, status: 'ERR ' + why, viewport: width, texts: [] });
   // Network idle when it comes within 8 s: a page with a widget that polls is
   // never idle.
   await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+  if (crashed) { await ctx.close().catch(() => {}); return unread('the page crashed the browser while loading'); }
   await page.evaluate(async () => {
     await document.fonts.ready;
     // In-view animations run only once their section has been in the viewport.
     for (let y = 0; y < document.documentElement.scrollHeight; y += 300) { window.scrollTo(0, y); await new Promise((r) => setTimeout(r, 100)); }
     window.scrollTo(0, 0);
   }).catch(() => {});
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(1200).catch(() => {});
+  if (crashed) { await ctx.close().catch(() => {}); return unread('the page crashed the browser as it scrolled'); }
   const data = await page.evaluate(() => {
     const px = (v) => Math.round(parseFloat(v) || 0);
     const ground = (el) => {
@@ -148,7 +164,8 @@ async function read(browser, url, width) {
       header: box(header), footer: box(footer), navLinks, texts,
     };
   }).catch((e) => ({ error: String(e.message || e).slice(0, 200), texts: [] }));
-  await ctx.close();
+  await ctx.close().catch(() => {});
+  if (crashed) return unread('the page crashed the browser as it was read');
   return { url, status, viewport: width, ...data };
 }
 
