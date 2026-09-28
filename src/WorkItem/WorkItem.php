@@ -26,8 +26,8 @@ final class WorkItem {
    *
    * @param string $id
    *   The ticket's id, e.g. `TICKET-186`.
-   * @param int $number
-   *   Its number.
+   * @param int|null $number
+   *   Its number, from its name; NULL for a ticket whose name has none.
    * @param string $title
    *   Its title.
    * @param string $status
@@ -45,7 +45,7 @@ final class WorkItem {
    */
   public function __construct(
     public readonly string $id,
-    public readonly int $number,
+    public readonly ?int $number,
     public readonly string $title,
     public readonly string $status,
     public readonly ?string $type,
@@ -78,7 +78,7 @@ final class WorkItem {
   /**
    * What a run records of the ticket it is bound to: no body, no extra keys.
    *
-   * @return array{id: string, source: string, number: int, title: string, status: string, type: string|null, path: string|null}
+   * @return array{id: string, source: string, number: int|null, title: string, status: string, type: string|null, path: string|null}
    *   The binding.
    */
   public function binding(): array {

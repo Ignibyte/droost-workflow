@@ -420,7 +420,12 @@ work_item:
 
 A ticket is `<dir>/open/<PREFIX>-<n>-<slug>.md`, or under `closed/` once it is
 `done`, with a YAML frontmatter holding at least `title`, `status` and
-`ticket_number`, and its sections after it:
+`ticket_number`, and its sections after it. The file's name is its identity:
+its id is `<PREFIX>-<n>` and its number is `n`, and a `ticket_number` that says
+otherwise is kept as an extra key. Two older names read too: a split ticket,
+`<PREFIX>-<n><letter>-<slug>.md` (id `<PREFIX>-<n><letter>`, so a number can
+repeat), and a numberless `<PREFIX>-<slug>.md` (id the name, number null). A
+file named for the prefix in neither shape is refused by name:
 
 ```markdown
 ---
@@ -450,7 +455,8 @@ a symlinked ticket or directory is refused.
   move the source refuses is recorded as a note and never fails the run.
 - `ticket list [--status=<state>]`, `ticket show <id>` and `ticket new
   --title="…" [--type=<type>]` are anyone's; `new` files into `backlog`,
-  numbered one past the highest across `open/` and `closed/`.
+  numbered one past the highest number any file's name carries, across
+  `open/` and `closed/`.
 - `ticket move <id> <state>` is the operator's (see the table below).
 
 ### Unknown keys are errors

@@ -13,9 +13,16 @@ use Symfony\Component\Yaml\Yaml;
  * The format is the one druplit already keeps its own tickets in, so those
  * read as they stand: `<dir>/{open,closed}/<PREFIX>-<n>-<slug>.md`, a YAML
  * frontmatter holding at least `title`, `status` and `ticket_number`, and the
- * ticket's sections after it. A `done` ticket lives in `closed/` and every
- * other state in `open/`; the legacy `open` and `closed` statuses read as
- * `ready` and `done`, and a write always uses the new vocabulary.
+ * ticket's sections after it. The FILENAME is the identity: its number is the
+ * ticket's number, and a frontmatter `ticket_number` that says otherwise (a
+ * historical tracker's number) is kept as an extra key. Two historical names
+ * are read too: a split ticket, `<PREFIX>-<n><letter>-<slug>.md`, whose id
+ * keeps its letter (so a number may repeat across a split), and a numberless
+ * `<PREFIX>-<slug>.md`, whose id is its name and whose number is NULL. A file
+ * named for the prefix in neither shape is refused by name, never skipped.
+ * A `done` ticket lives in `closed/` and every other state in `open/`; the
+ * legacy `open` and `closed` statuses read as `ready` and `done`, and a write
+ * always uses the new vocabulary.
  *
  * A write changes one line, `status:`, or creates a new file, and nothing
  * else: every other frontmatter key and the whole body stay byte for byte as
@@ -121,27 +128,28 @@ final class MarkdownWorkItemSource implements WorkItemSourceInterface {
    * {@inheritdoc}
    */
   public function get(string $id): ?WorkItem {
-    $number = $this->numberOf($id);
-    if ($number === NULL) {
-      return NULL;
+    $id = trim($id);
+    // A bare number names the numbered ticket, never a split one: `59` is
+    // TICKET-59, and TICKET-59b is asked for by its id.
+    if (ctype_digit($id)) {
+      $id = $this->prefix . '-' . (int) $id;
     }
     $found = array_values(array_filter(
       $this->files(),
-      static fn (array $file): bool => $file['number'] === $number,
+      static fn (array $file): bool => $file['id'] === $id,
     ));
     if ($found === []) {
       return NULL;
     }
     if (count($found) > 1) {
       throw WorkItemError::unreadable($this->label, sprintf(
-        'two files claim %s-%d (%s)',
-        $this->prefix,
-        $number,
+        'two files claim %s (%s)',
+        $id,
         implode(', ', array_column($found, 'relative')),
       ));
     }
 
-    return $this->parse($found[0]['path'], $found[0]['relative'], $number);
+    return $this->parse($found[0]);
   }
 
   /**
@@ -156,15 +164,14 @@ final class MarkdownWorkItemSource implements WorkItemSourceInterface {
     }
     $items = [];
     foreach ($this->files() as $file) {
-      $item = $this->parse($file['path'], $file['relative'], $file['number']);
+      $item = $this->parse($file);
       if ($status === NULL || $item->status === $status) {
         $items[] = $item;
       }
     }
-    usort(
-      $items,
-      static fn (WorkItem $a, WorkItem $b): int => [self::idNumber($a->id), $a->id] <=> [self::idNumber($b->id), $b->id],
-    );
+    // By number, then id (59 before 59b); the numberless last.
+    $order = static fn (WorkItem $item): array => [$item->number === NULL, $item->number ?? 0, $item->id];
+    usort($items, static fn (WorkItem $a, WorkItem $b): int => $order($a) <=> $order($b));
 
     return $items;
   }
@@ -178,11 +185,11 @@ final class MarkdownWorkItemSource implements WorkItemSourceInterface {
     if ($title === '' || $type === '') {
       throw new \InvalidArgumentException('A ticket needs a title and a type: ticket new --title="…" [--type=feature].');
     }
-    // One past the highest number any file here claims, by its name or by
-    // its frontmatter: the two can disagree in a corpus kept by hand.
+    // One past the highest number any file's NAME carries; a numberless
+    // ticket has none, and a frontmatter number is a different fact.
     $highest = 0;
     foreach ($this->files() as $file) {
-      $highest = max($highest, $file['number'], $this->frontmatterNumber($file['path']));
+      $highest = max($highest, $file['number'] ?? 0);
     }
     $number = $highest + 1;
     $slug = trim(substr(trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower($title)), '-'), 0, 60), '-');
@@ -204,7 +211,12 @@ final class MarkdownWorkItemSource implements WorkItemSourceInterface {
     );
     $this->writeAtomically($path, $body, 0666 & ~umask());
 
-    return $this->parse($path, $this->label . '/open/' . $name, $number);
+    return $this->parse([
+      'path' => $path,
+      'relative' => $this->label . '/open/' . $name,
+      'id' => $this->prefix . '-' . $number,
+      'number' => $number,
+    ]);
   }
 
   /**
@@ -221,7 +233,6 @@ final class MarkdownWorkItemSource implements WorkItemSourceInterface {
     if ($item->status === $to) {
       return $item;
     }
-    $number = self::idNumber($item->id);
     $file = $this->pathOf($item->path);
     $content = (string) file_get_contents($file);
     // Only the status line, and only inside the frontmatter: a body that
@@ -243,17 +254,25 @@ final class MarkdownWorkItemSource implements WorkItemSourceInterface {
       unlink($file);
     }
 
-    return $this->parse($target, $this->label . '/' . ($to === 'done' ? 'closed' : 'open') . '/' . basename($file), $number);
+    return $this->parse([
+      'path' => $target,
+      'relative' => $this->label . '/' . ($to === 'done' ? 'closed' : 'open') . '/' . basename($file),
+      'id' => $item->id,
+      'number' => $item->number,
+    ]);
   }
 
   /**
-   * Every ticket file under open/ and closed/, by number.
+   * Every ticket file under open/ and closed/, with the id its name gives.
    *
-   * @return list<array{path: string, relative: string, number: int}>
+   * @return list<array{path: string, relative: string, id: string, number: int|null}>
    *   The files.
+   *
+   * @throws \Droost\Workflow\WorkItem\WorkItemError
+   *   When a markdown file is named for the prefix in no shape a ticket has.
    */
   private function files(): array {
-    $pattern = '/^' . preg_quote($this->prefix, '/') . '-(\d+)(?:-[^\/]*)?\.md$/';
+    $prefix = preg_quote($this->prefix, '/');
     $files = [];
     foreach (['open', 'closed'] as $state) {
       $dir = $this->subdir($state, FALSE);
@@ -261,13 +280,25 @@ final class MarkdownWorkItemSource implements WorkItemSourceInterface {
         continue;
       }
       foreach (scandir($dir) ?: [] as $name) {
-        if (preg_match($pattern, $name, $m) === 1) {
-          $files[] = [
-            'path' => $dir . '/' . $name,
-            'relative' => $this->label . '/' . $state . '/' . $name,
-            'number' => (int) $m[1],
-          ];
+        if (!str_starts_with($name, $this->prefix . '-') || !str_ends_with($name, '.md')) {
+          continue;
         }
+        $relative = $this->label . '/' . $state . '/' . $name;
+        if (preg_match('/^' . $prefix . '-(\d+)([a-z]?)(?:-[^\/]+)?\.md$/', $name, $m) === 1) {
+          $id = $this->prefix . '-' . (int) $m[1] . $m[2];
+          $number = (int) $m[1];
+        }
+        elseif (preg_match('/^' . $prefix . '-([A-Za-z][^\/]*)\.md$/', $name, $m) === 1) {
+          $id = $this->prefix . '-' . $m[1];
+          $number = NULL;
+        }
+        else {
+          throw WorkItemError::unreadable($relative, sprintf(
+            'its name is none of %1$s-<n>-<slug>.md, %1$s-<n><letter>-<slug>.md or %1$s-<slug>.md',
+            $this->prefix,
+          ));
+        }
+        $files[] = ['path' => $dir . '/' . $name, 'relative' => $relative, 'id' => $id, 'number' => $number];
       }
     }
 
@@ -307,17 +338,14 @@ final class MarkdownWorkItemSource implements WorkItemSourceInterface {
   /**
    * Reads one ticket file.
    *
-   * @param string $path
-   *   The file, absolute.
-   * @param string $relative
-   *   The file as a reader should see it.
-   * @param int $number
-   *   The number its name carries.
+   * @param array{path: string, relative: string, id: string, number: int|null} $file
+   *   The file, as files() found it.
    *
    * @return \Droost\Workflow\WorkItem\WorkItem
    *   The ticket.
    */
-  private function parse(string $path, string $relative, int $number): WorkItem {
+  private function parse(array $file): WorkItem {
+    ['path' => $path, 'relative' => $relative, 'id' => $id, 'number' => $number] = $file;
     if (is_link($path)) {
       throw WorkItemError::refusedPath($relative, 'a ticket file is never read through a symlink');
     }
@@ -337,7 +365,9 @@ final class MarkdownWorkItemSource implements WorkItemSourceInterface {
     if (!is_array($front)) {
       throw WorkItemError::unreadable($relative, 'its frontmatter is not a map of keys');
     }
-    foreach (['title', 'status', 'ticket_number'] as $required) {
+    // A numbered ticket states its number; a numberless one (a historical
+    // name) cannot, and is not asked to.
+    foreach ($number === NULL ? ['title', 'status'] : ['title', 'status', 'ticket_number'] as $required) {
       if (!array_key_exists($required, $front) || $front[$required] === NULL || $front[$required] === '') {
         throw WorkItemError::unreadable($relative, sprintf('its frontmatter has no %s', $required));
       }
@@ -352,14 +382,15 @@ final class MarkdownWorkItemSource implements WorkItemSourceInterface {
         implode(', ', WorkItem::STATES),
       ));
     }
-    $declared = $front['ticket_number'];
-    if (!is_int($declared) && !(is_string($declared) && ctype_digit($declared))) {
-      throw WorkItemError::unreadable($relative, 'its ticket_number is not a number');
-    }
     $extra = [];
     foreach ($front as $key => $value) {
       $key = (string) $key;
-      if (in_array($key, self::FIELDS, TRUE)) {
+      // The number its name carries is the ticket's; a ticket_number that
+      // says otherwise is another fact (an old tracker's), kept as it is.
+      if ($key === 'ticket_number' && $number !== NULL && (string) (is_scalar($value) ? $value : '') === (string) $number) {
+        continue;
+      }
+      if ($key !== 'ticket_number' && in_array($key, self::FIELDS, TRUE)) {
         continue;
       }
       $extra[$key] = self::asWritten($value, $raw[$key] ?? NULL);
@@ -371,8 +402,8 @@ final class MarkdownWorkItemSource implements WorkItemSourceInterface {
     }
 
     return new WorkItem(
-      sprintf('%s-%d', $this->prefix, $number),
-      (int) $declared,
+      $id,
+      $number,
       (string) $title,
       $status,
       is_scalar($type) && (string) $type !== '' ? (string) $type : NULL,
@@ -381,56 +412,6 @@ final class MarkdownWorkItemSource implements WorkItemSourceInterface {
       $relative,
       'markdown',
     );
-  }
-
-  /**
-   * The number a file's frontmatter claims, or 0 when it claims none.
-   *
-   * @param string $path
-   *   The file.
-   *
-   * @return int
-   *   The number.
-   */
-  private function frontmatterNumber(string $path): int {
-    $content = is_link($path) ? FALSE : file_get_contents($path);
-    if (is_string($content) && preg_match('/\A---\R.*?^ticket_number:[ \t]*(\d+)/ms', $content, $m) === 1) {
-      return (int) $m[1];
-    }
-    return 0;
-  }
-
-  /**
-   * The ticket number an id names, or NULL when it names none of ours.
-   *
-   * @param string $id
-   *   `PREFIX-<n>`, or a bare number.
-   *
-   * @return int|null
-   *   The number.
-   */
-  private function numberOf(string $id): ?int {
-    $id = trim($id);
-    if (ctype_digit($id)) {
-      return (int) $id;
-    }
-    if (preg_match('/^' . preg_quote($this->prefix, '/') . '-(\d+)$/', $id, $m) === 1) {
-      return (int) $m[1];
-    }
-    return NULL;
-  }
-
-  /**
-   * The number at the end of a ticket id.
-   *
-   * @param string $id
-   *   The id.
-   *
-   * @return int
-   *   Its number.
-   */
-  private static function idNumber(string $id): int {
-    return preg_match('/-(\d+)$/', $id, $m) === 1 ? (int) $m[1] : 0;
   }
 
   /**

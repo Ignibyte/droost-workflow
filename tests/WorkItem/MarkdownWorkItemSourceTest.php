@@ -190,29 +190,86 @@ final class MarkdownWorkItemSourceTest extends WorkflowTestCase {
   }
 
   /**
-   * A new ticket is numbered past every file's name and frontmatter.
+   * A new ticket is numbered past every file's name; a frontmatter is not.
    */
   public function testNewTicketIsNumberedPastTheHighest(): void {
     [$dir, $source] = $this->project();
-    // A name and a frontmatter that disagree, as druplit's TICKET-41 does
-    // (named 41, numbered 43): the next number clears both.
+    // A name and a frontmatter that disagree, as 51 of druplit's do: the
+    // frontmatter's is an old tracker's number, kept as an extra key, and
+    // the name decides the ticket's number and the next one.
     file_put_contents($dir . '/closed/TICKET-170-x.md', "---\ntitle: X\nstatus: done\nticket_number: 172\n---\n");
+    $forge = $source->get('TICKET-170');
+    $this->assertNotNull($forge);
+    $this->assertSame(170, $forge->number);
+    $this->assertSame(['ticket_number' => 172], $forge->extra);
 
     $item = $source->create('Add the camp calendar: iCal', 'feature');
-    $this->assertSame('TICKET-173', $item->id);
+    $this->assertSame('TICKET-171', $item->id);
+    $this->assertSame(171, $item->number);
     $this->assertSame('backlog', $item->status);
     $this->assertSame('Add the camp calendar: iCal', $item->title);
-    $this->assertSame('droost/tickets/open/TICKET-173-add-the-camp-calendar-ical.md', $item->path);
-    $this->assertSame('2026-09-28', $item->extra['created']);
-    $written = (string) file_get_contents($dir . '/open/TICKET-173-add-the-camp-calendar-ical.md');
-    $this->assertStringStartsWith("---\ntitle: 'Add the camp calendar: iCal'\nstatus: backlog\nticket_number: 173\ntype: feature\ncreated: 2026-09-28\n---\n", $written);
+    $this->assertSame('droost/tickets/open/TICKET-171-add-the-camp-calendar-ical.md', $item->path);
+    $this->assertSame(['created' => '2026-09-28'], $item->extra, 'a ticket_number that matches its name is its number, not an extra key');
+    $written = (string) file_get_contents($dir . '/open/TICKET-171-add-the-camp-calendar-ical.md');
+    $this->assertStringStartsWith("---\ntitle: 'Add the camp calendar: iCal'\nstatus: backlog\nticket_number: 171\ntype: feature\ncreated: 2026-09-28\n---\n", $written);
     $this->assertStringContainsString("\n## EARS Requirements\n", $written);
-    $this->assertSame('TICKET-173', $source->get('TICKET-173')?->id, 'and it reads back');
+    $this->assertSame('TICKET-171', $source->get('TICKET-171')?->id, 'and it reads back');
 
     // Into an empty project, the directories are made.
     $fresh = new MarkdownWorkItemSource('droost/tickets', 'ITEM', $this->makeRoot(), static fn (): string => '2026-01-01');
     $this->assertSame('ITEM-1', $fresh->create('First', 'bug')->id);
     $this->assertSame([], (new MarkdownWorkItemSource('none', 'ITEM', $this->makeRoot()))->list(), 'no directory is no tickets');
+  }
+
+  /**
+   * Druplit's historical names: a split ticket and a numberless one.
+   *
+   * A split keeps its letter in its id, so a number repeats across it; a
+   * numberless ticket's id is its name and its number is NULL, and it sorts
+   * last. A file named for the prefix in neither shape is refused by name.
+   */
+  public function testHistoricalNamesReadAndOthersAreRefused(): void {
+    [$dir, $source] = $this->project();
+    file_put_contents($dir . '/closed/TICKET-59-mailbox.md', "---\ntitle: TICKET-59-mailbox\nstatus: done\nticket_number: 61\n---\n");
+    file_put_contents($dir . '/closed/TICKET-59b-mailbox-hardening.md', "---\ntitle: TICKET-59b-mailbox-hardening\nstatus: done\nticket_number: 64\n---\n");
+    file_put_contents($dir . '/closed/TICKET-gate-hardening.md', "---\ntitle: TICKET-gate-hardening\nstatus: closed\nclosed: 2026-07-13\nforge_number: 3\n---\n");
+
+    $split = $source->get('TICKET-59b');
+    $this->assertNotNull($split);
+    $this->assertSame(59, $split->number);
+    $this->assertSame(['ticket_number' => 64], $split->extra);
+    $this->assertSame('TICKET-59', $source->get('59')?->id, 'a bare number is the numbered ticket, not its split');
+
+    $numberless = $source->get('TICKET-gate-hardening');
+    $this->assertNotNull($numberless);
+    $this->assertNull($numberless->number);
+    $this->assertSame('done', $numberless->status);
+    $this->assertSame(['closed' => '2026-07-13', 'forge_number' => 3], $numberless->extra, 'no ticket_number is asked of a name that has no number');
+
+    $this->assertSame(
+      ['TICKET-59', 'TICKET-59b', 'TICKET-89', 'TICKET-169', 'TICKET-gate-hardening'],
+      array_map(static fn ($item) => $item->id, $source->list()),
+    );
+    $this->assertSame('TICKET-170', $source->create('Next', 'bug')->id, 'numberless ids number nothing');
+
+    $moved = $source->transition('TICKET-59b', 'review', 'x');
+    $this->assertSame('TICKET-59b', $moved->id);
+    $this->assertFileExists($dir . '/open/TICKET-59b-mailbox-hardening.md');
+
+    file_put_contents($dir . '/open/TICKET-12abc-x.md', "---\ntitle: T\nstatus: ready\nticket_number: 12\n---\n");
+    try {
+      $source->list();
+      $this->fail('a misnamed ticket was skipped or read');
+    }
+    catch (WorkItemError $e) {
+      $this->assertStringContainsString('droost/tickets/open/TICKET-12abc-x.md', $e->getMessage());
+      $this->assertStringContainsString('its name is none of', $e->getMessage());
+    }
+    // Files that are not named for the prefix are not tickets at all.
+    unlink($dir . '/open/TICKET-12abc-x.md');
+    file_put_contents($dir . '/open/README.md', "# notes\n");
+    file_put_contents($dir . '/open/TICKET-169-the-container-stops-granting-root.md.orig', 'x');
+    $this->assertCount(6, $source->list());
   }
 
   /**
