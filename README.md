@@ -568,6 +568,43 @@ act, not a side effect of moving on. Advancing backward, or advancing a run
 that has already reached its terminal gate, is refused for the same reason: a
 report has to be able to describe the run honestly.
 
+## Run events
+
+Beside `run.json`, the engine keeps `events.jsonl`: an append-only log of every
+state change it persists, one JSON event per line, written after the save. It
+is the record a relay or a dashboard reads (`droost-workflow events
+[--after=<seq>]` prints it), and it works with nothing else installed:
+
+```json
+{"schema":"droost.run-event/1","event_id":"evt-4f1c2a9be0d37a61","seq":7,"run_id":"run-8c2d4e6f1a3b","work_item_id":"TICKET-12","at":"2026-09-28T15:04:11+00:00","type":"phase.attempted","payload":{"phase":"code","attempt":1,"report":{"phase":"code","advance":false,"tally":{"passed":3,"failed":1},"gates":[]}}}
+```
+
+| Type | When | Payload |
+|---|---|---|
+| `run.started` | a run begins | `preset`, `mode`, `enforcement`, `phases`, `spec`, `base_commit` |
+| `phase.began` | a phase becomes current | `phase` |
+| `phase.attempted` | a phase's gates ran, pass or fail (a failed gate never ends a phase, so this is the only event that shows one) | `phase`, `attempt`, `report` (the phase report: `advance`, `tally`, every gate) |
+| `phase.ended` | the run leaves a phase | `phase` |
+| `question.asked` | a save leaves a question newly awaiting | `question_id`, `question` |
+| `question.answered` | `answer` is saved | `question_id`, `answer` |
+| `run.completed` | the last phase ended | `outcome` (the run envelope) |
+| `run.reset` | `reset` archived the run | `archived_run_id` |
+
+Every event has `schema`, `event_id` (`evt-` and 16 hex digits, the consumer's
+dedup key: delivery is at least once), `seq` (strictly increasing per log from
+1, a relay's cursor and never an identity), `run_id`, `work_item_id` (the bound
+ticket, or null), `at`, `type` and `payload`. `schema/run-event.v1.json` is the
+JSON Schema. Version 1 is additive only: new types and payload keys may come,
+a consumer ignores what it does not know, and renaming or removing one is
+`droost.run-event/2`.
+
+The log spans runs, so `reset` keeps it. An append holds an exclusive lock, so
+two processes never interleave a line or reuse a `seq` (on a state directory
+over NFS that lock is advisory, as `flock` is). A log that cannot be written is
+reported once on stderr and never fails or blocks the run. It lives in the
+state directory, which `init` keeps out of version control, as it does
+`evidence.sqlite`.
+
 ## The pack
 
 The phases ship as a `.claude/` pack — seven skills (the three entry verbs

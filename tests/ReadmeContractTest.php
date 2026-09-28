@@ -10,6 +10,7 @@ use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\PhaseGateMap;
 use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\Event\RunEvent;
 use Droost\Workflow\WorkItem\MarkdownWorkItemSource;
 use Droost\Workflow\WorkItem\WorkItemSources;
 
@@ -123,6 +124,45 @@ class ReadmeContractTest extends WorkflowTestCase {
     $this->assertSame('ready', $ticket->status);
     $this->assertSame('feature', $ticket->type);
     $this->assertSame(['created' => '2026-09-28'], $ticket->extra);
+  }
+
+  /**
+   * The README's sample event is an event this build reads, to the schema.
+   */
+  public function testTheReadmeSampleEventParses(): void {
+    $line = trim($this->extractBlock('"schema":"droost.run-event/1"'));
+    $event = RunEvent::fromArray(json_decode($line, TRUE));
+    $this->assertNotNull($event, 'the sample is a whole event');
+    $this->assertSame(RunEvent::SCHEMA, $event->schema);
+    $this->assertContains($event->type, RunEvent::TYPES);
+    $this->assertMatchesRegularExpression('/^evt-[0-9a-f]{16}$/', $event->eventId);
+
+    $schema = json_decode((string) file_get_contents(dirname(__DIR__) . '/schema/run-event.v1.json'), TRUE);
+    $this->assertIsArray($schema);
+    $this->assertIsArray($schema['$defs']);
+    $this->assertSame(RunEvent::TYPES, array_keys($schema['$defs']), 'the schema describes every type this build writes, and no other');
+    $definition = $schema['$defs'][$event->type];
+    $this->assertIsArray($definition);
+    $this->assertIsArray($definition['required']);
+    foreach ($definition['required'] as $key) {
+      $this->assertArrayHasKey($key, $event->payload);
+    }
+    foreach (RunEvent::TYPES as $type) {
+      $this->assertStringContainsString('`' . $type . '`', $this->readmeTable(), $type . ' is documented');
+    }
+  }
+
+  /**
+   * The README's run-event table.
+   *
+   * @return string
+   *   The table's text.
+   */
+  private function readmeTable(): string {
+    $readme = (string) file_get_contents(dirname(__DIR__) . '/README.md');
+    $table = strstr($readme, '| Type | When | Payload |');
+    $this->assertIsString($table, 'the README carries the run-event table');
+    return substr($table, 0, (int) strpos($table, "\n\n"));
   }
 
   /**

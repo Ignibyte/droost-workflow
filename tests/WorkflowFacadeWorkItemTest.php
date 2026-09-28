@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Droost\Workflow\Tests;
 
 use Droost\Workflow\Config\GateSettings;
+use Droost\Workflow\Event\RunEventLog;
 use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
@@ -52,6 +53,12 @@ final class WorkflowFacadeWorkItemTest extends WorkflowTestCase {
     $this->assertIsArray($document);
     $this->assertIsArray($document['work_item'] ?? NULL);
     $this->assertSame('TICKET-169', $document['work_item']['id'] ?? NULL);
+
+    // Every event the run writes names its ticket (TICKET-187's work_item_id).
+    $events = iterator_to_array((new RunEventLog((new RunStateStore($root))->directory()))->read(), FALSE);
+    $this->assertNotSame([], $events);
+    $this->assertSame('run.started', $events[0]->type);
+    $this->assertSame(['TICKET-169'], array_values(array_unique(array_map(static fn ($event) => $event->workItemId, $events))));
 
     // The declaration a contributed `work_item_declared` check reads.
     $this->assertSame(['TICKET-169'], (new EvidenceStore($root))->declared($state->runId, 'work_item'));

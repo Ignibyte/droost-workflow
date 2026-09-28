@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Ignibyte/droost-workflow/blob/main/schema/run-event.v1.json",
+  "title": "droost run event, version 1",
+  "description": "One line of a project's run-event log (<state dir>/events.jsonl), written by the droost/workflow engine after each state change it persists. Additive only within version 1: a consumer ignores event types and keys it does not know, and renaming or removing one is droost.run-event/2. event_id is the dedup key (delivery is at least once); seq is a relay's cursor, never an identity.",
+  "type": "object",
+  "required": ["schema", "event_id", "seq", "run_id", "work_item_id", "at", "type", "payload"],
+  "properties": {
+    "schema": { "const": "droost.run-event/1" },
+    "event_id": { "type": "string", "pattern": "^evt-[0-9a-f]{16}$" },
+    "seq": { "type": "integer", "minimum": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "work_item_id": { "type": ["string", "null"] },
+    "at": { "type": "string", "format": "date-time" },
+    "type": { "type": "string" },
+    "payload": { "type": "object" }
+  },
+  "allOf": [
+    { "if": { "properties": { "type": { "const": "run.started" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/run.started" } } } },
+    { "if": { "properties": { "type": { "const": "phase.began" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/phase.began" } } } },
+    { "if": { "properties": { "type": { "const": "phase.attempted" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/phase.attempted" } } } },
+    { "if": { "properties": { "type": { "const": "phase.ended" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/phase.ended" } } } },
+    { "if": { "properties": { "type": { "const": "question.asked" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/question.asked" } } } },
+    { "if": { "properties": { "type": { "const": "question.answered" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/question.answered" } } } },
+    { "if": { "properties": { "type": { "const": "run.completed" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/run.completed" } } } },
+    { "if": { "properties": { "type": { "const": "run.reset" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/run.reset" } } } }
+  ],
+  "$defs": {
+    "run.started": {
+      "description": "A run began: its frozen levers.",
+      "type": "object",
+      "required": ["preset", "mode", "enforcement", "phases", "spec", "base_commit"],
+      "properties": {
+        "preset": { "type": "string" },
+        "mode": { "type": "string" },
+        "enforcement": { "type": "string" },
+        "phases": { "type": "array", "items": { "type": "string" } },
+        "spec": { "type": ["string", "null"] },
+        "base_commit": { "type": ["string", "null"] }
+      }
+    },
+    "phase.began": {
+      "description": "A phase became the run's current one.",
+      "type": "object",
+      "required": ["phase"],
+      "properties": { "phase": { "type": "string" } }
+    },
+    "phase.attempted": {
+      "description": "A phase's gates ran, pass or fail: a failed gate never ends a phase, so this is the only event that shows one. report is PhaseReport::toArray(): phase, advance, tally and every gate's result.",
+      "type": "object",
+      "required": ["phase", "attempt", "report"],
+      "properties": {
+        "phase": { "type": "string" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "report": { "type": ["object", "null"] }
+      }
+    },
+    "phase.ended": {
+      "description": "The run left a phase, advancing or completing.",
+      "type": "object",
+      "required": ["phase"],
+      "properties": { "phase": { "type": "string" } }
+    },
+    "question.asked": {
+      "description": "The run paused on a question. question is PendingQuestion::toArray(); question_id is what question.answered names.",
+      "type": "object",
+      "required": ["question_id", "question"],
+      "properties": {
+        "question_id": { "type": "string" },
+        "question": { "type": "object" }
+      }
+    },
+    "question.answered": {
+      "description": "A paused run was answered, as the engine records the answer in run.json.",
+      "type": "object",
+      "required": ["question_id", "answer"],
+      "properties": {
+        "question_id": { "type": "string" },
+        "answer": { "type": "string" }
+      }
+    },
+    "run.completed": {
+      "description": "The run's last phase ended. outcome is RunOutcome::toArray().",
+      "type": "object",
+      "required": ["outcome"],
+      "properties": { "outcome": { "type": "object" } }
+    },
+    "run.reset": {
+      "description": "The run's record was archived to history/; the log itself is kept.",
+      "type": "object",
+      "required": ["archived_run_id"],
+      "properties": { "archived_run_id": { "type": "string" } }
+    }
+  }
+}

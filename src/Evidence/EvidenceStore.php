@@ -1576,6 +1576,28 @@ final class EvidenceStore {
   }
 
   /**
+   * How many times a phase's checks have been run for a run.
+   *
+   * Each run of a phase records its checks under the next attempt number, so
+   * the highest one is the count, and the attempt just made.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $phase
+   *   The phase.
+   *
+   * @return int
+   *   The attempt, from 1; 1 when the phase recorded no check.
+   */
+  public function phaseAttempt(string $runId, string $phase): int {
+    $statement = $this->connection()->prepare('SELECT MAX(attempt) FROM check_result WHERE run_id = ? AND phase = ?');
+    $statement->execute([$runId, $phase]);
+    $max = $statement->fetchColumn();
+
+    return max(1, is_numeric($max) ? (int) $max : 0);
+  }
+
+  /**
    * How many times a non-gate block has been recorded for a phase.
    *
    * A gate failure spends a retry from `max_gate_retries` and the phase ends

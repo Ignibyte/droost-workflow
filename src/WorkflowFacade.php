@@ -19,6 +19,7 @@ use Droost\Workflow\Config\PhaseGateMap;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Event\NullWorkflowListener;
+use Droost\Workflow\Event\RunEventLog;
 use Droost\Workflow\Event\WorkflowListenerInterface;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Evidence\CheckAdjudicatorInterface;
@@ -37,6 +38,7 @@ use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\ShellGateExecutor;
 use Droost\Workflow\Gate\SiteDriverInterface;
 use Droost\Workflow\Mode\ModeEngine;
+use Droost\Workflow\Mode\PendingQuestion;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\QuestionSinkInterface;
 use Droost\Workflow\Mode\RunOutcome;
@@ -662,10 +664,19 @@ final class WorkflowFacade {
       if ($item !== NULL) {
         $state = $this->bindTicket($projectRoot, $store, $state, $item);
       }
+      $this->event($store, $state, 'run.started', [
+        'preset' => $state->preset,
+        'mode' => $state->mode->value,
+        'enforcement' => $state->enforcement->value,
+        'phases' => array_keys($state->phases),
+        'spec' => $state->specPath,
+        'base_commit' => $state->baseCommit,
+      ]);
       $this->notify(fn () => $this->listener->onRunStart($state));
       // The run's first phase is now active: the first cycle step begins.
       if ($state->currentPhase !== NULL) {
         $begin = $state->currentPhase;
+        $this->event($store, $state, 'phase.began', ['phase' => $begin->value]);
         $this->notify(fn () => $this->listener->onPhaseBegin($state, $begin));
       }
     }
@@ -854,7 +865,15 @@ final class WorkflowFacade {
       $this->freezeSpec($projectRoot, $specPath, $advanced->state->runId, $this->now());
     }
     $store->save($advanced->state);
-    $this->announceAdvanceOrComplete($phase, $advanced->state);
+    // Every attempt, pass or fail: a failed gate never ends a phase, so this
+    // is the only event that shows one.
+    $this->event($store, $advanced->state, 'phase.attempted', [
+      'phase' => $phase->value,
+      'attempt' => (new EvidenceStore($projectRoot))->phaseAttempt($advanced->state->runId, $phase->value),
+      'report' => $advanced->report?->toArray(),
+    ]);
+    $this->questionAsked($store, $state, $advanced->state, $advanced->question);
+    $this->announceAdvanceOrComplete($phase, $advanced->state, $store);
     if ($advanced->state->currentPhase === NULL) {
       $advanced = new RunOutcome(
         $advanced->outcome,
@@ -863,6 +882,7 @@ final class WorkflowFacade {
         $advanced->question,
         $advanced->blocked,
       );
+      $this->event($store, $advanced->state, 'run.completed', ['outcome' => $advanced->toArray()]);
     }
 
     return $advanced;
@@ -924,6 +944,10 @@ final class WorkflowFacade {
     $store = new RunStateStore($projectRoot);
     $state = $this->requireRun($store);
     $answered = $this->engine()->answer($state, $answer, $this->now(), $projectRoot);
+    $answeredEvent = [
+      'question_id' => self::questionId($state, $state->awaiting ?? []),
+      'answer' => $answer,
+    ];
     // A "stop here" to the stuck question FAILED the phase in the engine. That
     // is a human's decision about the run and it is returned as one, before
     // the held-check path below can mistake its own `stopped_by_operator` row
@@ -931,6 +955,7 @@ final class WorkflowFacade {
     $stoppedAt = $answered->currentPhase;
     if ($stoppedAt !== NULL && $answered->statusOf($stoppedAt) === PhaseStatus::Failed) {
       $store->save($answered);
+      $this->event($store, $answered, 'question.answered', $answeredEvent);
 
       return new RunOutcome(Outcome::Failed, $answered);
     }
@@ -1000,6 +1025,8 @@ final class WorkflowFacade {
         // with what holds it — the same envelope `run()` returns for the same
         // condition.
         $store->save($answered);
+        $this->event($store, $answered, 'question.answered', $answeredEvent);
+        $this->questionAsked($store, $state, $answered, NULL);
 
         return new RunOutcome(
           Outcome::Blocked,
@@ -1018,17 +1045,23 @@ final class WorkflowFacade {
       }
     }
     $store->save($answered);
+    $this->event($store, $answered, 'question.answered', $answeredEvent);
+    $this->questionAsked($store, $state, $answered, NULL);
     if ($phase !== NULL) {
-      $this->announceAdvanceOrComplete($phase, $answered);
+      $this->announceAdvanceOrComplete($phase, $answered, $store);
     }
     if ($answered->currentPhase === NULL) {
       $answered = $this->ticketToReview($projectRoot, $store, $answered);
     }
-
-    return new RunOutcome(
+    $outcome = new RunOutcome(
       $answered->currentPhase === NULL ? Outcome::Completed : Outcome::Advanced,
       $answered,
     );
+    if ($answered->currentPhase === NULL) {
+      $this->event($store, $answered, 'run.completed', ['outcome' => $outcome->toArray()]);
+    }
+
+    return $outcome;
   }
 
   /**
@@ -1129,6 +1162,11 @@ final class WorkflowFacade {
     foreach (glob($stateDir . '/.guard-warned-*') ?: [] as $marker) {
       @unlink($marker);
     }
+    // The log is NOT archived with the run: it spans runs, so a consumer that
+    // was offline still finds this run's tail.
+    $workItem = $state?->workItem['id'] ?? NULL;
+    (new RunEventLog($stateDir, NULL, fn (): string => $this->now()))
+      ->append($id, is_string($workItem) ? $workItem : NULL, 'run.reset', ['archived_run_id' => $id]);
     return $target;
   }
 
@@ -2819,10 +2857,14 @@ final class WorkflowFacade {
    *   The phase current before this step.
    * @param \Droost\Workflow\State\RunState $after
    *   The run after the step, already persisted.
+   * @param \Droost\Workflow\State\RunStateStore $store
+   *   The run's store, whose state directory holds the event log.
    */
-  private function announceAdvanceOrComplete(Phase $from, RunState $after): void {
+  private function announceAdvanceOrComplete(Phase $from, RunState $after, RunStateStore $store): void {
     if ($after->currentPhase === NULL) {
-      // The final phase ended; then the run completed.
+      // The final phase ended; then the run completed (its event is written
+      // by the caller, which holds the outcome).
+      $this->event($store, $after, 'phase.ended', ['phase' => $from->value]);
       $this->notify(fn () => $this->listener->onPhaseEnd($after, $from));
       $this->notify(fn () => $this->listener->onRunComplete($after));
       return;
@@ -2830,10 +2872,80 @@ final class WorkflowFacade {
     if ($after->currentPhase !== $from) {
       $to = $after->currentPhase;
       // The left phase ended, the run changed phase, the entered phase began.
+      $this->event($store, $after, 'phase.ended', ['phase' => $from->value]);
       $this->notify(fn () => $this->listener->onPhaseEnd($after, $from));
       $this->notify(fn () => $this->listener->onPhaseChange($after, $from, $to));
+      $this->event($store, $after, 'phase.began', ['phase' => $to->value]);
       $this->notify(fn () => $this->listener->onPhaseBegin($after, $to));
     }
+  }
+
+  /**
+   * Appends one event to the run-event log, after the state it records.
+   *
+   * The engine's record, not a listener's notification: written at every
+   * point the run's state is persisted, and a log that cannot be written is
+   * reported once and never stops the run.
+   *
+   * @param \Droost\Workflow\State\RunStateStore $store
+   *   The run's store, whose state directory holds the log.
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run, as just saved.
+   * @param string $type
+   *   One of RunEvent::TYPES.
+   * @param array<string, mixed> $payload
+   *   What the type carries.
+   */
+  private function event(RunStateStore $store, RunState $state, string $type, array $payload): void {
+    $workItem = $state->workItem['id'] ?? NULL;
+    (new RunEventLog($store->directory(), NULL, fn (): string => $this->now()))
+      ->append($state->runId, is_string($workItem) ? $workItem : NULL, $type, $payload);
+  }
+
+  /**
+   * Writes `question.asked` when a save leaves a question newly awaiting.
+   *
+   * @param \Droost\Workflow\State\RunStateStore $store
+   *   The run's store.
+   * @param \Droost\Workflow\State\RunState $before
+   *   The run before the step.
+   * @param \Droost\Workflow\State\RunState $after
+   *   The run as just saved.
+   * @param \Droost\Workflow\Mode\PendingQuestion|null $question
+   *   The question the step asked, when the step says.
+   */
+  private function questionAsked(RunStateStore $store, RunState $before, RunState $after, ?PendingQuestion $question): void {
+    if ($after->awaiting === NULL) {
+      return;
+    }
+    $id = self::questionId($after, $after->awaiting);
+    if ($before->awaiting !== NULL && self::questionId($before, $before->awaiting) === $id) {
+      return;
+    }
+    $this->event($store, $after, 'question.asked', [
+      'question_id' => $id,
+      'question' => $question?->toArray() ?? $after->awaiting,
+    ]);
+  }
+
+  /**
+   * A question's identity: its run, its phase and when it was asked.
+   *
+   * What `question.answered` names, so a consumer pairs an answer with the
+   * question it answers.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param array<array-key, mixed> $awaiting
+   *   The pending question as the run records it.
+   *
+   * @return string
+   *   The id.
+   */
+  private static function questionId(RunState $state, array $awaiting): string {
+    $phase = $awaiting['phase'] ?? NULL;
+    $asked = $awaiting['asked_at'] ?? NULL;
+    return sprintf('%s:%s:%s', $state->runId, is_string($phase) ? $phase : '', is_string($asked) ? $asked : '');
   }
 
   /**

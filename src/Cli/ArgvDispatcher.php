@@ -12,6 +12,7 @@ use Droost\Workflow\Config\EffortSwitch;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Evidence\EvidenceError;
+use Droost\Workflow\Event\RunEventLog;
 use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Gate\ShellGateExecutor;
 use Droost\Workflow\Mode\Outcome;
@@ -19,6 +20,7 @@ use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Pack\PackError;
 use Droost\Workflow\Seeker\SeekerError;
 use Droost\Workflow\State\RunState;
+use Droost\Workflow\State\RunStateStore;
 use Droost\Workflow\Spec\SpecError;
 use Droost\Workflow\State\StateError;
 use Droost\Workflow\Support\DataError;
@@ -199,6 +201,7 @@ final class ArgvDispatcher {
         'effort' => $this->effort($projectRoot, $argv),
         'evidence' => $this->evidence($projectRoot, $argv),
         'ticket' => $this->ticket($projectRoot, $argv),
+        'events' => $this->events($projectRoot, $argv),
         default => $this->unknown($verb),
       };
     }
@@ -1167,6 +1170,39 @@ final class ArgvDispatcher {
   }
 
   /**
+   * Prints the run-event log, one event per line, as the log holds them.
+   *
+   * Raw lines, not re-encoded: each already is the JSON the schema
+   * describes. Anyone's to read; a relay passes the last `seq` it saw as
+   * `--after` and gets only what came since.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The verb, then `--after=<seq>` optionally.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function events(string $projectRoot, array $argv): int {
+    $after = 0;
+    foreach (array_slice($argv, 1) as $arg) {
+      if (str_starts_with($arg, '--after=')) {
+        $value = substr($arg, 8);
+        if (!ctype_digit($value)) {
+          $this->fail('--after needs a sequence number: `events --after=12`.');
+          return self::EXIT_USAGE;
+        }
+        $after = (int) $value;
+      }
+    }
+    foreach ((new RunEventLog((new RunStateStore($projectRoot))->directory()))->lines($after) as $line) {
+      $this->say($line);
+    }
+    return self::EXIT_OK;
+  }
+
+  /**
    * Lists, shows, files and moves this project's tickets.
    *
    * `list`, `show` and `new` are anyone's: an agent files a follow-up in
@@ -1391,6 +1427,12 @@ final class ArgvDispatcher {
                        longer describes the code reads EXPIRED.
       reset [--force]  clear a finished run (archives its record to
                        the state dir's history/); --force abandons a live one
+      events [--after=<seq>]
+                       the run-event log (the state dir's events.jsonl), one
+                       JSON event per line: every run start, phase begun,
+                       attempted and ended, question asked and answered, run
+                       completed and reset. --after prints only what came
+                       after that seq; `schema/run-event.v1.json` is the shape
       ticket           this project's tickets, with work_item.provider:
                        markdown: `ticket list [--status=<state>]`, `ticket
                        show <id>`, `ticket new --title="…" [--type=<type>]`
