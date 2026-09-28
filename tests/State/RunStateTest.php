@@ -647,6 +647,37 @@ class RunStateTest extends TestCase {
   }
 
   /**
+   * A run.json written before tickets existed is bound to none.
+   *
+   * And a bound one carries its ticket through the save and every rebuild:
+   * the binding is set once, at begin, and nothing after may drop it.
+   */
+  public function testWorkItemDefaultsToNoneAndSurvivesEveryRebuild(): void {
+    $state = RunState::begin('run-legacy', 't', WorkflowConfig::fromArray(
+      ['preset' => 'medium'],
+      'test',
+    ));
+    $raw = $state->toArray();
+    $this->assertArrayHasKey('work_item', $raw);
+    unset($raw['work_item']);
+    $this->assertNull(RunState::fromArray($this->viaJson($raw), 'run.json')->workItem);
+
+    $binding = [
+      'id' => 'TICKET-7',
+      'source' => 'markdown',
+      'number' => 7,
+      'title' => 'T',
+      'status' => 'in_progress',
+      'type' => 'bug',
+      'path' => 'droost/tickets/open/TICKET-7-t.md',
+    ];
+    $bound = $state->withWorkItem($binding);
+    $this->assertSame($binding, RunState::fromArray($this->viaJson($bound->toArray()), 'run.json')->workItem);
+    $this->assertSame($binding, $bound->withBrowser('none')->withTasks('none')->workItem);
+    $this->assertSame($binding, $bound->complete()->workItem, 'completion keeps the ticket the run answered');
+  }
+
+  /**
    * The exact save/load path RunStateStore uses: json out, then json in.
    *
    * Both calls throw rather than return false, so a value json cannot carry

@@ -374,7 +374,8 @@ it, `run.late_woven` names each gate and the phase it joined at.
 
 The optional `work_item:` block is the project config of a tracker bridge
 (droost_jira and its kin). The engine never consumes it — it stays
-framework-free and knows nothing of Jira — but it parses and validates the
+framework-free and knows nothing of Jira — except for the one provider it
+builds in, `markdown` (below, "Tickets (solo mode)"). It parses and validates the
 block so a typo surfaces in review rather than at the first write, and
 `workflow:status` echoes it. The shape is provider-agnostic on purpose: which
 tracker and cloud, which projects and issue types are workable, how branches
@@ -404,6 +405,53 @@ work_item:
 A writeback target that names a `fields` entry resolves to its id. What a
 ticket MUST carry, and what goes into each field, is the bridge's or the
 team's business, never this block's — every write it describes stays gated.
+
+### Tickets (solo mode)
+
+With droost and droost_workflow alone, tickets are markdown files in the repo,
+read through a `WorkItemSourceInterface`. `work_item.provider: markdown` turns it on;
+any other provider keeps the block's metadata-only meaning:
+
+```yaml
+work_item:
+  provider: markdown
+  markdown: { dir: droost/tickets, prefix: TICKET }   # both optional; these are the defaults
+```
+
+A ticket is `<dir>/open/<PREFIX>-<n>-<slug>.md`, or under `closed/` once it is
+`done`, with a YAML frontmatter holding at least `title`, `status` and
+`ticket_number`, and its sections after it:
+
+```markdown
+---
+title: TICKET-12-camp-news-by-recipe
+status: ready
+ticket_number: 12
+type: feature
+created: 2026-09-28
+---
+
+# TICKET-12-camp-news-by-recipe
+
+## Summary
+```
+
+The states are `backlog`, `ready`, `in_progress`, `review` and `done`, machine
+names so a Drupal Workflow can use the same ids. The legacy `open` and
+`closed` read as `ready` and `done`, and a write always uses the new names.
+Every other frontmatter key is kept, and a move rewrites the `status:` line and
+nothing else, through a temporary file and a rename that keep the file's mode;
+a symlinked ticket or directory is refused.
+
+- `run --ticket=<id>` binds a run as it begins: `status` shows `run.work_item`,
+  the `work_item` declaration is recorded as `declare-changes --work-item`
+  records one, and the ticket moves to `in_progress`. When the run completes
+  it moves to `review`, never to `done`, which is only ever a person's move. A
+  move the source refuses is recorded as a note and never fails the run.
+- `ticket list [--status=<state>]`, `ticket show <id>` and `ticket new
+  --title="…" [--type=<type>]` are anyone's; `new` files into `backlog`,
+  numbered one past the highest across `open/` and `closed/`.
+- `ticket move <id> <state>` is the operator's (see the table below).
 
 ### Unknown keys are errors
 
@@ -565,6 +613,7 @@ command it hands the operator is one they can actually run.
 | `droost:workflow:bypass`, `droost-workflow bypass` | `bypass --off`, which tightens |
 | `droost:workflow:effort <level>`, `droost-workflow effort <level>` | bare `effort` (reports) and `effort <level> --preview` (prices it) |
 | arming a write gate — `droost:gate allow_* on`, or the `config:set droost.settings allow_* true` form | disarming the same gate, which tightens |
+| `droost-workflow ticket move <id> <state>` | `ticket list`, `ticket show` and `ticket new` (a follow-up, filed in backlog) |
 
 The pattern is the same in each row: the reading and the tightening are the
 agent's, the loosening is not. An agent that needs one proposes it — the

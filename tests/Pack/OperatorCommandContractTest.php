@@ -67,6 +67,7 @@ final class OperatorCommandContractTest extends TestCase {
       'bypass' => 'bypass',
       'effort' => 'effort',
       'gate (arming a write gate)' => 'allow_',
+      'ticket move' => 'ticket move',
     ];
 
     foreach ($this->refusedByTheGuard() as $label) {
@@ -102,10 +103,11 @@ final class OperatorCommandContractTest extends TestCase {
     $this->assertContains('baseline', $refused);
     $this->assertContains('effort', $refused);
     $this->assertContains('gate (arming a write gate)', $refused);
+    $this->assertContains('ticket move', $refused);
     $this->assertCount(
-      5,
+      6,
       $refused,
-      'the README table has five rows; the guard must have five branches',
+      'the README table has six rows; the guard must have six branches',
     );
   }
 

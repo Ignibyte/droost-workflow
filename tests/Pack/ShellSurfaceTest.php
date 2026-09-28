@@ -1749,6 +1749,40 @@ final class ShellSurfaceTest extends WorkflowTestCase {
   }
 
   /**
+   * Moving a ticket is the operator's; reading and filing one are not.
+   *
+   * An agent files follow-ups into backlog and reads the queue. It never
+   * promotes its own work: the engine moves a bound ticket to in_progress
+   * and review, and every other move, done above all, is a person's.
+   */
+  public function testTicketMoveIsTheOperatorsAndTheRestIsNot(): void {
+    $root = $this->lab();
+    foreach ([
+      'vendor/bin/droost-workflow ticket move TICKET-12 done',
+      'droost-workflow ticket move 12 ready',
+      'drush droost:workflow:ticket move TICKET-12 review',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' is the operator\'s: ' . $stderr);
+      $this->assertStringContainsString('OPERATOR', $stderr, $command);
+    }
+    [, , $handover] = $this->shell($root, 'vendor/bin/droost-workflow ticket move TICKET-12 done');
+    $this->assertStringContainsString('`! droost-workflow ticket move …`', $handover, 'the hand-over names the binary that was used');
+
+    foreach ([
+      'vendor/bin/droost-workflow ticket list',
+      'vendor/bin/droost-workflow ticket list --status=ready',
+      'vendor/bin/droost-workflow ticket show TICKET-12',
+      'vendor/bin/droost-workflow ticket new --title="A follow-up" --type=bug',
+      'vendor/bin/droost-workflow run --ticket=TICKET-12',
+      'grep -rn "ticket move" docs',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' is anyone\'s: ' . $stderr);
+    }
+  }
+
+  /**
    * And the CLI spelling is what the refusal tells the operator to run.
    *
    * Naming the drush command to a project that has no Drupal is advice

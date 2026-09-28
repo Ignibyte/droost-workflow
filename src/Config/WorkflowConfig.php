@@ -115,7 +115,8 @@ final class WorkflowConfig {
    * @param \Droost\Workflow\Config\WorkItemSettings|null $workItem
    *   The optional work_item block: how a run's ticket is fetched and written
    *   back. NULL when the repo declares no integration — the common case. The
-   *   engine never consumes it, so its absence changes nothing here.
+   *   engine consumes it only for `provider: markdown` (tickets as files), so
+   *   its absence changes nothing here.
    * @param bool $baseline
    *   Whether a committed adoption baseline (`droost/baseline/`) is honoured:
    *   gates fail only on findings the baseline does not record. On by default

@@ -23,6 +23,10 @@ use Droost\Workflow\Spec\SpecError;
 use Droost\Workflow\State\StateError;
 use Droost\Workflow\Support\DataError;
 use Droost\Workflow\WorkflowFacade;
+use Droost\Workflow\WorkItem\WorkItem;
+use Droost\Workflow\WorkItem\WorkItemError;
+use Droost\Workflow\WorkItem\WorkItemSourceInterface;
+use Droost\Workflow\WorkItem\WorkItemSources;
 
 /**
  * The standalone surface: a handful of verbs, no Drupal, no booted site.
@@ -194,6 +198,7 @@ final class ArgvDispatcher {
         'gate-waive' => $this->gateWaive($projectRoot, $argv),
         'effort' => $this->effort($projectRoot, $argv),
         'evidence' => $this->evidence($projectRoot, $argv),
+        'ticket' => $this->ticket($projectRoot, $argv),
         default => $this->unknown($verb),
       };
     }
@@ -210,7 +215,7 @@ final class ArgvDispatcher {
     // silence.
     catch (
       ConfigError | StateError | PackError | SeekerError | BaselineError
-      | SpecError | EvidenceError | DataError $e
+      | SpecError | EvidenceError | DataError | WorkItemError $e
     ) {
       $this->fail($e->getMessage());
       return self::EXIT_USAGE;
@@ -472,18 +477,33 @@ final class ArgvDispatcher {
    *   The repository.
    * @param list<string> $argv
    *   The arguments; `--spec=<path>` or `--spec <path>` declares the governing
-   *   spec at begin.
+   *   spec at begin, and `--ticket=<id>` or `--ticket <id>` binds the run to a
+   *   ticket.
    *
    * @return int
    *   The exit code.
    */
   private function run(string $projectRoot, array $argv): int {
     $spec = NULL;
+    $ticket = NULL;
     $count = count($argv);
     for ($i = 0; $i < $count; $i++) {
       $arg = $argv[$i];
       if (str_starts_with($arg, '--spec=')) {
         $spec = substr($arg, 7);
+        continue;
+      }
+      if (str_starts_with($arg, '--ticket=')) {
+        $ticket = substr($arg, 9);
+        continue;
+      }
+      if ($arg === '--ticket') {
+        if ($i + 1 >= $count || str_starts_with($argv[$i + 1], '-')) {
+          $this->fail('--ticket needs an id: `--ticket=<id>`, or `--ticket <id>`.');
+
+          return self::EXIT_USAGE;
+        }
+        $ticket = $argv[++$i];
         continue;
       }
       // The SPACE form too. It was dropped in silence, and the failure that
@@ -500,7 +520,7 @@ final class ArgvDispatcher {
         $spec = $argv[++$i];
       }
     }
-    $outcome = $this->facade($projectRoot)->run($projectRoot, $spec);
+    $outcome = $this->facade($projectRoot)->run($projectRoot, $spec, $ticket);
     $this->say($this->encode($outcome->toArray()));
 
     // A paused run has not failed; it is waiting. Only a genuine failure
@@ -1147,6 +1167,105 @@ final class ArgvDispatcher {
   }
 
   /**
+   * Lists, shows, files and moves this project's tickets.
+   *
+   * `list`, `show` and `new` are anyone's: an agent files a follow-up in
+   * backlog. `move` is the operator's, like `bypass`, because promoting work
+   * is a person's call; the engine itself moves a bound ticket only to
+   * in_progress and review.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The verb, then one of `list [--status=<s>]`, `show <id>`, `new
+   *   --title=<t> [--type=<type>]` or `move <id> <state>`.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function ticket(string $projectRoot, array $argv): int {
+    $sub = $argv[1] ?? '';
+    $positional = [];
+    $options = [];
+    foreach (array_slice($argv, 2) as $arg) {
+      if (preg_match('/^--([a-z-]+)=(.*)$/s', $arg, $m) === 1) {
+        $options[$m[1]] = $m[2];
+      }
+      elseif (!str_starts_with($arg, '--')) {
+        $positional[] = $arg;
+      }
+    }
+    if (!in_array($sub, ['list', 'show', 'new', 'move'], TRUE)) {
+      $this->fail('ticket needs one of: list [--status=<state>], show <id>, new --title="…" [--type=<type>], move <id> <state>.');
+      return self::EXIT_USAGE;
+    }
+    $source = $this->workItemSource($projectRoot);
+    if ($source === NULL) {
+      throw WorkItemError::noSource();
+    }
+
+    switch ($sub) {
+      case 'list':
+        $items = $source->list(isset($options['status']) && $options['status'] !== '' ? $options['status'] : NULL);
+        $this->say($this->encode(['tickets' => array_map(static fn (WorkItem $item): array => $item->binding(), $items)]));
+        return self::EXIT_OK;
+
+      case 'show':
+        if (!isset($positional[0])) {
+          $this->fail('ticket show needs an id: `ticket show TICKET-12`.');
+          return self::EXIT_USAGE;
+        }
+        $item = $source->get($positional[0]);
+        if ($item === NULL) {
+          throw WorkItemError::notFound($positional[0], 'this project\'s work-item source');
+        }
+        $this->say($this->encode($item->toArray()));
+        return self::EXIT_OK;
+
+      case 'new':
+        $item = $source->create($options['title'] ?? '', $options['type'] ?? 'feature');
+        $this->say($this->encode($item->binding()));
+        return self::EXIT_OK;
+
+      default:
+        if (count($positional) < 2) {
+          $this->fail('ticket move needs an id and a state: `ticket move TICKET-12 done`.');
+          return self::EXIT_USAGE;
+        }
+        if (!$this->operatorTerminal()) {
+          $this->fail($this->noTerminalRefusal('ticket move'));
+          return self::EXIT_USAGE;
+        }
+        $item = $source->transition($positional[0], $positional[1], 'moved by the operator');
+        $this->say($this->encode($item->binding()));
+        return self::EXIT_OK;
+    }
+  }
+
+  /**
+   * The project's built-in work-item source, or NULL when it has none.
+   *
+   * A lever file that cannot be read has no source here: the verb that needs
+   * the levers says what is wrong with them, and every other verb carries on.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return \Droost\Workflow\WorkItem\WorkItemSourceInterface|null
+   *   The source.
+   */
+  private function workItemSource(string $projectRoot): ?WorkItemSourceInterface {
+    try {
+      $settings = WorkflowConfig::load($projectRoot)->workItem;
+    }
+    catch (ConfigError) {
+      return NULL;
+    }
+
+    return WorkItemSources::fromSettings($settings, $projectRoot);
+  }
+
+  /**
    * Whether a person is typing this into a terminal.
    *
    * The same second line of defence the drush surface has, in the same words,
@@ -1215,7 +1334,9 @@ final class ArgvDispatcher {
                        them so you can remove them deliberately
       status           what this repo resolves to, and where a run has got to
       run              start a run, or advance it by one phase
-                   (--spec=<path> declares which spec governs the run)
+                   (--spec=<path> declares which spec governs the run;
+                   --ticket=<id> binds it to a ticket, which moves to
+                   in_progress, and to review when the run completes)
       answer <text>    answer a paused run's question (the run then advances)
       swap agentic     stop holding at phases and finish without stopping
       seeker-report    record an adversarial inspection (ledger on stdin)
@@ -1270,10 +1391,17 @@ final class ArgvDispatcher {
                        longer describes the code reads EXPIRED.
       reset [--force]  clear a finished run (archives its record to
                        the state dir's history/); --force abandons a live one
+      ticket           this project's tickets, with work_item.provider:
+                       markdown: `ticket list [--status=<state>]`, `ticket
+                       show <id>`, `ticket new --title="…" [--type=<type>]`
+                       (filed in backlog). States: backlog, ready,
+                       in_progress, review, done. `ticket move <id> <state>`
+                       is the operator's (below)
 
-    The OPERATOR's three. Each one loosens what a run is held to, so each
-    refuses to run without an interactive terminal, and the pack's guard hook
-    refuses them from the agent's shell. Reading is nobody's privilege: a bare
+    The OPERATOR's commands. Each one loosens what a run is held to, or
+    decides what only a person decides, so each refuses to run without an
+    interactive terminal, and the pack's guard hook refuses them from the
+    agent's shell. Reading is nobody's privilege: a bare
     `effort`, and `effort <level> --preview`, write nothing and are for the
     agent to run when it wants to ground a level it means to propose.
 
@@ -1286,6 +1414,10 @@ final class ArgvDispatcher {
       effort [<level>] report the level, or write it: low | medium | high |
                        xhigh | max | custom. --preview prices the move without
                        writing. A run in progress keeps the level it froze at
+      ticket move <id> <state>
+                       move a ticket to another state; `done` only ever by a
+                       person. The engine moves a bound ticket to in_progress
+                       and review, never further
       baseline         write the adoption baseline (droost/baseline/): the
                        debt the tree carries today, inherited from then on.
                        --measure shows the bill without writing; --status
@@ -1348,6 +1480,7 @@ final class ArgvDispatcher {
       $catalog['gates'],
       $catalog['source'],
       new UnreachableChecks($hasSite),
+      $this->workItemSource($projectRoot),
     );
   }
 

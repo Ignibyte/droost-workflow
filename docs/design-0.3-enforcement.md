@@ -43,6 +43,10 @@ not advised).
    `bug-fixer`, `spec-writer`.
 7. **No ticket-system coupling** (unchanged non-goal). Jira or anything like
    it would be its own package (`droost-jira`), never baked in here.
+   *Revised 2026-09-28 (TICKET-186):* the engine now reads tickets through a
+   `WorkItemSourceInterface`, and ships one, markdown files in the repo, for solo
+   mode. A tracker vendor is still never baked in: the md source is files,
+   and the cockpit's source is a generic HTTP contract.
 
 ## The two spec weights
 

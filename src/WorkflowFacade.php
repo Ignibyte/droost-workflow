@@ -51,6 +51,9 @@ use Droost\Workflow\Pack\RemoveReport;
 use Droost\Workflow\State\PhaseStatus;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
+use Droost\Workflow\WorkItem\WorkItem;
+use Droost\Workflow\WorkItem\WorkItemError;
+use Droost\Workflow\WorkItem\WorkItemSourceInterface;
 
 /**
  * The one place a workflow run is orchestrated.
@@ -117,6 +120,10 @@ final class WorkflowFacade {
    * @param \Droost\Workflow\Evidence\CheckAdjudicatorInterface|null $checks
    *   The contributed checks this surface can ask, or NULL when it has
    *   none. Asked once per phase, after the gates and before advancing.
+   * @param \Droost\Workflow\WorkItem\WorkItemSourceInterface|null $workItems
+   *   Where this project's tickets come from (`work_item.provider:
+   *   markdown`), or NULL when it has no built-in source: a run then binds
+   *   no ticket, as before tickets existed.
    */
   public function __construct(
     private readonly GateExecutorInterface $executor,
@@ -129,6 +136,7 @@ final class WorkflowFacade {
     private readonly ?array $contributed = NULL,
     private readonly ?string $contributedSource = NULL,
     private readonly ?CheckAdjudicatorInterface $checks = NULL,
+    private readonly ?WorkItemSourceInterface $workItems = NULL,
   ) {
     $this->listener = $listener ?? new NullWorkflowListener();
     $this->vcs = $vcs ?? new CliVcs(CliProcess::run(...));
@@ -295,6 +303,8 @@ final class WorkflowFacade {
       // of them a later, seeing surface had to weave in (R31-F3/F5).
       'contributed_source' => $state->contributedSource,
       'late_woven' => $state->lateWoven,
+      // The ticket this run answers (`run --ticket`), NULL when none.
+      'work_item' => $state->workItem,
       'phases' => array_map(
         static fn ($s): string => $s->value,
         $state->phases,
@@ -600,13 +610,37 @@ final class WorkflowFacade {
    *   Resolved against the record: a declaration that contradicts the
    *   recorded spec refuses rather than silently swapping the run's
    *   criteria.
+   * @param string|null $ticket
+   *   The ticket this run answers (--ticket), bound when the run begins.
+   *   Naming the ticket a run is already bound to is a no-op; naming any
+   *   other, or binding a run that began with none, is refused.
    *
    * @return \Droost\Workflow\Mode\RunOutcome
    *   What happened. The state is persisted before this returns.
+   *
+   * @throws \Droost\Workflow\WorkItem\WorkItemError
+   *   When a ticket is named and no source is configured, the source has no
+   *   such ticket, or the run already answers another.
    */
-  public function run(string $projectRoot, ?string $spec = NULL): RunOutcome {
+  public function run(string $projectRoot, ?string $spec = NULL, ?string $ticket = NULL): RunOutcome {
     $store = new RunStateStore($projectRoot);
     $state = $store->load();
+    $ticket = $ticket === NULL || trim($ticket) === '' ? NULL : trim($ticket);
+    $item = NULL;
+    if ($ticket !== NULL) {
+      if ($this->workItems === NULL) {
+        throw WorkItemError::noSource();
+      }
+      $item = $this->workItems->get($ticket);
+      if ($item === NULL) {
+        throw WorkItemError::notFound($ticket, 'this project\'s work-item source');
+      }
+      // One run, one ticket, bound when the run begins.
+      if ($state !== NULL && ($state->workItem['id'] ?? NULL) !== $item->id) {
+        $bound = $state->workItem['id'] ?? NULL;
+        throw WorkItemError::alreadyStarted($item->id, is_string($bound) ? $bound : NULL, $state->runId);
+      }
+    }
 
     if ($state === NULL) {
       $config = WorkflowConfig::load($projectRoot, $this->contributed);
@@ -621,7 +655,13 @@ final class WorkflowFacade {
         $config->baseline ? BaselineStore::hash($projectRoot) : NULL,
         $this->contributedSource(),
       );
+      if ($item !== NULL) {
+        $state = $state->withWorkItem($item->binding());
+      }
       $store->save($state);
+      if ($item !== NULL) {
+        $state = $this->bindTicket($projectRoot, $store, $state, $item);
+      }
       $this->notify(fn () => $this->listener->onRunStart($state));
       // The run's first phase is now active: the first cycle step begins.
       if ($state->currentPhase !== NULL) {
@@ -815,6 +855,15 @@ final class WorkflowFacade {
     }
     $store->save($advanced->state);
     $this->announceAdvanceOrComplete($phase, $advanced->state);
+    if ($advanced->state->currentPhase === NULL) {
+      $advanced = new RunOutcome(
+        $advanced->outcome,
+        $this->ticketToReview($projectRoot, $store, $advanced->state),
+        $advanced->report,
+        $advanced->question,
+        $advanced->blocked,
+      );
+    }
 
     return $advanced;
   }
@@ -971,6 +1020,9 @@ final class WorkflowFacade {
     $store->save($answered);
     if ($phase !== NULL) {
       $this->announceAdvanceOrComplete($phase, $answered);
+    }
+    if ($answered->currentPhase === NULL) {
+      $answered = $this->ticketToReview($projectRoot, $store, $answered);
     }
 
     return new RunOutcome(
@@ -1453,13 +1505,7 @@ final class WorkflowFacade {
       $kinds['work_item'] = [trim($workItem)];
     }
     foreach ($kinds as $kind => $values) {
-      if ($values === []) {
-        continue;
-      }
-      $revision = $store->supersedeDeclarations($state->runId, $kind, $now);
-      foreach ($values as $value) {
-        $store->declare($state->runId, $phase, $kind, $value, $now, $revision);
-      }
+      self::recordDeclaration($store, $state->runId, $phase, $kind, $values, $now);
     }
 
     return [
@@ -1468,6 +1514,130 @@ final class WorkflowFacade {
       'type' => $workType?->value,
       'work_item' => $workItem !== NULL && trim($workItem) !== '' ? trim($workItem) : NULL,
     ];
+  }
+
+  /**
+   * Records one kind of declaration, replacing that kind's earlier list.
+   *
+   * The one write `declare-changes` makes per kind, and the one binding a
+   * ticket at `run --ticket` makes for `work_item`, so the contributed
+   * `work_item_declared` check reads a bound ticket exactly as it reads a
+   * declared one.
+   *
+   * @param \Droost\Workflow\Evidence\EvidenceStore $store
+   *   The evidence store.
+   * @param string $runId
+   *   The run.
+   * @param string $phase
+   *   The phase declaring it.
+   * @param string $kind
+   *   One of `file`, `test` or `work_item`.
+   * @param list<string> $values
+   *   What is declared; nothing is written when empty.
+   * @param string $now
+   *   The timestamp.
+   */
+  private static function recordDeclaration(EvidenceStore $store, string $runId, string $phase, string $kind, array $values, string $now): void {
+    if ($values === []) {
+      return;
+    }
+    $revision = $store->supersedeDeclarations($runId, $kind, $now);
+    foreach ($values as $value) {
+      $store->declare($runId, $phase, $kind, $value, $now, $revision);
+    }
+  }
+
+  /**
+   * Binds a just-begun run to its ticket: declared, and moved to in_progress.
+   *
+   * The run is already saved with the ticket recorded. A move the source
+   * refuses is recorded as a note and never stops the run: the binding is
+   * the record, the ticket's state a courtesy to whoever watches the queue.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param \Droost\Workflow\State\RunStateStore $store
+   *   The run's store.
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run, saved, bound.
+   * @param \Droost\Workflow\WorkItem\WorkItem $item
+   *   The ticket.
+   *
+   * @return \Droost\Workflow\State\RunState
+   *   The run, its binding brought up to the ticket's new state.
+   */
+  private function bindTicket(string $projectRoot, RunStateStore $store, RunState $state, WorkItem $item): RunState {
+    $evidence = new EvidenceStore($projectRoot);
+    $phase = $state->currentPhase === NULL ? 'plan' : $state->currentPhase->value;
+    self::recordDeclaration($evidence, $state->runId, $phase, 'work_item', [$item->id], $this->now());
+
+    return $this->moveTicket($projectRoot, $store, $state, 'in_progress', sprintf('run %s started', $state->runId));
+  }
+
+  /**
+   * Moves a completed run's ticket to review, never to done.
+   *
+   * `done` is a human's move: the engine says the work is ready to be looked
+   * at, and only that.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param \Droost\Workflow\State\RunStateStore $store
+   *   The run's store.
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run, completed and saved.
+   *
+   * @return \Droost\Workflow\State\RunState
+   *   The run, its binding brought up to date when it has one.
+   */
+  private function ticketToReview(string $projectRoot, RunStateStore $store, RunState $state): RunState {
+    if ($state->workItem === NULL) {
+      return $state;
+    }
+
+    return $this->moveTicket($projectRoot, $store, $state, 'review', sprintf('run %s completed', $state->runId));
+  }
+
+  /**
+   * Moves the run's ticket, recording a refusal rather than raising it.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param \Droost\Workflow\State\RunStateStore $store
+   *   The run's store.
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param string $to
+   *   Either `in_progress` or `review`.
+   * @param string $reason
+   *   Why, for the source.
+   *
+   * @return \Droost\Workflow\State\RunState
+   *   The run, saved again with the ticket's new state when it moved.
+   */
+  private function moveTicket(string $projectRoot, RunStateStore $store, RunState $state, string $to, string $reason): RunState {
+    $id = $state->workItem['id'] ?? NULL;
+    if (!is_string($id) || $this->workItems === NULL) {
+      return $state;
+    }
+    try {
+      $moved = $this->workItems->transition($id, $to, $reason);
+    }
+    catch (\Throwable $e) {
+      (new EvidenceStore($projectRoot))->declareNote(
+        $state->runId,
+        $state->currentPhase === NULL ? 'complete' : $state->currentPhase->value,
+        'work_item',
+        $id,
+        sprintf('the ticket could not be moved to %s: %s', $to, $e->getMessage()),
+        $this->now(),
+      );
+      return $state;
+    }
+    $state = $state->withWorkItem($moved->binding());
+    $store->save($state);
+
+    return $state;
   }
 
   /**

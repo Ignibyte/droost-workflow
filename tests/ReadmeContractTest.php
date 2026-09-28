@@ -10,6 +10,8 @@ use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\PhaseGateMap;
 use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\WorkItem\MarkdownWorkItemSource;
+use Droost\Workflow\WorkItem\WorkItemSources;
 
 /**
  * The README is served to people and to agents as authoritative.
@@ -100,6 +102,27 @@ class ReadmeContractTest extends WorkflowTestCase {
     $this->assertIsArray($decoded);
     $this->assertSame(1, $decoded['v'] ?? NULL, 'The documented schema '
       . 'version must match the one this build writes.');
+  }
+
+  /**
+   * The README's ticket samples: a lever file and a ticket the source reads.
+   */
+  public function testTheReadmeTicketSamplesParse(): void {
+    $root = $this->makeRootWithConfig("preset: custom\n" . $this->extractBlock('provider: markdown'));
+    $settings = WorkflowConfig::load($root)->workItem;
+    $this->assertNotNull($settings);
+    $this->assertSame('markdown', $settings->provider);
+    $this->assertSame(['dir' => MarkdownWorkItemSource::DEFAULT_DIR, 'prefix' => MarkdownWorkItemSource::DEFAULT_PREFIX], $settings->markdown, 'the sample documents the defaults');
+
+    mkdir($root . '/droost/tickets/open', 0755, TRUE);
+    file_put_contents($root . '/droost/tickets/open/TICKET-12-camp-news-by-recipe.md', $this->extractBlock('ticket_number:'));
+    $source = WorkItemSources::fromSettings($settings, $root);
+    $this->assertNotNull($source);
+    $ticket = $source->get('TICKET-12');
+    $this->assertNotNull($ticket);
+    $this->assertSame('ready', $ticket->status);
+    $this->assertSame('feature', $ticket->type);
+    $this->assertSame(['created' => '2026-09-28'], $ticket->extra);
   }
 
   /**

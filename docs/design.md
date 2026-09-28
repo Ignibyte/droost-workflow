@@ -58,6 +58,11 @@ phase" both hold, and each has a class you can point at:
 `plan → code → test → document → complete`  *(solutions/design folded into **plan**; no
 ticket/Jira phase)*
 
+*Revised 2026-09-28 (TICKET-186):* still no ticket phase, but a run can answer
+a ticket: `run --ticket=<id>` binds it at begin, the engine moves it to
+`in_progress` then and to `review` at completion, and `done` stays a person's
+move.
+
 | Phase | What the agent does | Droost |
 |---|---|---|
 | **plan** | Ground in the site, understand the request, produce the spec: the Drupal constructs to build (content types, fields, Views, Canvas pages, blocks), the approach, and **EARS acceptance criteria**. Absorbs *solutions + architect + design*. | `droost_capabilities` / `architecture` / `module_docs` / `entities` / `routes` — runtime truth before proposing |

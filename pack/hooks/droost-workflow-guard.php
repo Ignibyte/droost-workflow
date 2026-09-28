@@ -1017,6 +1017,14 @@ function operator_commands_guard(string $stdin): void {
       // preview is exactly how an agent should ground a level it proposes.
       $which = 'effort';
     }
+    elseif (preg_match('/(?:droost-workflow\s+|droost:workflow:)ticket\s+move\b/', $line) === 1) {
+      // Moving a ticket is a person's call: an agent files follow-ups
+      // (`ticket new`, into backlog) and reads the queue, and never promotes
+      // its own work. The engine moves a bound ticket to in_progress and
+      // review on its own; everything else, done above all, is the
+      // operator's.
+      $which = 'ticket move';
+    }
     elseif (operator_commands_arms_write_gate($tokens)
       || operator_commands_php_arms_write_gate($tokens)) {
       // ARMING a write gate is the operator's act too (round 25, R25-F2: the
@@ -3989,6 +3997,7 @@ function operator_verb_pattern(): string {
   return '/droost:workflow:(gate-waive|baseline|bypass|effort)\b'
     . '|(?<![\w-])(dwfgw|dwfbl|dwfby|dwfe)\b'
     . '|droost-workflow\s+(baseline|gate-waive|bypass|effort)\b'
+    . '|(?:droost-workflow\s+|droost:workflow:)ticket\s+move\b'
     . '|(?:droost:gate|(?<![\w-])dgate)\b/';
 }
 

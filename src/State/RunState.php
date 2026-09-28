@@ -169,6 +169,10 @@ final class RunState {
    *   reason none could be resolved. Frozen so a shorter set explains itself.
    * @param int $seekerRounds
    *   How many seeker inspections the code phase requires, frozen at start.
+   * @param array<string, mixed>|null $workItem
+   *   The ticket this run is bound to (`run --ticket`): its id, source,
+   *   number, title, status, type and path, as the work-item source reported
+   *   it, or NULL when the run answers no ticket.
    */
   public function __construct(
     public readonly string $runId,
@@ -207,6 +211,14 @@ final class RunState {
      * One is the default and the fast path.
      */
     public readonly int $seekerRounds = 1,
+    /**
+     * The ticket this run answers, or NULL.
+     *
+     * Bound when the run begins and never swapped: one run, one ticket.
+     * Absent on every run.json written before tickets existed, and NULL is
+     * what those runs were bound to.
+     */
+    public readonly ?array $workItem = NULL,
   ) {}
 
   /**
@@ -350,6 +362,7 @@ final class RunState {
       $late,
       $this->contributedSource,
       $this->seekerRounds,
+      $this->workItem,
     );
   }
 
@@ -602,6 +615,7 @@ final class RunState {
       $this->lateWoven,
       $this->contributedSource,
       $this->seekerRounds,
+      $this->workItem,
     );
   }
 
@@ -762,6 +776,7 @@ final class RunState {
       $this->lateWoven,
       $this->contributedSource,
       $this->seekerRounds,
+      $this->workItem,
     );
   }
 
@@ -806,6 +821,7 @@ final class RunState {
       $this->lateWoven,
       $this->contributedSource,
       $this->seekerRounds,
+      $this->workItem,
     );
   }
 
@@ -933,6 +949,7 @@ final class RunState {
       $this->lateWoven,
       $this->contributedSource,
       $this->seekerRounds,
+      $this->workItem,
     );
   }
 
@@ -1011,6 +1028,19 @@ final class RunState {
   }
 
   /**
+   * This run bound to a ticket, or with its binding brought up to date.
+   *
+   * @param array<string, mixed> $item
+   *   The ticket as WorkItem::binding() reports it.
+   *
+   * @return self
+   *   The run, with the ticket recorded.
+   */
+  public function withWorkItem(array $item): self {
+    return $this->with(workItem: $item);
+  }
+
+  /**
    * This run with a mid-run mode swap applied.
    *
    * @param \Droost\Workflow\Config\Mode $to
@@ -1065,6 +1095,7 @@ final class RunState {
       'baseline_hash' => $this->baselineHash,
       'late_woven' => $this->lateWoven,
       'contributed_source' => $this->contributedSource,
+      'work_item' => $this->workItem,
     ];
   }
 
@@ -1165,7 +1196,31 @@ final class RunState {
       // runs required one inspection, which is what the default says, so a
       // run mid-flight when the upgrade lands keeps its own semantics.
       max(1, $node->optionalInt('seeker_rounds', 1)),
+      // Absent on every run.json written before tickets existed: those runs
+      // answered none.
+      self::readWorkItem($node),
     );
+  }
+
+  /**
+   * Reads the ticket a run is bound to, or NULL when it is bound to none.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $node
+   *   The run node.
+   *
+   * @return array<string, mixed>|null
+   *   The binding, keyed as WorkItem::binding() writes it.
+   */
+  private static function readWorkItem(TypedArray $node): ?array {
+    $child = $node->optionalChild('work_item');
+    if ($child === NULL) {
+      return NULL;
+    }
+    $binding = [];
+    foreach ($child->toArray() as $key => $value) {
+      $binding[(string) $key] = $value;
+    }
+    return $binding;
   }
 
   /**
@@ -1282,6 +1337,7 @@ final class RunState {
       $this->lateWoven,
       $this->contributedSource,
       $this->seekerRounds,
+      $this->workItem,
     );
   }
 
@@ -1786,6 +1842,8 @@ final class RunState {
    *   Whether to CLEAR the current seeker verdict. NULL means "unchanged" for
    *   every other field here, which is what makes this necessary:
    *   `seeker: NULL` cannot clear the verdict, only fail to set it.
+   * @param array<string, mixed>|null $workItem
+   *   The ticket binding to record, or NULL to keep the run's own.
    *
    * @return self
    *   A new instance.
@@ -1804,6 +1862,7 @@ final class RunState {
     // fail to set it. Written out because a silent no-op is exactly what this
     // shape produces, and one shipped.
     bool $clearSeeker = FALSE,
+    ?array $workItem = NULL,
   ): self {
     return new self(
       $this->runId,
@@ -1834,6 +1893,7 @@ final class RunState {
       $this->lateWoven,
       $this->contributedSource,
       $this->seekerRounds,
+      $workItem ?? $this->workItem,
     );
   }
 

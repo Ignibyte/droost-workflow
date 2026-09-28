@@ -7,6 +7,8 @@ namespace Droost\Workflow\Tests;
 use Droost\Workflow\Config\ConfigError;
 use Droost\Workflow\Config\WorkItemSettings;
 use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\WorkItem\MarkdownWorkItemSource;
+use Droost\Workflow\WorkItem\WorkItemSources;
 
 /**
  * The optional work_item lever parses, validates, and stays absent when unset.
@@ -155,6 +157,35 @@ YAML;
     $this->expectException(ConfigError::class);
     $this->expectExceptionMessage('fields.notes.formats');
     WorkflowConfig::load($this->makeRootWithConfig($yaml));
+  }
+
+  /**
+   * The markdown provider's block: where solo mode's tickets live.
+   */
+  public function testMarkdownBlockParses(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nwork_item:\n  provider: markdown\n  markdown: { dir: docs/tickets, prefix: ITEM }\n");
+    $work = WorkflowConfig::load($root)->workItem;
+    $this->assertNotNull($work);
+    $this->assertSame('markdown', $work->provider);
+    $this->assertSame(['dir' => 'docs/tickets', 'prefix' => 'ITEM'], $work->markdown);
+    $this->assertSame(['dir' => 'docs/tickets', 'prefix' => 'ITEM'], $work->toArray()['markdown'], 'status echoes it');
+
+    $source = WorkItemSources::fromSettings($work, $root);
+    $this->assertInstanceOf(MarkdownWorkItemSource::class, $source);
+    $this->assertSame([], $source->list(), 'a directory not yet made holds no tickets');
+
+    // Named without the block, the defaults; another provider, no source.
+    $bare = WorkflowConfig::load($this->makeRootWithConfig("preset: custom\nwork_item:\n  provider: markdown\n"))->workItem;
+    $this->assertNotNull($bare);
+    $this->assertNull($bare->markdown);
+    $this->assertInstanceOf(MarkdownWorkItemSource::class, WorkItemSources::fromSettings($bare, $root));
+    $jira = WorkflowConfig::load($this->makeRootWithConfig("preset: custom\nwork_item:\n  provider: jira\n"))->workItem;
+    $this->assertNull(WorkItemSources::fromSettings($jira, $root));
+    $this->assertNull(WorkItemSources::fromSettings(NULL, $root));
+
+    $this->expectException(ConfigError::class);
+    $this->expectExceptionMessage('markdown.directory');
+    WorkflowConfig::load($this->makeRootWithConfig("preset: custom\nwork_item:\n  provider: markdown\n  markdown: { directory: x }\n"));
   }
 
   /**

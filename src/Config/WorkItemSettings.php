@@ -11,7 +11,10 @@ use Droost\Workflow\Support\TypedArray;
  *
  * Metadata for a work-item integration (droost_jira and its kin), not something
  * the engine itself consumes — the engine stays framework-free and knows
- * nothing of Jira. Parsed and validated here so a typo in the lever file
+ * nothing of Jira — with one exception: `provider: markdown`, solo mode's
+ * tickets as files in the repo, which the engine reads through
+ * MarkdownWorkItemSource (`markdown: {dir, prefix}` says where). Parsed and
+ * validated here so a typo in the lever file
  * surfaces in review rather than at the first write, and surfaced by
  * `workflow:status` so the wiring is legible in a reviewable diff.
  *
@@ -48,7 +51,13 @@ final class WorkItemSettings {
     'writeback',
     'status_map',
     'publish',
+    'markdown',
   ];
+
+  /**
+   * The keys the `markdown` child defines: where solo mode's tickets live.
+   */
+  private const MARKDOWN_OPTIONS = ['dir', 'prefix'];
 
   /**
    * The keys the `branch` child defines.
@@ -98,6 +107,10 @@ final class WorkItemSettings {
    *   Phase/outcome => tracker transition. Empty by default.
    * @param array<string, string> $publish
    *   Where the completed spec is published (target, space, parent, …).
+   * @param array{dir: string|null, prefix: string|null}|null $markdown
+   *   Where the `markdown` provider reads tickets: the directory and the id
+   *   prefix, each NULL for the source's default; NULL when the block names
+   *   none.
    */
   private function __construct(
     public readonly ?string $provider,
@@ -112,6 +125,7 @@ final class WorkItemSettings {
     public readonly array $writeback,
     public readonly array $statusMap,
     public readonly array $publish,
+    public readonly ?array $markdown = NULL,
   ) {}
 
   /**
@@ -178,6 +192,24 @@ final class WorkItemSettings {
       }
     }
 
+    $markdown = NULL;
+    $markdownNode = $node->optionalChild('markdown');
+    if ($markdownNode !== NULL) {
+      foreach ($markdownNode->keys() as $key) {
+        if (!in_array($key, self::MARKDOWN_OPTIONS, TRUE)) {
+          throw ConfigError::unknownWorkItemOption(
+            $source,
+            'markdown.' . $key,
+            array_map(static fn (string $k): string => 'markdown.' . $k, self::MARKDOWN_OPTIONS),
+          );
+        }
+      }
+      $markdown = [
+        'dir' => $markdownNode->has('dir') ? $markdownNode->string('dir') : NULL,
+        'prefix' => $markdownNode->has('prefix') ? $markdownNode->string('prefix') : NULL,
+      ];
+    }
+
     return new self(
       $node->has('provider') ? $node->string('provider') : NULL,
       $node->has('cloud_id') ? $node->string('cloud_id') : NULL,
@@ -191,6 +223,7 @@ final class WorkItemSettings {
       self::stringMap($node, 'writeback'),
       self::stringMap($node, 'status_map'),
       self::stringMap($node, 'publish'),
+      $markdown,
     );
   }
 
@@ -286,6 +319,7 @@ final class WorkItemSettings {
       'writeback' => $this->writeback,
       'status_map' => $this->statusMap,
       'publish' => $this->publish,
+      'markdown' => $this->markdown,
     ];
   }
 
