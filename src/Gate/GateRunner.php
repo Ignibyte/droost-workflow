@@ -665,13 +665,31 @@ final class GateRunner {
     foreach (GateSettings::optionNames($name) as $option) {
       $was = $frozen[$option] ?? NULL;
       $now = $current[$option] ?? NULL;
-      if ($now === $was || !(is_int($now) || is_string($now))) {
+      if ($now === $was || !(is_int($now) || is_string($now) || is_bool($now))) {
         continue;
       }
       $levers[$option] = $now;
-      $drift[] = sprintf('%s %s → %s', $option, $was === NULL ? '(unset)' : (string) $was, (string) $now);
+      $drift[] = sprintf('%s %s → %s', $option, self::leverText($was), self::leverText($now));
     }
     return [$levers, $drift];
+  }
+
+  /**
+   * A lever's value as a drift note writes it.
+   *
+   * @param mixed $value
+   *   The value, or NULL when the lever was unset.
+   *
+   * @return string
+   *   The text.
+   */
+  private static function leverText(mixed $value): string {
+    return match (TRUE) {
+      $value === NULL => '(unset)',
+      is_bool($value) => $value ? 'true' : 'false',
+      is_int($value), is_string($value) => (string) $value,
+      default => '?',
+    };
   }
 
   /**
@@ -689,9 +707,12 @@ final class GateRunner {
     string $name,
     array $levers,
   ): GateSettings {
+    // Flags too (F-139): keeping only integers and strings dropped every
+    // `required`, `in_diff`, `strict_citations` and `cover_diff` on the way to
+    // the executor, so a run never saw the flag its preset set.
     $options = [];
     foreach ($levers as $key => $value) {
-      if ($key !== 'on' && (is_int($value) || is_string($value))) {
+      if ($key !== 'on' && (is_int($value) || is_string($value) || is_bool($value))) {
         $options[$key] = $value;
       }
     }

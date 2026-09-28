@@ -409,6 +409,29 @@ class GateRunnerTest extends WorkflowTestCase {
   }
 
   /**
+   * A flag lever reaches the gate that reads it (F-139).
+   *
+   * The runner rebuilt each gate's settings from the frozen levers keeping
+   * only integers and strings, so every flag was dropped on the way to the
+   * executor: playwright's and phpunit's `required`, phpunit's `in_diff`,
+   * grounding_check's `strict_citations`, wiki_fresh's `cover_diff`. The
+   * executor's own tests built GateSettings by hand with the flag set, and so
+   * did the observer's probe, so nothing ever ran the path a real run takes.
+   */
+  public function testFlagLeversReachTheExecutor(): void {
+    $low = new SettingsRecordingExecutor();
+    (new GateRunner($low, new NullSiteDriver()))->run($this->beginWith(['preset' => 'low']), Phase::Test, '/tmp');
+    $this->assertTrue($low->option('playwright', 'required'), 'low resolves playwright required: true, and the executor must see it');
+
+    // At max, phpunit's `required` is set too, which turns "No tests executed"
+    // into a failure; it was a labelled pass in every max run.
+    $max = new SettingsRecordingExecutor();
+    (new GateRunner($max, new NullSiteDriver()))->run($this->beginWith(['preset' => 'max']), Phase::Test, '/tmp');
+    $this->assertTrue($max->option('phpunit', 'required'), 'max resolves phpunit required: true');
+    $this->assertTrue($max->option('playwright', 'required'));
+  }
+
+  /**
    * A verdict noted for drifted levers keeps every field it had (F-64).
    *
    * The drift note rebuilt the result from eleven positional arguments and
