@@ -68,11 +68,17 @@ final class ModeEngine {
    * @param \Droost\Workflow\Evidence\CheckAdjudicatorInterface|null $checks
    *   The questions a shell command cannot ask, from the modules that can
    *   answer them. NULL when the site contributes none, which is most.
+   * @param (\Closure(\Droost\Workflow\State\RunState): void)|null $persist
+   *   Writes a paused run to its record. Called before any sink hears the
+   *   question, which is what QuestionSinkInterface promises: the pause is
+   *   in run state first, so a sink that fails costs promptness, never the
+   *   pause. NULL for a caller that persists nothing itself (a unit test).
    */
   public function __construct(
     private readonly GateRunner $runner,
     private readonly QuestionSinkInterface $sink,
     private readonly ?CheckAdjudicatorInterface $checks = NULL,
+    private readonly ?\Closure $persist = NULL,
   ) {}
 
   /**
@@ -120,7 +126,7 @@ final class ModeEngine {
     // work has already been done once.
     $pending = $this->pendingQuestion($state);
     if ($pending !== NULL) {
-      $this->sink->emit($pending);
+      $this->deliver($state, $pending);
       return new RunOutcome(Outcome::Paused, $state, NULL, $pending);
     }
 
@@ -297,7 +303,7 @@ final class ModeEngine {
       $question = $this->conversationAt($phase, $report, $now);
       // State first, sink second. Always.
       $state = $state->awaiting($question->toArray());
-      $this->sink->emit($question);
+      $this->deliver($state, $question);
       return new RunOutcome(Outcome::Paused, $state, $report, $question);
     }
 
@@ -889,9 +895,37 @@ final class ModeEngine {
     }
     // State first, sink second. Always.
     $state = $state->awaiting($question->toArray());
-    $this->sink->emit($question);
+    $this->deliver($state, $question);
 
     return new RunOutcome(Outcome::Paused, $state, $report, $question);
+  }
+
+  /**
+   * Hands a paused run's question to the sink, the pause already saved.
+   *
+   * "State first, sink second" held only in memory until F-142: the engine
+   * set `awaiting` and emitted, and the record was written by the caller
+   * after the phase returned, so a sink that threw carried the phase out
+   * with the pause never saved. Now the pause is written first, through the
+   * caller's persist hook, and a sink that throws is caught: a notification,
+   * never the record.
+   *
+   * @param \Droost\Workflow\State\RunState $paused
+   *   The run, awaiting the question.
+   * @param \Droost\Workflow\Mode\PendingQuestion $question
+   *   The question.
+   */
+  private function deliver(RunState $paused, PendingQuestion $question): void {
+    if ($this->persist !== NULL) {
+      ($this->persist)($paused);
+    }
+    try {
+      $this->sink->emit($question);
+    }
+    catch (\Throwable) {
+      // The pause is saved; the sink's failure costs promptness only, and a
+      // re-entered run re-emits (sinks are idempotent by contract).
+    }
   }
 
   /**

@@ -134,6 +134,60 @@ class ModeEngineTest extends WorkflowTestCase {
   }
 
   /**
+   * F-142: the pause is saved before the sink hears, and survives its throw.
+   *
+   * "State first, sink second" used to hold only in memory: the engine set
+   * `awaiting`, emitted, and left the saving to its caller after the phase
+   * returned, so a sink that threw carried the phase out with the pause
+   * never written. The persist hook runs first, and a throwing sink is
+   * caught.
+   */
+  public function testThePauseIsSavedBeforeTheSinkAndSurvivesItThrowing(): void {
+    $order = [];
+    $saved = [];
+    $sink = new class($order) implements QuestionSinkInterface {
+
+      /**
+       * Constructs the sink.
+       *
+       * @param list<string> $order
+       *   Shared event log.
+       */
+      public function __construct(public array &$order) {}
+
+      /**
+       * {@inheritdoc}
+       */
+      public function emit(PendingQuestion $question): void {
+        $this->order[] = 'emit';
+        throw new \RuntimeException('the transport is down');
+      }
+
+    };
+    $engine = new ModeEngine(
+      new GateRunner($this->countingExecutor(), new NullSiteDriver()),
+      $sink,
+      NULL,
+      static function (RunState $paused) use (&$order, &$saved): void {
+        $order[] = 'persist';
+        $saved[] = $paused;
+      },
+    );
+
+    $outcome = $engine->runPhase($this->begin(['mode' => 'pair']), Phase::Plan, $this->root, self::NOW);
+
+    $this->assertTrue($outcome->isPaused(), 'a throwing sink does not end the phase');
+    $this->assertSame(['persist', 'emit'], $sink->order, 'the pause is written before the sink is called');
+    $this->assertCount(1, $saved);
+    $this->assertNotNull($saved[0]->awaiting, 'what was written is the paused run');
+
+    // Re-entered, the run re-presents: saved again first, the throw caught.
+    $again = $engine->runPhase($outcome->state, Phase::Plan, $this->root, self::NOW);
+    $this->assertTrue($again->isPaused());
+    $this->assertSame(['persist', 'emit', 'persist', 'emit'], $sink->order);
+  }
+
+  /**
    * REQ-006: re-entering a paused run re-presents, and re-runs nothing.
    *
    * Run at CODE, a phase where gates genuinely execute, so "re-runs nothing"

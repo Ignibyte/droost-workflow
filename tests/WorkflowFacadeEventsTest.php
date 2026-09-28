@@ -12,6 +12,8 @@ use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\Outcome;
+use Droost\Workflow\Mode\PendingQuestion;
+use Droost\Workflow\Mode\QuestionSinkInterface;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
@@ -316,6 +318,38 @@ final class WorkflowFacadeEventsTest extends WorkflowTestCase {
       $listener->log,
       'interactive fires the same lifecycle events, via the answer path',
     );
+  }
+
+  /**
+   * F-142, through the facade: a sink that throws cannot lose the pause.
+   */
+  public function testThrowingSinkLeavesThePauseSaved(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: pair\nseekers:\n  on: false\n");
+    $throwing = new class() implements QuestionSinkInterface {
+
+      /**
+       * {@inheritdoc}
+       */
+      public function emit(PendingQuestion $question): void {
+        throw new \RuntimeException('the transport is down');
+      }
+
+    };
+    $facade = new WorkflowFacade(
+      $this->allGatesPass(),
+      new NullSiteDriver(),
+      $throwing,
+      static fn (): string => '2026-09-03T12:00:00+00:00',
+      static fn (): string => 'run-sink',
+    );
+
+    $outcome = $facade->run($root);
+
+    $this->assertSame(Outcome::Paused, $outcome->outcome, 'the run paused, the sink\'s throw caught');
+    $state = (new RunStateStore($root))->load();
+    $this->assertNotNull($state);
+    $this->assertNotNull($state->awaiting, 'and the pause is in run.json');
+    $this->assertSame(Outcome::Paused, $facade->run($root)->outcome, 'a re-entered run re-presents it');
   }
 
   /**

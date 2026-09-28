@@ -838,7 +838,7 @@ final class WorkflowFacade {
     // run finishes without the gates the site declared.
     $state = $this->weaveLateContributed($state, $phase, $projectRoot, $store);
 
-    $outcome = $this->engine()->runPhase(
+    $outcome = $this->engine($projectRoot)->runPhase(
       $state,
       $phase,
       $projectRoot,
@@ -943,7 +943,7 @@ final class WorkflowFacade {
   public function answer(string $projectRoot, string $answer): RunOutcome {
     $store = new RunStateStore($projectRoot);
     $state = $this->requireRun($store);
-    $answered = $this->engine()->answer($state, $answer, $this->now(), $projectRoot);
+    $answered = $this->engine($projectRoot)->answer($state, $answer, $this->now(), $projectRoot);
     $answeredEvent = [
       'question_id' => self::questionId($state, $state->awaiting ?? []),
       'answer' => $answer,
@@ -2003,7 +2003,7 @@ final class WorkflowFacade {
     // itself: it will keep trying. Past the ceiling the engine stops and ASKS,
     // because it can see the count and nothing else, while the person watching
     // can tell a slow run from a stuck one at a glance.
-    $stuck = $this->engine()->stuckOutcome(
+    $stuck = $this->engine($projectRoot)->stuckOutcome(
       $outcome->state,
       $phase,
       $projectRoot,
@@ -2971,14 +2971,21 @@ final class WorkflowFacade {
   /**
    * The mode engine for this surface.
    *
+   * @param string|null $projectRoot
+   *   The repository whose record a pause is written to before the sink is
+   *   called (F-142), or NULL where the engine is only asked, never run.
+   *
    * @return \Droost\Workflow\Mode\ModeEngine
    *   The engine.
    */
-  private function engine(): ModeEngine {
+  private function engine(?string $projectRoot = NULL): ModeEngine {
     return new ModeEngine(
       new GateRunner($this->executor, $this->driver, $this->vcs, $this->contributed ?? []),
       $this->sink,
       $this->checks,
+      $projectRoot === NULL ? NULL : static function (RunState $paused) use ($projectRoot): void {
+        (new RunStateStore($projectRoot))->save($paused);
+      },
     );
   }
 
