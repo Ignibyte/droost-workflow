@@ -410,7 +410,7 @@ restart (memory lesson).
 - **Repos:** `repo: ddev-druplit` for D1–D8 (its own commit; its gate is
   shellcheck plus a live scratch restart). druplit for the README note and,
   at complete, the decisions record.
-- **Deploying to scratch:** `ddev add-on get /Users/cpeppers/Projects/contrib/droost/ddev-druplit`,
+- **Deploying to scratch:** `ddev add-on get /path/to/ddev-druplit`,
   then `ddev utility rebuild -s druplit && ddev restart` (memory; a rebuild
   alone restarts the old image).
 - **Hands to TICKET-170:** `druplit-run` gains the `app` role. The sudo binary
