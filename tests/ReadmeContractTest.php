@@ -10,7 +10,9 @@ use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\PhaseGateMap;
 use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\Config\WorkItemSettings;
 use Droost\Workflow\Event\RunEvent;
+use Droost\Workflow\WorkItem\CockpitWorkItemSource;
 use Droost\Workflow\WorkItem\MarkdownWorkItemSource;
 use Droost\Workflow\WorkItem\WorkItemSources;
 
@@ -124,6 +126,25 @@ class ReadmeContractTest extends WorkflowTestCase {
     $this->assertSame('ready', $ticket->status);
     $this->assertSame('feature', $ticket->type);
     $this->assertSame(['created' => '2026-09-28'], $ticket->extra);
+  }
+
+  /**
+   * The README's cockpit sample: names, never values, and the default path.
+   */
+  public function testTheReadmeCockpitSampleParses(): void {
+    $root = $this->makeRootWithConfig("preset: custom\n" . $this->extractBlock('provider: droost_cockpit'));
+    $settings = WorkflowConfig::load($root)->workItem;
+    $this->assertNotNull($settings);
+    $this->assertSame(CockpitWorkItemSource::SOURCE, $settings->provider);
+    $this->assertSame(
+      [
+        'url_env' => 'DRUPLIT_MAILBOX_URL',
+        'token_env' => 'DRUPLIT_SEAT_TOKEN',
+        'path' => WorkItemSettings::DEFAULT_COCKPIT_PATH,
+      ],
+      $settings->cockpit,
+      'the sample documents the default path',
+    );
   }
 
   /**

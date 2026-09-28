@@ -459,6 +459,43 @@ a symlinked ticket or directory is refused.
   `open/` and `closed/`.
 - `ticket move <id> <state>` is the operator's (see the table below).
 
+### Tickets (cockpit mode)
+
+`work_item.provider: droost_cockpit` reads tickets from a cockpit, a web
+service that owns a team's queue, and relays each run's events to it. The lever
+file names two environment variables and never holds either value, since the
+file is committed:
+
+```yaml
+work_item:
+  provider: droost_cockpit
+  cockpit: { url_env: DRUPLIT_MAILBOX_URL, token_env: DRUPLIT_SEAT_TOKEN }   # path: /work-items/v1 is the default
+```
+
+`url_env` holds the cockpit's origin, and `path` is appended to it. `token_env`
+holds a bearer token, which is sent as `Authorization: Bearer` and never
+written, printed or put in an error. `docs/cockpit-provider-api.md` is the API
+a cockpit implements, and `tests/fixtures/cockpit-stub.php` is that API as a
+`php -S` router, held to the document by a test.
+
+- `run --ticket=<id>` fetches the ticket as the run begins and caches it in
+  the state directory as `work-item-<id>.json`, so a restart with the cockpit
+  down still binds it. A ticket the cockpit has never answered for is refused.
+- `ticket list`, `ticket show` and `ticket new` ask the cockpit. `ticket
+  move` exits 2 with "move tickets in the cockpit": its queue owns ticket
+  state, and it reads a run's progress from the run's events.
+- Every event the log gains is posted as it is written, and once more at the
+  end of every command, from the cursor in `relay-cursor`, in batches of at
+  most 100 events and 256 KiB. Delivery is at least once, and the cockpit
+  dedups by `event_id`. The first failure in a process is reported once on
+  stderr and silences the relay for the rest of that process, so a cockpit
+  that is down costs a run at most one 5-second timeout and never fails it.
+  The events wait in the log.
+- `relay` sends what waits and exits 0 when nothing does, or 1 while events
+  still wait. `status` shows `relay: {cursor, pending, last_error}`.
+- Requests go over http or https only, with redirects refused rather than
+  followed, since a redirect would carry the token to another host.
+
 ### Unknown keys are errors
 
 A loader that shrugs at `phpstain:` hands back a run with static analysis

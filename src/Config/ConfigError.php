@@ -630,6 +630,23 @@ final class ConfigError extends \RuntimeException {
   }
 
   /**
+   * A work_item value that is present and wrong.
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $key
+   *   The key, dotted from the block (e.g. `cockpit.url_env`).
+   * @param string $why
+   *   What it must be instead.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function invalidWorkItemValue(string $source, string $key, string $why): self {
+    return new self($source, sprintf('work_item.%s %s.', $key, $why));
+  }
+
+  /**
    * The notice recorded when a lever file tries to disarm a mandatory gate.
    *
    * @param string $source

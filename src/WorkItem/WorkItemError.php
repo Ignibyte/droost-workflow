@@ -22,7 +22,9 @@ final class WorkItemError extends \RuntimeException {
     return new self(
       'no work-item source is configured: tickets need `work_item.provider: '
       . 'markdown` in droost.workflow.yml (and, optionally, `work_item.markdown: '
-      . '{ dir: <dir>, prefix: <PREFIX> }`). Any other provider is metadata only.'
+      . '{ dir: <dir>, prefix: <PREFIX> }`), or `provider: droost_cockpit` with '
+      . '`work_item.cockpit: { url_env: <VARIABLE>, token_env: <VARIABLE> }`. '
+      . 'Any other provider is metadata only.'
     );
   }
 
@@ -110,6 +112,32 @@ final class WorkItemError extends \RuntimeException {
       $bound === NULL ? 'began with none' : 'is bound to ' . $bound,
       $asked,
     ));
+  }
+
+  /**
+   * The cockpit could not answer for a ticket, and nothing cached stands in.
+   *
+   * @param string $what
+   *   The ticket or request.
+   * @param string $why
+   *   The one-line reason, which names the cockpit's origin and never its
+   *   token.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function cockpitUnreachable(string $what, string $why): self {
+    return new self(sprintf('the cockpit could not be asked for %s: %s.', $what, $why));
+  }
+
+  /**
+   * A move asked of cockpit mode, where the cockpit moves tickets.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function moveInTheCockpit(): self {
+    return new self('move tickets in the cockpit: in cockpit mode its queue owns their state, and it reads a run\'s progress from the run\'s events.');
   }
 
   /**

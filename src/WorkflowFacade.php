@@ -53,6 +53,7 @@ use Droost\Workflow\Pack\RemoveReport;
 use Droost\Workflow\State\PhaseStatus;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
+use Droost\Workflow\WorkItem\CockpitEventRelay;
 use Droost\Workflow\WorkItem\WorkItem;
 use Droost\Workflow\WorkItem\WorkItemError;
 use Droost\Workflow\WorkItem\WorkItemSourceInterface;
@@ -126,6 +127,9 @@ final class WorkflowFacade {
    *   Where this project's tickets come from (`work_item.provider:
    *   markdown`), or NULL when it has no built-in source: a run then binds
    *   no ticket, as before tickets existed.
+   * @param \Droost\Workflow\WorkItem\CockpitEventRelay|null $relay
+   *   In cockpit mode, what carries each event to the cockpit as it is
+   *   written; NULL otherwise. Never fails or blocks the run.
    */
   public function __construct(
     private readonly GateExecutorInterface $executor,
@@ -139,6 +143,7 @@ final class WorkflowFacade {
     private readonly ?string $contributedSource = NULL,
     private readonly ?CheckAdjudicatorInterface $checks = NULL,
     private readonly ?WorkItemSourceInterface $workItems = NULL,
+    private readonly ?CockpitEventRelay $relay = NULL,
   ) {
     $this->listener = $listener ?? new NullWorkflowListener();
     $this->vcs = $vcs ?? new CliVcs(CliProcess::run(...));
@@ -195,6 +200,9 @@ final class WorkflowFacade {
     $state = (new RunStateStore($projectRoot))->load();
 
     $status = [
+      // In cockpit mode, how far the run-event log has reached the cockpit:
+      // the cursor, the events past it, and the last failure, if any.
+      'relay' => $this->relay?->status(),
       'levers' => [
         'provenance' => $config->provenance->value,
         'preset' => $config->preset,
@@ -1167,6 +1175,7 @@ final class WorkflowFacade {
     $workItem = $state?->workItem['id'] ?? NULL;
     (new RunEventLog($stateDir, NULL, fn (): string => $this->now()))
       ->append($id, is_string($workItem) ? $workItem : NULL, 'run.reset', ['archived_run_id' => $id]);
+    $this->relayEvents();
     return $target;
   }
 
@@ -2900,6 +2909,22 @@ final class WorkflowFacade {
     $workItem = $state->workItem['id'] ?? NULL;
     (new RunEventLog($store->directory(), NULL, fn (): string => $this->now()))
       ->append($state->runId, is_string($workItem) ? $workItem : NULL, $type, $payload);
+    $this->relayEvents();
+  }
+
+  /**
+   * In cockpit mode, carries what the log holds past the cursor.
+   *
+   * Never failing the run: the relay stops itself after one failure, and
+   * anything it raises is swallowed as a listener's would be.
+   */
+  private function relayEvents(): void {
+    if ($this->relay !== NULL) {
+      $relay = $this->relay;
+      $this->notify(static function () use ($relay): void {
+        $relay->flush();
+      });
+    }
   }
 
   /**

@@ -10,6 +10,7 @@ use Droost\Workflow\Config\ConfigError;
 use Droost\Workflow\Config\DrushCatalogResolver;
 use Droost\Workflow\Config\EffortSwitch;
 use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\Config\WorkItemSettings;
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Evidence\EvidenceError;
 use Droost\Workflow\Event\RunEventLog;
@@ -25,6 +26,8 @@ use Droost\Workflow\Spec\SpecError;
 use Droost\Workflow\State\StateError;
 use Droost\Workflow\Support\DataError;
 use Droost\Workflow\WorkflowFacade;
+use Droost\Workflow\WorkItem\CockpitEventRelay;
+use Droost\Workflow\WorkItem\CockpitWorkItemSource;
 use Droost\Workflow\WorkItem\WorkItem;
 use Droost\Workflow\WorkItem\WorkItemError;
 use Droost\Workflow\WorkItem\WorkItemSourceInterface;
@@ -58,6 +61,13 @@ final class ArgvDispatcher {
    * The invocation or the configuration was wrong.
    */
   public const EXIT_USAGE = 2;
+
+  /**
+   * Cockpit mode's relay per project, built once for this dispatcher.
+   *
+   * @var array<string, \Droost\Workflow\WorkItem\CockpitEventRelay|null>
+   */
+  private array $relays = [];
 
   /**
    * Constructs an ArgvDispatcher.
@@ -178,6 +188,28 @@ final class ArgvDispatcher {
       return self::EXIT_USAGE;
     }
 
+    $code = $this->verb($verb, $projectRoot, $argv);
+    // Cockpit mode: what the verb wrote to the run-event log goes to the
+    // cockpit now, once, and never changes how the verb ended.
+    $this->flushRelay($projectRoot);
+
+    return $code;
+  }
+
+  /**
+   * Runs one verb, turning every typed failure into its message and exit 2.
+   *
+   * @param string $verb
+   *   The verb.
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The arguments, the verb first.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function verb(string $verb, string $projectRoot, array $argv): int {
     try {
       return match ($verb) {
         'init' => $this->init($projectRoot, $argv),
@@ -202,6 +234,7 @@ final class ArgvDispatcher {
         'evidence' => $this->evidence($projectRoot, $argv),
         'ticket' => $this->ticket($projectRoot, $argv),
         'events' => $this->events($projectRoot, $argv),
+        'relay' => $this->relay($projectRoot),
         default => $this->unknown($verb),
       };
     }
@@ -1264,6 +1297,9 @@ final class ArgvDispatcher {
         return self::EXIT_OK;
 
       default:
+        if ($source instanceof CockpitWorkItemSource) {
+          throw WorkItemError::moveInTheCockpit();
+        }
         if (count($positional) < 2) {
           $this->fail('ticket move needs an id and a state: `ticket move TICKET-12 done`.');
           return self::EXIT_USAGE;
@@ -1291,14 +1327,82 @@ final class ArgvDispatcher {
    *   The source.
    */
   private function workItemSource(string $projectRoot): ?WorkItemSourceInterface {
+    return WorkItemSources::fromSettings($this->workItemSettings($projectRoot), $projectRoot);
+  }
+
+  /**
+   * The lever file's work_item block.
+   *
+   * NULL when it has none, or when no lever file can be read.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return \Droost\Workflow\Config\WorkItemSettings|null
+   *   The block.
+   */
+  private function workItemSettings(string $projectRoot): ?WorkItemSettings {
     try {
-      $settings = WorkflowConfig::load($projectRoot)->workItem;
+      return WorkflowConfig::load($projectRoot)->workItem;
     }
     catch (ConfigError) {
       return NULL;
     }
+  }
 
-    return WorkItemSources::fromSettings($settings, $projectRoot);
+  /**
+   * Cockpit mode's relay for a project, one for this dispatcher's life.
+   *
+   * One, so the facade's appends and the flush at the verb's end share its
+   * state: after its first failure it stays silent for the rest of the verb.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return \Droost\Workflow\WorkItem\CockpitEventRelay|null
+   *   The relay, or NULL outside cockpit mode.
+   */
+  private function relayFor(string $projectRoot): ?CockpitEventRelay {
+    if (!array_key_exists($projectRoot, $this->relays)) {
+      $this->relays[$projectRoot] = WorkItemSources::relayFor($this->workItemSettings($projectRoot), $projectRoot);
+    }
+    return $this->relays[$projectRoot];
+  }
+
+  /**
+   * Flushes the relay once at a verb's end, never failing the verb.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   */
+  private function flushRelay(string $projectRoot): void {
+    try {
+      $this->relayFor($projectRoot)?->flush();
+    }
+    catch (\Throwable) {
+      // A relay that raises is a relay that did not deliver; the log keeps
+      // the events for the next verb.
+    }
+  }
+
+  /**
+   * Delivers the run-event log to the cockpit now.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return int
+   *   0 when nothing is pending, or all of it was delivered; 1 otherwise.
+   */
+  private function relay(string $projectRoot): int {
+    $relay = $this->relayFor($projectRoot);
+    if ($relay === NULL) {
+      $this->fail('relay carries the run-event log to a cockpit, and this project is not in cockpit mode (work_item.provider: droost_cockpit).');
+      return self::EXIT_USAGE;
+    }
+    $result = $relay->flush();
+    $this->say($this->encode($result));
+    return $result['pending'] === 0 ? self::EXIT_OK : self::EXIT_RUN_FAILED;
   }
 
   /**
@@ -1433,12 +1537,17 @@ final class ArgvDispatcher {
                        attempted and ended, question asked and answered, run
                        completed and reset. --after prints only what came
                        after that seq; `schema/run-event.v1.json` is the shape
+      relay            cockpit mode: send the run-event log's events past the
+                       cursor to the cockpit now (they also go after every
+                       event and when every command ends); exits 0 when
+                       nothing is left to send, 1 otherwise
       ticket           this project's tickets, with work_item.provider:
-                       markdown: `ticket list [--status=<state>]`, `ticket
-                       show <id>`, `ticket new --title="…" [--type=<type>]`
-                       (filed in backlog). States: backlog, ready,
-                       in_progress, review, done. `ticket move <id> <state>`
-                       is the operator's (below)
+                       markdown or droost_cockpit: `ticket list
+                       [--status=<state>]`, `ticket show <id>`, `ticket new
+                       --title="…" [--type=<type>]` (filed in backlog).
+                       States: backlog, ready, in_progress, review, done.
+                       `ticket move <id> <state>` is the operator's (below),
+                       and in cockpit mode the cockpit's
 
     The OPERATOR's commands. Each one loosens what a run is held to, or
     decides what only a person decides, so each refuses to run without an
@@ -1523,6 +1632,7 @@ final class ArgvDispatcher {
       $catalog['source'],
       new UnreachableChecks($hasSite),
       $this->workItemSource($projectRoot),
+      $this->relayFor($projectRoot),
     );
   }
 

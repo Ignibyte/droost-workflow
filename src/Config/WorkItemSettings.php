@@ -52,7 +52,26 @@ final class WorkItemSettings {
     'status_map',
     'publish',
     'markdown',
+    'cockpit',
   ];
+
+  /**
+   * The keys the `cockpit` child defines: where cockpit mode's API is.
+   */
+  private const COCKPIT_OPTIONS = ['url_env', 'token_env', 'path'];
+
+  /**
+   * Where the cockpit's work-item API sits under its URL, by default.
+   */
+  public const DEFAULT_COCKPIT_PATH = '/work-items/v1';
+
+  /**
+   * What an environment variable's NAME looks like.
+   *
+   * The lever file is committed, so it names the variables and never holds
+   * their values.
+   */
+  private const ENV_NAME = '/^[A-Z_][A-Z0-9_]*$/';
 
   /**
    * The keys the `markdown` child defines: where solo mode's tickets live.
@@ -111,6 +130,10 @@ final class WorkItemSettings {
    *   Where the `markdown` provider reads tickets: the directory and the id
    *   prefix, each NULL for the source's default; NULL when the block names
    *   none.
+   * @param array{url_env: string, token_env: string, path: string}|null $cockpit
+   *   Where the `droost_cockpit` provider's API is: the NAMES of the
+   *   environment variables holding its URL and bearer token, and the path
+   *   under the URL; NULL when the block names none.
    */
   private function __construct(
     public readonly ?string $provider,
@@ -126,6 +149,7 @@ final class WorkItemSettings {
     public readonly array $statusMap,
     public readonly array $publish,
     public readonly ?array $markdown = NULL,
+    public readonly ?array $cockpit = NULL,
   ) {}
 
   /**
@@ -210,8 +234,11 @@ final class WorkItemSettings {
       ];
     }
 
+    $provider = $node->has('provider') ? $node->string('provider') : NULL;
+    $cockpit = self::cockpit($node, $source, $provider === 'droost_cockpit');
+
     return new self(
-      $node->has('provider') ? $node->string('provider') : NULL,
+      $provider,
       $node->has('cloud_id') ? $node->string('cloud_id') : NULL,
       $node->optionalStringList('projects', []),
       $node->optionalStringList('eligible_types', []),
@@ -224,7 +251,63 @@ final class WorkItemSettings {
       self::stringMap($node, 'status_map'),
       self::stringMap($node, 'publish'),
       $markdown,
+      $cockpit,
     );
+  }
+
+  /**
+   * Reads and checks the `cockpit` block.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $node
+   *   The work_item block.
+   * @param string $source
+   *   The document label, for error messages.
+   * @param bool $required
+   *   Whether the provider is droost_cockpit, which needs the block.
+   *
+   * @return array{url_env: string, token_env: string, path: string}|null
+   *   The block, or NULL when absent and not required.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When a key is unknown, a required one is missing, a variable name is
+   *   not one, or the path does not start with a slash.
+   */
+  private static function cockpit(TypedArray $node, string $source, bool $required): ?array {
+    $block = $node->optionalChild('cockpit');
+    if ($block === NULL) {
+      if ($required) {
+        throw ConfigError::invalidWorkItemValue($source, 'cockpit', 'is required by provider droost_cockpit: { url_env: <VARIABLE>, token_env: <VARIABLE> }');
+      }
+      return NULL;
+    }
+    foreach ($block->keys() as $key) {
+      if (!in_array($key, self::COCKPIT_OPTIONS, TRUE)) {
+        throw ConfigError::unknownWorkItemOption(
+          $source,
+          'cockpit.' . $key,
+          array_map(static fn (string $k): string => 'cockpit.' . $k, self::COCKPIT_OPTIONS),
+        );
+      }
+    }
+    $names = [];
+    foreach (['url_env', 'token_env'] as $key) {
+      if (!$block->has($key)) {
+        throw ConfigError::invalidWorkItemValue($source, 'cockpit.' . $key, 'is required: the NAME of the environment variable that holds it');
+      }
+      $name = $block->string($key);
+      if (preg_match(self::ENV_NAME, $name) !== 1) {
+        // Never echo the value: a URL or a token pasted here is exactly what
+        // the lever file must not carry, and an error message is printed.
+        throw ConfigError::invalidWorkItemValue($source, 'cockpit.' . $key, 'must be the NAME of an environment variable (capitals, digits and underscores), never its value');
+      }
+      $names[$key] = $name;
+    }
+    $path = $block->has('path') ? $block->string('path') : self::DEFAULT_COCKPIT_PATH;
+    if (!str_starts_with($path, '/')) {
+      throw ConfigError::invalidWorkItemValue($source, 'cockpit.path', 'must start with a slash, e.g. ' . self::DEFAULT_COCKPIT_PATH);
+    }
+
+    return ['url_env' => $names['url_env'], 'token_env' => $names['token_env'], 'path' => rtrim($path, '/')];
   }
 
   /**
@@ -320,6 +403,7 @@ final class WorkItemSettings {
       'status_map' => $this->statusMap,
       'publish' => $this->publish,
       'markdown' => $this->markdown,
+      'cockpit' => $this->cockpit,
     ];
   }
 
