@@ -780,7 +780,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     // Phpcs handed nothing to check. BEFORE the baseline partition, because
     // `againstBaseline()` renders it as "passed — 0 new, 0 inherited", the most
     // reassuring sentence in the report, about a scan that read no files.
-    if ($gate->name === 'phpcs' && $exit === 16 && self::foundNothingToCheck($stdout . $stderr)) {
+    if ($gate->name === 'phpcs' && self::phpcsHandedNothing($exit, $stdout, $stderr)) {
       return GateResult::labelledPass(
         $gate->name,
         $exit,
@@ -2381,10 +2381,54 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       // coding standard is not installed". The whole of 16 was read as the
       // first — a labelled pass — so a broken ruleset came back as a PASS on a
       // mandatory gate. phpcs says which it means, so this asks.
-      'phpcs' => ($exit === 16 && !self::foundNothingToCheck($stdout . $stderr))
-        || ($exit === 3 && !self::reportWasProduced($stdout)),
+      //
+      // And "you gave me nothing" is a process error on BOTH majors: 16 on
+      // phpcs 4, 3 with no report on phpcs 3 — the major drupal/coder 8.3
+      // still pins, so the one every Drupal site runs. Read only on 16, a
+      // site with no custom code of its own came back "could not run" on
+      // the mandatory gate, which blocks the code phase and cannot be waived
+      // (F-133).
+      'phpcs' => self::phpcsProcessError($exit, $stdout)
+        && !self::foundNothingToCheck($stdout . $stderr),
       default => FALSE,
     };
+  }
+
+  /**
+   * Whether phpcs stopped on a processing error rather than judging code.
+   *
+   * PHP_CodeSniffer 4's PROCESS_ERROR is 16. Under phpcs 3 the processing
+   * error was 3, which phpcs 4 reuses for `FIXABLE|NON_FIXABLE`, so a 3 is a
+   * processing error only when no report came with it.
+   *
+   * @param int $exit
+   *   The tool's exit code.
+   * @param string $stdout
+   *   What it wrote to stdout.
+   *
+   * @return bool
+   *   TRUE on a processing error, on either major.
+   */
+  private static function phpcsProcessError(int $exit, string $stdout): bool {
+    return $exit === 16 || ($exit === 3 && !self::reportWasProduced($stdout));
+  }
+
+  /**
+   * Whether phpcs was handed nothing to check, on either major.
+   *
+   * @param int $exit
+   *   The tool's exit code.
+   * @param string $stdout
+   *   What it wrote to stdout.
+   * @param string $stderr
+   *   What it wrote to stderr.
+   *
+   * @return bool
+   *   TRUE when phpcs stopped because it had nothing to check: a labelled
+   *   pass, not a tool that could not run.
+   */
+  public static function phpcsHandedNothing(int $exit, string $stdout, string $stderr): bool {
+    return self::phpcsProcessError($exit, $stdout) && self::foundNothingToCheck($stdout . $stderr);
   }
 
   /**

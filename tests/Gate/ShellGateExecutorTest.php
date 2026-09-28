@@ -1321,6 +1321,57 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * PHP_CodeSniffer 3 says "nothing to check" with exit 3: the same pass.
+   *
+   * The drupal/coder 8.3 line pins PHP_CodeSniffer 3, whose processing error
+   * is 3, not 16. Measured on a droost_cms site with no custom code
+   * (2026-09-28): the run's only change was a view's config, phpcs printed
+   * "You must supply at least one file or directory to process" and exited 3,
+   * and the mandatory gate was recorded `error-tool-failed` — a code phase no
+   * lever could clear and no waiver could cover (F-133).
+   */
+  public function testPhpcsThreeExitThreeNothingToCheckIsLabelled(): void {
+    $root = $this->rootWithBinaries(['phpcs']);
+    $executor = new ShellGateExecutor(
+      static fn (array $argv): array => [
+        3,
+        "ERROR: You must supply at least one file or directory to process.\n\nRun \"phpcs --help\" for usage information\n",
+        '',
+      ],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('phpcs', TRUE), $root);
+
+    $this->assertSame(GateStatus::Passed, $result->status, 'it does not fail the phase');
+    $this->assertTrue($result->labelledPass, 'and it is flagged as having measured nothing');
+    $this->assertStringContainsString('not a measurement', $result->summary);
+  }
+
+  /**
+   * A phpcs 3 exit 3 that says anything else still could not run.
+   *
+   * The pass is for "nothing to check" alone: a missing standard is a broken
+   * gate on either major, and a 3 WITH a report is phpcs 4's `FIXABLE|
+   * NON_FIXABLE` — findings, which is neither.
+   */
+  public function testPhpcsExitThreeOtherwiseKeepsItsMeaning(): void {
+    $this->assertTrue(ShellGateExecutor::toolFailedToRun(
+      'phpcs',
+      3,
+      'ERROR: the "Drupal" coding standard is not installed. The installed coding standards are PEAR, PSR1, PSR2, PSR12, Squiz and Zend',
+    ));
+    $this->assertFalse(ShellGateExecutor::toolFailedToRun(
+      'phpcs',
+      3,
+      "ERROR: You must supply at least one file or directory to process.\n",
+    ));
+    $report = (string) json_encode(['totals' => ['errors' => 1, 'warnings' => 0, 'fixable' => 1], 'files' => []]);
+    $this->assertFalse(ShellGateExecutor::toolFailedToRun('phpcs', 3, $report));
+    $this->assertFalse(ShellGateExecutor::phpcsHandedNothing(3, $report, ''));
+  }
+
+  /**
    * And it stays a labelled pass when a baseline is configured.
    *
    * The branch's own docblock says it must come BEFORE the baseline partition,
