@@ -589,6 +589,28 @@ class PackContentLintTest extends TestCase {
   }
 
   /**
+   * The plan skill says a low run plans no wiki write.
+   *
+   * P6 run 19's plan promised a wiki page through droost_wiki_write; at low
+   * the complete skill forbade the write, grounding_check held the promise as
+   * a tool never called, and the run lost its retry. Only the complete skill
+   * said what a low run writes, and the plan is where the promise is made.
+   */
+  public function testThePlanSkillSaysLowPlansNoWikiWrite(): void {
+    $plan = file_get_contents(__DIR__ . '/../../pack/skills/workflow-plan/SKILL.md');
+    $complete = file_get_contents(__DIR__ . '/../../pack/skills/workflow-complete/SKILL.md');
+    $this->assertIsString($plan);
+    $this->assertIsString($complete);
+
+    // The complete skill says a low run writes no wiki; the plan skill must
+    // say it too, where the promise is made (F-137).
+    $this->assertStringContainsString('there is NO wiki step', $complete, 'the rule the plan must match');
+    $this->assertStringContainsString('Plan only the capture your level makes', $plan);
+    $this->assertMatchesRegularExpression('/At\s+\*\*`low`\*\*\s+complete writes\s+\*\*no wiki pages\*\*/', $plan, 'the plan skill must say a low run writes no wiki');
+    $this->assertStringContainsString('`droost_wiki_write` row is a promise the level forbids you to keep', $plan);
+  }
+
+  /**
    * The code skill must tell the agent to CLOSE findings it fixed.
    *
    * F-44: a finding's status only ever moves when a later report marks it,

@@ -335,6 +335,17 @@ rather than refused — grounding is the discipline the light spec trims depth
 from, not out) — to
 `droost/droost-workflow/tmp-spec-<slug>.md`, presented back in chat at
 complete.
+**Plan only the capture your level makes.** Complete's capture follows the
+same frozen preset, and the Tooling plan is held to it: every droost tool a
+row names is a promise grounding_check checks against the ledger. At
+**`low`** complete writes **no wiki pages** (`wiki_fresh` is off), so a
+`droost_wiki_write` row is a promise the level forbids you to keep, and the
+check holds it at complete (P6 run 19 lost its retry there). Plan the
+change's documentation as hand-written at `low`: the spec's `## Realized`
+section and the READMEs. From **`medium`** up complete writes a page through
+`droost_wiki_write` for every custom module or theme the change touches, and
+that row belongs in the plan.
+
 One spec format everywhere is what the seeker checkpoint grades against;
 a criterion-free sketch would give the adversarial reviewer nothing to hold
 the diff to. Either way the file exists BEFORE code does: the lighter weight
