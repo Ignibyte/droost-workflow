@@ -241,7 +241,7 @@ and with what thresholds, is the lever file's business:
 |---|---|
 | plan | none — the spec is the gate |
 | code | phpcs, phpstan, eslint, stylelint, prettier, config_clean, grounding_check, plus custom gates placed at `code`; then the seeker checkpoint, where the level runs one |
-| test | phpunit, mutation, playwright, coverage, rendered_check, config_clean, plus custom gates placed at `test` |
+| test | phpunit, mutation, playwright, parity, coverage, rendered_check, config_clean, plus custom gates placed at `test` |
 | complete | documentation first, then the full enabled set re-run — the terminal safety net — behind a clean inspection |
 
 Custom gates are the repo's own commands (`gates.custom` in the lever file —

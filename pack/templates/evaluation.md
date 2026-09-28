@@ -84,6 +84,7 @@ preset frozen into **this** run — a lever's meaning changes with it.
 | `prettier` | | | ″ | | | ″ | |
 | `mutation` | | | ″ | | | ″ | |
 | `playwright` | | | ″ | | | ″ | |
+| `parity` | | | ″ | | | ″ | |
 | `coverage` | | | ″ | | | ″ | |
 | `rendered_check` | | | ″ | | | ″ | |
 | `config_clean` | | | ″ | | | ″ | |

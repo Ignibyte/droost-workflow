@@ -57,7 +57,8 @@
         "test": "./vendor/bin/phpunit"
     },
     "bin": [
-        "bin/droost-workflow"
+        "bin/droost-workflow",
+        "bin/droost-parity"
     ],
     "suggest": {
         "symfony/http-kernel": "Used only by BootedSiteDriver, which runs inside a booted site; Drupal provides it (with symfony/http-foundation)."

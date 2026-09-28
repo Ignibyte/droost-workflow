@@ -61,6 +61,7 @@ gates:
   phpunit:        { on: true }
   mutation:       { on: false, msi_min: 0 }
   playwright:     { on: true, required: true }   # a committed spec, at every level
+  parity:         { on: true }                 # the site against its source's captured pages
   coverage:       { on: false, min: 0 }
   rendered_check: { on: true }                 # artifacts are truth
   config_clean:   { on: true }                 # a fresh cex produces zero diff
@@ -214,6 +215,22 @@ an uninstalled binary would wedge every project that has not run
 `npm i -D @playwright/test` — an instrument that cannot see refusing to let
 the run past. The row says what is missing and how to install it, and the
 moment it IS installed `required: true` makes this a real wall.
+
+**Parity is the site held to the source it rebuilds.** A reference is a
+page of that source (a design, or the site being replaced) read once with
+`vendor/bin/droost-parity capture --source <url> --routes /,/about` and kept
+in the project under `droost/parity/`: every visible element that carries
+text, with its box and the computed style that decides how it looks. The gate
+runs `droost-parity judge`, reads the same routes on the site with the
+project's own Playwright, and fails a route whose text is missing or out of
+order, whose type, colour or place differs past a stated tolerance, or whose
+header and footer differ (D1 to D7, each named in the finding). A page it
+cannot read is INVALID and fails closed, never a pass. With no reference
+captured it is a labelled pass that measured nothing, so it is on at every
+preset; `required: true` makes a missing reference a failure, and `scope:
+frame` judges only the header and footer, for a ticket that builds the frame
+before the pages. No Playwright, or no Node, REPORTS, as the browser suite
+does.
 
 **Why a spec and not an MCP call.** The browser check used to be "the agent
 called a Playwright MCP tool", counted from the guard's ledger. That forced
@@ -396,8 +413,8 @@ setting, gate, option, phase, mode and preset is refused by name:
 
 ```
 droost.workflow.yml: unknown gate "phpstain" (known: phpcs, phpstan, eslint,
-stylelint, prettier, phpunit, mutation, playwright, coverage, rendered_check,
-config_clean, grounding_check, wiki_fresh)
+stylelint, prettier, phpunit, mutation, playwright, parity, coverage,
+rendered_check, config_clean, grounding_check, wiki_fresh)
 ```
 
 ## Which gates run when
@@ -408,8 +425,8 @@ engine's phase map, frozen into each run when it begins:
 ```text
 plan: none
 code: phpcs, phpstan, eslint, stylelint, prettier, config_clean, grounding_check
-test: phpcs, phpstan, eslint, prettier, phpunit, mutation, playwright, coverage, rendered_check, config_clean
-complete: phpcs, phpstan, eslint, stylelint, prettier, phpunit, mutation, playwright, coverage, rendered_check, config_clean, grounding_check, wiki_fresh
+test: phpcs, phpstan, eslint, prettier, phpunit, mutation, playwright, parity, coverage, rendered_check, config_clean
+complete: phpcs, phpstan, eslint, stylelint, prettier, phpunit, mutation, playwright, parity, coverage, rendered_check, config_clean, grounding_check, wiki_fresh
 ```
 
 Plan runs nothing — there is nothing yet to measure. Code gates the diff with

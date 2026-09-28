@@ -143,6 +143,12 @@ gates:
   # mutate and a coverage driver (pcov or xdebug) in the PHP running it.
   mutation:       { on: false, msi_min: 0 }
   playwright:     { on: true, required: true }
+  # parity: the site's pages against references captured from the source it
+  # rebuilds (`vendor/bin/droost-parity capture --source <url> --routes /,…`
+  # writes them to droost/parity/). No reference is a labelled pass that
+  # measured nothing; `required: true` makes it a failure. `scope: frame`
+  # judges only the header and footer; `reference:` moves the directory.
+  parity:         { on: true }
   coverage:       { on: false, min: 0 }
 
   # THE FRONT-END TRIO: eslint, stylelint, prettier — the JS/CSS analogue of

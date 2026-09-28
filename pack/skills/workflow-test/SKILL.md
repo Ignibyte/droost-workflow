@@ -149,6 +149,25 @@ CLI-only, so you cannot grant it yourself. Do NOT reach for
 which is a different and much larger decision (two live rounds made
 exactly that mistake).
 
+## Parity: the site against the source it rebuilds
+
+When a ticket rebuilds a source (a design, or a site being replaced), the
+`parity` gate holds each page to a reference read from that source. With no
+reference in `droost/parity/` it passes labelled, having compared nothing.
+
+```bash
+vendor/bin/droost-parity capture --source <the source's url> --routes /,/camps   # once, from the SOURCE
+vendor/bin/droost-parity judge                       # what the gate runs, on the site
+vendor/bin/droost-parity judge --scope frame         # the header and footer only
+```
+
+Capture from the source the ticket names, never from the site: a reference
+read off the site agrees with it whatever it looks like, and the runner
+refuses one whose source is the site it judges. Each verdict names the
+source it compared against. A route fails on the first of D1 to D7 it
+misses, and the finding says which elements; run it as the gate does, where
+the phase runs (on DDEV, `ddev exec vendor/bin/droost-parity judge`).
+
 ## Fill `Verified By`
 
 The spec's acceptance-criteria table has a `Verified By` column, empty since

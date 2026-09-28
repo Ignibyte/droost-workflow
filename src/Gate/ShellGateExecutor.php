@@ -497,6 +497,26 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     }
     $invocation = implode(' ', $argv);
 
+    if ($gate->name === 'parity'
+      && $gate->option('required') !== TRUE
+      && !is_file($root . '/' . self::parityReference($gate) . '/manifest.json')) {
+      // No reference captured is the ordinary state of every project that is
+      // not rebuilding a source, and the gate is on at every preset. Asking
+      // the runner would spawn Node to say so, and on a project without Node
+      // the shell's 127 would read as a broken tool. Labelled: it measured
+      // nothing, and says what would make it measure.
+      return GateResult::labelledPass(
+        $gate->name,
+        0,
+        0,
+        sprintf(
+          'parity passed — no reference in %s, so no page was compared (capture one with `vendor/bin/droost-parity capture --source <url> --routes /,…`)',
+          self::parityReference($gate),
+        ),
+        $invocation,
+      );
+    }
+
     if (!is_file($root . '/' . $binary)) {
       // A gate whose tool IS a site, asked on a checkout that has none.
       // `wiki_fresh` runs `drush droost:wiki:status`, so no drush here means no
@@ -909,6 +929,10 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       }
     }
 
+    if ($gate->name === 'parity') {
+      return self::parityResult($gate, $exit, $elapsed, $stdout, $invocation);
+    }
+
     if ($gate->name === 'playwright') {
       $browser = self::playwrightResult($gate, $exit, $elapsed, $stdout, $invocation);
       if ($browser !== NULL) {
@@ -932,6 +956,88 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $this->findings($stdout, $gate->name, $root, $stderr),
       $invocation,
     );
+  }
+
+  /**
+   * The parity runner's verdict, read from the JSON line it always ends with.
+   *
+   * `bin/droost-parity judge` compares each page of the site with a reference
+   * captured from the source the site is rebuilt from, and exits 0 (every
+   * route as the reference), 1 (a route differs), 2 (a route could not be
+   * judged), 3 (no reference to compare with) or 127 (no Playwright).
+   *
+   * No reference is a labelled pass, not a measurement, unless `required`
+   * says a reference must exist; no Playwright is REPORTED, as the browser
+   * suite's own absence is, so a project without one gets an honest line and
+   * not a wedged run; a page that could not be read is the tool failing, and
+   * fails closed.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate's resolved levers.
+   * @param int $exit
+   *   The runner's exit code.
+   * @param int $elapsed
+   *   How long it ran, in milliseconds.
+   * @param string $stdout
+   *   What it printed.
+   * @param string $invocation
+   *   The command, for the record.
+   *
+   * @return \Droost\Workflow\Gate\GateResult
+   *   The verdict.
+   */
+  private static function parityResult(GateSettings $gate, int $exit, int $elapsed, string $stdout, string $invocation): GateResult {
+    $summary = NULL;
+    foreach (array_reverse(preg_split('/\R/', trim($stdout)) ?: []) as $line) {
+      $decoded = json_decode($line, TRUE);
+      if (is_array($decoded) && is_array($decoded['parity'] ?? NULL)) {
+        $summary = $decoded['parity'];
+        break;
+      }
+    }
+    if ($summary === NULL && $exit === 127) {
+      // The runner is a Node script: no Node, and the shell says 127 before
+      // the runner can say anything. The same honesty as a missing browser.
+      return GateResult::ran($gate->name, GateStatus::Reported, $exit, $elapsed, 'parity could not run: no Node to run vendor/bin/droost-parity with, so no page was compared', [], $invocation);
+    }
+    if ($summary === NULL) {
+      return GateResult::toolFailed($gate->name, $exit, 'the runner printed no verdict', 'run `vendor/bin/droost-parity judge` in the project root to see why', $invocation);
+    }
+    $said = is_string($summary['summary'] ?? NULL) ? $summary['summary'] : '';
+    $routes = is_array($summary['routes'] ?? NULL) ? $summary['routes'] : [];
+    $findings = [];
+    foreach ($routes as $route) {
+      if (!is_array($route) || ($route['verdict'] ?? '') === 'PASS') {
+        continue;
+      }
+      $findings[] = [
+        'key' => is_string($route['route'] ?? NULL) ? $route['route'] : '?',
+        'detail' => $route['failing'] ?? [],
+      ];
+    }
+    return match ($summary['status'] ?? '') {
+      'pass' => GateResult::ran($gate->name, GateStatus::Passed, $exit, $elapsed, 'parity passed — ' . $said, [], $invocation),
+      'fail' => GateResult::ran($gate->name, GateStatus::Failed, $exit, $elapsed, 'parity FAILED — ' . $said, $findings, $invocation),
+      'nothing' => $gate->option('required') === TRUE
+        ? GateResult::ran($gate->name, GateStatus::Failed, $exit, $elapsed, 'parity FAILED — required, and ' . $said, [], $invocation)
+        : GateResult::labelledPass($gate->name, $exit, $elapsed, 'parity: nothing to compare — ' . $said, $invocation),
+      'no-browser' => GateResult::ran($gate->name, GateStatus::Reported, $exit, $elapsed, 'parity could not look at the site: ' . $said, [], $invocation),
+      default => GateResult::toolFailed($gate->name, $exit, $said, 'the site could not be judged against its reference; read the routes named', $invocation),
+    };
+  }
+
+  /**
+   * Where the parity gate reads its references, relative to the project.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate's resolved levers.
+   *
+   * @return string
+   *   The `reference` lever, or droost/parity.
+   */
+  private static function parityReference(GateSettings $gate): string {
+    $reference = $gate->option('reference');
+    return is_string($reference) && $reference !== '' ? $reference : 'droost/parity';
   }
 
   /**
@@ -1781,6 +1887,8 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       return 'node_modules/.bin/' . $gate;
     }
     return 'vendor/bin/' . match ($gate) {
+      // This package's own runner, installed as a Composer bin.
+      'parity' => 'droost-parity',
       'coverage' => 'phpunit',
       'mutation' => 'infection',
       // The wiki gate asks the SITE whether its own documentation is current,
@@ -1968,6 +2076,17 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       // `playwright test` is the suite runner; bare `playwright` prints
       // usage and exits zero, which would read as a pass with no tests run.
       'playwright' => [$binary, 'test'],
+      // Judge the site against the references captured into the project. The
+      // runner reads the site where the phase runs, as the browser suite does.
+      'parity' => [
+        $binary,
+        'judge',
+        '--reference',
+        self::parityReference($gate),
+        '--scope',
+        is_string($gate->option('scope')) && $gate->option('scope') !== '' ? $gate->option('scope') : 'page',
+        '--json',
+      ],
       default => [$binary],
     };
   }

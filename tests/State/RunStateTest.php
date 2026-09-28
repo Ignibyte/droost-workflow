@@ -519,7 +519,8 @@ class RunStateTest extends TestCase {
     $this->assertSame(
       [
         'phpcs', 'phpstan', 'eslint', 'prettier', 'phpunit',
-        'mutation', 'playwright', 'coverage', 'rendered_check', 'config_clean',
+        'mutation', 'playwright', 'parity', 'coverage', 'rendered_check',
+        'config_clean',
       ],
       array_keys($state->gatesDueFor(Phase::Test)),
     );

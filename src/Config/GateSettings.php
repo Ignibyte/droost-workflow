@@ -44,6 +44,9 @@ final class GateSettings {
     'phpunit',
     'mutation',
     'playwright',
+    // The site's pages against references read from the source they are
+    // rebuilt from (a design, or the site being replaced): bin/droost-parity.
+    'parity',
     'coverage',
     'rendered_check',
     'config_clean',
@@ -166,6 +169,7 @@ final class GateSettings {
     'phpunit' => ['required' => 'flag', 'in_diff' => 'flag', 'timeout' => 'seconds'],
     'mutation' => ['msi_min' => 'percent', 'timeout' => 'seconds'],
     'playwright' => ['required' => 'flag', 'timeout' => 'seconds'],
+    'parity' => ['required' => 'flag', 'reference' => 'string', 'scope' => 'string', 'timeout' => 'seconds'],
     'coverage' => ['min' => 'percent', 'timeout' => 'seconds'],
     'rendered_check' => ['routes' => 'string'],
     'config_clean' => [],

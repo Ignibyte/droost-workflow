@@ -34,19 +34,21 @@ class GateRunnerTest extends WorkflowTestCase {
     $report = $runner->run($state, Phase::Test, '/tmp');
 
     // Due at test: phpcs, phpstan, eslint, prettier, phpunit, mutation,
-    // playwright, coverage, rendered_check, config_clean. custom: phpcs,
-    // phpstan, phpunit AND playwright on — the browser suite is on at every
-    // preset since the check became a committed spec; eslint, prettier,
+    // playwright, parity, coverage, rendered_check, config_clean. custom:
+    // phpcs, phpstan, phpunit, playwright AND parity on — the browser suite
+    // is on at every preset since the check became a committed spec, and
+    // parity beside it, measuring nothing until a reference is captured;
+    // eslint, prettier,
     // mutation, coverage off; rendered_check and config_clean on but
     // site-dependent. The static gates run here over what the test phase
     // wrote, and in KNOWN_GATES order they precede the suite whose shape
     // they check.
     $this->assertSame(
-      ['phpcs', 'phpstan', 'phpunit', 'playwright'],
+      ['phpcs', 'phpstan', 'phpunit', 'playwright', 'parity'],
       $executor->ran,
       'the executor saw a different set than the phase map named',
     );
-    $this->assertCount(10, $report->results);
+    $this->assertCount(11, $report->results);
   }
 
   /**
@@ -126,16 +128,16 @@ class GateRunnerTest extends WorkflowTestCase {
     $this->assertSame(
       [
         'phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier',
-        'phpunit', 'mutation', 'playwright', 'coverage', 'wiki_fresh',
+        'phpunit', 'mutation', 'playwright', 'parity', 'coverage', 'wiki_fresh',
       ],
       $executor->ran,
       'every non-site gate must execute at complete',
     );
-    // Thirteen results: the ten shell gates above plus the three site gates,
+    // Fourteen results: the eleven shell gates above plus the three site gates,
     // which are the ones NullSiteDriver skips. wiki_fresh is a shell gate and
     // its own skip comes from the executor finding no drush — see
     // ShellGateExecutorTest — so the fake executor here runs it like any other.
-    $this->assertCount(13, $report->results);
+    $this->assertCount(14, $report->results);
     $this->assertCount(3, $report->skipped());
   }
 
@@ -227,12 +229,13 @@ class GateRunnerTest extends WorkflowTestCase {
     $this->assertSame(NullSiteDriver::REASON, $skipped[0]->skipReason);
     $this->assertSame(NullSiteDriver::REASON, $skipped[1]->skipReason);
     // Non-blocking, but never counted among the passes. Under custom at the
-    // test phase, phpcs, phpstan, phpunit and playwright are the gates that
-    // both run and pass — the two static ones because the phase that writes
-    // tests is held to the standards those tests are written against, and
-    // playwright because a committed browser spec is now due at every level.
+    // test phase, phpcs, phpstan, phpunit, playwright and parity are the
+    // gates that both run and pass — the two static ones because the phase
+    // that writes tests is held to the standards those tests are written
+    // against, playwright because a committed browser spec is now due at
+    // every level, and parity beside it.
     $this->assertTrue($report->advance());
-    $this->assertSame(4, $report->tally()['passed']);
+    $this->assertSame(5, $report->tally()['passed']);
   }
 
   /**
