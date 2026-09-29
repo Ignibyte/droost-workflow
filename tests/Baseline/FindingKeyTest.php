@@ -85,4 +85,21 @@ final class FindingKeyTest extends WorkflowTestCase {
     $this->assertSame('/elsewhere/a.php', FindingKey::relative('/repo', '/elsewhere/a.php'));
   }
 
+  /**
+   * A root reached through a symlink still relativises the tool's real path.
+   *
+   * The tool reports the resolved path. A project under a symlink (macOS's
+   * `/var`, a symlinked checkout) kept every finding absolute, so a file the
+   * run changed read as one it did not, and baseline keys named the machine.
+   */
+  public function testRootThroughSymlinkStillRelativises(): void {
+    $real = $this->makeRoot();
+    mkdir($real . '/src', 0755, TRUE);
+    $link = $this->makeRoot() . '/link';
+    symlink($real, $link);
+
+    $this->assertSame('src/Thing.php', FindingKey::relative($link, realpath($real) . '/src/Thing.php'));
+    $this->assertSame('src/Thing.php', FindingKey::relative($link, $link . '/src/Thing.php'));
+  }
+
 }

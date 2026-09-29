@@ -99,9 +99,16 @@ final class FindingKey {
    *   given with any leading "./" removed.
    */
   public static function relative(string $root, string $path): string {
-    $root = rtrim($root, '/') . '/';
-    if (str_starts_with($path, $root)) {
-      return substr($path, strlen($root));
+    // The root as given AND as resolved. phpstan reports the resolved path,
+    // so a project reached through a symlink (macOS's `/var`, a symlinked
+    // checkout) kept every finding absolute: a file the run changed read as
+    // one it did not, and a baseline's keys named the machine it was
+    // written on (F-157).
+    $resolved = realpath($root);
+    foreach (array_unique([rtrim($root, '/'), $resolved === FALSE ? '' : rtrim($resolved, '/')]) as $candidate) {
+      if ($candidate !== '' && str_starts_with($path, $candidate . '/')) {
+        return substr($path, strlen($candidate) + 1);
+      }
     }
     return str_starts_with($path, './') ? substr($path, 2) : $path;
   }
