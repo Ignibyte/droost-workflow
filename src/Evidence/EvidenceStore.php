@@ -1073,6 +1073,59 @@ final class EvidenceStore {
   }
 
   /**
+   * The newest run a gate's tool made outside a phase, with its findings.
+   *
+   * `droost-workflow specs` runs the browser gate exactly as the test phase
+   * would and records it here, as `recorded_run` (0.11). At a level whose
+   * playwright gate takes `reuse: recorded`, the phase takes this row instead
+   * of running the suite again, while the tree is the one it was run on.
+   *
+   * @param string $runId
+   *   The run.
+   * @param string $gate
+   *   The gate.
+   *
+   * @return array<string, mixed>|null
+   *   The row, with `findings` as the gate reported them, or NULL.
+   */
+  public function recordedRun(string $runId, string $gate): ?array {
+    $statement = $this->connection()->prepare(
+      "SELECT * FROM check_result WHERE run_id = ? AND kind = 'recorded_run' AND name = ?
+        ORDER BY id DESC LIMIT 1"
+    );
+    $statement->execute([$runId, $gate]);
+    $row = self::rows($statement)[0] ?? NULL;
+    if ($row === NULL) {
+      return NULL;
+    }
+    $found = $this->connection()->prepare('SELECT file, line, rule, message, detail FROM finding WHERE check_id = ? ORDER BY seq');
+    $found->execute([$row['id'] ?? 0]);
+    $findings = [];
+    foreach (self::rows($found) as $finding) {
+      $rebuilt = [];
+      foreach (['file', 'line', 'rule', 'message'] as $key) {
+        $value = $finding[$key] ?? NULL;
+        if ($key === 'line' && is_numeric($value)) {
+          $rebuilt[$key] = (int) $value;
+        }
+        elseif (is_scalar($value)) {
+          $rebuilt[$key] = $value;
+        }
+      }
+      $rest = is_string($finding['detail'] ?? NULL) ? json_decode($finding['detail'], TRUE) : NULL;
+      foreach (is_array($rest) ? $rest : [] as $key => $value) {
+        if (is_string($key) && !array_key_exists($key, $rebuilt)) {
+          $rebuilt[$key] = $value;
+        }
+      }
+      $findings[] = $rebuilt;
+    }
+    $row['findings'] = $findings;
+
+    return $row;
+  }
+
+  /**
    * Whether a satisfied check still describes the code as it stands.
    *
    * A green recorded against a fingerprint is only a green while the

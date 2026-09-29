@@ -159,7 +159,11 @@ final class PresetResolver {
       'prettier' => new GateSettings('prettier', FALSE),
       'phpunit' => new GateSettings('phpunit', FALSE, ['scope' => 'ticket']),
       'mutation' => new GateSettings('mutation', FALSE, ['msi_min' => 0]),
-      'playwright' => new GateSettings('playwright', TRUE, ['required' => TRUE, 'scope' => 'ticket']),
+      'playwright' => new GateSettings('playwright', TRUE, [
+        'required' => TRUE,
+        'scope' => 'ticket',
+        'reuse' => 'recorded',
+      ]),
       'parity' => new GateSettings('parity', TRUE),
       'coverage' => new GateSettings('coverage', FALSE, ['min' => 0]),
       'rendered_check' => new GateSettings('rendered_check', TRUE),

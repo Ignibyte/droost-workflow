@@ -14,6 +14,7 @@ use Droost\Workflow\Config\WorkItemSettings;
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Evidence\EvidenceError;
 use Droost\Workflow\Event\RunEventLog;
+use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Gate\ShellGateExecutor;
 use Droost\Workflow\Mode\Outcome;
@@ -234,6 +235,7 @@ final class ArgvDispatcher {
         'evidence' => $this->evidence($projectRoot, $argv),
         'ticket' => $this->ticket($projectRoot, $argv),
         'events' => $this->events($projectRoot, $argv),
+        'specs' => $this->specs($projectRoot),
         'relay' => $this->relay($projectRoot),
         default => $this->unknown($verb),
       };
@@ -880,6 +882,24 @@ final class ArgvDispatcher {
     $this->facade($projectRoot)->declareBrowser($projectRoot, $word);
     $this->say('browser: ' . $word);
     return self::EXIT_OK;
+  }
+
+  /**
+   * Runs the ticket's browser specs and records the run.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return int
+   *   The exit code: non-zero when the run did not pass.
+   */
+  private function specs(string $projectRoot): int {
+    $recorded = $this->facade($projectRoot)->recordSpecs($projectRoot);
+    $this->say($this->encode($recorded));
+
+    return ($recorded['result']['status'] ?? NULL) === GateStatus::Passed->value
+      ? self::EXIT_OK
+      : self::EXIT_RUN_FAILED;
   }
 
   /**
@@ -1546,6 +1566,12 @@ final class ArgvDispatcher {
                        droost/evidence/<run>.md). Re-measures the fingerprint
                        of what every green examined, so a verdict that no
                        longer describes the code reads EXPIRED.
+      specs            at test: run the ticket's browser specs now, as the
+                       playwright gate would (the run's levers, ticket
+                       scope), and record the run. At a level whose gate
+                       takes reuse: recorded (low), the test phase takes that
+                       record instead of running them again, while the tree
+                       is unchanged
       reset [--force]  clear a finished run (archives its record to
                        the state dir's history/); --force abandons a live one
       events [--after=<seq>]

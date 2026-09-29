@@ -12,6 +12,7 @@ use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\Evidence\EvidenceRecorder;
 use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Evidence\Fault;
+use Droost\Workflow\Evidence\RunSubject;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\GateRunner;
@@ -156,9 +157,9 @@ final class ModeEngine {
     // own gates wrote never reads as code that moved.
     if ($state->loop->loops() && in_array($phase, [Phase::Code, Phase::Test], TRUE)) {
       $changed = $this->runner->changedFiles($state, $projectRoot);
-      $loop = $state->loop->withSubject(TestLoop::CODE, TestLoop::subject($projectRoot, $changed, TestLoop::CODE));
+      $loop = $state->loop->withSubject(RunSubject::CODE, RunSubject::of($projectRoot, $changed, RunSubject::CODE));
       if ($phase === Phase::Test) {
-        $loop = $loop->withSubject(TestLoop::TEST, TestLoop::subject($projectRoot, $changed, TestLoop::TEST));
+        $loop = $loop->withSubject(RunSubject::TEST, RunSubject::of($projectRoot, $changed, RunSubject::TEST));
       }
       $state = $state->withLoop($loop);
     }
@@ -500,18 +501,18 @@ final class ModeEngine {
    *   Each moved subject, with the sentence that says so.
    */
   private function movedSubjects(RunState $state, Phase $phase, string $projectRoot): array {
-    $which = $phase === Phase::Complete ? TestLoop::TEST : TestLoop::CODE;
+    $which = $phase === Phase::Complete ? RunSubject::TEST : RunSubject::CODE;
     $then = $state->loop->subjects[$which] ?? NULL;
     if ($then === NULL) {
       return [];
     }
-    $now = TestLoop::subject($projectRoot, $this->runner->changedFiles($state, $projectRoot), $which);
+    $now = RunSubject::of($projectRoot, $this->runner->changedFiles($state, $projectRoot), $which);
     if ($now === NULL || hash_equals($then, $now)) {
       return [];
     }
 
     return [
-      $which => $which === TestLoop::CODE
+      $which => $which === RunSubject::CODE
         ? 'the files code\'s gates measured changed after they ran, so their green is not about the code as it stands'
         : 'files changed after test\'s gates ran (code or a spec), so neither code\'s green nor test\'s is about the tree as it stands',
     ];

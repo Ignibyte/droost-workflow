@@ -58,6 +58,15 @@ not to re-derive a verdict.
   required gate with no changed spec FAILS, whatever the rest of the suite
   would say. The row names its scope ("ticket scope: 2 file(s) this run
   changed, not the full suite"), so nobody reads it as a regression pass.
+
+  **At `low`, run your specs with `droost-workflow specs`** (inside the
+  container on DDEV, where the gate runs). It runs the ticket's specs exactly
+  as the playwright gate does and records the result against the tree. When
+  `run` follows and nothing has changed since, the gate takes that record
+  instead of running the suite a second time, and its row says so ("recorded
+  at …, on this tree: not run again"). Any edit after it, to a spec or the
+  code, and the gate runs them itself. A plain `npx playwright test` is
+  yours, and is not recorded.
 - **strict** (`high` and above): the engine runs the functional gates here:
   phpunit, coverage, mutation, playwright and the rendered check. **The static
   pair runs here too, over the tests you write in this phase**, and before

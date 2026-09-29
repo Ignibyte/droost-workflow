@@ -562,7 +562,14 @@ analysers read the files the run changed, and the suites run the test files
 it added or changed, the Playwright CLI handed those specs. `scope: full` runs
 a gate's whole set. A scoped row says so ("ticket scope: 2 file(s) this run
 changed, not the full suite"), and a required suite the ticket gave no test
-to run fails. P6 run 23 measured
+to run fails. At `low` the browser gate also takes `reuse: recorded`:
+`droost-workflow specs`, run at test, runs the ticket's specs exactly as the
+gate would and records the result against a fingerprint of the tree, and the
+test phase then takes that record rather than running the suite a second
+time. The row says so ("recorded at …, on this tree: not run again"). An edit
+after the recording, a tool that could not run, or a level at `reuse: never`
+(every level above low) runs the suite. What is taken is always droost's own
+run of the tool, never an account of one. P6 run 23 measured
 what the strict flow costs at the bottom of the dial: its 279-test browser
 suite ran three times in 86 minutes, for a ticket whose own tests were two
 files. `wiki_fresh` is due only here, and only here

@@ -78,6 +78,9 @@ preset: custom
 #   whole configured set, a full regression for the suites.
 #     gates:
 #       playwright: { scope: full }
+#   playwright also takes reuse: recorded | never. recorded (the default at
+#   low): the test phase takes the run `droost-workflow specs` recorded of the
+#   ticket's specs, on the same tree, instead of running them again.
 #
 # max_loops: <n>  (omitted, the level decides: low 2, medium 3, high+ 5)
 #   In the fast flow, how many times a failure at test sends the run back to

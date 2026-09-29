@@ -195,7 +195,7 @@ final class GateSettings {
       'timeout' => 'seconds',
     ],
     'mutation' => ['msi_min' => 'percent', 'root' => 'string', 'timeout' => 'seconds'],
-    'playwright' => ['required' => 'flag', 'scope' => 'string', 'timeout' => 'seconds'],
+    'playwright' => ['required' => 'flag', 'scope' => 'string', 'reuse' => 'reuse', 'timeout' => 'seconds'],
     'parity' => [
       'required' => 'flag',
       'reference' => 'string',
@@ -636,8 +636,36 @@ final class GateSettings {
       'level' => $this->readLevel($node, $option),
       'paths' => $this->readPaths($node, $option),
       'flag' => $node->bool($option),
+      'reuse' => $this->readReuse($node, $option),
       default => $this->readToolArgument($node, $option),
     };
+  }
+
+  /**
+   * Reads whether a gate may take the agent's recorded run instead (0.11).
+   *
+   * @param \Droost\Workflow\Support\TypedArray $node
+   *   The gate's mapping.
+   * @param string $option
+   *   The option name.
+   *
+   * @return string
+   *   `recorded` or `never`.
+   *
+   * @throws \Droost\Workflow\Support\DataError
+   *   When the value is neither: a typo must not quietly mean never.
+   */
+  private function readReuse(TypedArray $node, string $option): string {
+    $value = $node->string($option);
+    if (!in_array($value, ['recorded', 'never'], TRUE)) {
+      throw new DataError($node->path($option), sprintf(
+        '%s must be "recorded" (take a run `droost-workflow specs` recorded on this tree) or "never" — got "%s"',
+        $node->path($option),
+        $value,
+      ));
+    }
+
+    return $value;
   }
 
   /**

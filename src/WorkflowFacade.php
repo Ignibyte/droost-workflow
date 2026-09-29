@@ -28,6 +28,7 @@ use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\Evidence\DeclarationAudit;
 use Droost\Workflow\Evidence\EvaluationReport;
 use Droost\Workflow\Evidence\EvidenceStore;
+use Droost\Workflow\Evidence\RunSubject;
 use Droost\Workflow\Evidence\ScaffoldRecord;
 use Droost\Workflow\Evidence\Fault;
 use Droost\Workflow\Evidence\SpecFreeze;
@@ -1444,6 +1445,82 @@ final class WorkflowFacade {
     $store->declareNote($state->runId, self::openPhase($state), $kind, $subject, $detail, $this->now());
 
     return ['run' => $state->runId, 'notes' => $store->specNotes($state->runId)];
+  }
+
+  /**
+   * Runs the ticket's browser specs now, and records the run (0.11).
+   *
+   * The Playwright CLI run an agent makes at test, made by droost instead, so
+   * it is a measurement rather than an account of one: the playwright gate,
+   * with the run's own frozen levers and ticket scope, down the same path the
+   * phase takes. The result is kept as a `recorded_run` row against the
+   * fingerprint of the tree it ran on. A level whose gate takes
+   * `reuse: recorded` (low) then takes that row at the test phase instead of
+   * running the suite a second time, while the tree is unchanged.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return array{run: string, result: array<string, mixed>, recorded: bool, reusable: bool}
+   *   The gate's result, and whether a phase may take it.
+   *
+   * @throws \Droost\Workflow\State\StateError
+   *   When there is no run.
+   * @throws \InvalidArgumentException
+   *   When the run is not at test, or runs no browser gate there.
+   */
+  public function recordSpecs(string $projectRoot): array {
+    $state = $this->requireRun(new RunStateStore($projectRoot));
+    if ($state->currentPhase !== Phase::Test) {
+      throw new \InvalidArgumentException(sprintf(
+        'specs records a browser run for the test phase, and this run is at %s. Its specs run at test.',
+        $state->currentPhase->value ?? 'its end',
+      ));
+    }
+    $runner = new GateRunner($this->executor, $this->driver, $this->vcs, $this->contributed ?? []);
+    $result = $runner->run($state, Phase::Test, $projectRoot, NULL, ['playwright'], FALSE)->results[0] ?? NULL;
+    if ($result === NULL || $result->status === GateStatus::Off) {
+      throw new \InvalidArgumentException(
+        'This run\'s test phase runs no playwright gate, so there is no browser run to record.',
+      );
+    }
+    // After the run, so whatever the suite itself wrote is part of the tree it
+    // is held to.
+    $changed = $this->vcs->isRepository($projectRoot) && $state->baseCommit !== NULL
+      ? $this->vcs->changedFiles($projectRoot, $state->baseCommit)
+      : NULL;
+    $subject = RunSubject::of($projectRoot, $changed, RunSubject::TEST);
+    $passed = $result->status === GateStatus::Passed;
+    $measuredFailure = $result->status === GateStatus::Failed;
+    // A tool that could not run is kept with no fingerprint, so it is never
+    // taken for a measurement.
+    $reusable = $subject !== NULL && ($passed || $measuredFailure);
+    $store = new EvidenceStore($projectRoot);
+    $store->record($state->runId, Phase::Test->value, new CheckRecord(
+      'recorded_run',
+      $result->gate,
+      $passed ? CheckState::Satisfied : CheckState::Recorded,
+      Fault::None,
+      $result->summary,
+      NULL,
+      $reusable ? $subject : NULL,
+      $result->exitCode,
+      $result->invocation,
+      NULL,
+      $result->durationMs,
+      $result->findings,
+      $result->stdout,
+      $result->stderr,
+      '',
+      $passed ? !$result->labelledPass : NULL,
+    ), $this->now());
+
+    return [
+      'run' => $state->runId,
+      'result' => $result->toArray(),
+      'recorded' => TRUE,
+      'reusable' => $reusable && ($state->resolvedGates['playwright']['reuse'] ?? 'never') === 'recorded',
+    ];
   }
 
   /**

@@ -76,7 +76,7 @@ class PresetResolverTest extends TestCase {
       'prettier' => ['on' => FALSE],
       'phpunit' => ['on' => FALSE, 'scope' => 'ticket'],
       'mutation' => ['on' => FALSE, 'msi_min' => 0],
-      'playwright' => ['on' => TRUE, 'required' => TRUE, 'scope' => 'ticket'],
+      'playwright' => ['on' => TRUE, 'required' => TRUE, 'scope' => 'ticket', 'reuse' => 'recorded'],
       'parity' => ['on' => TRUE],
       'coverage' => ['on' => FALSE, 'min' => 0],
       'rendered_check' => ['on' => TRUE],

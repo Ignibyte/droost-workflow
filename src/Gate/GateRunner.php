@@ -14,6 +14,9 @@ use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\PresetResolver;
 use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\Evidence\CheckState;
+use Droost\Workflow\Evidence\EvidenceStore;
+use Droost\Workflow\Evidence\RunSubject;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\Vcs\VcsInterface;
 
@@ -106,6 +109,12 @@ final class GateRunner {
    * @param callable(\Droost\Workflow\Gate\GateResult): void|null $onResult
    *   Called after each gate. The attach point for pair mode, which needs to
    *   act at a gate boundary without this class knowing anything about modes.
+   * @param list<string>|null $only
+   *   The due gates to run, or NULL for all of them: `droost-workflow specs`
+   *   runs the browser gate alone, down the same path a phase does.
+   * @param bool $reuse
+   *   Whether a gate at `reuse: recorded` may take a recorded run. FALSE for
+   *   the recorder itself, whose job is to run the tool.
    *
    * @return \Droost\Workflow\Gate\PhaseReport
    *   Every due gate's outcome.
@@ -115,6 +124,8 @@ final class GateRunner {
     Phase $phase,
     string $projectRoot,
     ?callable $onResult = NULL,
+    ?array $only = NULL,
+    bool $reuse = TRUE,
   ): PhaseReport {
     $report = new PhaseReport($phase);
     $live = $this->liveTuning($projectRoot);
@@ -124,6 +135,9 @@ final class GateRunner {
     $changed = NULL;
 
     foreach ($state->gatesDueFor($phase) as $name => $levers) {
+      if ($only !== NULL && !in_array($name, $only, TRUE)) {
+        continue;
+      }
       $waiver = $state->gateWaivers[$name] ?? NULL;
       if ($waiver !== NULL) {
         // Waived by the OPERATOR for this run (never an agent's move — the
@@ -169,12 +183,19 @@ final class GateRunner {
             $levers['ticket_unknown'] = TRUE;
           }
         }
+        // A RECORDED RUN, where the level allows one (0.11, `low`): the run
+        // `droost-workflow specs` made of this gate, on this tree, is taken
+        // instead of running the suite a second time. The row says so. With
+        // no record, or a tree that moved since, the gate runs as always.
+        $recorded = $reuse && ($levers['reuse'] ?? 'never') === 'recorded'
+          ? $this->recordedResult($name, $state, $projectRoot, $changed)
+          : NULL;
         $result = $this->inReportMode($levers, $this->coveringTheDiff(
           $name,
           $levers,
           $state,
           $projectRoot,
-          $this->runOne($name, $levers, $projectRoot, $state->preset, $context),
+          $recorded ?? $this->runOne($name, $levers, $projectRoot, $state->preset, $context),
         ));
         $result = $this->steeredByTheRun($name, $levers, $state, $projectRoot, $result, $changed);
         $result = $this->outsideTheDiff($state, $projectRoot, $result, $changed);
@@ -409,6 +430,73 @@ final class GateRunner {
     }
 
     return array_keys($names);
+  }
+
+  /**
+   * The gate's recorded run, when it was made on the tree as it stands.
+   *
+   * Only a measurement the recorder made counts: the row is droost's own run
+   * of the gate's tool, never the agent's account of one, and only a pass, a
+   * labelled pass or a measured failure is taken. A tool that could not run
+   * was recorded with no fingerprint, and is run again.
+   *
+   * @param string $name
+   *   The gate.
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string>|null $changed
+   *   The run's changed files, read on first use and kept for the phase.
+   *
+   * @return \Droost\Workflow\Gate\GateResult|null
+   *   The recorded result, saying it was recorded, or NULL to run the gate.
+   */
+  private function recordedResult(string $name, RunState $state, string $projectRoot, ?array &$changed): ?GateResult {
+    if ($this->vcs === NULL || $state->baseCommit === NULL) {
+      return NULL;
+    }
+    $changed ??= $this->vcs->changedFiles($projectRoot, $state->baseCommit);
+    $now = RunSubject::of($projectRoot, $changed, RunSubject::TEST);
+    try {
+      $row = (new EvidenceStore($projectRoot))->recordedRun($state->runId, $name);
+    }
+    catch (\Throwable) {
+      return NULL;
+    }
+    $then = $row['subject_hash'] ?? NULL;
+    if ($row === NULL || $now === NULL || !is_string($then) || !hash_equals($then, $now)) {
+      return NULL;
+    }
+    $at = is_string($row['adjudicated_at'] ?? NULL) ? $row['adjudicated_at'] : 'an earlier moment';
+    $summary = sprintf(
+      '%s [the run `droost-workflow specs` recorded at %s, on this tree: not run again]',
+      rtrim(is_string($row['summary'] ?? NULL) ? $row['summary'] : '', '. '),
+      $at,
+    );
+    $exit = is_numeric($row['exit_code'] ?? NULL) ? (int) $row['exit_code'] : 0;
+    $duration = is_numeric($row['duration_ms'] ?? NULL) ? (int) $row['duration_ms'] : 0;
+    $invocation = is_string($row['invocation'] ?? NULL) ? $row['invocation'] : '';
+    $findings = [];
+    foreach (is_array($row['findings'] ?? NULL) ? $row['findings'] : [] as $finding) {
+      if (!is_array($finding)) {
+        continue;
+      }
+      $typed = [];
+      foreach ($finding as $key => $value) {
+        $typed[(string) $key] = $value;
+      }
+      $findings[] = $typed;
+    }
+    $state = CheckState::tryFrom(is_string($row['state'] ?? NULL) ? $row['state'] : '');
+    $measured = in_array($row['measured'] ?? NULL, [1, '1'], TRUE);
+
+    return match (TRUE) {
+      $state === CheckState::Satisfied && $measured => GateResult::ran($name, GateStatus::Passed, $exit, $duration, $summary, $findings, $invocation),
+      $state === CheckState::Satisfied => GateResult::labelledPass($name, $exit, $duration, $summary, $invocation, $findings),
+      $state === CheckState::Recorded && $exit !== 0 => GateResult::ran($name, GateStatus::Failed, $exit, $duration, $summary, $findings, $invocation),
+      default => NULL,
+    };
   }
 
   /**
