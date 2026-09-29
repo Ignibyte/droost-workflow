@@ -822,7 +822,158 @@ function operator_commands_scan_text(string $command): string {
       }
     }
   }
-  return implode("\n", $kept);
+  return operator_commands_without_case_patterns(implode("\n", $kept));
+}
+
+/**
+ * A command line with its `case` arms' patterns taken out (F-175).
+ *
+ * A pattern is matched against a word and never run, and it was tokenised
+ * as a command: `"$real_inst"/*) ;;` read as a program held in a variable and
+ * `*) die …` as a wildcard expanding onto the lever file, so druplit's test
+ * runner, and any script with a `case` in it, was refused. The arms' bodies
+ * stay, and are judged as ever. A pattern that holds a command substitution
+ * or a backtick runs something, and is left in to be judged.
+ *
+ * @param string $text
+ *   A command line or a script's text, heredoc bodies already set aside.
+ *
+ * @return string
+ *   The same text, each plain pattern and its `)` replaced by spaces.
+ */
+function operator_commands_without_case_patterns(string $text): string {
+  if (preg_match('/(^|[\s;&|(){}])case\s/', $text) !== 1) {
+    return $text;
+  }
+  $out = '';
+  $length = strlen($text);
+  // A stack of what each open `case` expects next: 'word' until its `in`,
+  // then 'pattern' at the head of each arm, 'body' after the arm's `)`.
+  $stack = [];
+  $atCommand = TRUE;
+  for ($i = 0; $i < $length;) {
+    $char = $text[$i];
+    $mode = $stack === [] ? NULL : end($stack);
+    // A comment, to the end of its line, wherever a word could start: an
+    // apostrophe in one ("the target's target.env") is not a quote.
+    if ($char === '#' && ($i === 0 || preg_match('/[\s;&|(){}]/', $text[$i - 1]) === 1)
+      && ($mode !== 'pattern' || trim($pattern ?? '') === '')) {
+      $eol = strcspn($text, "\r\n", $i);
+      $out .= substr($text, $i, $eol);
+      $i += $eol;
+      continue;
+    }
+    // Quotes are copied whole, wherever they stand.
+    if ($char === '\'' || $char === '"') {
+      $close = $i + 1;
+      while ($close < $length && $text[$close] !== $char) {
+        $close += ($char === '"' && $text[$close] === '\\') ? 2 : 1;
+      }
+      $piece = substr($text, $i, $close - $i + 1);
+      $i = $close + 1;
+      if ($mode === 'pattern') {
+        $pattern = ($pattern ?? '') . $piece;
+        continue;
+      }
+      $out .= $piece;
+      $atCommand = FALSE;
+      continue;
+    }
+    if ($char === '\\' && $i + 1 < $length) {
+      $piece = substr($text, $i, 2);
+      $i += 2;
+      if ($mode === 'pattern') {
+        $pattern = ($pattern ?? '') . $piece;
+        continue;
+      }
+      $out .= $piece;
+      continue;
+    }
+    if ($mode === 'pattern') {
+      $pattern ??= '';
+      if (ctype_space($char) && trim($pattern) === '') {
+        $out .= $char;
+        $i++;
+        continue;
+      }
+      if (trim($pattern) === '' && preg_match('/\Gesac(?![A-Za-z0-9_])/', $text, $m, 0, $i) === 1) {
+        array_pop($stack);
+        $out .= 'esac';
+        $i += 4;
+        $pattern = NULL;
+        $atCommand = FALSE;
+        continue;
+      }
+      if ($char === '(' && trim($pattern) === '') {
+        // The optional `(` before a pattern.
+        $out .= ' ';
+        $i++;
+        continue;
+      }
+      if ($char === ')' && substr_count($pattern, '$(') <= substr_count($pattern, ')')) {
+        $runs = str_contains($pattern, '$(') || str_contains($pattern, '`');
+        $out .= $runs ? $pattern . ')' : str_repeat(' ', strlen($pattern) + 1);
+        $stack[count($stack) - 1] = 'body';
+        $pattern = NULL;
+        $atCommand = TRUE;
+        $i++;
+        continue;
+      }
+      $pattern .= $char;
+      $i++;
+      continue;
+    }
+    // A word, at the head of a command or not.
+    if (preg_match('/\G[A-Za-z_][A-Za-z0-9_]*/', $text, $m, 0, $i) === 1) {
+      $word = $m[0];
+      $i += strlen($word);
+      if ($mode === 'word' && $word === 'in') {
+        $stack[count($stack) - 1] = 'pattern';
+        $pattern = NULL;
+        $out .= $word;
+        continue;
+      }
+      if ($word === 'case' && $atCommand) {
+        $stack[] = 'word';
+      }
+      elseif ($word === 'esac' && $mode === 'body') {
+        array_pop($stack);
+      }
+      $out .= $word;
+      $atCommand = in_array($word, ['then', 'do', 'else', 'elif', 'if', 'while', 'until', 'time', '!'], TRUE);
+      continue;
+    }
+    // `;;`, `;&` and `;;&` end an arm: the next thing is a pattern.
+    if ($mode === 'body' && $char === ';' && ($text[$i + 1] ?? '') === ';') {
+      $end = ($text[$i + 2] ?? '') === '&' ? 3 : 2;
+      $out .= str_repeat(';', 1) . str_repeat(' ', $end - 1);
+      $stack[count($stack) - 1] = 'pattern';
+      $pattern = NULL;
+      $i += $end;
+      continue;
+    }
+    if ($mode === 'body' && $char === ';' && ($text[$i + 1] ?? '') === '&') {
+      $out .= '; ';
+      $stack[count($stack) - 1] = 'pattern';
+      $pattern = NULL;
+      $i += 2;
+      continue;
+    }
+    $out .= $char;
+    if (in_array($char, [';', '&', '|', '(', '{', "\n"], TRUE)) {
+      $atCommand = TRUE;
+    }
+    elseif (!ctype_space($char)) {
+      $atCommand = FALSE;
+    }
+    $i++;
+  }
+  // An unclosed pattern is kept as it was written.
+  if (isset($pattern) && $pattern !== NULL) {
+    $out .= $pattern;
+  }
+
+  return $out;
 }
 
 /**

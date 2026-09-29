@@ -765,6 +765,42 @@ final class ShellSurfaceTest extends WorkflowTestCase {
   }
 
   /**
+   * A `case` arm's pattern is matched, never run (F-175).
+   *
+   * `"$dir"/*) ;;` read as a program held in a variable and `*) …` as a
+   * wildcard onto the lever file, so any script with a `case` in it, druplit's
+   * test runner among them, was refused. The arms' bodies are judged as ever,
+   * and a pattern that runs something is left in.
+   */
+  public function testCasePatternsAreNotCommands(): void {
+    $root = $this->lab();
+    file_put_contents($root . '/droost.workflow.yml', "preset: low\n");
+    mkdir($root . '/bin', 0755, TRUE);
+    file_put_contents($root . '/bin/confine.sh', "#!/usr/bin/env bash\n# the target's dir, never its template store\n"
+      . "case \"\$real\" in\n  \"\$inst\"/*) ;;\n  /a | /b) echo ok ;;\n  *) echo \"outside '\$inst'\" >&2; exit 2 ;;\nesac\n");
+    chmod($root . '/bin/confine.sh', 0755);
+    $allowed = [
+      'bin/confine.sh',
+      'case "$1" in -h|--help) echo help ;; *) echo other ;; esac',
+      "case \$a in\n x) case \$b in y) echo y ;; *) echo n ;; esac ;;\n *) echo z ;;\nesac",
+    ];
+    foreach ($allowed as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ': ' . $stderr);
+    }
+    $refused = [
+      'case "$x" in a) rm .claude/hooks/droost-workflow-guard.php ;; esac',
+      "case \"\$1\" in\n  go) drush droost:workflow:bypass x ;;\nesac",
+      'case x in $(rm -rf droost/droost-workflow)) ;; esac',
+      'case x in a) $CMD droost/droost-workflow/run.json ;; esac',
+    ];
+    foreach ($refused as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' runs what it runs');
+    }
+  }
+
+  /**
    * Find is judged by what its action DOES, not only by where it looks.
    *
    * `-iname` is case-insensitive to find and `fnmatch` is not, so
