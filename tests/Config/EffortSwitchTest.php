@@ -143,7 +143,7 @@ class EffortSwitchTest extends WorkflowTestCase {
     $this->assertContains('mutation: off → on (msi ≥ 80, timeout 1800s)', $delta);
     $this->assertContains('coverage: off → on (min 80, timeout 900s)', $delta);
     $this->assertContains('wiki_fresh: off → on (a page for every custom extension a run changes)', $delta);
-    $this->assertContains('phpstan: level 1 → max', $delta);
+    $this->assertContains('phpstan: level 1 → max, scope ticket → full', $delta);
     $this->assertContains('seekers: off → on', $delta);
     $this->assertContains('enforcement: soft → hard', $delta);
     $this->assertContains('gate retries: 1 → 3', $delta);

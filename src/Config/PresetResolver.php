@@ -152,14 +152,14 @@ final class PresetResolver {
    */
   private static function low(): Preset {
     return new Preset('low', Mode::Agentic, 1, enforcement: Enforcement::Soft, seekers: FALSE, gates: [
-      'phpcs' => new GateSettings('phpcs', TRUE, ['standard' => 'Drupal']),
-      'phpstan' => new GateSettings('phpstan', TRUE, ['level' => 1]),
+      'phpcs' => new GateSettings('phpcs', TRUE, ['standard' => 'Drupal', 'scope' => 'ticket']),
+      'phpstan' => new GateSettings('phpstan', TRUE, ['level' => 1, 'scope' => 'ticket']),
       'eslint' => new GateSettings('eslint', FALSE),
       'stylelint' => new GateSettings('stylelint', FALSE),
       'prettier' => new GateSettings('prettier', FALSE),
-      'phpunit' => new GateSettings('phpunit', FALSE),
+      'phpunit' => new GateSettings('phpunit', FALSE, ['scope' => 'ticket']),
       'mutation' => new GateSettings('mutation', FALSE, ['msi_min' => 0]),
-      'playwright' => new GateSettings('playwright', TRUE, ['required' => TRUE]),
+      'playwright' => new GateSettings('playwright', TRUE, ['required' => TRUE, 'scope' => 'ticket']),
       'parity' => new GateSettings('parity', TRUE),
       'coverage' => new GateSettings('coverage', FALSE, ['min' => 0]),
       'rendered_check' => new GateSettings('rendered_check', TRUE),
@@ -191,14 +191,15 @@ final class PresetResolver {
     return new Preset('medium', Mode::Agentic, 2, enforcement: Enforcement::Soft, gates: [
       'phpcs' => new GateSettings('phpcs', TRUE, [
         'standard' => self::DEFAULT_STANDARD,
+        'scope' => 'ticket',
       ]),
-      'phpstan' => new GateSettings('phpstan', TRUE, ['level' => 2]),
+      'phpstan' => new GateSettings('phpstan', TRUE, ['level' => 2, 'scope' => 'ticket']),
       'eslint' => new GateSettings('eslint', FALSE),
       'stylelint' => new GateSettings('stylelint', FALSE),
       'prettier' => new GateSettings('prettier', FALSE),
-      'phpunit' => new GateSettings('phpunit', TRUE, ['in_diff' => TRUE]),
+      'phpunit' => new GateSettings('phpunit', TRUE, ['in_diff' => TRUE, 'scope' => 'ticket']),
       'mutation' => new GateSettings('mutation', FALSE, ['msi_min' => 0]),
-      'playwright' => new GateSettings('playwright', TRUE, ['required' => TRUE]),
+      'playwright' => new GateSettings('playwright', TRUE, ['required' => TRUE, 'scope' => 'ticket']),
       'parity' => new GateSettings('parity', TRUE),
       'coverage' => new GateSettings('coverage', FALSE, ['min' => 0]),
       'rendered_check' => new GateSettings('rendered_check', TRUE),

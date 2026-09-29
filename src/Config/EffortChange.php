@@ -152,11 +152,13 @@ final class EffortChange {
       if ($before === $after) {
         continue;
       }
+      // An unset scope IS full (0.11): the delta names what a gate will do.
+      $unset = $option === 'scope' ? 'full' : '(unset)';
       $lines[] = sprintf(
         '%s %s → %s',
         $option,
-        $before === NULL ? '(unset)' : self::render($before),
-        $after === NULL ? '(unset)' : self::render($after),
+        $before === NULL ? $unset : self::render($before),
+        $after === NULL ? $unset : self::render($after),
       );
     }
     return $lines;

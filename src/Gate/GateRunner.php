@@ -156,6 +156,19 @@ final class GateRunner {
       }
       else {
         [$levers, $drift] = $this->withLiveTuning($name, $levers, $live[$name] ?? NULL);
+        // TICKET SCOPE (0.11): the gate is handed what this run changed, which
+        // only the runner can ask the repository for. A run with no base
+        // commit, or no repository, cannot say; the executor then runs the
+        // full set and says why.
+        if (($levers['scope'] ?? NULL) === 'ticket' && in_array($name, ShellGateExecutor::TICKET_SCOPED, TRUE)) {
+          if ($this->vcs !== NULL && $state->baseCommit !== NULL) {
+            $changed ??= $this->vcs->changedFiles($projectRoot, $state->baseCommit);
+            $levers['ticket_files'] = implode("\n", $changed);
+          }
+          else {
+            $levers['ticket_unknown'] = TRUE;
+          }
+        }
         $result = $this->inReportMode($levers, $this->coveringTheDiff(
           $name,
           $levers,

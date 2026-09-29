@@ -168,12 +168,34 @@ final class GateSettings {
   // its phpcs.xml or phpstan.neon is the one discovered. Druplit keeps its
   // site in site/, beside two other Composer projects, and has no vendor/ at
   // the repository root.
+  // `scope` (0.11) on phpcs, phpstan, phpunit and playwright is `ticket` or
+  // `full`: the files this run changed (and, for the suites, the test files
+  // it changed), or the whole configured set. `low` and `medium` default to
+  // ticket. parity's `scope` is its own: `frame` or `page`.
   private const GATE_OPTIONS = [
-    'phpcs' => ['standard' => 'string', 'paths' => 'paths', 'root' => 'string', 'timeout' => 'seconds'],
-    'phpstan' => ['level' => 'level', 'paths' => 'paths', 'root' => 'string', 'timeout' => 'seconds'],
-    'phpunit' => ['required' => 'flag', 'in_diff' => 'flag', 'root' => 'string', 'timeout' => 'seconds'],
+    'phpcs' => [
+      'standard' => 'string',
+      'paths' => 'paths',
+      'root' => 'string',
+      'scope' => 'string',
+      'timeout' => 'seconds',
+    ],
+    'phpstan' => [
+      'level' => 'level',
+      'paths' => 'paths',
+      'root' => 'string',
+      'scope' => 'string',
+      'timeout' => 'seconds',
+    ],
+    'phpunit' => [
+      'required' => 'flag',
+      'in_diff' => 'flag',
+      'root' => 'string',
+      'scope' => 'string',
+      'timeout' => 'seconds',
+    ],
     'mutation' => ['msi_min' => 'percent', 'root' => 'string', 'timeout' => 'seconds'],
-    'playwright' => ['required' => 'flag', 'timeout' => 'seconds'],
+    'playwright' => ['required' => 'flag', 'scope' => 'string', 'timeout' => 'seconds'],
     'parity' => [
       'required' => 'flag',
       'reference' => 'string',

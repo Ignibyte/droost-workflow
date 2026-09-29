@@ -69,14 +69,14 @@ class PresetResolverTest extends TestCase {
     $high['phpunit'] = ['on' => TRUE, 'in_diff' => TRUE];
     $high['wiki_fresh'] = ['on' => TRUE, 'cover_diff' => TRUE];
     $low = [
-      'phpcs' => ['on' => TRUE, 'standard' => 'Drupal'],
-      'phpstan' => ['on' => TRUE, 'level' => 1],
+      'phpcs' => ['on' => TRUE, 'standard' => 'Drupal', 'scope' => 'ticket'],
+      'phpstan' => ['on' => TRUE, 'level' => 1, 'scope' => 'ticket'],
       'eslint' => ['on' => FALSE],
       'stylelint' => ['on' => FALSE],
       'prettier' => ['on' => FALSE],
-      'phpunit' => ['on' => FALSE],
+      'phpunit' => ['on' => FALSE, 'scope' => 'ticket'],
       'mutation' => ['on' => FALSE, 'msi_min' => 0],
-      'playwright' => ['on' => TRUE, 'required' => TRUE],
+      'playwright' => ['on' => TRUE, 'required' => TRUE, 'scope' => 'ticket'],
       'parity' => ['on' => TRUE],
       'coverage' => ['on' => FALSE, 'min' => 0],
       'rendered_check' => ['on' => TRUE],
@@ -85,14 +85,14 @@ class PresetResolverTest extends TestCase {
       'wiki_fresh' => ['on' => FALSE],
     ];
     $medium = [
-      'phpcs' => ['on' => TRUE, 'standard' => $standard],
-      'phpstan' => ['on' => TRUE, 'level' => 2],
+      'phpcs' => ['on' => TRUE, 'standard' => $standard, 'scope' => 'ticket'],
+      'phpstan' => ['on' => TRUE, 'level' => 2, 'scope' => 'ticket'],
       'eslint' => ['on' => FALSE],
       'stylelint' => ['on' => FALSE],
       'prettier' => ['on' => FALSE],
-      'phpunit' => ['on' => TRUE, 'in_diff' => TRUE],
+      'phpunit' => ['on' => TRUE, 'in_diff' => TRUE, 'scope' => 'ticket'],
       'mutation' => ['on' => FALSE, 'msi_min' => 0],
-      'playwright' => ['on' => TRUE, 'required' => TRUE],
+      'playwright' => ['on' => TRUE, 'required' => TRUE, 'scope' => 'ticket'],
       'parity' => ['on' => TRUE],
       'coverage' => ['on' => FALSE, 'min' => 0],
       'rendered_check' => ['on' => TRUE],

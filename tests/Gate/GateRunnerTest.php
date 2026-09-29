@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Gate;
 
+use Droost\Workflow\Vcs\VcsInterface;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Config\Phase;
@@ -433,6 +434,52 @@ class GateRunnerTest extends WorkflowTestCase {
     (new GateRunner($max, new NullSiteDriver()))->run($this->beginWith(['preset' => 'max']), Phase::Test, '/tmp');
     $this->assertTrue($max->option('phpunit', 'required'), 'max resolves phpunit required: true');
     $this->assertTrue($max->option('playwright', 'required'));
+  }
+
+  /**
+   * A gate at ticket scope is handed what the run changed (0.11).
+   *
+   * Through the runner, on a `low` run's frozen levers, as F-139 taught: the
+   * executor's own tests hand it `ticket_files` by hand, and only this path
+   * shows the runner reads the repository and passes them on.
+   */
+  public function testTicketFilesReachTheScopedGate(): void {
+    $config = WorkflowConfig::fromArray(['preset' => 'low'], 'test');
+    $state = RunState::begin('run-1', '2026-09-29T00:00:00+00:00', $config, 'abc123');
+    $vcs = new class() implements VcsInterface {
+
+      /**
+       * {@inheritdoc}
+       */
+      public function head(string $projectRoot): string {
+        return 'def456';
+      }
+
+      /**
+       * {@inheritdoc}
+       */
+      public function isRepository(string $projectRoot): bool {
+        return TRUE;
+      }
+
+      /**
+       * {@inheritdoc}
+       */
+      public function changedFiles(string $projectRoot, ?string $base): array {
+        return $base === 'abc123' ? ['tests/e2e/mine.spec.ts', 'web/modules/custom/x/x.module'] : [];
+      }
+
+    };
+    $recorder = new SettingsRecordingExecutor();
+    (new GateRunner($recorder, new NullSiteDriver(), $vcs))->run($state, Phase::Test, '/tmp');
+    $this->assertSame('ticket', $recorder->option('playwright', 'scope'));
+    $this->assertSame("tests/e2e/mine.spec.ts\nweb/modules/custom/x/x.module", $recorder->option('playwright', 'ticket_files'));
+
+    // With no repository to ask, the gate is told it cannot know.
+    $blind = new SettingsRecordingExecutor();
+    (new GateRunner($blind, new NullSiteDriver()))->run($state, Phase::Test, '/tmp');
+    $this->assertTrue($blind->option('playwright', 'ticket_unknown'));
+    $this->assertNull($blind->option('playwright', 'ticket_files'));
   }
 
   /**

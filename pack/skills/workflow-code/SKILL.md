@@ -170,7 +170,10 @@ on the run's flow**, and `droost-workflow status` lists it under `phase_gates`:
 - **fast** (`low` and `medium`): code runs every analyser the level turns on
   AND the unit tests: phpunit, mutation and coverage, where on. So write the
   ticket's unit tests in this phase, run them, fix what they and the
-  analysers find, and repeat. The test phase that follows runs only the
+  analysers find, and repeat. At `scope: ticket` (the default at `low` and
+  `medium`) the analysers read the files this run changed, and phpunit runs
+  the test files this run added or changed; `scope: full` on a gate runs its
+  whole configured set. The test phase that follows runs only the
   browser suite, parity and the rendered check; nothing re-runs your
   analysers or unit tests after this phase, and complete runs no gate.
 - **strict** (`high` and above): code runs static analysis only, and the

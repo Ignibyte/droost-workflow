@@ -34,6 +34,14 @@ not to re-derive a verdict.
   parity, the rendered check and config_clean. The analysers and the unit
   tests ran at code and do not run again, and complete runs no gate, so a
   failure here is fixed now or not at all in this run.
+
+  **At `scope: ticket` (the default at `low` and `medium`) the playwright
+  gate runs the spec files this run added or changed, and nothing else.** The
+  full suite runs only where `gates.playwright.scope: full` says so. So the
+  ticket's behaviour must be proved by a spec this run wrote or updated: a
+  required gate with no changed spec FAILS, whatever the rest of the suite
+  would say. The row names its scope ("ticket scope: 2 file(s) this run
+  changed, not the full suite"), so nobody reads it as a regression pass.
 - **strict** (`high` and above): the engine runs the functional gates here:
   phpunit, coverage, mutation, playwright and the rendered check. **The static
   pair runs here too, over the tests you write in this phase**, and before

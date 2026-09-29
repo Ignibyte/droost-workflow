@@ -177,6 +177,16 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   public const INFECTION_CONFIGS = ['infection.json5', 'infection.json', 'infection.json5.dist', 'infection.json.dist'];
 
   /**
+   * The gates `scope: ticket` narrows to what the run changed (0.11).
+   */
+  public const TICKET_SCOPED = ['phpcs', 'phpstan', 'phpunit', 'playwright'];
+
+  /**
+   * A browser spec file, by the names Playwright discovers.
+   */
+  private const SPEC_FILE = '/\.(spec|test)\.[cm]?[jt]sx?$/';
+
+  /**
    * Where a Drupal site's own code lives inside its docroot.
    */
   private const DRUPAL_OWN_TREES = ['modules/custom', 'themes/custom', 'profiles/custom'];
@@ -310,14 +320,14 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    * {@inheritdoc}
    */
   public function execute(GateSettings $gate, string $projectRoot): GateResult {
-    return $this->withSubjects($gate, $projectRoot, $this->withLastOutput($this->run($gate, $projectRoot, NULL)));
+    return $this->withScopeNote($gate, $this->withSubjects($gate, $projectRoot, $this->withLastOutput($this->run($gate, $projectRoot, NULL))));
   }
 
   /**
    * {@inheritdoc}
    */
   public function executeWithBaseline(GateSettings $gate, string $projectRoot, BaselineContext $context): GateResult {
-    return $this->withSubjects($gate, $projectRoot, $this->withLastOutput($this->run($gate, $projectRoot, $context)));
+    return $this->withScopeNote($gate, $this->withSubjects($gate, $projectRoot, $this->withLastOutput($this->run($gate, $projectRoot, $context))));
   }
 
   /**
@@ -353,6 +363,177 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       static fn (string $path): string => $under === '' ? $path : self::fromProject(ltrim($under, '/') . '/' . $path),
       $this->subjectsFor($gate, $root),
     ));
+  }
+
+  /**
+   * A gate narrowed to what this run changed, or the verdict that ends it.
+   *
+   * `scope: ticket` (0.11), with the files the runner read from the
+   * repository in `ticket_files`. The analysers are handed the changed files
+   * they read, as a `paths` list, so every rule `paths` already obeys holds
+   * (a file must exist, core and contrib are never the project's, a tool's
+   * own config is still read). The suites are handed the test files the run
+   * changed. A scope with nothing in it says so: a labelled pass for an
+   * analyser, and for a required suite a failure, since a ticket that
+   * changed no test proved nothing in a browser (F-111's lesson).
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate's resolved levers.
+   * @param string $project
+   *   The project root.
+   * @param string $root
+   *   The gate's Composer root (the project itself, or `gates.<gate>.root`).
+   *
+   * @return \Droost\Workflow\Config\GateSettings|\Droost\Workflow\Gate\GateResult
+   *   The narrowed settings, the settings unchanged when the scope is full
+   *   or cannot be known, or the verdict for an empty or invalid scope.
+   */
+  private function ticketed(GateSettings $gate, string $project, string $root): GateSettings|GateResult {
+    $scope = $gate->option('scope');
+    if (!in_array($gate->name, self::TICKET_SCOPED, TRUE) || $scope === NULL || $scope === 'full') {
+      return $gate;
+    }
+    if ($scope !== 'ticket') {
+      return GateResult::toolFailed(
+        $gate->name,
+        1,
+        sprintf('gates.%s.scope is %s', $gate->name, var_export($scope, TRUE)),
+        sprintf('gates.%s.scope takes ticket (the files this run changed) or full (the whole configured set). Correct it in droost.workflow.yml; nothing ran.', $gate->name),
+        sprintf('gates.%s.scope', $gate->name),
+      );
+    }
+    $listed = $gate->option('ticket_files');
+    if (!is_string($listed)) {
+      // No repository, or no base commit: the run cannot say what it
+      // changed. The full set runs, and the note says why.
+      return $gate;
+    }
+    $under = ltrim(substr($root, strlen($project)), '/');
+    $files = [];
+    foreach (explode("\n", $listed) as $file) {
+      $file = trim($file);
+      if ($file === '' || !is_file($project . '/' . $file) || preg_match('#(^|/)(vendor|node_modules|core|contrib)/#', $file) === 1) {
+        continue;
+      }
+      $files[] = $file;
+    }
+    $options = $gate->options;
+    if (in_array($gate->name, ['phpcs', 'phpstan'], TRUE)) {
+      $extensions = self::ANALYSABLE[$gate->name];
+      $mine = array_values(array_filter($files, static fn (string $f): bool => in_array(strtolower(pathinfo($f, PATHINFO_EXTENSION)), $extensions, TRUE)));
+      $lever = trim((string) ($options['paths'] ?? ''));
+      if ($lever !== '') {
+        $within = array_filter(array_map('trim', explode(',', $lever)));
+        $mine = array_values(array_filter($mine, static function (string $f) use ($within, $under): bool {
+          foreach ($within as $path) {
+            $path = trim(($under === '' ? '' : $under . '/') . trim($path, '/'), '/');
+            if (self::fromProject($path) === '' || str_starts_with($f, self::fromProject($path) . '/') || $f === self::fromProject($path)) {
+              return TRUE;
+            }
+          }
+          return FALSE;
+        }));
+      }
+      if ($mine === []) {
+        return GateResult::labelledPass(
+          $gate->name,
+          0,
+          0,
+          sprintf('%s passed — the run changed no file %s reads (ticket scope), so nothing was analysed', $gate->name, $gate->name),
+          sprintf('%s (ticket scope: no changed file)', $gate->name),
+        );
+      }
+      $options['paths'] = implode(',', array_map(static fn (string $f): string => self::relativeTo($f, $under), $mine));
+    }
+    else {
+      $mine = array_values(array_filter($files, $gate->name === 'playwright'
+        ? static fn (string $f): bool => preg_match(self::SPEC_FILE, $f) === 1
+        : static fn (string $f): bool => str_ends_with($f, 'Test.php')));
+      if ($mine === []) {
+        $what = $gate->name === 'playwright' ? 'browser spec' : 'unit test';
+        if ($gate->option('required') === TRUE) {
+          return GateResult::ran(
+            $gate->name,
+            GateStatus::Failed,
+            1,
+            0,
+            sprintf('%s FAILED — required, and the run changed no %s (ticket scope), so nothing it built was tested. Write or update the ticket\'s %s and run it.', $gate->name, $what, $what),
+            [],
+            sprintf('%s (ticket scope: no changed %s)', $gate->name, $what),
+          );
+        }
+        return GateResult::labelledPass(
+          $gate->name,
+          0,
+          0,
+          sprintf('%s passed — the run changed no %s (ticket scope), so none ran', $gate->name, $what),
+          sprintf('%s (ticket scope: no changed %s)', $gate->name, $what),
+        );
+      }
+      $options['ticket_paths'] = implode("\n", array_map(static fn (string $f): string => self::relativeTo($f, $under), $mine));
+    }
+    $options['ticket_count'] = count($mine);
+
+    return new GateSettings($gate->name, $gate->on, $options);
+  }
+
+  /**
+   * A result that says it measured only the ticket, or why it could not.
+   *
+   * A scoped pass is never read as a regression pass: the summary names the
+   * scope and how many files it held.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate's resolved levers, as the runner handed them.
+   * @param \Droost\Workflow\Gate\GateResult $result
+   *   The verdict.
+   *
+   * @return \Droost\Workflow\Gate\GateResult
+   *   The verdict, its summary noted.
+   */
+  private function withScopeNote(GateSettings $gate, GateResult $result): GateResult {
+    if (!in_array($gate->name, self::TICKET_SCOPED, TRUE) || $gate->option('scope') !== 'ticket' || $result->invocation === NULL || str_contains($result->summary, '(ticket scope')) {
+      return $result;
+    }
+    if ($gate->option('ticket_unknown') === TRUE || !is_string($gate->option('ticket_files'))) {
+      return $result->withSummary($result->summary . ' — ticket scope could not be read (no repository or no base commit), so the full set ran');
+    }
+    $listed = array_filter(array_map('trim', explode("\n", (string) $gate->option('ticket_files'))));
+    $pattern = match ($gate->name) {
+      'playwright' => self::SPEC_FILE,
+      'phpunit' => '/Test\.php$/',
+      default => '/\.(' . implode('|', self::ANALYSABLE[$gate->name]) . ')$/i',
+    };
+    $count = count(array_filter($listed, static fn (string $f): bool => preg_match($pattern, $f) === 1));
+
+    return $result->withSummary(sprintf(
+      '%s — ticket scope: %d file(s) this run changed, not the %s',
+      $result->summary,
+      $count,
+      in_array($gate->name, ['playwright', 'phpunit'], TRUE) ? 'full suite' : 'whole configured set',
+    ));
+  }
+
+  /**
+   * A project-relative path as seen from a directory under the project.
+   *
+   * @param string $file
+   *   The path, relative to the project.
+   * @param string $under
+   *   The directory, relative to the project, or '' for the project itself.
+   *
+   * @return string
+   *   The path relative to that directory, through `..` when outside it.
+   */
+  private static function relativeTo(string $file, string $under): string {
+    if ($under === '') {
+      return $file;
+    }
+    if (str_starts_with($file, $under . '/')) {
+      return substr($file, strlen($under) + 1);
+    }
+
+    return str_repeat('../', count(explode('/', $under))) . $file;
   }
 
   /**
@@ -523,6 +704,10 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         static fn (string $argument): bool => $argument !== '.',
       ));
     }
+    $ticketPaths = $gate->option('ticket_paths');
+    if (is_string($ticketPaths) && $ticketPaths !== '') {
+      $argv = array_merge($argv, explode("\n", $ticketPaths));
+    }
     if (is_array($scoped)) {
       // The front-end trio lint the files they are handed; a bare directory
       // makes them parse everything under it as their own language. Expand a
@@ -562,6 +747,11 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     if ($root === NULL) {
       return $this->rootRefused($gate);
     }
+    $ticketed = $this->ticketed($gate, $project, $root);
+    if ($ticketed instanceof GateResult) {
+      return $ticketed;
+    }
+    $gate = $ticketed;
     $prepared = $this->prepare($gate, $root);
     $binary = substr($prepared['binary'], strlen($root) + 1);
     $argv = $prepared['argv'];

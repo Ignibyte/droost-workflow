@@ -556,7 +556,13 @@ the level defaults): each gate runs once, at the phase that owns it. Code
 runs the analysers and the unit tests (phpunit, mutation and coverage where
 on), test runs playwright, parity, the rendered check and config_clean, and
 complete runs no gate but `wiki_fresh` on the documentation it writes. A run
-freezes its flow's table as `phase_gates` when it begins. P6 run 23 measured
+freezes its flow's table as `phase_gates` when it begins. The same two
+levels default `scope: ticket` on phpcs, phpstan, phpunit and playwright: the
+analysers read the files the run changed, and the suites run the test files
+it added or changed, the Playwright CLI handed those specs. `scope: full` runs
+a gate's whole set. A scoped row says so ("ticket scope: 2 file(s) this run
+changed, not the full suite"), and a required suite the ticket gave no test
+to run fails. P6 run 23 measured
 what the strict flow costs at the bottom of the dial: its 279-test browser
 suite ran three times in 86 minutes, for a ticket whose own tests were two
 files. `wiki_fresh` is due only here, and only here
