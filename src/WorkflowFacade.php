@@ -210,6 +210,8 @@ final class WorkflowFacade {
         'mode' => $config->mode->value,
         'enforcement' => $config->enforcement->value,
         'require_run' => $config->requireRun->value,
+        // What require_run holds besides the Drupal custom trees (F-154).
+        'custom_code' => $config->customCode,
         'phases' => $config->phaseNames(),
         'gates' => $config->resolvedGates(),
         // WHEN each enabled gate runs — so "why did plan run nothing" is

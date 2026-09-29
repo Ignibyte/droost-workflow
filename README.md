@@ -58,6 +58,10 @@ gates:
   # phpcs.xml/phpstan.neon, the gate is pointed at the project's OWN code:
   # its top-level source directories and root-level files, or a Drupal
   # site's modules/custom and themes/custom — never vendor/, core or contrib.
+  # And root: "site" when the Composer project is not the repository root:
+  # the tool comes from site/vendor/bin, runs in site/, and discovers
+  # site's phpcs.xml(.dist) or phpstan.neon(.dist); findings are still named
+  # from the repository. phpunit, coverage and mutation take it too.
   phpunit:        { on: true }
   mutation:       { on: false, msi_min: 0 }
   playwright:     { on: true, required: true }   # a committed spec, at every level
@@ -553,14 +557,14 @@ stale page is read as fact, which is worse than no page.
 The full spec's acceptance-criteria table carries a `Verified By` column,
 empty at plan. The test phase fills it with the test that proves each row —
 the PHPUnit method or class, or the Playwright spec — or `manual — <reason>`
-for a criterion no test can prove. `complete` refuses to gate while any cell
-is empty (or the column is missing), naming the rows and the remedy; the
-record prints manual as manual, never as passed, and `workflow:status` shows
-the three lists. A quasi-spec at `medium`/`low` has no table and is not held
-to one. The pipeline this workflow descends from failed completion on exactly
-this cell; the first real site on droost shipped three criteria of nine with
-no test and passed every phase while the link was advice, which is why it is a
-contract again.
+for a criterion no test can prove. At `complete` an empty cell (or a missing
+column) is **recorded, not blocking**: the report names each unverified row
+under `criteria_verified`, prints manual as manual, never as passed, and
+`workflow:status` shows the three lists. It was a refusal once, and the shape
+of a markdown file ended three live runs whose every gate had passed (F-35),
+so the spec's shape is a record now and the gates are the wall. A criterion
+verified through `verify_criterion` is recorded against the test that ran. A
+quasi-spec at `medium`/`low` has no table and is not held to one.
 
 ## The feedback loop
 

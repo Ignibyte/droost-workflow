@@ -43,6 +43,7 @@ final class WorkflowConfig {
     'seekers',
     'work_item',
     'baseline',
+    'custom_code',
   ];
 
   /**
@@ -127,6 +128,10 @@ final class WorkflowConfig {
    *   The gates enabled modules declared (D72), keyed by resolved name, kept
    *   for provenance: status and the report say which module a `module:*`
    *   gate came from and what its verdict means.
+   * @param list<string> $customCode
+   *   Project-relative directories whose files are the project's own code to
+   *   `require_run`, beside every `modules/custom`, `themes/custom` and
+   *   `profiles/custom` (F-154).
    */
   private function __construct(
     public readonly Mode $mode,
@@ -143,6 +148,7 @@ final class WorkflowConfig {
     public readonly ?WorkItemSettings $workItem = NULL,
     public readonly bool $baseline = TRUE,
     public readonly array $contributedGates = [],
+    public readonly array $customCode = [],
   ) {}
 
   /**
@@ -383,6 +389,7 @@ final class WorkflowConfig {
         self::readWorkItem($root, $source),
         self::readBaseline($root, $source),
         $declared,
+        self::readCustomCode($root, $source),
       );
     }
     catch (DataError $e) {
@@ -501,6 +508,47 @@ final class WorkflowConfig {
       );
     }
     return $level;
+  }
+
+  /**
+   * Reads the custom_code lever (F-154).
+   *
+   * The directories, relative to the project, whose files `require_run`
+   * holds as the project's own code, beside the Drupal trees it always holds.
+   * Druplit's modules live at the repository root (`modules/droost_cockpit`,
+   * linked into the site by Composer), under no `modules/custom/` segment, so
+   * the wall never saw an edit to them. A comma-separated string, as `paths`
+   * is.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label, for error messages.
+   *
+   * @return list<string>
+   *   The directories, without leading `./` or trailing slashes.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When an entry is absolute or climbs out of the project.
+   */
+  private static function readCustomCode(TypedArray $root, string $source): array {
+    if (!$root->has('custom_code')) {
+      return [];
+    }
+    $dirs = [];
+    foreach (explode(',', $root->string('custom_code')) as $entry) {
+      $dir = trim(str_replace('\\', '/', trim($entry)), '/');
+      $dir = (string) preg_replace('#^(\./)+#', '', $dir);
+      if ($dir === '' || $dir === '.') {
+        continue;
+      }
+      if (str_starts_with(trim($entry), '/') || preg_match('#(^|/)\.\.(/|$)#', $dir) === 1) {
+        throw ConfigError::invalidCustomCode($source, trim($entry));
+      }
+      $dirs[] = $dir;
+    }
+
+    return array_values(array_unique($dirs));
   }
 
   /**

@@ -97,6 +97,8 @@ The levers:
 ```yaml
 mode: automated                 # automated | pair
 phases: [plan, code, test, document, complete]   # drop any (e.g. skip 'document')
+# HISTORICAL: since 0.4 the phases are plan, code, test, complete; document
+# was folded into complete, and the phases key is deprecated (README).
 gates:
   phpcs:      { on: true,  standard: "Drupal,DrupalPractice" }
   phpstan:    { on: true,  level: 6 }        # 0–9 | max | off

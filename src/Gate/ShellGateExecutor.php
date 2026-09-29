@@ -343,7 +343,90 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       return $result;
     }
 
-    return $result->withSubjects($this->subjectsFor($gate, rtrim($projectRoot, '/')));
+    $project = rtrim($projectRoot, '/');
+    $root = $this->gateRoot($gate, $project);
+    if ($root === NULL) {
+      return $result;
+    }
+    $under = substr($root, strlen($project));
+    return $result->withSubjects(array_map(
+      static fn (string $path): string => $under === '' ? $path : self::fromProject(ltrim($under, '/') . '/' . $path),
+      $this->subjectsFor($gate, $root),
+    ));
+  }
+
+  /**
+   * The Composer project a gate's tool runs in (F-153).
+   *
+   * `gates.<gate>.root`, relative to the project: its vendor/bin holds the
+   * tool, the tool runs in it, and its phpcs.xml or phpstan.neon is the one
+   * the tool discovers. Omitted, the project itself.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate's resolved levers.
+   * @param string $project
+   *   The project root, without a trailing slash.
+   *
+   * @return string|null
+   *   The root's absolute path, or NULL when the lever names no directory
+   *   inside the project.
+   */
+  private function gateRoot(GateSettings $gate, string $project): ?string {
+    $lever = $gate->option('root');
+    $relative = is_string($lever) ? trim(str_replace('\\', '/', $lever), '/ ') : '';
+    if ($relative === '' || $relative === '.') {
+      return $project;
+    }
+    if (str_starts_with(trim((string) $lever), '/') || preg_match('#(^|/)\.\.(/|$)#', $relative) === 1) {
+      return NULL;
+    }
+
+    return is_dir($project . '/' . $relative) ? $project . '/' . $relative : NULL;
+  }
+
+  /**
+   * A root the lever names that is no directory inside the project.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate.
+   *
+   * @return \Droost\Workflow\Gate\GateResult
+   *   Tool-missing, naming the lever: nothing ran.
+   */
+  private function rootRefused(GateSettings $gate): GateResult {
+    return GateResult::toolMissing(
+      $gate->name,
+      sprintf('gates.%s.root is %s, which is not a directory inside the project', $gate->name, var_export($gate->option('root'), TRUE)),
+      sprintf(
+        'gates.%s.root names the Composer project the tool runs in, relative to the project root (for example `site`), and it must be a directory inside it. Correct it in droost.workflow.yml; nothing ran.',
+        $gate->name,
+      ),
+    );
+  }
+
+  /**
+   * A path named from the project, with `x/../` folded away.
+   *
+   * @param string $path
+   *   A path relative to the project, possibly through `..`.
+   *
+   * @return string
+   *   The same path without `.` or `..` segments.
+   */
+  private static function fromProject(string $path): string {
+    $parts = [];
+    foreach (explode('/', $path) as $part) {
+      if ($part === '' || $part === '.') {
+        continue;
+      }
+      if ($part === '..' && $parts !== [] && end($parts) !== '..') {
+        array_pop($parts);
+        continue;
+      }
+      $parts[] = $part;
+    }
+
+    return implode('/', $parts);
   }
 
   /**
@@ -370,8 +453,8 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   with nothing to analyse.
    */
   public function measure(GateSettings $gate, string $projectRoot, array $extraArgv = [], array $withoutPrefixes = []): ?array {
-    $root = rtrim($projectRoot, '/');
-    if ($gate->runsOwnCommand()) {
+    $root = $this->gateRoot($gate, rtrim($projectRoot, '/'));
+    if ($gate->runsOwnCommand() || $root === NULL) {
       return NULL;
     }
     $prepared = $this->prepare($gate, $root);
@@ -467,9 +550,17 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   The verdict.
    */
   private function run(GateSettings $gate, string $projectRoot, ?BaselineContext $context): GateResult {
-    $root = rtrim($projectRoot, '/');
+    $project = rtrim($projectRoot, '/');
     if ($gate->runsOwnCommand()) {
-      return $this->executeCustom($gate, $root);
+      return $this->executeCustom($gate, $project);
+    }
+    // The Composer project the tool runs in (F-153): the project itself, or
+    // the one `gates.<gate>.root` names. Everything the tool is asked about
+    // (its binary, its config files, the directory it runs in, the paths it
+    // is handed) is the root's; what it reports is named from the project.
+    $root = $this->gateRoot($gate, $project);
+    if ($root === NULL) {
+      return $this->rootRefused($gate);
     }
     $prepared = $this->prepare($gate, $root);
     $binary = substr($prepared['binary'], strlen($root) + 1);
@@ -850,7 +941,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     }
 
     if ($baseline !== NULL) {
-      $partitioned = $this->againstBaseline($gate, $context, $root, $exit, $stdout, $stderr, $elapsed, $invocation, $msiFloor, $msiTarget);
+      $partitioned = $this->againstBaseline($gate, $context, $project, $exit, $stdout, $stderr, $elapsed, $invocation, $msiFloor, $msiTarget);
       if ($partitioned !== NULL) {
         return $partitioned;
       }
@@ -900,7 +991,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
           $exit,
           $elapsed,
           sprintf('phpcs passed with %d warning(s) and no errors (warnings never fail this gate; see the findings)', $totals['warnings']),
-          $this->findings($stdout, $gate->name, $root),
+          $this->findings($stdout, $gate->name, $project),
           $invocation,
         );
       }
@@ -977,8 +1068,8 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $exit === 0 ? GateStatus::Passed : GateStatus::Failed,
       $exit,
       $elapsed,
-      $this->summarise($gate->name, $exit, $stdout, $stderr, $gate, $root),
-      $this->findings($stdout, $gate->name, $root, $stderr),
+      $this->summarise($gate->name, $exit, $stdout, $stderr, $gate, $project),
+      $this->findings($stdout, $gate->name, $project, $stderr),
       $invocation,
     );
   }

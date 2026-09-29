@@ -83,6 +83,47 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * A project names where else its own code lives (F-154).
+   *
+   * Druplit's modules are at the repository root (`modules/droost_cockpit`,
+   * linked into the site by Composer), under no `modules/custom/` segment,
+   * so an edit to them with no run was never walled. `custom_code` names
+   * those directories; everything else stays outside the wall.
+   */
+  public function testCustomCodeLeverWallsTheDirectoriesItNames(): void {
+    $root = $this->makeRoot();
+    [$exit] = $this->guard($root, 'pre-tool-use', [
+      'tool_input' => ['file_path' => $root . '/modules/droost_cockpit/src/Cockpit.php'],
+    ]);
+    $this->assertSame(0, $exit, 'without the lever the wall does not know the directory');
+
+    file_put_contents($root . '/droost.workflow.yml', "require_run: hard\ncustom_code: \"modules, recipes/\"\n");
+    $walled = [
+      'modules/droost_cockpit/src/Cockpit.php',
+      $root . '/recipes/droost_cockpit/recipe.yml',
+      './Modules/droost_cockpit/x.module',
+    ];
+    foreach ($walled as $path) {
+      [$exit, , $stderr] = $this->guard($root, 'pre-tool-use', ['tool_input' => ['file_path' => $path]]);
+      $this->assertSame(2, $exit, $path . ' is the project\'s own code, named by custom_code');
+      $this->assertStringContainsString('/droost:workflow:start', $stderr);
+    }
+    $open = [
+      'docs/planning/tickets/open/TICKET-1.md',
+      'site/web/core/lib/Drupal.php',
+      'modulesx/a.php',
+      $root . '/app/src/Thing.php',
+    ];
+    foreach ($open as $path) {
+      [$exit] = $this->guard($root, 'pre-tool-use', ['tool_input' => ['file_path' => $path]]);
+      $this->assertSame(0, $exit, $path . ' is outside what custom_code names');
+    }
+    // The Drupal trees stay walled with the lever set.
+    [$exit] = $this->guard($root, 'pre-tool-use', ['tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module']]);
+    $this->assertSame(2, $exit);
+  }
+
+  /**
    * An operator-granted bypass stands the wall down.
    *
    * Only the operator's command writes reason AND granted_at — the guard
@@ -1421,6 +1462,15 @@ final class GuardTest extends WorkflowTestCase {
     $this->assertSame(2, $this->shellAttempt($root, 'vendor/bin/droost-parity capture --source http://design.test --routes /'));
     $this->assertSame(2, $this->shellAttempt($root, 'ddev exec vendor/bin/droost-parity capture --source http://design.test --out droost/parity'));
     $this->assertSame(2, $this->shellAttempt($root, 'node vendor/droost/workflow/bin/droost-parity capture --source http://design.test'));
+    // Capture is refused by where it writes, not by its name (F-156). P6 run
+    // 23's agent captured the SITE into its scratch directory to measure it,
+    // and was refused as if writing the reference, a template edit in the
+    // same command with it.
+    $this->assertSame(0, $this->shellAttempt($root, 'vendor/bin/droost-parity capture --source https://site.test --routes / --out /tmp/scratch/site --width 1280,390'));
+    $this->assertSame(0, $this->shellAttempt($root, 'S=/tmp/scratch; vendor/bin/droost-parity capture --source https://site.test --routes / --out $S/site'));
+    $this->assertSame(0, $this->shellAttempt($root, 'vendor/bin/droost-parity capture --source https://site.test --out=/tmp/scratch/site'));
+    $this->assertSame(2, $this->shellAttempt($root, 'vendor/bin/droost-parity capture --source http://design.test --out droost/parity'));
+    $this->assertSame(2, $this->shellAttempt($root, 'vendor/bin/droost-parity capture --source http://design.test --out=./droost/parity/'));
 
     // A lever naming another directory moves the wall with it.
     $run['resolved_gates']['parity']['reference'] = 'design/refs';

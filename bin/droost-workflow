@@ -17,10 +17,18 @@ use Droost\Workflow\Cli\ArgvDispatcher;
 // Works both from this package's own vendor/ and from a consuming project's,
 // so the bin behaves the same whether it was installed as a dependency or is
 // being developed in place.
-$autoloaders = [
-  __DIR__ . '/../vendor/autoload.php',
+//
+// THE PROJECT'S FIRST (F-155). Through a symlinked path repository __DIR__
+// is this checkout's real bin/, so `../vendor/autoload.php` was the
+// checkout's own development vendor, and a project running the bin loaded
+// that instead of its own. Composer's bin proxy names the autoloader of the
+// project that installed the bin; a copied install finds it three levels up;
+// only a checkout run in place falls back to its own.
+$autoloaders = array_values(array_filter([
+  isset($GLOBALS['_composer_autoload_path']) && is_string($GLOBALS['_composer_autoload_path']) ? $GLOBALS['_composer_autoload_path'] : NULL,
   __DIR__ . '/../../../autoload.php',
-];
+  __DIR__ . '/../vendor/autoload.php',
+]));
 $loaded = FALSE;
 foreach ($autoloaders as $autoloader) {
   if (is_file($autoloader)) {

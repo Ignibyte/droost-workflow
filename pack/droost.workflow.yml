@@ -97,6 +97,13 @@ enforcement: soft
 #   non-Drupal files never trip it.
 require_run: hard
 
+# custom_code: "modules,recipes"
+#   More of the project's own code for require_run to hold, beside the three
+#   trees above: directories relative to the project, comma-separated. For a
+#   repository whose modules live outside a Drupal docroot (linked into the
+#   site by Composer), which no `modules/custom/` segment names. Unset, the
+#   three trees alone.
+
 # DEPRECATED (0.3) and ignored: every run walks plan, code, test, complete
 # (0.4 folded document into complete). Tune gate weight per phase instead of
 # dropping phases; naming a subset here earns a deprecation notice in every

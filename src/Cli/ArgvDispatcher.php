@@ -415,6 +415,20 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function init(string $projectRoot, array $argv): int {
+    // AN ARGUMENT INIT DOES NOT KNOW STOPS IT (F-155). Every one was ignored,
+    // so `init --dry-run` installed for real: twenty-odd files written into a
+    // repository whose operator had asked to see what would happen.
+    $unknown = array_values(array_filter(
+      array_slice($argv, 1),
+      static fn (mixed $arg): bool => !is_string($arg) || !str_starts_with($arg, '--take-upstream='),
+    ));
+    if ($unknown !== []) {
+      $this->fail(sprintf(
+        'init does not take %s, and installed nothing. It takes --take-upstream=all or --take-upstream=<path>[,<path>...]; there is no dry run: `git status` after init shows what it wrote.',
+        implode(' ', array_map(static fn (mixed $arg): string => is_string($arg) ? $arg : gettype($arg), $unknown)),
+      ));
+      return self::EXIT_USAGE;
+    }
     $takeUpstream = [];
     foreach ($argv as $arg) {
       if (!is_string($arg) || !str_starts_with($arg, '--take-upstream=')) {

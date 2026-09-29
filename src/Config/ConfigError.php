@@ -467,6 +467,24 @@ final class ConfigError extends \RuntimeException {
   }
 
   /**
+   * A custom_code entry outside the project (F-154).
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $entry
+   *   The offending entry.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function invalidCustomCode(string $source, string $entry): self {
+    return new self($source, sprintf(
+      'custom_code "%s" is not a directory relative to the project, inside it (for example modules,recipes)',
+      $entry,
+    ));
+  }
+
+  /**
    * A custom gate entry that cannot be understood.
    *
    * @param string $source

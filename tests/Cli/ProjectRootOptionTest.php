@@ -160,6 +160,31 @@ final class ProjectRootOptionTest extends TestCase {
    * not opted out of anything.
    */
   public function testInitReportsTheLeversItLeavesBehind(): void {
+    $this->initReports();
+  }
+
+  /**
+   * An argument init does not know stops it, and nothing is installed (F-155).
+   *
+   * `init --dry-run` installed for real: every unknown argument was ignored.
+   */
+  public function testInitRefusesAnArgumentItDoesNotKnow(): void {
+    [$code, $printed] = $this->dispatch(['init', '--dry-run'], $this->root);
+
+    $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code);
+    $this->assertStringContainsString('does not take --dry-run', $printed);
+    $this->assertStringContainsString('installed nothing', $printed);
+    $this->assertFileDoesNotExist($this->root . '/.claude/settings.json');
+    $this->assertFileDoesNotExist($this->root . '/.claude/hooks/droost-workflow-guard.php');
+
+    [$code] = $this->dispatch(['init', '--take-upstream=all'], $this->root);
+    $this->assertSame(0, $code, 'the one argument it takes still works');
+  }
+
+  /**
+   * What init printed, judged.
+   */
+  private function initReports(): void {
     [$code, $printed] = $this->dispatch(['init'], $this->root);
 
     $this->assertSame(0, $code);

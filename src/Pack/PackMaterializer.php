@@ -164,6 +164,7 @@ final class PackMaterializer {
     $relative = '.claude/settings.json';
     $path = $root . '/' . $relative;
     $settings = [];
+    $raw = '';
     if (is_file($path)) {
       $raw = (string) file_get_contents($path);
       $decoded = json_decode($raw, TRUE);
@@ -254,14 +255,43 @@ final class PackMaterializer {
 
     $settings['hooks'] = $hooks;
     $this->makeDirectory(dirname($path), $relative);
-    $encoded = json_encode(
+    $encoded = self::inTheFilesIndent(json_encode(
       $settings,
       JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES,
-    ) . "\n";
+    ) . "\n", $raw);
     if (@file_put_contents($path, $encoded) !== strlen($encoded)) {
       throw PackError::unwritable($relative, 'the write did not complete');
     }
     return $report->withWritten($relative);
+  }
+
+  /**
+   * JSON in the indent the file already had (F-155).
+   *
+   * `JSON_PRETTY_PRINT` indents four spaces, so a two-space settings.json came
+   * back with every line changed, and the diff hid the one hook init added.
+   * The file's own first indent (spaces or a tab) is kept; a new file gets
+   * PHP's.
+   *
+   * @param string $encoded
+   *   The four-space encoding.
+   * @param string $raw
+   *   The file as it was, or '' for a new one.
+   *
+   * @return string
+   *   The encoding, re-indented.
+   */
+  private static function inTheFilesIndent(string $encoded, string $raw): string {
+    if (preg_match('/^[\[{]\s*\n([ \t]+)\S/', $raw, $m) !== 1 || $m[1] === '    ') {
+      return $encoded;
+    }
+    $unit = $m[1];
+
+    return (string) preg_replace_callback(
+      '/^((?:    )+)/m',
+      static fn (array $lead): string => str_repeat($unit, intdiv(strlen($lead[1]), 4)),
+      $encoded,
+    );
   }
 
   /**

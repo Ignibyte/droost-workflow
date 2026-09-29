@@ -177,6 +177,26 @@ final class EnforcementWiringTest extends WorkflowTestCase {
   }
 
   /**
+   * A two-space settings.json stays two-space (F-155).
+   *
+   * JSON_PRETTY_PRINT indents four, so every line of a project's file changed
+   * and the diff hid the one hook init added.
+   */
+  public function testTheFilesOwnIndentIsKept(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/.claude', 0755, TRUE);
+    $two = "{\n  \"permissions\": {\n    \"allow\": [\n      \"Bash(ls:*)\"\n    ]\n  }\n}\n";
+    file_put_contents($root . '/.claude/settings.json', $two);
+
+    (new PackMaterializer())->init($root);
+
+    $written = (string) file_get_contents($root . '/.claude/settings.json');
+    $this->assertStringContainsString("\n  \"permissions\": {\n    \"allow\": [\n      \"Bash(ls:*)\"", $written, 'the two-space lines stay as they were (F-155)');
+    $this->assertStringContainsString('droost-workflow-guard.php', $written);
+    $this->assertDoesNotMatchRegularExpression('/^    "permissions"/m', $written);
+  }
+
+  /**
    * A user's existing settings survive the merge; broken JSON is refused.
    */
   public function testUserSettingsAreMergedNeverClobbered(): void {

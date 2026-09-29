@@ -163,11 +163,16 @@ final class GateSettings {
    * driver answers (rendered_check, config_clean) spawn nothing and take
    * none.
    */
+  // `root` (F-153) names the Composer project a PHP tool runs in, relative
+  // to the project: its vendor/bin holds the tool, the tool runs there, and
+  // its phpcs.xml or phpstan.neon is the one discovered. Druplit keeps its
+  // site in site/, beside two other Composer projects, and has no vendor/ at
+  // the repository root.
   private const GATE_OPTIONS = [
-    'phpcs' => ['standard' => 'string', 'paths' => 'paths', 'timeout' => 'seconds'],
-    'phpstan' => ['level' => 'level', 'paths' => 'paths', 'timeout' => 'seconds'],
-    'phpunit' => ['required' => 'flag', 'in_diff' => 'flag', 'timeout' => 'seconds'],
-    'mutation' => ['msi_min' => 'percent', 'timeout' => 'seconds'],
+    'phpcs' => ['standard' => 'string', 'paths' => 'paths', 'root' => 'string', 'timeout' => 'seconds'],
+    'phpstan' => ['level' => 'level', 'paths' => 'paths', 'root' => 'string', 'timeout' => 'seconds'],
+    'phpunit' => ['required' => 'flag', 'in_diff' => 'flag', 'root' => 'string', 'timeout' => 'seconds'],
+    'mutation' => ['msi_min' => 'percent', 'root' => 'string', 'timeout' => 'seconds'],
     'playwright' => ['required' => 'flag', 'timeout' => 'seconds'],
     'parity' => [
       'required' => 'flag',
@@ -176,7 +181,7 @@ final class GateSettings {
       'pages' => 'string',
       'timeout' => 'seconds',
     ],
-    'coverage' => ['min' => 'percent', 'timeout' => 'seconds'],
+    'coverage' => ['min' => 'percent', 'root' => 'string', 'timeout' => 'seconds'],
     'rendered_check' => ['routes' => 'string'],
     'config_clean' => [],
     // `strict_citations` restores the old behaviour, in which a single

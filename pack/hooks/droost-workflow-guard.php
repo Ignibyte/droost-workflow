@@ -3227,10 +3227,27 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       || ($parityVerb === 'droost-parity' && $paritySub === 'judge'));
     // Capture writes into the reference whether or not the command names it
     // (its --out defaults to droost/parity), so while a run is held to that
-    // reference it is refused by what it does, not by what it spells.
+    // reference it is refused by what it does, not by what it spells: where
+    // it writes (F-156). A capture of the site into a scratch directory is a
+    // measurement, and P6 run 23's agent was refused one, with the template
+    // edit beside it in the same command.
     if ($parityVerb === 'droost-parity' && $paritySub === 'capture' && guard_run_is_live($root, $stateDir)) {
       $reference = guard_parity_reference($root, $stateDir);
-      if ($reference !== '') {
+      $out = 'droost/parity';
+      for ($i = 2, $n = count($parity); $i < $n; $i++) {
+        $token = ltrim($parity[$i], "\x01");
+        if ($token === '--out' && isset($parity[$i + 1])) {
+          $out = ltrim($parity[$i + 1], "\x01");
+          break;
+        }
+        if (str_starts_with($token, '--out=')) {
+          $out = substr($token, 6);
+          break;
+        }
+      }
+      $target = normalised_path(str_starts_with($out, '/') ? $out : $cwd . '/' . $out);
+      $held = normalised_path(rtrim($root, '/') . '/' . $reference);
+      if ($reference !== '' && ($target === $held || str_starts_with($target, $held . '/') || str_contains($out, '$'))) {
         guard_refuse('protected-path:shell', sprintf(
           '%s `droost-parity capture` writes the reference; `droost-parity judge` reads it, as the gate does. (Refused: %s)',
           enforcement_refusal(rtrim($root, '/') . '/' . $reference, $root, $stateDir),
@@ -5120,13 +5137,51 @@ function baseline_dir_guard(string $stdin, string $root, string $stateDir): void
 }
 
 /**
+ * Whether the project's custom_code lever names a file's directory (F-154).
+ *
+ * Read with a regex, as require_run is, because the hook cannot boot the
+ * config loader. An entry the loader would refuse (absolute, or climbing out
+ * of the project) is not honoured here either.
+ *
+ * @param string $root
+ *   The project root.
+ * @param string $file
+ *   The file an edit targets, absolute or relative to the root.
+ * @param string $levers
+ *   The lever file's contents, or '' when there is none.
+ *
+ * @return bool
+ *   TRUE when the file lies under a directory custom_code names.
+ */
+function require_run_names_path(string $root, string $file, string $levers): bool {
+  if (preg_match('/^custom_code:\s*["\']?([^"\'\n#]*)["\']?/m', $levers, $m) !== 1) {
+    return FALSE;
+  }
+  $target = normalised_path(str_starts_with($file, '/') ? $file : rtrim($root, '/') . '/' . $file);
+  foreach (explode(',', $m[1]) as $entry) {
+    $dir = trim(str_replace('\\', '/', trim($entry)), '/');
+    $dir = (string) preg_replace('#^(\./)+#', '', $dir);
+    // What the config loader refuses, the wall does not honour either.
+    if ($dir === '' || $dir === '.' || preg_match('#(^|/)\.\.(/|$)#', $dir) === 1 || str_starts_with(trim($entry), '/')) {
+      continue;
+    }
+    if (str_starts_with($target, normalised_path(rtrim($root, '/') . '/' . $dir) . '/')) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+/**
  * Refuses ungoverned custom-code edits when no run is ACTIVE (require_run).
  *
  * The one gap "no run, no opinion" leaves open: an agent quietly building
  * outside the pipeline. This closes it, and ONLY it — pre-tool-use, and only
- * writes into custom-code territory (modules/custom, themes/custom). Docs,
- * config outside those trees, non-Drupal files and the spec never trip it, so
- * the wall rarely fires on non-build work.
+ * writes into custom-code territory (modules/custom, themes/custom,
+ * profiles/custom, and the directories a project names with `custom_code`).
+ * Docs, config outside those trees, non-Drupal files and the spec never trip
+ * it, so the wall rarely fires on non-build work.
  *
  * "No active run" includes an ENDED one: a completed or failed run.json is
  * history, not law, and an unreadable one is not a run at all — all of those
@@ -5147,6 +5202,8 @@ function baseline_dir_guard(string $stdin, string $root, string $stateDir): void
  *   The hook mode; only 'pre-tool-use' acts.
  * @param string $stdin
  *   The hook payload, read once by the caller.
+ * @param string $stateDir
+ *   The resolved state directory.
  */
 function require_run_guard(string $root, string $mode, string $stdin, string $stateDir): void {
   if ($mode !== 'pre-tool-use') {
@@ -5154,10 +5211,10 @@ function require_run_guard(string $root, string $mode, string $stdin, string $st
   }
   $level = 'hard';
   $lever = $root . '/droost.workflow.yml';
+  $levers = is_file($lever) ? (string) file_get_contents($lever) : '';
   // Optional quotes: the lever parser reads "off" and off as the same value,
   // so the regex must too — or the hook enforces hard while status says off.
-  if (is_file($lever)
-    && preg_match('/^require_run:\s*["\']?(hard|soft|off)\b["\']?/m', (string) file_get_contents($lever), $m) === 1) {
+  if (preg_match('/^require_run:\s*["\']?(hard|soft|off)\b["\']?/m', $levers, $m) === 1) {
     $level = $m[1];
   }
   if ($level === 'off') {
@@ -5183,7 +5240,13 @@ function require_run_guard(string $root, string $mode, string $stdin, string $st
   // site, could be written with no run at all while the module beside it
   // could not. Three lists said "custom code" and one of them meant
   // something narrower.
-  if (preg_match('#(^|/)(modules|themes|profiles)/custom/#', $path) !== 1) {
+  // AND WHAT THE PROJECT NAMES (F-154). Druplit's modules live at the
+  // repository root, linked into the site by Composer, under no
+  // `modules/custom/` segment, so an edit to them with no run was never
+  // walled. `custom_code: "modules,recipes"` names those directories,
+  // relative to the project, as the config loader reads them.
+  if (preg_match('#(^|/)(modules|themes|profiles)/custom/#', $path) !== 1
+    && !require_run_names_path($root, $file, $levers)) {
     return;
   }
   // An operator-granted bypass stands the wall down; its visibility lives in
