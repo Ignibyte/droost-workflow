@@ -15,7 +15,6 @@ use Droost\Workflow\Vcs\VcsInterface;
 use Droost\Workflow\Config\ContributedGate;
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Config\Phase;
-use Droost\Workflow\Config\PhaseGateMap;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Event\NullWorkflowListener;
@@ -224,7 +223,7 @@ final class WorkflowFacade {
         'gates' => $config->resolvedGates(),
         // WHEN each enabled gate runs — so "why did plan run nothing" is
         // answerable from status alone.
-        'phase_gates' => PhaseGateMap::forPhases($config->phaseNames(), $config->flow),
+        'phase_gates' => RunState::phaseGatesFor($config),
         'max_gate_retries' => $config->maxGateRetries,
         // Whether the adversarial reviewer inspects the diff after the code
         // gates pass. The single largest difference between `low` and

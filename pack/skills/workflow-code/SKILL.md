@@ -167,7 +167,7 @@ At this phase's `run`, the engine gates the diff with phpcs and phpstan, the
 pair mandatory since 0.4, tunable but never off. **What else runs here depends
 on the run's flow**, and `droost-workflow status` lists it under `phase_gates`:
 
-- **fast** (`low` and `medium`): code runs every analyser the level turns on
+- **fast** (`flow: fast`, the default at `low` and `medium`): code runs every analyser the level turns on
   AND the unit tests: phpunit, mutation and coverage, where on. So write the
   ticket's unit tests in this phase, run them, fix what they and the
   analysers find, and repeat. At `scope: ticket` (the default at `low` and
@@ -182,7 +182,7 @@ on the run's flow**, and `droost-workflow status` lists it under `phase_gates`:
   returned`). The envelope's `blocked` row `returned_to_code` names what
   failed and how many loops are left. Fix it, then `run`: this phase's gates
   measure the fix, and test follows.
-- **strict** (`high` and above): code runs static analysis only, and the
+- **strict** (`flow: strict`, the default from `high` up): code runs static analysis only, and the
   functional gates belong to the test phase, where they run again at
   complete.
 

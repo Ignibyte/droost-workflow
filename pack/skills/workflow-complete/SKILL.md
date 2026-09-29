@@ -120,11 +120,11 @@ three questions, lighter medium.
 **What this phase's `run` executes depends on the run's flow**
 (`phase_gates` in `droost-workflow status`):
 
-- **fast** (`low` and `medium`): no gate but `wiki_fresh`, which checks the
+- **fast** (`flow: fast`, the default at `low` and `medium`): no gate but `wiki_fresh`, which checks the
   documentation this phase just wrote. Every other gate ran once, at the
   phase that owns it. (At `low` wiki_fresh is off too, and the report shows
   it `off`: the level's declared trade.)
-- **strict** (`high` and above): the FULL enabled gate set re-runs, the
+- **strict** (`flow: strict`, the default from `high` up): the FULL enabled gate set re-runs, the
   terminal safety net. A regression introduced since the test phase is caught
   now rather than shipped, and `wiki_fresh` runs here for the first time,
   the only phase at which it CAN be true.

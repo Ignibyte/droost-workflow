@@ -241,7 +241,7 @@ operator grants a bypass. A finished run counts as no active run.
 WHEN a gate runs is the engine's phase map. WHETHER the optional tiers run,
 and with what thresholds, is the lever file's business:
 
-| phase | fast flow (`low`, `medium`) | strict flow (`high` and above) |
+| phase | fast flow (`flow: fast`, the default at `low` and `medium`) | strict flow (`flow: strict`, the default from `high` up) |
 |---|---|---|
 | plan | none — the spec is the gate | none |
 | code | phpcs, phpstan, eslint, stylelint, prettier, phpunit, mutation, coverage, config_clean, grounding_check, plus custom gates placed at `code`; then the seeker checkpoint, where the level runs one | phpcs, phpstan, eslint, stylelint, prettier, config_clean, grounding_check, plus custom gates placed at `code`; then the seeker checkpoint |

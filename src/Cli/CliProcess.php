@@ -78,6 +78,16 @@ final class CliProcess {
         break;
       }
       if (microtime(TRUE) > $deadline) {
+        // THE WHOLE TREE, deepest first (F-176). `proc_terminate()` signals
+        // the direct child, and a gate's direct child is often a shell or a
+        // runner: a custom gate is `/bin/sh -c <cmd>`, and playwright hands
+        // its browsers to workers. Killing the parent alone left the suite
+        // running, and the one in-place retry then started a second beside
+        // it. PHP cannot start a child in a group of its own, so the tree is
+        // read from `ps` at the moment of the kill.
+        foreach (array_reverse(self::descendants($status['pid'])) as $child) {
+          self::kill($child);
+        }
         proc_terminate($process, 9);
         $timedOut = TRUE;
         break;
@@ -100,6 +110,71 @@ final class CliProcess {
       ];
     }
     return [$exit, $stdout, $stderr];
+  }
+
+  /**
+   * Every process below one, breadth first.
+   *
+   * @param int $pid
+   *   The root of the tree.
+   *
+   * @return list<int>
+   *   Its descendants, parents before their children.
+   */
+  private static function descendants(int $pid): array {
+    if ($pid <= 0) {
+      return [];
+    }
+    $pipes = [];
+    $ps = proc_open(['ps', '-Ao', 'pid=,ppid='], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    if (!is_resource($ps)) {
+      return [];
+    }
+    fclose($pipes[0]);
+    $listing = (string) stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    proc_close($ps);
+    $children = [];
+    foreach (preg_split('/\R/', $listing) ?: [] as $line) {
+      if (preg_match('/^\s*(\d+)\s+(\d+)\s*$/', $line, $m) === 1) {
+        $children[(int) $m[2]][] = (int) $m[1];
+      }
+    }
+    $found = [];
+    $queue = [$pid];
+    while ($queue !== []) {
+      $parent = array_shift($queue);
+      foreach ($children[$parent] ?? [] as $child) {
+        if (!in_array($child, $found, TRUE) && $child !== $pid) {
+          $found[] = $child;
+          $queue[] = $child;
+        }
+      }
+    }
+
+    return $found;
+  }
+
+  /**
+   * Kills one process, quietly: it may have ended already.
+   *
+   * @param int $pid
+   *   The process.
+   */
+  private static function kill(int $pid): void {
+    if (function_exists('posix_kill')) {
+      @posix_kill($pid, 9);
+      return;
+    }
+    $pipes = [];
+    $kill = proc_open(['kill', '-9', (string) $pid], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    if (is_resource($kill)) {
+      foreach ($pipes as $pipe) {
+        fclose($pipe);
+      }
+      proc_close($kill);
+    }
   }
 
 }

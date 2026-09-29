@@ -286,11 +286,7 @@ final class RunState {
       $gates,
       $phases,
       $config->phases[0] ?? NULL,
-      phaseGates: self::weaveCustomGates(
-        PhaseGateMap::forPhases($config->phaseNames(), $config->flow),
-        $config->gates,
-        $config->flow,
-      ),
+      phaseGates: self::phaseGatesFor($config),
       enforcement: $config->enforcement,
       seekers: $config->seekers,
       seekerRounds: $config->seekerRounds,
@@ -305,6 +301,27 @@ final class RunState {
         $config->preset === 'max' || $config->followUps === 'none' ? 'fail' : 'follow-up',
         $config->followUps,
       ),
+    );
+  }
+
+  /**
+   * The phase-gate table a run begun on these levers would freeze.
+   *
+   * One answer for `begin` and for `status` (F-178): status asked the engine
+   * map alone, so a project's custom and contributed gates were missing from
+   * the table it showed before a run, and present in the one the run froze.
+   *
+   * @param \Droost\Workflow\Config\WorkflowConfig $config
+   *   The resolved levers.
+   *
+   * @return array<string, list<string>>
+   *   Phase to the gates due at it.
+   */
+  public static function phaseGatesFor(WorkflowConfig $config): array {
+    return self::weaveCustomGates(
+      PhaseGateMap::forPhases($config->phaseNames(), $config->flow),
+      $config->gates,
+      $config->flow,
     );
   }
 

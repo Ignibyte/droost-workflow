@@ -28,7 +28,7 @@ not to re-derive a verdict.
 **What runs here depends on the run's flow** (`phase_gates` in
 `droost-workflow status`):
 
-- **fast** (`low` and `medium`): this phase checks the build in a browser.
+- **fast** (`flow: fast`, the default at `low` and `medium`): this phase checks the build in a browser.
   Look at the pages by hand (Playwright MCP), write or update the ticket's
   specs, and run them with the Playwright CLI. The engine runs playwright,
   parity, the rendered check and config_clean. The analysers and the unit
@@ -67,7 +67,7 @@ not to re-derive a verdict.
   at …, on this tree: not run again"). Any edit after it, to a spec or the
   code, and the gate runs them itself. A plain `npx playwright test` is
   yours, and is not recorded.
-- **strict** (`high` and above): the engine runs the functional gates here:
+- **strict** (`flow: strict`, the default from `high` up): the engine runs the functional gates here:
   phpunit, coverage, mutation, playwright and the rendered check. **The static
   pair runs here too, over the tests you write in this phase**, and before
   phpunit: a test method named in lowerCamel, or a fixture phpstan cannot

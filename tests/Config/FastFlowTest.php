@@ -9,9 +9,13 @@ use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\PhaseGateMap;
 use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\Gate\NullSiteDriver;
+use Droost\Workflow\Gate\ShellGateExecutor;
+use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\State\LoopState;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\Tests\WorkflowTestCase;
+use Droost\Workflow\WorkflowFacade;
 
 /**
  * Each gate runs once, at the phase that owns it (owner, 2026-09-29).
@@ -172,6 +176,28 @@ class FastFlowTest extends WorkflowTestCase {
     $levers = ['preset' => 'low', 'flow' => 'strict', 'gates' => $gates];
     $strict = RunState::begin('r2', $at, WorkflowConfig::fromArray($levers, 'test'));
     $this->assertContains('custom:suite', $strict->phaseGates['complete'], 'strict keeps the terminal sweep');
+  }
+
+  /**
+   * Status shows the table a run would freeze, custom gates included (F-178).
+   */
+  public function testStatusShowsTheTableRunWouldFreeze(): void {
+    $root = $this->makeRootWithConfig("preset: low\ngates:\n  custom:\n    suite: { on: true, phase: test, cmd: 'bin/gate.sh FULL' }\n");
+    $facade = new WorkflowFacade(
+      new ShellGateExecutor(static fn (): array => [0, '', ''], static fn (): int => 0),
+      new NullSiteDriver(),
+      new RunStateOnlySink(),
+      static fn (): string => '2026-09-29T00:00:00+00:00',
+      static fn (): string => 'r',
+    );
+
+    $levers = $facade->status($root)['levers'] ?? NULL;
+    $this->assertIsArray($levers);
+    $shown = $levers['phase_gates'] ?? NULL;
+
+    $this->assertSame(RunState::phaseGatesFor(WorkflowConfig::load($root)), $shown);
+    $this->assertIsArray($shown);
+    $this->assertContains('custom:suite', $shown['test'] ?? []);
   }
 
   /**
