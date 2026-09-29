@@ -210,6 +210,45 @@ final class CustomGatesTest extends TestCase {
   }
 
   /**
+   * A custom gate takes a timeout, and a kill is no verdict (F-158).
+   *
+   * A repo's own suite that outlasts ten minutes failed every time it ran,
+   * because the lever was refused and the kill read as a failure.
+   */
+  public function testCustomGateTakesTimeoutAndKillIsNoVerdict(): void {
+    $config = WorkflowConfig::fromArray([
+      'gates' => [
+        'custom' => [
+          'suite' => ['on' => TRUE, 'phase' => 'test', 'cmd' => 'bin/gate.sh FULL', 'timeout' => 900],
+        ],
+      ],
+    ], 'test');
+    $gate = $config->gate('custom:suite');
+    $this->assertSame(900, $gate->option('timeout'));
+    $this->assertSame(900, RunState::begin('r', 't', $config)->resolvedGates['custom:suite']['timeout'] ?? NULL, 'frozen with the run');
+
+    $given = 0;
+    $killed = new ShellGateExecutor(
+      function (array $argv, string $cwd, int $timeout) use (&$given): array {
+        $given = $timeout;
+        return [124, '', ''];
+      },
+      static fn (): int => 0,
+    );
+    $result = $killed->execute($gate, '/tmp');
+
+    $this->assertSame(900, $given, 'the runner is given the gate\'s own budget');
+    $this->assertSame(GateStatus::ErrorToolFailed, $result->status, 'a kill is not a failing suite');
+    $this->assertStringContainsString('killed after 900s', $result->summary);
+    $this->assertStringContainsString('gates.custom.suite.timeout', $result->summary);
+
+    $this->expectException(ConfigError::class);
+    WorkflowConfig::fromArray([
+      'gates' => ['custom' => ['suite' => ['on' => TRUE, 'phase' => 'test', 'cmd' => 'x', 'timeout' => 0]]],
+    ], 'test');
+  }
+
+  /**
    * Enforcement is frozen into the run document and survives the round trip.
    */
   public function testEnforcementFreezesIntoTheRunDocument(): void {

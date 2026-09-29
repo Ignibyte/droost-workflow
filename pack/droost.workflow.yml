@@ -226,12 +226,15 @@ gates:
 
   # Your own commands as first-class gates — semgrep, behat, anything.
   # Everything is explicit (a custom gate has no preset base, so nothing
-  # about it is inferred): `on`, `phase` (code | test — everything enabled
-  # re-runs at complete anyway) and a single-line `cmd`. Exit zero passes; a
-  # command the shell cannot find reports tool-missing, which blocks, never
-  # passes. Uncomment to use:
+  # about it is inferred): `on`, `phase` (code | test; the strict flow also
+  # re-runs every enabled gate at complete, the fast flow does not) and a
+  # single-line `cmd`. `timeout` (seconds, default 600) is optional, and a
+  # command killed at it could not run, which is no verdict on the code. Exit
+  # zero passes; a command the shell cannot find reports tool-missing, which
+  # blocks, never passes. Uncomment to use:
   # custom:
   #   semgrep: { on: true, phase: code, cmd: "semgrep scan --error --quiet" }
+  #   suite:   { on: true, phase: test, cmd: "bin/gate.sh FULL", timeout: 900 }
 
 # The seeker checkpoint: an adversarial reviewer (the workflow-seeker agent)
 # inspects the run's diff after the code phase's gates pass, and again at

@@ -38,6 +38,32 @@ class PackMaterializerTest extends WorkflowTestCase {
   }
 
   /**
+   * A package installed outside the project's vendor/ names its own binary.
+   *
+   * F-166: druplit keeps droost/workflow in `tools/workflow/`, a Composer
+   * project of its own, and the skills and AGENTS.md told its agent to run
+   * `vendor/bin/droost-workflow`, which is not there.
+   */
+  public function testInitNamesTheBinaryWhereItIsInstalled(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/tools/workflow/vendor/droost', 0755, TRUE);
+    mkdir($root . '/tools/workflow/vendor/bin', 0755, TRUE);
+    symlink(dirname(__DIR__, 2), $root . '/tools/workflow/vendor/droost/workflow');
+    file_put_contents($root . '/tools/workflow/vendor/bin/droost-workflow', "#!/bin/sh\n");
+    $materializer = new PackMaterializer($root . '/tools/workflow/vendor/droost/workflow');
+
+    $materializer->init($root);
+
+    $skill = (string) file_get_contents($root . '/.claude/skills/workflow-start/SKILL.md');
+    $this->assertStringContainsString('tools/workflow/vendor/bin/droost-workflow', $skill);
+    $this->assertStringNotContainsString('`vendor/bin/droost-workflow', $skill);
+    $this->assertStringContainsString('`tools/workflow/vendor/bin/droost-workflow run`', (string) file_get_contents($root . '/AGENTS.md'));
+
+    $again = $materializer->init($root);
+    $this->assertSame([], $again->drifted, 'what init wrote is what the lock holds');
+  }
+
+  /**
    * REQ-002: an existing lever file is never overwritten.
    *
    * Version-controlled intent somebody wrote. Re-running init must not

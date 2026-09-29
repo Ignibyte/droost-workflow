@@ -1845,6 +1845,23 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       return GateResult::toolMissing($gate->name, $cmd, $this->ownCommandRemedy($gate), $exit, $elapsed);
     }
 
+    if ($exit === self::EXIT_KILLED) {
+      // Killed at the gate's timeout, which is no verdict on the code (F-158).
+      // It was recorded as a plain failure, so a suite that outlasts the
+      // budget read as a suite that failed, spent the retries, and in the fast
+      // flow sent the run back to code over a clock.
+      $lever = GateSettings::isCustom($gate->name)
+        ? 'gates.custom.' . substr($gate->name, strlen(GateSettings::CUSTOM_PREFIX)) . '.timeout'
+        : sprintf('the timeout %s declares', $gate->name);
+      return GateResult::toolFailed(
+        $gate->name,
+        $exit,
+        sprintf('killed after %ds — the gate\'s timeout', $this->timeoutFor($gate)),
+        sprintf('raise %s (seconds), or narrow what the command runs; it produced no verdict.', $lever),
+        $cmd,
+      );
+    }
+
     // A contributed gate declared what its verdict means; a failure repeats
     // it, so the report never shows an exit code nobody can read (D72).
     $summary = $this->summarise($gate->name, $exit, $stdout, $stderr);

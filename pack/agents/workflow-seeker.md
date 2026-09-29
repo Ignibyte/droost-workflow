@@ -169,7 +169,7 @@ Inspector: independent
 - **CRITICAL** — security, correctness, or a discipline defeat introduced by
   the diff. **From `high` up** this blocks until fixed and re-inspected; at
   `medium` it is fixed but does not hold the phase. Nothing below `high`
-  counts open criticals, so do not describe it as blocking there.
+  counts open critical findings, so do not describe it as blocking there.
 - **MEDIUM** — coupling the diff breaks, drift from the spec, real gaps in
   this run's tests. **Never blocks, at any level** — earlier text here said
   it "blocks while `open`", which no level implements and which bought three

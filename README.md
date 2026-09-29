@@ -74,6 +74,7 @@ gates:
   # advances (never on the mandatory trio)
   # custom:                                    # your own commands as gates
   #   semgrep: { on: true, phase: code, cmd: "semgrep scan --error --quiet" }
+  #   suite:   { on: true, phase: test, cmd: "bin/gate.sh FULL", timeout: 900 }
   # contributed:                               # gates enabled MODULES declare (module:<id>)
   #   snyk: { mode: block }                    # on and mode only; the rest is the module's
 # baseline: { on: false }                      # strict mode: ignore a committed droost/baseline/
@@ -381,7 +382,8 @@ that WAS begun blind — the binary run on a host where drush cannot reach the
 site — catches up: the first surface that can see the catalog weaves the
 missing gates into the run's record at the phase it is about to run, they run
 from then on (in the strict flow complete re-runs everything, so no run
-finishes without them; in the fast flow a gate woven at complete runs there),
+finishes without them; in the fast flow a late gate whose declared phases are
+all behind the run is woven into complete, so it still runs once),
 and the record says so — `run.contributed_source` names the door that began
 it, `run.late_woven` names each gate and the phase it joined at.
 

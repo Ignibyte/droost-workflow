@@ -418,9 +418,9 @@ final class GateSettings {
       }
     }
     foreach ($node->keys() as $given) {
-      if (!in_array($given, ['on', 'phase', 'cmd', 'mode'], TRUE)) {
+      if (!in_array($given, ['on', 'phase', 'cmd', 'mode', 'timeout'], TRUE)) {
         throw ConfigError::invalidCustomGate($source, $key, sprintf(
-          'unknown option "%s" (accepted: on, phase, cmd, mode)',
+          'unknown option "%s" (accepted: on, phase, cmd, mode, timeout)',
           $given,
         ));
       }
@@ -474,6 +474,12 @@ final class GateSettings {
     // `report` is recorded, so an unchanged file resolves to unchanged levers.
     if ($node->has('mode') && self::readModeWord($node) === 'report') {
       $options['mode'] = 'report';
+    }
+    // The built-in gates' `timeout`, in seconds (F-158). A repo's own suite
+    // can outlast the default ten minutes, and without the lever a custom
+    // gate that runs one failed every time it ran, whatever the suite said.
+    if ($node->has('timeout')) {
+      $options['timeout'] = $node->intInRange('timeout', 1, 86400);
     }
     return new self(self::CUSTOM_PREFIX . $key, $node->bool('on'), $options);
   }

@@ -156,6 +156,29 @@ class TicketScopeTest extends WorkflowTestCase {
   }
 
   /**
+   * A repo's own ruleset decides the standard, and the ticket still the files.
+   *
+   * With a phpcs.xml.dist the gate passes no --standard, so the ruleset's
+   * rules apply; its file list is replaced by the ticket's changed files.
+   */
+  public function testOwnRulesetStillReadsOnlyTheTicketsFiles(): void {
+    $root = $this->project();
+    file_put_contents($root . '/phpcs.xml.dist', "<ruleset name=\"own\"><file>.</file></ruleset>\n");
+    $calls = [];
+    $gate = new GateSettings('phpcs', TRUE, [
+      'standard' => 'Drupal',
+      'scope' => 'ticket',
+      'ticket_files' => "web/modules/custom/x/src/Thing.php\nREADME.md",
+    ]);
+
+    $this->recording($calls)->execute($gate, $root);
+
+    $this->assertContains('web/modules/custom/x/src/Thing.php', $calls[0]);
+    $this->assertNotContains('.', $calls[0], 'not the ruleset\'s whole file list');
+    $this->assertEmpty(array_filter($calls[0], static fn (string $a): bool => str_starts_with($a, '--standard=')), 'the ruleset decides the standard');
+  }
+
+  /**
    * Full scope, or none named, runs what it always ran.
    */
   public function testFullScopeRunsTheWholeSuite(): void {

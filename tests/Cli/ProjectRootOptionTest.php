@@ -182,6 +182,26 @@ final class ProjectRootOptionTest extends TestCase {
   }
 
   /**
+   * A relative project is resolved before any gate runs in it (F-160).
+   *
+   * `--project=.` stayed `.`, so a gate at `root: site` started
+   * `./site/vendor/bin/phpcs` from `./site`: site/site/…, exit 127.
+   */
+  public function testRelativeProjectIsMadeAbsolute(): void {
+    $here = getcwd() ?: '/';
+    mkdir($this->root . '/site', 0755, TRUE);
+    chdir($this->root . '/site');
+    try {
+      $this->assertSame(realpath($this->root), ArgvDispatcher::absoluteProject('..'));
+      $this->assertSame(realpath($this->root . '/site'), ArgvDispatcher::absoluteProject('.'));
+      $this->assertSame('/already/absolute', ArgvDispatcher::absoluteProject('/already/absolute'));
+    }
+    finally {
+      chdir($here);
+    }
+  }
+
+  /**
    * What init printed, judged.
    */
   private function initReports(): void {

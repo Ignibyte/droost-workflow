@@ -188,6 +188,11 @@ final class ArgvDispatcher {
 
       return self::EXIT_USAGE;
     }
+    // ABSOLUTE FROM HERE ON (F-160). `--project=.` stayed `.`, and a gate with
+    // `root: site` then started `./site/vendor/bin/phpcs` from `./site`, which
+    // resolves to site/site/…: exit 127, a missing tool that was not missing.
+    // An absolute path is kept as given; only a relative one is resolved.
+    $projectRoot = self::absoluteProject($projectRoot);
 
     $code = $this->verb($verb, $projectRoot, $argv);
     // Cockpit mode: what the verb wrote to the run-event log goes to the
@@ -262,6 +267,24 @@ final class ArgvDispatcher {
       $this->fail($e->getMessage());
       return self::EXIT_USAGE;
     }
+  }
+
+  /**
+   * A project root as an absolute path: a relative one resolved (F-160).
+   *
+   * @param string $path
+   *   The root as named or found.
+   *
+   * @return string
+   *   The same path when absolute; otherwise the directory it names, resolved
+   *   against the working directory.
+   */
+  public static function absoluteProject(string $path): string {
+    if (str_starts_with($path, '/')) {
+      return $path;
+    }
+
+    return realpath($path) ?: $path;
   }
 
   /**

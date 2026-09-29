@@ -157,6 +157,24 @@ class FastFlowTest extends WorkflowTestCase {
   }
 
   /**
+   * A custom gate runs at its own phase, and the fast flow's complete skips it.
+   *
+   * F-159: 0.11.0 still wove every custom and contributed gate into complete,
+   * so a repo's ten-minute suite ran at test and again at complete.
+   */
+  public function testCustomGateRunsOnceInTheFastFlow(): void {
+    $gates = ['custom' => ['suite' => ['on' => TRUE, 'phase' => 'test', 'cmd' => 'bin/gate.sh FULL']]];
+    $at = '2026-09-29T00:00:00+00:00';
+    $fast = RunState::begin('r1', $at, WorkflowConfig::fromArray(['preset' => 'low', 'gates' => $gates], 'test'));
+    $this->assertContains('custom:suite', $fast->phaseGates['test']);
+    $this->assertSame(['wiki_fresh'], $fast->phaseGates['complete']);
+
+    $levers = ['preset' => 'low', 'flow' => 'strict', 'gates' => $gates];
+    $strict = RunState::begin('r2', $at, WorkflowConfig::fromArray($levers, 'test'));
+    $this->assertContains('custom:suite', $strict->phaseGates['complete'], 'strict keeps the terminal sweep');
+  }
+
+  /**
    * The run freezes its flow's map when it begins.
    */
   public function testTheRunIsHeldToTheMapItBeganUnder(): void {

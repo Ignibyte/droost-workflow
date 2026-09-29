@@ -61,10 +61,27 @@ final class AgentsBlock {
    * Droost passes its own paragraphs naming the slash commands and drush,
    * because on a Drupal site those are what exist.
    *
+   * @param string $binary
+   *   The binary's path in this project (F-166): `vendor/bin/droost-workflow`
+   *   unless the package is installed somewhere else.
+   *
    * @return list<string>
    *   The paragraphs.
    */
-  public static function paragraphs(): array {
+  public static function paragraphs(string $binary = 'vendor/bin/droost-workflow'): array {
+    return array_map(
+      static fn (string $paragraph): string => str_replace('vendor/bin/droost-workflow', $binary, $paragraph),
+      self::shipped(),
+    );
+  }
+
+  /**
+   * The doctrine as shipped, naming the default binary.
+   *
+   * @return list<string>
+   *   The paragraphs.
+   */
+  private static function shipped(): array {
     return [
       "Building means ANY new functionality: a module, a class, a template, a\n"
       . "config change, or a schema change. The moment intent turns from\n"

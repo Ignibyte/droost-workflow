@@ -604,6 +604,31 @@ final class ShellSurfaceTest extends WorkflowTestCase {
     file_put_contents($root . '/do.sh', "#!/bin/sh\ndrush droost:workflow:bypass x\n");
     [$exit] = $this->shell($root, $root . '/do.sh');
     $this->assertSame(2, $exit, 'the agent\'s own script is read whichever way it is spelled');
+
+    // And so is a relative path with a directory in it (F-165). `bin/do.sh`
+    // matched neither `./` nor a bare `do.sh`, so a script written anywhere
+    // below the root and run by its path was never read: one Write and one
+    // allowed Bash call past both walls.
+    mkdir($root . '/bin', 0755, TRUE);
+    copy($root . '/do.sh', $root . '/bin/do.sh');
+    chmod($root . '/bin/do.sh', 0755);
+    foreach (['bin/do.sh', 'bin/do.sh --now', 'bin/../bin/do.sh'] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' is the agent\'s own script: ' . $stderr);
+    }
+    // Tools are still tools, and a PHP script named `.sh` is read as PHP.
+    foreach (['vendor/bin', 'node_modules/.bin', 'web/core/scripts'] as $dir) {
+      if (!is_dir($root . '/' . $dir)) {
+        mkdir($root . '/' . $dir, 0755, TRUE);
+      }
+    }
+    file_put_contents($root . '/vendor/bin/phpstan', "#!/bin/sh\nX=\$1; \$X\n");
+    file_put_contents($root . '/node_modules/.bin/playwright', "#!/bin/sh\n\"\$@\"\n");
+    file_put_contents($root . '/web/core/scripts/run-tests.sh', "#!/usr/bin/env php\n<?php\n\$runner = \$argv[1];\n\$runner();\n");
+    foreach (['vendor/bin/phpstan analyse', 'node_modules/.bin/playwright test', 'web/core/scripts/run-tests.sh --list'] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' is not the agent\'s shell script: ' . $stderr);
+    }
   }
 
   /**

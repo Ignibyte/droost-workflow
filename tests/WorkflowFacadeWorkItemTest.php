@@ -214,6 +214,29 @@ final class WorkflowFacadeWorkItemTest extends WorkflowTestCase {
   }
 
   /**
+   * The engine's own move of the bound ticket is not the agent's scope (F-162).
+   *
+   * Binding rewrites the ticket's `status:` line. In a repository, that file
+   * reached the declaration audit as an undeclared change with an agent
+   * fault, and the code phase blocked on a write the agent never made.
+   */
+  public function testTheBoundTicketsMoveIsNotUndeclaredScope(): void {
+    $root = $this->project();
+    exec(sprintf('cd %s && git init -q . && git add -A && git -c user.name=t -c user.email=t@example.invalid commit -q -m base 2>&1', escapeshellarg($root)), $out, $exit);
+    $this->assertSame(0, $exit, implode("\n", $out));
+    $facade = $this->facade($root);
+
+    $facade->run($root, NULL, 'TICKET-169');
+    $facade->declareChanges($root, ['src'], [], 'code');
+    mkdir($root . '/src', 0755, TRUE);
+    file_put_contents($root . '/src/Thing.php', "<?php\n");
+    $code = $facade->run($root);
+
+    $this->assertNotSame(Outcome::Blocked, $code->outcome, json_encode($code->blocked) ?: '');
+    $this->assertSame('test', $code->state->currentPhase?->value);
+  }
+
+  /**
    * A facade over the project's markdown tickets, or another source.
    *
    * @param string $root

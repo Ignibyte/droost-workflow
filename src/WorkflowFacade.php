@@ -606,15 +606,31 @@ final class WorkflowFacade {
         || in_array($name, GateRunner::SITE_GATES, TRUE)) {
         continue;
       }
-      $binary = ShellGateExecutor::binaryPathFor($name);
+      // Where the gate runs its tool (F-161): a gate's `root` names the
+      // Composer project it runs in (F-153), and this probed the project's own
+      // vendor/bin whatever the lever said, so status reported phpcs and
+      // phpstan absent while the gates ran them from site/vendor/bin.
+      $under = $gate->option('root');
+      $under = is_string($under) && trim($under, '/') !== '' ? trim($under, '/') . '/' : '';
+      $binary = $under . ShellGateExecutor::binaryPathFor($name);
       $row = [
         'on' => $gate->on,
         'binary' => $binary,
         'present' => is_file($root . '/' . $binary),
       ];
       if ($name === 'phpunit' || $name === 'coverage') {
-        $row['suite_config'] = is_file($root . '/phpunit.xml')
-          || is_file($root . '/phpunit.xml.dist');
+        $row['suite_config'] = is_file($root . '/' . $under . 'phpunit.xml')
+          || is_file($root . '/' . $under . 'phpunit.xml.dist');
+      }
+      if ($name === 'phpcs') {
+        // A ruleset where phpcs runs decides the standard: the gate passes no
+        // --standard then, so the lever's word is not what runs.
+        foreach (ShellGateExecutor::PHPCS_CONFIGS as $ruleset) {
+          if (is_file($root . '/' . $under . $ruleset)) {
+            $row['ruleset'] = $under . $ruleset;
+            break;
+          }
+        }
       }
       $rows[$name] = $row;
     }
@@ -2210,14 +2226,18 @@ final class WorkflowFacade {
       // `droost-workflow gate-waive phpstan` and got `unknown command`. The
       // waiver exists, on the drush surface; the standalone binary has none,
       // and a remedy that offers one there is a remedy nobody can follow.
+      // BOTH SURFACES HAVE THE WAIVER NOW (F-163). This said the standalone
+      // binary had none, and `droost-workflow gate-waive` has been one of its
+      // verbs since; an operator on a project with no Drupal was told the only
+      // exit was `reset`.
       'remedy' => 'Read the full report with `droost-workflow status` or '
       . '`droost-workflow evidence`, then clear the run with '
       . '`droost-workflow reset` and begin the next one. If every gate that '
       . 'killed the phase has been answered for, the OPERATOR can waive them '
-      . 'with `drush droost:workflow:gate-waive <gate> "<reason>"` and the '
-      . 'phase reopens — that verb exists on the drush surface only; the '
-      . 'standalone `droost-workflow` binary has no waiver, and there `reset` '
-      . 'is the exit.',
+      . 'from a terminal, with `droost-workflow gate-waive <gate> "<reason>"` '
+      . 'or `drush droost:workflow:gate-waive <gate> "<reason>"`, and the '
+      . 'phase reopens. Both refuse without a terminal, so an agent cannot '
+      . 'grant one, and the mandatory trio takes none.',
       'guidance' => '',
     ];
 
@@ -2673,15 +2693,19 @@ final class WorkflowFacade {
       $audit = new DeclarationAudit(
         $files,
         $tests,
-        // Less the follow-up tickets this run's engine wrote (0.11): the files
-        // are the engine's, named one by one in the loop record, and a plan
-        // cannot declare a ticket nobody knew would be needed.
+        // Less the ticket files the engine itself writes: the follow-ups this
+        // run filed (0.11), named one by one in the loop record, and the bound
+        // ticket, whose `status:` line the engine moves when the run begins
+        // (F-162). A plan cannot declare either, and neither is the agent's.
         array_values(array_diff(
           $this->vcs->changedFiles($projectRoot, $state->baseCommit),
-          array_filter(array_map(
-            static fn (array $record): ?string => $record['path'] ?? NULL,
-            $state->loop->followUpsFiled,
-          )),
+          array_filter([
+            ...array_map(
+              static fn (array $record): ?string => $record['path'] ?? NULL,
+              $state->loop->followUpsFiled,
+            ),
+            is_string($state->workItem['path'] ?? NULL) ? $state->workItem['path'] : NULL,
+          ]),
         )),
         $store->workType($state->runId),
         $store->measuredGates($state->runId),

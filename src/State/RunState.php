@@ -289,6 +289,7 @@ final class RunState {
       phaseGates: self::weaveCustomGates(
         PhaseGateMap::forPhases($config->phaseNames(), $config->flow),
         $config->gates,
+        $config->flow,
       ),
       enforcement: $config->enforcement,
       seekers: $config->seekers,
@@ -341,7 +342,17 @@ final class RunState {
       $resolved[$name] = $gate->toArray();
       $declared = $gate->option('phase');
       $targets = is_string($declared) ? explode(',', $declared) : [];
-      $targets[] = Phase::Complete->value;
+      // Complete re-runs everything in the strict flow. The fast flow's
+      // complete runs no gate (F-159), so a late gate goes there only when
+      // every phase it declared is already behind the run: once, and never
+      // not at all.
+      $ahead = array_filter($targets, static function (string $target) use ($order, $from, $phaseGates): bool {
+        $index = array_search($target, $order, TRUE);
+        return $index !== FALSE && isset($phaseGates[$target]) && ($from === FALSE || $index >= $from);
+      });
+      if ($this->loop->flow === 'strict' || $ahead === []) {
+        $targets[] = Phase::Complete->value;
+      }
       foreach (array_unique($targets) as $target) {
         $index = array_search($target, $order, TRUE);
         if ($index === FALSE || !isset($phaseGates[$target])) {
@@ -407,11 +418,14 @@ final class RunState {
    *   The engine map for the configured phases.
    * @param array<string, \Droost\Workflow\Config\GateSettings> $gates
    *   The resolved gate set.
+   * @param string $flow
+   *   The run's flow. Only the strict one re-runs everything at complete; the
+   *   fast flow's complete runs no gate, a custom one included (F-159).
    *
    * @return array<string, list<string>>
    *   The map with custom gates placed.
    */
-  private static function weaveCustomGates(array $phaseGates, array $gates): array {
+  private static function weaveCustomGates(array $phaseGates, array $gates, string $flow = 'strict'): array {
     foreach ($gates as $name => $gate) {
       // Custom gates (the lever file's) and contributed gates (a module's)
       // both declare their own phases; the engine map knows neither.
@@ -429,7 +443,7 @@ final class RunState {
           }
         }
       }
-      if (isset($phaseGates['complete'])) {
+      if ($flow === 'strict' && isset($phaseGates['complete'])) {
         $phaseGates['complete'][] = $name;
       }
     }

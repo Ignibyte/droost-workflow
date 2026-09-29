@@ -7,8 +7,11 @@ namespace Droost\Workflow\Tests\Gate;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Gate\GateStatus;
+use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Gate\ShellGateExecutor;
+use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Tests\WorkflowTestCase;
+use Droost\Workflow\WorkflowFacade;
 
 /**
  * A gate's tools come from the Composer project it names (F-153).
@@ -166,6 +169,40 @@ class GateComposerRootTest extends WorkflowTestCase {
     foreach (['phpcs', 'phpstan', 'phpunit', 'coverage', 'mutation'] as $gate) {
       $this->assertContains('root', GateSettings::optionNames($gate), $gate);
     }
+  }
+
+  /**
+   * Status finds the tools and the ruleset where the gates run them (F-161).
+   *
+   * It probed `<project>/vendor/bin` whatever `root` said, so it reported
+   * phpcs and phpstan absent while the gates ran them from site/vendor/bin,
+   * and PSR12 as the standard while the site's own Drupal ruleset ran.
+   */
+  public function testStatusLooksWhereTheGatesRun(): void {
+    $root = $this->druplit();
+    mkdir($root . '/site/vendor/drupal/coder/coder_sniffer/Drupal', 0755, TRUE);
+    file_put_contents($root . '/site/vendor/drupal/coder/coder_sniffer/Drupal/ruleset.xml', "<ruleset/>\n");
+    file_put_contents($root . '/droost.workflow.yml', "preset: low\ngates:\n  phpcs:\n    root: site\n  phpstan:\n    root: site\n");
+    $facade = new WorkflowFacade(
+      new ShellGateExecutor(static fn (): array => [0, '', ''], static fn (): int => 0),
+      new NullSiteDriver(),
+      new RunStateOnlySink(),
+      static fn (): string => '2026-09-29T00:00:00+00:00',
+      static fn (): string => 'r',
+    );
+
+    $toolchain = $facade->status($root)['toolchain'] ?? NULL;
+    $this->assertIsArray($toolchain);
+    $phpcs = $toolchain['phpcs'] ?? NULL;
+    $phpstan = $toolchain['phpstan'] ?? NULL;
+    $this->assertIsArray($phpcs);
+    $this->assertIsArray($phpstan);
+
+    $this->assertSame('site/vendor/bin/phpcs', $phpcs['binary'] ?? NULL);
+    $this->assertTrue($phpcs['present'] ?? FALSE);
+    $this->assertTrue($phpstan['present'] ?? FALSE);
+    $this->assertSame('site/phpcs.xml.dist', $phpcs['ruleset'] ?? NULL);
+    $this->assertSame('Drupal', WorkflowConfig::load($root)->gate('phpcs')->option('standard'), 'the site\'s coder counts');
   }
 
 }

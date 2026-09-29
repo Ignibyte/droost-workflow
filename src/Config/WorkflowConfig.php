@@ -362,7 +362,14 @@ final class WorkflowConfig {
       // stands — phpcs will say what is missing.
       if ($projectRoot !== NULL && isset($gates['phpcs']) && !self::fileSetsStandard($root)) {
         $asked = (string) ($gates['phpcs']->options['standard'] ?? '');
-        $usable = PhpcsStandard::forProject($projectRoot, $asked);
+        // Where phpcs runs (F-161): its `root`, when the file names one. The
+        // Drupal standard installed in site/vendor was read as absent from the
+        // project's, and status said PSR12 while the site's own ruleset ran.
+        $under = $gates['phpcs']->options['root'] ?? NULL;
+        $phpcsRoot = is_string($under) && trim($under, '/') !== ''
+          ? rtrim($projectRoot, '/') . '/' . trim($under, '/')
+          : $projectRoot;
+        $usable = PhpcsStandard::forProject($phpcsRoot, $asked);
         if ($usable !== $asked) {
           // `+` keeps the LEFT operand's keys, so the substitute wins.
           $gates['phpcs'] = new GateSettings(

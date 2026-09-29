@@ -6,11 +6,14 @@ namespace Droost\Workflow\Tests;
 
 use Droost\Workflow\Config\ContributedGate;
 use Droost\Workflow\Config\GateSettings;
+use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\RunStateOnlySink;
+use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
 use Droost\Workflow\WorkflowFacade;
 
@@ -25,6 +28,26 @@ use Droost\Workflow\WorkflowFacade;
  * missing gates in, on record, and they run from that phase on.
  */
 final class WorkflowFacadeLateWeaveTest extends WorkflowTestCase {
+
+  /**
+   * A late gate whose phases are all behind the run still runs, at complete.
+   *
+   * The fast flow's complete runs no gate, except this one: without it a
+   * contributed gate that joined after its own phases would never run, which
+   * is R31-F5's hole again.
+   */
+  public function testLateGateWithNoPhaseAheadRunsAtComplete(): void {
+    $state = RunState::begin(
+      'r',
+      '2026-09-29T00:00:00+00:00',
+      WorkflowConfig::fromArray(['preset' => 'low'], 'test'),
+    );
+    $late = new ContributedGate('snyk', 'droost_snyk', ['code'], 'snyk test', 'report', 'exit 0: clean.');
+    $woven = $state->withLateContributed([$late->name() => $late->toSettings()], Phase::Test);
+
+    $this->assertNotContains('module:snyk', $woven->phaseGates['code'], 'code is behind the run');
+    $this->assertContains('module:snyk', $woven->phaseGates['complete'], 'so it runs once, at complete');
+  }
 
   /**
    * Gate names each executor was asked to run, by surface label.
@@ -63,7 +86,9 @@ final class WorkflowFacadeLateWeaveTest extends WorkflowTestCase {
     $this->assertSame(['module:snyk' => 'code'], $state->lateWoven);
     $this->assertContains('module:snyk', $state->phaseGates['code']);
     $this->assertContains('module:snyk', $state->phaseGates['test']);
-    $this->assertContains('module:snyk', $state->phaseGates['complete']);
+    // `low` runs the fast flow, whose complete runs no gate (F-159): the gate
+    // joined with code and test still ahead, so it runs there and not again.
+    $this->assertNotContains('module:snyk', $state->phaseGates['complete']);
     $this->assertNotContains('module:snyk', $state->phaseGates['plan'], 'a phase already left stays as recorded');
     $this->assertContains('module:snyk', $this->executed['seeing'], 'the woven gate RAN at the phase it joined');
     $row = $this->gateRow($state->gateResults, 'code', 'module:snyk');

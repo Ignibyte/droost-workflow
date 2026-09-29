@@ -183,7 +183,7 @@ if (!is_file($root . '/droost/droost-workflow/run.json')) {
 // ever. A hook that can never be satisfied is not enforcement, it is a hang —
 // and the remedy these print (`droost-workflow init`) fixes none of the
 // causes that land here. The file already learned this once, for an
-// unparseable run.json; the handlers added later did not inherit it.
+// unparsable run.json; the handlers added later did not inherit it.
 //
 // Written by the reader below the moment it knows, and defaulted so that a
 // crash BEFORE the payload is understood still fails closed. Only `stop` is
@@ -352,7 +352,7 @@ register_shutdown_function($recordCall);
 $stdin = (string) stream_get_contents(STDIN);
 
 // Decoded HERE and not at the stop branch below, because one refusal that must
-// honour `stop_hook_active` fires a hundred lines earlier: an unparseable
+// honour `stop_hook_active` fires a hundred lines earlier: an unparsable
 // run.json. It did not honour it, and that made the refusal terminal — Claude
 // was made to continue once, tried to stop again, and got the same exit 2, for
 // ever. A hook that can never be satisfied is not enforcement, it is a hang,
@@ -954,7 +954,11 @@ function operator_commands_guard(string $stdin): void {
         . '(bypass, gate-waive, baseline, effort, arming a write gate) are '
         . 'exactly what that hides. Write the program name out: `bash -c "…"`, '
         . '`drush …`, `vendor/bin/phpunit …`. A variable is fine in an '
-        . 'ARGUMENT; it is the program that has to be legible.');
+        . 'ARGUMENT; it is the program that has to be legible. A script whose '
+        . 'helper runs its own arguments (`if "$@"; then`) is refused for the '
+        . 'same reason: what it runs is decided by its callers, which this '
+        . 'guard cannot follow. Run the commands it wraps directly, or let a '
+        . 'gate run the script.');
     }
     // A SEARCHER CARRIES THE VERB AS A PATTERN, IT DOES NOT RUN IT. This tier
     // matched the operator verbs anywhere on the line and never looked at the
@@ -2113,8 +2117,16 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
     // is `./do.sh` spelled longer.
     $headRaw = ltrim($bare[0] ?? '', "\x01");
     $project = guard_named_root() !== '' ? guard_named_root() : (getcwd() ?: '');
+    // AND A RELATIVE PATH WITH A DIRECTORY IN IT (F-165). `bin/do.sh` matched
+    // neither `./` nor a bare `do.sh`, so a script written anywhere below the
+    // root and run by its path was never read: one Write and one allowed Bash
+    // call past both walls, spelled the way a repository's own scripts are
+    // usually run. A tool under vendor/ or node_modules/ is still skipped by
+    // the read below, as a link into them is.
     $selfExecuting = preg_match('#^\\.{1,2}/|^[^/]+\\.(?:sh|bash|zsh|php|py|pl|rb)$#', $head) === 1
-      || (str_starts_with($headRaw, '/') && $project !== '' && resolved_relative($headRaw, $project) !== '');
+      || (str_starts_with($headRaw, '/') && $project !== '' && resolved_relative($headRaw, $project) !== '')
+      || (!str_starts_with($headRaw, '/') && str_contains($headRaw, '/')
+        && is_file((getcwd() ?: '.') . '/' . $headRaw));
     // A SCRIPT'S ARGUMENTS ARE DATA; a `-c` STRING IS A COMMAND LINE. These
     // are two different questions and were one answer. `bash -c "…"`, `eval
     // "…"` and `ddev exec "…"` are handed a command line and run it, so their
@@ -2241,9 +2253,15 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
         // A non-shell file is scanned for the operator verbs instead, which
         // is the whole reason to open it. Its syntax is not shell and is not
         // pretended to be.
+        // THE SHEBANG FIRST, the extension only without one. Core's
+        // `run-tests.sh` is PHP under `#!/usr/bin/env php`, and reading it as
+        // shell because of its name invents refusals out of PHP; once a script
+        // run by its path is read (F-165), that is what `web/core/scripts/…`
+        // would have met.
         $extension = strtolower((string) pathinfo($path, PATHINFO_EXTENSION));
-        $isShell = in_array($extension, ['sh', 'bash', 'zsh', 'ksh'], TRUE)
-          || preg_match('#^\#!\S*/(?:env\s+)?(?:ba|z|k|da)?sh\b#', $script) === 1;
+        $isShell = str_starts_with($script, '#!')
+          ? preg_match('#^\#!\S*/(?:env\s+)?(?:ba|z|k|da)?sh\b#', $script) === 1
+          : in_array($extension, ['sh', 'bash', 'zsh', 'ksh'], TRUE);
         if (!$isShell) {
           if (preg_match($verbs, $script) === 1) {
             guard_refuse('operator-command:in-script', sprintf(
