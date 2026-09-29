@@ -149,6 +149,13 @@ async function read(browser, url, width) {
     const visible = (el) => {
       const s = getComputedStyle(el);
       if (s.visibility === 'hidden' || s.display === 'none' || parseFloat(s.opacity) === 0) return false;
+      // A transparent ancestor hides it too (F-152). Opacity is not inherited,
+      // so text inside an opacity-0 parent reads 1 of its own: the design's
+      // "View Profile" hover overlay, which no visitor sees at rest, was held
+      // as text every page must carry.
+      for (let p = el.parentElement; p; p = p.parentElement) {
+        if (parseFloat(getComputedStyle(p).opacity) === 0) return false;
+      }
       const r = el.getBoundingClientRect();
       return r.width > 0 && r.height > 0;
     };
