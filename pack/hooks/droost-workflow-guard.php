@@ -2167,8 +2167,14 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
     // Only the agent's own scripts: anything under `vendor/` or
     // `node_modules/` is a tool's source, not a command line, and reading
     // PHP as a shell script invents refusals out of string literals.
+    // A SYNTAX CHECK DOES NOT RUN WHAT IT CHECKS (F-167). `php -l` lints and
+    // `bash -n` parses; neither executes a line. They were read as runs, so
+    // `php -l` over any file past 64KB, this guard included, was refused as
+    // "a script droost cannot read". Only a flag BEFORE the file counts:
+    // `bash do.sh -n` hands `-n` to a script that runs.
+    $syntaxOnly = syntax_check_only($bare);
     $inners = [];
-    if ($runs && !$inlineCodeHeld && $depth < 2) {
+    if ($runs && !$inlineCodeHeld && !$syntaxOnly && $depth < 2) {
       // The HEAD too, for `./do.sh` — there the script is the program, not an
       // argument to one.
       foreach ($selfExecuting ? $bare : array_slice($bare, 1) as $argument) {
@@ -2203,6 +2209,23 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
         // and its TARGET judged: under vendor/ or node_modules/ it is a tool
         // and skipped as one; a readable file anywhere else is read; a link
         // that resolves to nothing is still a script this cannot read.
+        // THIS GUARD, RUN BY HAND (F-168). It was refused as a script larger
+        // than 64KB, which is true and not the reason. Run with a payload it
+        // decides and writes the run's own ledger, and `record` writes
+        // tool-call rows, so a hand-run could put a browser session on the
+        // record that never happened. Probing it belongs in a throwaway
+        // project, with CLAUDE_PROJECT_DIR set there.
+        $guardFile = realpath(rtrim(guard_named_root() !== '' ? guard_named_root() : (getcwd() ?: '.'), '/') . '/.claude/hooks/droost-workflow-guard.php');
+        if ($guardFile !== FALSE && realpath($path) === $guardFile) {
+          guard_refuse('operator-command:guard-by-hand', sprintf(
+            'This runs the guard itself. Handed a payload, it writes this run\'s '
+            . 'own ledger, and its `record` mode writes the tool calls the run is '
+            . 'judged on, so a hand-run puts events on the record that never '
+            . 'happened. To probe it, copy it into a throwaway project and point '
+            . 'CLAUDE_PROJECT_DIR there; `php -l` checks its syntax. (Refused: %s)',
+            trim($command),
+          ));
+        }
         $unreadable = '';
         if (is_link($path)) {
           $real = realpath($path);
@@ -3047,14 +3070,30 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
         TRUE,
       );
       $candidates = [];
-      foreach (array_slice($tokens, 1) as $operand) {
+      // THE `-t` DIRECTORY IS THE DESTINATION (F-172). "The last operand" is
+      // the destination only without one: `cp -t .claude/hooks
+      // /tmp/droost-workflow-guard.php` put the guard's replacement into its
+      // own directory, and this judged /tmp as the destination and allowed it.
+      $namedTarget = NULL;
+      foreach (array_slice($tokens, 1) as $at => $operand) {
         $operand = ltrim($operand, "\x01");
+        if (in_array($operand, ['-t', '--target-directory'], TRUE)) {
+          $namedTarget = ltrim($tokens[$at + 2] ?? '', "\x01");
+          continue;
+        }
+        if (preg_match('/^--target-directory=(.+)$/', $operand, $given) === 1) {
+          $namedTarget = $given[1];
+          continue;
+        }
         if ($operand === '' || str_starts_with($operand, '-')) {
           continue;
         }
         $candidates[] = $operand;
       }
-      if ($copyLike && $candidates !== []) {
+      if ($copyLike && $namedTarget !== NULL && $namedTarget !== '') {
+        $candidates = [$namedTarget];
+      }
+      elseif ($copyLike && $candidates !== []) {
         $candidates = [end($candidates)];
       }
       foreach ($candidates as $operand) {
@@ -3242,7 +3281,11 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       // the site and writes only its verdict, to stdout; P6 run 22's agent
       // named the reference to it, was refused as if writing it, and built
       // with no reading. `capture` WRITES the reference and is judged below.
-      || ($parityVerb === 'droost-parity' && $paritySub === 'judge'));
+      || ($parityVerb === 'droost-parity' && $paritySub === 'judge')
+      // A syntax check reads (F-167): `php -l` lints, `bash -n` parses, and
+      // neither runs or writes what it checks. The flag must precede the
+      // file, as the operator tier requires.
+      || syntax_check_only($plain));
     // Capture writes into the reference whether or not the command names it
     // (its --out defaults to droost/parity), so while a run is held to that
     // reference it is refused by what it does, not by what it spells: where
@@ -3294,7 +3337,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // target, because that is exactly what the flag makes it.
     $operands = [];
     foreach ($tokens as $token) {
-      if (preg_match('/^(--output|--out|--outfile|--write|--dest|--destination|--report-file|-o|-O|of)=(.+)$/i', $token, $flag) === 1) {
+      if (preg_match('/^(--output|--out|--outfile|--write|--dest|--destination|--report-file|--target-directory|-o|-O|of)=(.+)$/i', $token, $flag) === 1) {
         // `of=` is dd's. It also defeated the `(^|/)` anchor every protected
         // path is written with, so
         // `dd of=.claude/hooks/droost-workflow-guard.php`
@@ -3314,8 +3357,46 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       }
       $operands[] = $token;
     }
-    foreach ($operands as $operand) {
+    // A COPY READS ITS SOURCE, in this tier as in the directory tier above
+    // (F-169). Every operand of `cp` was judged written, so copying the guard
+    // to /tmp to read it was refused as an edit of the guard. Only the
+    // destination is written: the `-t` directory when one is named (every
+    // other operand is then a source), the last operand otherwise. `install
+    // -d` makes every operand a directory, so it keeps them all.
+    $copySources = [];
+    if (in_array($verb, ['cp', 'rsync', 'install'], TRUE)) {
+      $positional = [];
+      $namedTarget = NULL;
+      $makesDirectories = FALSE;
+      foreach ($operands as $index => $operand) {
+        if ($operand === '' || str_starts_with($operand, "\x01")) {
+          continue;
+        }
+        if (in_array($operand, ['-t', '--target-directory'], TRUE)) {
+          $namedTarget = $index + 1;
+          continue;
+        }
+        if ($verb === 'install' && preg_match('/^-[A-Za-z]*d/', $operand) === 1) {
+          $makesDirectories = TRUE;
+        }
+        if (str_starts_with($operand, '-')) {
+          continue;
+        }
+        $positional[] = $index;
+      }
+      if (!$makesDirectories && $positional !== []) {
+        $destination = $namedTarget ?? end($positional);
+        $copySources = array_flip(array_values(array_filter(
+          $positional,
+          static fn (int $index): bool => $index !== $destination,
+        )));
+      }
+    }
+    foreach ($operands as $index => $operand) {
       if ($operand === '' || str_starts_with($operand, '-')) {
+        continue;
+      }
+      if (isset($copySources[$index])) {
         continue;
       }
       // The reader's own operands, when the only write on the line is a
@@ -3462,7 +3543,12 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     ));
   }
 
-  if (preg_match('#(^|[\s\'"=/])droost/baseline(/|\s|$)#', $command) === 1) {
+  // AN EXCLUSION IS NOT A REACH (F-170). droost's own phpcs gate runs with
+  // `--ignore=*/droost/baseline/*`, and the same command typed by hand was
+  // refused for reaching the baseline it tells phpcs to stay out of. The
+  // value of an ignore or exclude flag names what the tool will not touch.
+  $reaching = (string) preg_replace('/(^|\s)--(?:ignore|exclude|exclude-dir|ignore-dir)=\S+/', '$1', $command);
+  if (preg_match('#(^|[\s\'"=/])droost/baseline(/|\s|$)#', $reaching) === 1) {
     guard_refuse('protected-path:baseline:shell', sprintf(
       'A shell command in this run reaches droost/baseline/. That is the '
       . 'OPERATOR\'s adoption record, written by `droost-workflow baseline` from '
@@ -4121,6 +4207,36 @@ function operator_verb_pattern(): string {
     . '|droost-workflow\s+(baseline|gate-waive|bypass|effort)\b'
     . '|(?:droost-workflow\s+|droost:workflow:)ticket\s+move\b'
     . '|(?:droost:gate|(?<![\w-])dgate)\b/';
+}
+
+/**
+ * Whether a command only checks a file's syntax (F-167).
+ *
+ * `php -l` lints and `bash -n` parses; neither executes a line of what it
+ * checks. The flag counts only BEFORE the first operand: `bash do.sh -n`
+ * hands `-n` to a script that runs.
+ *
+ * @param list<string> $tokens
+ *   The invocation, wrappers stripped.
+ *
+ * @return bool
+ *   TRUE for a syntax check.
+ */
+function syntax_check_only(array $tokens): bool {
+  $checker = strtolower(basename(ltrim($tokens[0] ?? '', "\x01")));
+  $flags = $checker === 'php' ? ['-l', '--syntax-check']
+    : (in_array($checker, ['bash', 'sh', 'zsh', 'ksh', 'dash'], TRUE) ? ['-n'] : []);
+  foreach (array_slice($tokens, 1) as $argument) {
+    $argument = ltrim($argument, "\x01");
+    if (!str_starts_with($argument, '-')) {
+      return FALSE;
+    }
+    if (in_array($argument, $flags, TRUE)) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
 }
 
 /**
@@ -5297,6 +5413,13 @@ function require_run_guard(string $root, string $mode, string $stdin, string $st
   // message never mentioned — so an agent following the instructions had
   // nowhere to go, and one ignoring them did.
   $ended = is_file($root . '/' . $stateDir . '/run.json');
+  // THE OPERATOR'S COMMAND ON THE SURFACE THAT EXISTS (F-171). This named
+  // drush alone, and a project with no drupal/droost has no drush surface:
+  // druplit's operator was told a command that is not there. The standalone
+  // binary's path is the one init renders into this file.
+  $bypass = is_file($root . '/vendor/bin/drush')
+    ? 'drush droost:workflow:bypass "<reason>"'
+    : 'vendor/bin/droost-workflow bypass "<reason>"';
   $message = $ended
     ? sprintf(
       'droost workflow: "%s" is custom code, and this run has ENDED — its '
@@ -5306,17 +5429,19 @@ function require_run_guard(string $root, string $mode, string $stdin, string $st
       . 'record under history/ rather than discarding it), then start the next '
       . 'run and write its spec. If instead this edit genuinely belongs outside '
       . 'the pipeline, that is the OPERATOR\'s call: show them '
-      . '`drush droost:workflow:bypass "<reason>"` and let them run it.',
+      . '`%s` and let them run it.',
       $file,
+      $bypass,
     )
     : sprintf(
       'droost workflow: "%s" is custom code and there is no active run. Building '
       . 'is governed by the pipeline. Do ONE of: (1) start a run with '
       . '/droost:workflow:start — write the spec, then build inside the run; or '
       . '(2) if this is a deliberate one-off, ask the OPERATOR to grant a bypass '
-      . 'with: drush droost:workflow:bypass "<reason>". Do NOT retry this edit or '
+      . 'with: %s. Do NOT retry this edit or '
       . 'grant the bypass yourself — surface the choice to the operator.',
       $file,
+      $bypass,
     );
   if ($level === 'hard') {
     // The one an evaluator most wants a number for: it is the moment the

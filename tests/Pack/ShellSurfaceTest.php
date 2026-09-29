@@ -632,6 +632,83 @@ final class ShellSurfaceTest extends WorkflowTestCase {
   }
 
   /**
+   * A syntax check reads its file, and the guard is not run by hand.
+   *
+   * F-167: `php -l` over any file past 64KB, the guard included, was refused
+   * as a script the guard cannot read, and `bash -n` over a script with a
+   * helper that runs its arguments as a variable program; neither runs the
+   * file. F-168: running the guard itself stays refused, for the true
+   * reason: it writes the run's own ledger.
+   */
+  public function testSyntaxChecksReadAndTheGuardIsNotRunByHand(): void {
+    $root = $this->lab();
+    copy(dirname(__DIR__, 2) . '/pack/hooks/droost-workflow-guard.php', $root . '/.claude/hooks/droost-workflow-guard.php');
+    file_put_contents($root . '/wrap.sh', "#!/bin/bash\nrun() {\n  if \"\$@\"; then\n    echo ok\n  fi\n}\n");
+    foreach (['php -l .claude/hooks/droost-workflow-guard.php', 'bash -n wrap.sh', 'sh -n wrap.sh'] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' checks syntax: ' . $stderr);
+    }
+    $runsOrWrites = [
+      'bash wrap.sh -n',
+      'php -l .claude/hooks/droost-workflow-guard.php > .claude/hooks/droost-workflow-guard.php',
+    ];
+    foreach ($runsOrWrites as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' runs, or writes, what it names');
+    }
+    [$exit, , $stderr] = $this->shell($root, 'php .claude/hooks/droost-workflow-guard.php pre-tool-use < /tmp/payload.json');
+    $this->assertSame(2, $exit);
+    $this->assertStringContainsString('runs the guard itself', $stderr, 'and says why');
+  }
+
+  /**
+   * A copy writes its destination, and `-t` names it.
+   *
+   * F-169: every operand of `cp` was judged written, so copying the guard
+   * out to read it was refused as an edit. F-172: with `-t` the destination
+   * is the flag's value, and `cp -t .claude/hooks <file named like the
+   * guard>` replaced the guard under a verdict of ALLOW.
+   */
+  public function testCopiesWriteOnlyTheirDestination(): void {
+    $root = $this->lab();
+    file_put_contents(sys_get_temp_dir() . '/droost-workflow-guard.php', "<?php exit(0);\n");
+    foreach ([
+      'cp .claude/hooks/droost-workflow-guard.php /tmp/guard-copy.php',
+      'cp -t /tmp .claude/hooks/droost-workflow-guard.php',
+      'rsync -a droost/droost-workflow/ /tmp/archive/',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' reads its source: ' . $stderr);
+    }
+    $tmp = sys_get_temp_dir() . '/droost-workflow-guard.php';
+    foreach ([
+      'cp ' . $tmp . ' .claude/hooks/droost-workflow-guard.php',
+      'cp ' . $tmp . ' .claude/hooks/',
+      'cp -t .claude/hooks ' . $tmp,
+      'cp --target-directory=.claude/hooks ' . $tmp,
+      'install -t .claude/hooks ' . $tmp,
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' writes the guard');
+    }
+  }
+
+  /**
+   * An exclusion names what a tool stays out of (F-170).
+   *
+   * The phpcs gate runs with an ignore pattern naming droost/baseline, and
+   * the same command by hand was refused for reaching the baseline.
+   */
+  public function testExclusionIsNotReach(): void {
+    $root = $this->lab();
+    mkdir($root . '/droost/baseline', 0755, TRUE);
+    [$exit, , $stderr] = $this->shell($root, 'vendor/bin/phpcs --standard=Drupal --ignore=*/droost/baseline/*,*/vendor/* src');
+    $this->assertSame(0, $exit, $stderr);
+    [$exit] = $this->shell($root, 'rm -rf droost/baseline --exclude=x');
+    $this->assertSame(2, $exit, 'an operand still reaches it');
+  }
+
+  /**
    * Find is judged by what its action DOES, not only by where it looks.
    *
    * `-iname` is case-insensitive to find and `fnmatch` is not, so
