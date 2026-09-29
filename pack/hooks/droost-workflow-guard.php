@@ -778,6 +778,30 @@ function operator_commands_scan_text(string $command): string {
   $count = count($lines);
   for ($i = 0; $i < $count; $i++) {
     $line = $lines[$i];
+    // A QUOTED HEREDOC ASSIGNED THROUGH `$(cat <<'TAG')` IS A LITERAL (F-174).
+    // Its body is the variable's value, and nothing expands inside it. It
+    // was dropped as data and the variable bound to nothing, so
+    // `v=$(cat <<'PHP' … PHP); php -r "$v"` ran code no rule read: a body
+    // that emptied this guard passed. And in a script the body was tokenised
+    // as shell, so a PHP line `$x = …` read as a variable program (druplit's
+    // test runner). Rewritten as the assignment it is, marked literal, so the
+    // binder holds it whole and the code it becomes is judged as code.
+    if (preg_match('/^(\s*)((?:export\s+|local\s+|readonly\s+)?[A-Za-z_][A-Za-z0-9_]*)=\$\(\s*cat\s*<<-?\s*([\'"])([A-Za-z_][A-Za-z0-9_]*)\3\s*$/', $line, $assigned) === 1) {
+      $body = [];
+      $closed = FALSE;
+      for ($j = $i + 1; $j < $count; $j++) {
+        if (trim($lines[$j]) === $assigned[4]) {
+          $closed = TRUE;
+          break;
+        }
+        $body[] = $lines[$j];
+      }
+      if ($closed && trim($lines[$j + 1] ?? '') === ')') {
+        $kept[] = $assigned[1] . $assigned[2] . "='\x02" . str_replace("'", "'\\''", implode("\n", $body)) . "'";
+        $i = $j + 1;
+        continue;
+      }
+    }
     $kept[] = $line;
     if (preg_match('/<<-?\s*([\'"]?)([A-Za-z_][A-Za-z0-9_]*)\1/', $line, $m) !== 1
       || (preg_match($interpreter, $line) === 1 && !operator_commands_feeds_code($line))) {
@@ -1479,6 +1503,13 @@ function operator_commands_bind_variables(array $invocations): array {
     }
     if ($assigns !== []) {
       foreach ($assigns as $name => $value) {
+        // A quoted heredoc's body (F-174, `operator_commands_scan_text()`):
+        // literal, `$` and all, and one word, since it is code for whatever
+        // runs it and is judged whole.
+        if (str_starts_with($value, "\x02")) {
+          $vars[$name] = array_slice([...($vars[$name] ?? []), [substr($value, 1)]], 0, 16);
+          continue;
+        }
         $held = operator_commands_variable_values($value, $vars);
         if ($held === NULL) {
           if (str_contains($value, '$') || str_contains($value, '`')) {
@@ -2028,6 +2059,28 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
   }
   // A VARIABLE THE LINE BINDS IS READ AS WHAT IT HOLDS (F-124, F-125).
   $invocations = operator_commands_bind_variables($invocations);
+  // INSIDE ITS SUBSTITUTIONS TOO (F-174). A `$( … )` is tokenised apart from
+  // the line, so `v=…; out=$(php -r "$v")` never saw the `v` the line bound,
+  // and the code it runs read as a variable nobody bound. The line's own
+  // assignments are put in front of its substitutions, and bound with them.
+  $assignments = array_values(array_filter($invocations, static function (array $tokens): bool {
+    $plain = array_map(static fn (string $t): string => ltrim($t, "\x01"), $tokens);
+    if (in_array($plain[0] ?? '', ['export', 'declare', 'typeset', 'local', 'readonly'], TRUE)) {
+      $plain = array_values(array_filter(array_slice($plain, 1), static fn (string $t): bool => !str_starts_with($t, '-')));
+    }
+    foreach ($plain as $token) {
+      if (preg_match('/^[A-Za-z_]\w*=/', $token) !== 1) {
+        return FALSE;
+      }
+    }
+    return $plain !== [];
+  }));
+  if ($substituted !== [] && $assignments !== []) {
+    $substituted = array_slice(
+      operator_commands_bind_variables([...$assignments, ...$substituted]),
+      count($assignments),
+    );
+  }
 
   // A token carrying a whole command line is one: `ddev exec "drush …"`.
   //
@@ -2298,7 +2351,14 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
           }
           continue;
         }
-        foreach (operator_commands_invocations($script, $depth + 1) as $line) {
+        // THE SAME HEREDOC READING AS A COMMAND LINE. A script's heredocs were
+        // tokenised as shell whatever they fed, so a PHP body read as
+        // commands (F-174): a code heredoc is judged as code, a data one is
+        // data, and a quoted one assigned to a variable binds it.
+        foreach (operator_commands_code_heredocs($script) as $code) {
+          guard_judge_code($code, $command);
+        }
+        foreach (operator_commands_invocations(operator_commands_scan_text($script), $depth + 1) as $line) {
           $inners[] = $line;
         }
         break;
@@ -3013,6 +3073,20 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // text, the same way the script reader looks for them in a `.py`.
     if ($inlineCode !== NULL) {
       guard_judge_code($inlineCode, $command);
+    }
+    // CODE HELD IN A VARIABLE THIS LINE DOES NOT BIND IS CODE NOBODY READ
+    // (F-174). `php -r "$v"` runs whatever `$v` holds; bound to a literal or
+    // a quoted heredoc it is read as code above, and otherwise the guard has
+    // no program to judge, which is the one thing it may not permit.
+    if (operator_commands_code_is_a_variable($plain)) {
+      guard_refuse('protected-path:unreadable-code', sprintf(
+        'This hands an interpreter code held in a variable this guard cannot '
+        . 'read, so what it writes cannot be judged here. Give the code '
+        . 'literally (`php -r \'…\'`), or as a quoted heredoc assigned on '
+        . 'the same line (`v=$(cat <<\'PHP\' … PHP)`), which is read as code. '
+        . '(Refused: %s)',
+        trim($command),
+      ));
     }
     // THE CONTAINING DIRECTORIES, not only the files in them. Every rule below
     // names a file, so the cheapest way past all of them was to take away
@@ -4483,6 +4557,45 @@ function operator_commands_inline_code(array $plain, string $cwd = ''): ?string 
   }
 
   return NULL;
+}
+
+/**
+ * Whether an interpreter's inline code is one variable reference (F-174).
+ *
+ * After binding, a code argument that is still exactly `$NAME` or `${NAME}`
+ * is a program this guard never saw. Literal code that only begins with a
+ * variable (`php -r '$x = 1;'`) is code, and is not this.
+ *
+ * @param list<string> $plain
+ *   The invocation, wrappers stripped.
+ *
+ * @return bool
+ *   TRUE when the code is an unread variable.
+ */
+function operator_commands_code_is_a_variable(array $plain): bool {
+  $flags = [
+    'php' => ['-r'],
+    'perl' => ['-e', '-E'],
+    'ruby' => ['-e'],
+    'python' => ['-c'],
+    'python3' => ['-c'],
+    'node' => ['-e', '--eval', '-p', '--print'],
+  ];
+  $head = strtolower(basename(ltrim($plain[0] ?? '', "\x01")));
+  if (preg_match('/^python3\.\d+$/', $head) === 1) {
+    $head = 'python3';
+  }
+  $want = $flags[$head] ?? NULL;
+  if ($want === NULL) {
+    return FALSE;
+  }
+  foreach ($plain as $index => $token) {
+    if (in_array(ltrim($token, "\x01"), $want, TRUE)) {
+      return preg_match('/^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/', ltrim($plain[$index + 1] ?? '', "\x01")) === 1;
+    }
+  }
+
+  return FALSE;
 }
 
 /**
