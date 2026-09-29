@@ -1407,6 +1407,20 @@ final class GuardTest extends WorkflowTestCase {
     // tools), and a shell read stays open: reading the reference is how a
     // build matches it.
     $this->assertSame(0, $this->shellAttempt($root, 'cat droost/parity/home.json'));
+    // The gate's own reader reads it too (F-151). P6 run 22's agent ran the
+    // judge on the reference it named, was refused as if writing it, and
+    // built with no reading at all: "the guard reserves the parity tool for
+    // the gate itself".
+    $this->assertSame(0, $this->shellAttempt($root, 'vendor/bin/droost-parity judge --reference droost/parity --scope frame --pages /,/camps --json'));
+    $this->assertSame(0, $this->shellAttempt($root, 'ddev exec vendor/bin/droost-parity judge --reference droost/parity --scope frame --pages /,/camps,/rinks --json'));
+    $this->assertSame(0, $this->shellAttempt($root, 'ddev exec vendor/bin/droost-parity judge --reference droost/parity --json > /tmp/parity0.json 2>&1'));
+    $this->assertSame(0, $this->shellAttempt($root, 'ddev exec node vendor/droost/workflow/bin/droost-parity judge --reference droost/parity --json'));
+    // What writes it stays refused: a redirect into it, and capture, which
+    // writes into the reference whether or not the command names it.
+    $this->assertSame(2, $this->shellAttempt($root, 'vendor/bin/droost-parity judge --json > droost/parity/home.json'));
+    $this->assertSame(2, $this->shellAttempt($root, 'vendor/bin/droost-parity capture --source http://design.test --routes /'));
+    $this->assertSame(2, $this->shellAttempt($root, 'ddev exec vendor/bin/droost-parity capture --source http://design.test --out droost/parity'));
+    $this->assertSame(2, $this->shellAttempt($root, 'node vendor/droost/workflow/bin/droost-parity capture --source http://design.test'));
 
     // A lever naming another directory moves the wall with it.
     $run['resolved_gates']['parity']['reference'] = 'design/refs';

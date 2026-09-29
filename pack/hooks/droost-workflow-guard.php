@@ -2919,6 +2919,27 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     }
     $verb = strtolower(basename($plain[0] ?? ''));
     $sub = strtolower($plain[1] ?? '');
+    // The parity runner as a DDEV site runs it, in the container: `ddev exec
+    // vendor/bin/droost-parity judge …` is how the gate invokes it, and the
+    // agent copies that (F-151). Only the parity rules below look past the
+    // runner; what `ddev exec` hands on to anything else is judged as before.
+    $parity = $plain;
+    if (strtolower(basename($parity[0] ?? '')) === 'ddev' && ($parity[1] ?? '') === 'exec') {
+      $parity = array_slice($parity, 2);
+      while ($parity !== [] && str_starts_with($parity[0], '-')) {
+        $flag = array_shift($parity);
+        if (in_array($flag, ['-s', '--service', '-d', '--dir'], TRUE)) {
+          array_shift($parity);
+        }
+      }
+      $parity = array_values($parity);
+    }
+    // And the script by its interpreter, as `node …/bin/droost-parity judge`.
+    if (strtolower(basename($parity[0] ?? '')) === 'node' && strtolower(basename($parity[1] ?? '')) === 'droost-parity') {
+      $parity = array_values(array_slice($parity, 1));
+    }
+    $parityVerb = strtolower(basename($parity[0] ?? ''));
+    $paritySub = strtolower($parity[1] ?? '');
     // INTERPRETER CODE IS NOT SHELL, AND THIS GUARD CANNOT READ IT. `php -r
     // 'file_put_contents(".claude/hooks/droost-workflow-guard.php","");'`
     // empties the guard, `python3 -c 'open("droost/droost-workflow/run.json",
@@ -3198,7 +3219,25 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       // `-path '*droost*'` was glob-expanded here as if the shell would
       // expand it, landed on the lever file, and a search of vendor/ for
       // PHP files was refused as editing the dial.
-      || ($verb === 'find' && !find_action_writes($plain)));
+      || ($verb === 'find' && !find_action_writes($plain))
+      // The parity gate's own reader (F-151). `judge` reads the reference and
+      // the site and writes only its verdict, to stdout; P6 run 22's agent
+      // named the reference to it, was refused as if writing it, and built
+      // with no reading. `capture` WRITES the reference and is judged below.
+      || ($parityVerb === 'droost-parity' && $paritySub === 'judge'));
+    // Capture writes into the reference whether or not the command names it
+    // (its --out defaults to droost/parity), so while a run is held to that
+    // reference it is refused by what it does, not by what it spells.
+    if ($parityVerb === 'droost-parity' && $paritySub === 'capture' && guard_run_is_live($root, $stateDir)) {
+      $reference = guard_parity_reference($root, $stateDir);
+      if ($reference !== '') {
+        guard_refuse('protected-path:shell', sprintf(
+          '%s `droost-parity capture` writes the reference; `droost-parity judge` reads it, as the gate does. (Refused: %s)',
+          enforcement_refusal(rtrim($root, '/') . '/' . $reference, $root, $stateDir),
+          trim($command),
+        ));
+      }
+    }
     $reading = !$writesTo && $isReader;
     if ($reading) {
       continue;
@@ -3748,8 +3787,9 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
     return 'That is the parity gate\'s reference, the source this run\'s pages '
       . 'are judged against, and a run is under way. A page built to match an '
       . 'edited reference matches nothing, and the gate fails a reference that '
-      . 'is not the one the run began with. Read it as much as you like. If it '
-      . 'is wrong, the OPERATOR re-captures it with `droost-parity capture` '
+      . 'is not the one the run began with. Read it as much as you like: the '
+      . 'Read tool, `cat` and `droost-parity judge` all read it. If it is '
+      . 'wrong, the OPERATOR re-captures it with `droost-parity capture` '
       . 'before a run.';
   }
   if (preg_match('#^droost\.workflow\.yml$#', $relative) === 1) {
