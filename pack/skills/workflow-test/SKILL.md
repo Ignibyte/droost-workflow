@@ -32,8 +32,24 @@ not to re-derive a verdict.
   Look at the pages by hand (Playwright MCP), write or update the ticket's
   specs, and run them with the Playwright CLI. The engine runs playwright,
   parity, the rendered check and config_clean. The analysers and the unit
-  tests ran at code and do not run again, and complete runs no gate, so a
-  failure here is fixed now or not at all in this run.
+  tests ran at code and do not run again here, and complete runs no gate.
+
+  **A failure here sends the run back to code** (`outcome: returned`): fix
+  it there, and `run` code again. Code's gates measure the fix, and this phase
+  follows. `max_loops` bounds it (low 2, medium 3), and the envelope's `loop`
+  block says how many are left. A failure that is outside the ticket (a
+  full-scope suite whose every failure is in a spec this run did not change),
+  or one still failing when the budget is spent, becomes a **follow-up
+  ticket** and the phase is recorded `deferred`, never passed
+  (`outcome: deferred`). At `max`, or with `follow_ups: none`, a spent budget
+  fails the phase instead. A tool that could not run (missing, crashed, timed
+  out) is not code to fix, and keeps the in-place retry below.
+
+  **Fixing PHP or CSS here also sends the run back.** If a file code's gates
+  measured has changed when this phase's `run` begins (a fix you made while
+  testing by hand), the run goes back to code before any browser runs, and
+  this return spends no loop. Specs you write here, markdown and `droost/`
+  are this phase's own and do not.
 
   **At `scope: ticket` (the default at `low` and `medium`) the playwright
   gate runs the spec files this run added or changed, and nothing else.** The

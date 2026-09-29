@@ -185,6 +185,27 @@ class TicketScopeTest extends WorkflowTestCase {
   }
 
   /**
+   * A failing browser run names each failure's spec as a finding.
+   *
+   * The fast flow's loop reads them to tell the ticket's failure from a
+   * lower rung's (0.11).
+   */
+  public function testBrowserFailureNamesItsSpecs(): void {
+    $root = $this->project();
+    $out = "  1) [chromium] › tests/e2e/theirs.spec.ts:9:5 › an older page\n\n"
+      . "  1 failed\n    [chromium] › tests/e2e/theirs.spec.ts:9:5 › an older page\n  3 passed (4.2s)\n";
+    $executor = new ShellGateExecutor(static fn (array $argv): array => [1, $out, ''], static fn (): int => 0);
+
+    $result = $executor->execute(new GateSettings('playwright', TRUE, []), $root);
+
+    $this->assertSame(GateStatus::Failed, $result->status);
+    $this->assertContains(
+      ['file' => 'tests/e2e/theirs.spec.ts', 'line' => 9, 'detail' => 'failed'],
+      $result->findings,
+    );
+  }
+
+  /**
    * A scope that is neither is refused by name.
    */
   public function testAnUnknownScopeIsRefused(): void {

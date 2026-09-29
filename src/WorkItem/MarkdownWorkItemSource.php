@@ -179,7 +179,7 @@ final class MarkdownWorkItemSource implements WorkItemSourceInterface {
   /**
    * {@inheritdoc}
    */
-  public function create(string $title, string $type): WorkItem {
+  public function create(string $title, string $type, string $body = ''): WorkItem {
     $title = trim($title);
     $type = trim($type);
     if ($title === '' || $type === '') {
@@ -199,17 +199,20 @@ final class MarkdownWorkItemSource implements WorkItemSourceInterface {
     if (file_exists($path) || is_link($path)) {
       throw WorkItemError::refusedPath($this->label . '/open/' . $name, 'a file of that name is already there');
     }
-    $body = sprintf(
-      "---\ntitle: %s\nstatus: backlog\nticket_number: %d\ntype: %s\ncreated: %s\n---\n\n# %s\n\n"
-      . "## Summary\n\n## Why\n\n## EARS Requirements\n\n| ID | EARS Requirement | Verification |\n|---|---|---|\n\n"
-      . "## Scope\n\n## Notes\n",
+    $sections = trim($body) === ''
+      ? "## Summary\n\n## Why\n\n## EARS Requirements\n\n| ID | EARS Requirement | Verification |\n|---|---|---|\n\n"
+        . "## Scope\n\n## Notes\n"
+      : rtrim($body) . "\n";
+    $content = sprintf(
+      "---\ntitle: %s\nstatus: backlog\nticket_number: %d\ntype: %s\ncreated: %s\n---\n\n# %s\n\n%s",
       Yaml::dump($title),
       $number,
       Yaml::dump($type),
       ($this->today)(),
       $title,
+      $sections,
     );
-    $this->writeAtomically($path, $body, 0666 & ~umask());
+    $this->writeAtomically($path, $content, 0666 & ~umask());
 
     return $this->parse([
       'path' => $path,

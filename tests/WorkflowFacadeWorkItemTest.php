@@ -127,8 +127,8 @@ final class WorkflowFacadeWorkItemTest extends WorkflowTestCase {
       /**
        * {@inheritdoc}
        */
-      public function create(string $title, string $type): WorkItem {
-        return $this->inner->create($title, $type);
+      public function create(string $title, string $type, string $body = ''): WorkItem {
+        return $this->inner->create($title, $type, $body);
       }
 
       /**

@@ -32,6 +32,8 @@ final class RunEvent {
     'question.answered',
     'run.completed',
     'run.reset',
+    'phase.returned',
+    'follow_up.filed',
   ];
 
   /**

@@ -97,11 +97,17 @@ final class CockpitWorkItemSource implements WorkItemSourceInterface {
   /**
    * {@inheritdoc}
    */
-  public function create(string $title, string $type): WorkItem {
+  public function create(string $title, string $type, string $body = ''): WorkItem {
     if (trim($title) === '' || trim($type) === '') {
       throw new \InvalidArgumentException('A ticket needs a title and a type: ticket new --title="…" [--type=feature].');
     }
-    $response = $this->call('POST', '/items', ['title' => trim($title), 'type' => trim($type)]);
+    // `body` only when there is one: additive in /v1, and a server that keeps
+    // no text ignores it.
+    $request = ['title' => trim($title), 'type' => trim($type)];
+    if (trim($body) !== '') {
+      $request['body'] = $body;
+    }
+    $response = $this->call('POST', '/items', $request);
     if (!is_array($response['item'] ?? NULL)) {
       throw WorkItemError::cockpitUnreachable('the new ticket', 'no item in its answer');
     }

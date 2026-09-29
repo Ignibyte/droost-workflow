@@ -31,6 +31,10 @@ final class RunOutcome {
    *   The non-gate checks holding this phase — name, fault, summary and
    *   remedy. A gate failure is already in the report; these were not
    *   anywhere a caller could see, which made them unactionable.
+   * @param array<string, array{summary: string, why: string}> $deferred
+   *   On a Deferred outcome, each gate whose failure becomes a follow-up,
+   *   with its summary and why: `spent` (the loop budget ran out) or
+   *   `outside` (every failure is in a spec the run did not change).
    */
   public function __construct(
     public readonly Outcome $outcome,
@@ -38,6 +42,7 @@ final class RunOutcome {
     public readonly ?PhaseReport $report = NULL,
     public readonly ?PendingQuestion $question = NULL,
     public readonly array $blocked = [],
+    public readonly array $deferred = [],
   ) {}
 
   /**
@@ -108,6 +113,10 @@ final class RunOutcome {
       // left. Stating the remainder per gate costs a few bytes and removes
       // the inference.
       'retries' => $this->state->retries(),
+      // The fast flow's loop (0.11): the budget, what it has spent, every
+      // return and every follow-up. A deferred phase's tickets are named here,
+      // because the outcome word alone says only that the run moved on.
+      'loop' => $this->state->loop->envelope(),
     ];
   }
 

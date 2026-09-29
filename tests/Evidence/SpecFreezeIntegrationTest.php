@@ -824,10 +824,10 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
    * Scope was audited at code alone. In P6 run 3 a page written at complete
    * reached the diff after that audit, and nothing held it to anything. Here a
    * file lands during the test phase, undeclared, and the test phase blocks
-   * on it.
+   * on it. In the strict flow: the fast flow's own answer is the next test.
    */
   public function testChangeAfterCodeIsHeldToTheDeclaration(): void {
-    $root = $this->makeRootWithConfig("preset: low\nmode: agentic\n");
+    $root = $this->makeRootWithConfig("preset: low\nmode: agentic\nflow: strict\n");
     $this->commitBase($root);
     $spec = $this->writeSpec($root);
     $facade = $this->facade();
@@ -849,6 +849,36 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     $this->assertSame('declared_files', $blocked[0]['check']);
     $this->assertIsString($blocked[0]['why']);
     $this->assertStringContainsString('late.php', $blocked[0]['why']);
+  }
+
+  /**
+   * In the fast flow a file written at test sends the run back to code.
+   *
+   * Code's gates never measured it, and the fast flow's complete runs none, so
+   * it would otherwise stand unmeasured. Back at code, code's own audit holds
+   * it to the declaration exactly as the strict flow's test phase does.
+   */
+  public function testTheFastFlowSendsLateFileBackToCodeAndHoldsItThere(): void {
+    $root = $this->makeRootWithConfig("preset: low\nmode: agentic\n");
+    $this->commitBase($root);
+    $spec = $this->writeSpec($root);
+    $facade = $this->facade();
+
+    $facade->run($root, $spec);
+    $facade->declareChanges($root, ['src'], [], 'code');
+    @mkdir($root . '/src', 0775, TRUE);
+    file_put_contents($root . '/src/Planned.php', "<?php // declared\n");
+    $this->assertSame(Outcome::Advanced, $facade->run($root, $spec)->outcome, 'code passes and moves on to test');
+
+    file_put_contents($root . '/late.php', "<?php // written in the test phase, never declared\n");
+    $returned = $facade->run($root, $spec);
+    $this->assertSame(Outcome::Returned, $returned->outcome, 'the code moved under its gates');
+    $this->assertSame('code', $returned->state->currentPhase?->value);
+    $this->assertSame(0, $returned->state->loop->spent(), 'a move spends no loop');
+
+    $held = $facade->run($root, $spec);
+    $this->assertSame(Outcome::Blocked, $held->outcome, 'code\'s audit holds the late file');
+    $this->assertStringContainsString('late.php', json_encode($held->toArray()['blocked']) ?: '');
   }
 
   /**

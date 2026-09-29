@@ -218,7 +218,11 @@ A mid-run edit to `droost.workflow.yml` does not retarget a run in flight.
 failing invocation (`feedback_attempts` against `max_gate_retries`); when the
 budget is spent the phase is recorded failed and the run refuses to continue.
 That is a legitimate outcome. The inspection hold is NOT a failing gate — it
-spends no budget. **Abandoning a run is a deliberate act**: ask the operator
+spends no budget. **In the fast flow a failure at test goes back to code
+instead** (`outcome: returned`, within `max_loops`), and once the loops are
+spent, or for a failure outside the ticket, it becomes a follow-up ticket and
+the phase is recorded `deferred` (`outcome: deferred`). Read `returned` as
+"work to do at code", never as a failed run. **Abandoning a run is a deliberate act**: ask the operator
 to run `drush droost:workflow:reset --force` (or
 `vendor/bin/droost-workflow reset --force`), which archives the record to
 `droost/droost-workflow/history/` — there is no quiet way out, on purpose, and the

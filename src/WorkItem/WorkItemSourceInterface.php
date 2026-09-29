@@ -49,6 +49,9 @@ interface WorkItemSourceInterface {
    *   Its title.
    * @param string $type
    *   What kind of work it is.
+   * @param string $body
+   *   The ticket's text, or '' for the source's own template. A follow-up
+   *   the fast flow writes carries the failure that caused it (0.11).
    *
    * @return \Droost\Workflow\WorkItem\WorkItem
    *   The ticket as written.
@@ -56,7 +59,7 @@ interface WorkItemSourceInterface {
    * @throws \Droost\Workflow\WorkItem\WorkItemError
    *   When it cannot be written.
    */
-  public function create(string $title, string $type): WorkItem;
+  public function create(string $title, string $type, string $body = ''): WorkItem;
 
   /**
    * Moves a ticket to another state.

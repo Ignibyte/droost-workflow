@@ -596,7 +596,7 @@ is the worst infinite loop of all.
 
 When the budget is spent, the phase is recorded **failed** — terminal — and
 `run` refuses to execute anything further. Every surface renders the same
-envelope: `{outcome, current_phase, report, awaiting, retries}`, where
+envelope: `{outcome, current_phase, report, awaiting, retries, loop}`, where
 `retries.exhausted` separates "fix it and run again" from "this run is
 over". Exit codes stay simple — paused is not failed, and both kinds of
 failure exit non-zero. Recovery from a terminal failure is deliberate:
@@ -604,6 +604,33 @@ failure exit non-zero. Recovery from a terminal failure is deliberate:
 archives the record to `droost/droost-workflow/history/` and clears the way —
 the same verb that closes out a COMPLETED run, whose record also persists
 until reset.
+
+### The fast flow's loop: back to code, or a follow-up
+
+In the fast flow a failure at test does not retry in place: the run goes
+**back to code** (`outcome: returned`, exit non-zero), with the failing gates
+named in `blocked`. Code's gates run again on the next `run`, and test after
+them. `max_loops` bounds it (low 2, medium 3, high and xhigh 5, max 5). A
+return because the code **moved** spends nothing: when the files code's gates
+measured change after they ran (a fix made at test, an edit at complete), the
+next test or complete sends the run back to code before any gate runs, so no
+green stands over code it never saw. Markdown and the workflow's own
+`droost/` directory are not code a later phase re-measures.
+
+A failure that is **out of the ticket's scope** (a full-scope browser suite
+whose every failure is in a spec the run did not change), or one still there
+when the budget is spent, becomes a **follow-up ticket**: the phase is
+recorded `deferred`, never passed, a `follow_up` row at the phase names each
+ticket, and the run moves on (`outcome: deferred`, exit 0). `follow_ups`
+decides where they go: `auto` (the default) writes to the cockpit when it is
+the project's ticket source and to markdown otherwise (the project's own
+ticket directory, or `docs/tickets/`); `markdown` and `cockpit` say so
+outright; `none` writes nowhere, so a spent budget fails the phase. At `max`
+a spent budget fails the phase too. A follow-up the cockpit refuses is
+written as markdown, and the record says why. A tool that could not run
+(missing, crashed, timed out) is not code to fix, and keeps the in-place
+retry above. Every return, its reason and each follow-up are in the envelope's
+`loop` block and in `run.json`.
 
 ## Run state
 
@@ -635,7 +662,10 @@ the phase you are leaving as passed, so advancing away from a failed or
 skipped phase is refused outright — clearing a failure has to be a deliberate
 act, not a side effect of moving on. Advancing backward, or advancing a run
 that has already reached its terminal gate, is refused for the same reason: a
-report has to be able to describe the run honestly.
+report has to be able to describe the run honestly. The fast flow's one way back is
+its own transition, test or complete to code, which sets the phases between
+back to pending; and a phase it leaves with follow-ups is `deferred`, a word
+of its own, never `passed`.
 
 ## Run events
 
@@ -658,6 +688,8 @@ is the record a relay or a dashboard reads (`droost-workflow events
 | `question.answered` | `answer` is saved | `question_id`, `answer` |
 | `run.completed` | the last phase ended | `outcome` (the run envelope) |
 | `run.reset` | `reset` archived the run | `archived_run_id` |
+| `phase.returned` | the fast flow sent the run back to code | `from`, `to`, `reason` (`failed` or `moved`), `spent`, `max_loops`, `gates` |
+| `follow_up.filed` | a deferred phase's failure was written up | `phase`, `gate`, `why` (`spent` or `outside`), `summary`, `title`, `id`, `source`, `path`, `at`, `note` |
 
 Every event has `schema`, `event_id` (`evt-` and 16 hex digits, the consumer's
 dedup key: delivery is at least once), `seq` (strictly increasing per log from

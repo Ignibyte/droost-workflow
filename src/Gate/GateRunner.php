@@ -412,6 +412,28 @@ final class GateRunner {
   }
 
   /**
+   * The files the run changed since it began, or NULL when nobody can say.
+   *
+   * The fast flow's loop reads it to fingerprint what code's gates measured,
+   * and to place a browser failure inside or outside the ticket.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run, for its base commit.
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return list<string>|null
+   *   The project-relative paths, or NULL with no repository or no base.
+   */
+  public function changedFiles(RunState $state, string $projectRoot): ?array {
+    if ($this->vcs === NULL || $state->baseCommit === NULL || !$this->vcs->isRepository($projectRoot)) {
+      return NULL;
+    }
+
+    return $this->vcs->changedFiles($projectRoot, $state->baseCommit);
+  }
+
+  /**
    * Whether a failing gate may be retried again.
    *
    * The bound is the run's own recorded `max_gate_retries`, and the count

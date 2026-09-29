@@ -184,7 +184,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   /**
    * A browser spec file, by the names Playwright discovers.
    */
-  private const SPEC_FILE = '/\.(spec|test)\.[cm]?[jt]sx?$/';
+  public const SPEC_FILE = '/\.(spec|test)\.[cm]?[jt]sx?$/';
 
   /**
    * Where a Drupal site's own code lives inside its docroot.
@@ -1446,13 +1446,25 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $where = array_values(array_unique($m[1]));
     }
     $shown = array_slice($where, 0, 3);
+    // Each failure's spec as a finding, beside the totals: what the fast
+    // flow's loop reads to tell the ticket's own failure from a lower rung's
+    // (0.11), and what names a failure in a file the run did not change.
+    $failures = [];
+    foreach ($where as $location) {
+      $at = strrpos($location, ':');
+      $failures[] = [
+        'file' => $at === FALSE ? $location : substr($location, 0, $at),
+        'line' => $at === FALSE ? NULL : (int) substr($location, $at + 1),
+        'detail' => 'failed',
+      ];
+    }
     return GateResult::ran(
       $gate->name,
       GateStatus::Failed,
       $exit,
       $elapsed,
       sprintf('playwright failed (exit %d): %s%s', $exit, $said, $shown === [] ? '' : ', at ' . implode(', ', $shown) . (count($where) > 3 ? ', and more' : '')),
-      $totals,
+      array_merge($totals, $failures),
       $invocation,
     );
   }

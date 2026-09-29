@@ -130,8 +130,38 @@ final class ModeEngine {
       return new RunOutcome(Outcome::Paused, $state, NULL, $pending);
     }
 
+    // THE FAST FLOW'S LOOP, BEFORE ANY GATE RUNS (0.11). Its complete runs no
+    // gate and its test runs only the browser, so an edit made after code's
+    // gates passed would stand under their green unmeasured. The fingerprint
+    // of what they measured says whether it moved; a move sends the run back
+    // to code, and costs nothing from the loop budget, because the edit is the
+    // agent's and code's gates are what measure it. Before the gates, so a
+    // browser suite is not run on code that is about to be measured again.
+    if ($state->loop->loops()
+      && in_array($phase, [Phase::Test, Phase::Complete], TRUE)
+      && $state->statusOf(Phase::Code) === PhaseStatus::Passed) {
+      $moved = $this->movedSubjects($state, $phase, $projectRoot);
+      if ($moved !== []) {
+        return $this->returnToCode($state, 'moved', $moved, NULL, $projectRoot, $now);
+      }
+    }
+    if ($phase === Phase::Code && $state->loop->returns !== []) {
+      $this->answerReturn($state, $projectRoot, $now);
+    }
+
     $report = $this->runner->run($state, $phase, $projectRoot);
     $state = $state->withGateReport($phase->value, $report->toArray());
+    // What this phase's gates just measured, pass or fail: the next phase's
+    // moved check compares against it. Recorded at test too, so a file test's
+    // own gates wrote never reads as code that moved.
+    if ($state->loop->loops() && in_array($phase, [Phase::Code, Phase::Test], TRUE)) {
+      $changed = $this->runner->changedFiles($state, $projectRoot);
+      $loop = $state->loop->withSubject(TestLoop::CODE, TestLoop::subject($projectRoot, $changed, TestLoop::CODE));
+      if ($phase === Phase::Test) {
+        $loop = $loop->withSubject(TestLoop::TEST, TestLoop::subject($projectRoot, $changed, TestLoop::TEST));
+      }
+      $state = $state->withLoop($loop);
+    }
     // The same verdicts, as rows droost can query rather than a blob it can
     // only round-trip. run.json keeps the phase's summary because five
     // surfaces read it; the evidence store keeps every attempt, every finding
@@ -193,8 +223,29 @@ final class ModeEngine {
       return $this->recordFailure($state, $phase, $report);
     }
 
+    // A FAILURE AT TEST, IN THE FAST FLOW, GOES BACK TO CODE (owner,
+    // 2026-09-29), while the loop budget lasts. Out of the ticket's scope, or
+    // once the budget is spent, it becomes a follow-up ticket and the phase is
+    // deferred: the rest of the phase is still checked, and the facade writes
+    // the tickets before it moves the run on. Anything the loop does not
+    // decide is the in-place retry it always was.
+    $deferring = [];
     if (!$report->advance()) {
-      return $this->recordFailure($state, $phase, $report);
+      $loop = $this->loopDecision($state, $phase, $report, $projectRoot);
+      if ($loop === NULL) {
+        return $this->recordFailure($state, $phase, $report);
+      }
+      if ($loop['then'] === 'return') {
+        return $this->returnToCode($state, 'failed', $loop['gates'], $report, $projectRoot, $now);
+      }
+      if ($loop['then'] === 'fail') {
+        // At max, or with nowhere to write a follow-up: the budget is spent and
+        // the phase ends. Terminal, because a retry in place would run test on
+        // a fix code's gates never measured.
+        $state = $state->withPhaseStatus($phase, PhaseStatus::Failed);
+        return new RunOutcome(Outcome::Failed, $state, $report);
+      }
+      $deferring = $loop['defer'];
     }
 
     // The questions a shell command cannot ask, from the modules that can
@@ -299,6 +350,12 @@ final class ModeEngine {
       );
     }
 
+    if ($deferring !== []) {
+      // No conversation hold: a hold's answer advances the phase, which would
+      // record it passed. The envelope names every follow-up instead.
+      return new RunOutcome(Outcome::Deferred, $state, $report, NULL, [], $deferring);
+    }
+
     if ($this->effectiveMode($state)->holdsForConversation()) {
       $question = $this->conversationAt($phase, $report, $now);
       // State first, sink second. Always.
@@ -360,6 +417,204 @@ final class ModeEngine {
       ],
       PendingQuestion::KIND_STUCK,
     );
+  }
+
+  /**
+   * What the fast flow's loop does with a failure at test, or NULL.
+   *
+   * NULL leaves the failure to the in-place retry. That is every phase but
+   * test, every run in the strict flow, and any blocking result that is not a
+   * measured failure: a tool that could not run is not code to fix, and a
+   * loop back to code would not start it.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase that failed.
+   * @param \Droost\Workflow\Gate\PhaseReport $report
+   *   Its report.
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return array{then: string, gates: array<string, string>, defer: array<string, array{summary: string, why: string}>}|null
+   *   `then` is `return`, `fail` or `defer`; `gates` the summaries a return
+   *   carries; `defer` each gate to write up, and why.
+   */
+  private function loopDecision(RunState $state, Phase $phase, PhaseReport $report, string $projectRoot): ?array {
+    if (!$state->loop->loops() || $phase !== Phase::Test || $state->statusOf(Phase::Code) !== PhaseStatus::Passed) {
+      return NULL;
+    }
+    $blocking = array_filter(
+      $report->results,
+      static fn (GateResult $r): bool => $r->status->blocksAdvance(),
+    );
+    foreach ($blocking as $result) {
+      if ($result->status !== GateStatus::Failed) {
+        return NULL;
+      }
+    }
+    // With nowhere to write a follow-up, a lower rung's failure is the
+    // ticket's to fix like any other.
+    $canFile = $state->loop->followUps !== 'none';
+    $changed = $canFile ? $this->runner->changedFiles($state, $projectRoot) : NULL;
+    $inside = [];
+    $outside = [];
+    foreach ($blocking as $result) {
+      $levers = $state->resolvedGates[$result->gate] ?? [];
+      if ($canFile && TestLoop::outOfScope($result, is_array($levers) ? $levers : [], $changed)) {
+        $outside[$result->gate] = $result->summary;
+      }
+      else {
+        $inside[$result->gate] = $result->summary;
+      }
+    }
+    if ($inside !== [] && $state->loop->remaining() > 0) {
+      return ['then' => 'return', 'gates' => $inside + $outside, 'defer' => []];
+    }
+    if ($inside !== [] && $state->loop->whenSpent === 'fail') {
+      return ['then' => 'fail', 'gates' => $inside, 'defer' => []];
+    }
+    $defer = [];
+    foreach ($inside as $gate => $summary) {
+      $defer[$gate] = ['summary' => $summary, 'why' => 'spent'];
+    }
+    foreach ($outside as $gate => $summary) {
+      $defer[$gate] = ['summary' => $summary, 'why' => 'outside'];
+    }
+
+    return ['then' => 'defer', 'gates' => [], 'defer' => $defer];
+  }
+
+  /**
+   * Which of the subjects an earlier phase's gates measured have moved.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase about to run: test checks code's subject, complete test's
+   *   (which holds code's and the specs).
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return array<string, string>
+   *   Each moved subject, with the sentence that says so.
+   */
+  private function movedSubjects(RunState $state, Phase $phase, string $projectRoot): array {
+    $which = $phase === Phase::Complete ? TestLoop::TEST : TestLoop::CODE;
+    $then = $state->loop->subjects[$which] ?? NULL;
+    if ($then === NULL) {
+      return [];
+    }
+    $now = TestLoop::subject($projectRoot, $this->runner->changedFiles($state, $projectRoot), $which);
+    if ($now === NULL || hash_equals($then, $now)) {
+      return [];
+    }
+
+    return [
+      $which => $which === TestLoop::CODE
+        ? 'the files code\'s gates measured changed after they ran, so their green is not about the code as it stands'
+        : 'files changed after test\'s gates ran (code or a spec), so neither code\'s green nor test\'s is about the tree as it stands',
+    ];
+  }
+
+  /**
+   * Sends the run back to code, and holds the stop there until code runs.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run, at test or complete.
+   * @param string $reason
+   *   Either `failed` or `moved`.
+   * @param array<string, string> $gates
+   *   What caused it.
+   * @param \Droost\Workflow\Gate\PhaseReport|null $report
+   *   The failing report, when gates ran.
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $now
+   *   The current time.
+   *
+   * @return \Droost\Workflow\Mode\RunOutcome
+   *   The Returned outcome, with the row that names what to fix.
+   */
+  private function returnToCode(
+    RunState $state,
+    string $reason,
+    array $gates,
+    ?PhaseReport $report,
+    string $projectRoot,
+    string $now,
+  ): RunOutcome {
+    $from = $state->currentPhase->value ?? 'test';
+    $returned = $state->returnTo(Phase::Code, $reason, $now, $gates);
+    $what = [];
+    foreach ($gates as $gate => $summary) {
+      $what[] = $gate . ': ' . $summary;
+    }
+    $summary = $reason === 'failed'
+      ? sprintf(
+        'Back at code from %s, loop %d of %d. %s. Fix it here: code\'s gates run again on the next `run`, and %s after them.',
+        $from,
+        $returned->loop->spent(),
+        $returned->loop->maxLoops,
+        implode('; ', $what),
+        $from,
+      )
+      : sprintf(
+        'Back at code from %s, and this return spends no loop: %s. Run code again so its gates measure what is there now.',
+        $from,
+        implode('; ', $what),
+      );
+    // The row that holds the stop at code until code runs again. Best-effort:
+    // an unwritable store is reported by the phase that could not write it.
+    try {
+      (new EvidenceStore($projectRoot))->record(
+        $state->runId,
+        Phase::Code->value,
+        new CheckRecord('loop', 'returned_to_code', CheckState::Blocked, Fault::Agent, $summary),
+        $now,
+      );
+    }
+    catch (\Throwable) {
+      // See above.
+    }
+
+    return new RunOutcome(
+      Outcome::Returned,
+      $returned,
+      $report,
+      NULL,
+      $this->blockingChecksFor($returned, Phase::Code, $projectRoot),
+    );
+  }
+
+  /**
+   * Records that code ran again after a return, which clears the stop's hold.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run, at code.
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $now
+   *   The current time.
+   */
+  private function answerReturn(RunState $state, string $projectRoot, string $now): void {
+    try {
+      $store = new EvidenceStore($projectRoot);
+      foreach ($store->unresolved($state->runId, Phase::Code->value) as $row) {
+        if (($row['kind'] ?? NULL) === 'loop' && ($row['name'] ?? NULL) === 'returned_to_code') {
+          $store->record(
+            $state->runId,
+            Phase::Code->value,
+            new CheckRecord('loop', 'returned_to_code', CheckState::Satisfied, Fault::None, 'code ran again after the return'),
+            $now,
+          );
+          return;
+        }
+      }
+    }
+    catch (\Throwable) {
+      // Best-effort, as the hold itself is.
+    }
   }
 
   /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Config;
 
+use Droost\Workflow\State\LoopState;
 use Droost\Workflow\Support\DataError;
 
 /**
@@ -479,6 +480,38 @@ final class ConfigError extends \RuntimeException {
    */
   public static function unknownFlow(string $source, string $flow): self {
     return new self($source, sprintf('unknown flow "%s" (known: %s)', $flow, implode(', ', PhaseGateMap::FLOWS)));
+  }
+
+  /**
+   * A follow_ups value that is none of the four.
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $to
+   *   The offending value.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function unknownFollowUps(string $source, string $to): self {
+    return new self($source, sprintf('unknown follow_ups "%s" (known: %s)', $to, implode(', ', LoopState::FOLLOW_UPS)));
+  }
+
+  /**
+   * A `follow_ups: cockpit` in a file whose tickets come from elsewhere.
+   *
+   * @param string $source
+   *   The document label.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function followUpsNeedTheCockpit(string $source): self {
+    return new self(
+      $source,
+      'follow_ups: cockpit needs work_item.provider: droost_cockpit; without it a follow-up would be written nowhere '
+      . '(auto writes to the cockpit when it is the provider, and to markdown otherwise)',
+    );
   }
 
   /**

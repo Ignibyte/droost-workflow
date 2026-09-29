@@ -173,6 +173,8 @@ final class RunState {
    *   The ticket this run is bound to (`run --ticket`): its id, source,
    *   number, title, status, type and path, as the work-item source reported
    *   it, or NULL when the run answers no ticket.
+   * @param \Droost\Workflow\State\LoopState $loop
+   *   The fast flow's loop: its budget, every return and the follow-ups.
    */
   public function __construct(
     public readonly string $runId,
@@ -219,6 +221,13 @@ final class RunState {
      * what those runs were bound to.
      */
     public readonly ?array $workItem = NULL,
+    /**
+     * The fast flow's loop: its budget, every return, and the follow-ups.
+     *
+     * Absent on every run.json written before 0.11, and a strict loop that
+     * never returns is what those runs were.
+     */
+    public readonly LoopState $loop = new LoopState(),
   ) {}
 
   /**
@@ -287,6 +296,14 @@ final class RunState {
       baseCommit: $baseCommit,
       baselineHash: $baselineHash,
       contributedSource: $contributedSource,
+      loop: new LoopState(
+        $config->flow,
+        $config->maxLoops,
+        // At max a spent budget fails the run (owner, 2026-09-29), and so
+        // does a run with nowhere to write a follow-up.
+        $config->preset === 'max' || $config->followUps === 'none' ? 'fail' : 'follow-up',
+        $config->followUps,
+      ),
     );
   }
 
@@ -373,6 +390,7 @@ final class RunState {
       $this->contributedSource,
       $this->seekerRounds,
       $this->workItem,
+      $this->loop,
     );
   }
 
@@ -571,6 +589,114 @@ final class RunState {
   }
 
   /**
+   * This run sent back to an earlier phase (the fast flow's loop, 0.11).
+   *
+   * The one way back, and only in the fast flow. `advanceTo()` refuses a
+   * backward move because phases run once, in order; the fast flow keeps that
+   * for every phase but one edge: a failure at test, or code that moved under
+   * code's gates, returns the run to code, whose gates then run again, and
+   * test after them. The phases between are set back to pending, never to
+   * passed, and the return is recorded with what caused it.
+   *
+   * @param \Droost\Workflow\Config\Phase $to
+   *   The phase to return to. It must have passed.
+   * @param string $reason
+   *   Either `failed` (spends the budget) or `moved` (spends nothing).
+   * @param string $at
+   *   When, ISO-8601.
+   * @param array<string, string> $gates
+   *   What caused it, by gate or subject.
+   *
+   * @return self
+   *   A new instance.
+   *
+   * @throws \InvalidArgumentException
+   *   When the run does not loop, has ended, or the target is not an earlier
+   *   phase that passed.
+   */
+  public function returnTo(Phase $to, string $reason, string $at, array $gates): self {
+    if (!$this->loop->loops()) {
+      throw new \InvalidArgumentException('Only a run in the fast flow returns to an earlier phase.');
+    }
+    $from = $this->currentPhase;
+    if ($from === NULL
+      || ($this->phases[$to->value] ?? NULL) !== PhaseStatus::Passed
+      || $this->isLaterThanCurrent($to)
+      || $to === $from) {
+      throw new \InvalidArgumentException(sprintf(
+        'Cannot return from "%s" to "%s": a run returns only to an earlier phase that passed.',
+        $from->value ?? 'the end',
+        $to->value,
+      ));
+    }
+    $order = Phase::canonical();
+    $target = array_search($to, $order, TRUE);
+    $current = array_search($from, $order, TRUE);
+    $phases = $this->phases;
+    foreach ($order as $index => $phase) {
+      if (!array_key_exists($phase->value, $phases)) {
+        continue;
+      }
+      if ($index === $target) {
+        $phases[$phase->value] = PhaseStatus::Active;
+      }
+      elseif ($index > $target && $index <= $current) {
+        $phases[$phase->value] = PhaseStatus::Pending;
+      }
+    }
+
+    return $this->with(
+      phases: $phases,
+      currentPhase: $to,
+      clearSeeker: TRUE,
+      loop: $this->loop->returned($from->value, $to->value, $reason, $at, $gates),
+    );
+  }
+
+  /**
+   * This run moved on with its current phase's failures as follow-ups.
+   *
+   * The phase left is recorded `deferred`, never passed: its gates failed and
+   * the run did not fix them. The follow-ups carry them to the next ticket.
+   *
+   * @param \Droost\Workflow\Config\Phase $to
+   *   The phase to enter.
+   * @param list<array<string, string|null>> $filed
+   *   The follow-ups written for the phase left.
+   *
+   * @return self
+   *   A new instance.
+   *
+   * @throws \InvalidArgumentException
+   *   When advanceTo() would refuse the same move.
+   */
+  public function deferTo(Phase $to, array $filed): self {
+    $from = $this->currentPhase;
+    $advanced = $this->advanceTo($to);
+    // $from is set: advanceTo() refuses a run that has ended.
+    $phases = $advanced->phases;
+    $phases[$from->value ?? ''] = PhaseStatus::Deferred;
+
+    return $advanced->with(
+      phases: $phases,
+      loop: $this->loop->deferring($from->value ?? '', $filed),
+    );
+  }
+
+  /**
+   * This run with its loop record replaced.
+   *
+   * @param \Droost\Workflow\State\LoopState $loop
+   *   The loop.
+   *
+   * @return self
+   *   A new instance.
+   */
+  public function withLoop(LoopState $loop): self {
+    return $this->with(loop: $loop);
+  }
+
+  /**
    * This run at its terminal gate: the final phase passed, nothing left to run.
    *
    * The last phase has no phase to advance TO, so advanceTo() cannot record
@@ -626,6 +752,7 @@ final class RunState {
       $this->contributedSource,
       $this->seekerRounds,
       $this->workItem,
+      $this->loop,
     );
   }
 
@@ -787,6 +914,7 @@ final class RunState {
       $this->contributedSource,
       $this->seekerRounds,
       $this->workItem,
+      $this->loop,
     );
   }
 
@@ -832,6 +960,7 @@ final class RunState {
       $this->contributedSource,
       $this->seekerRounds,
       $this->workItem,
+      $this->loop,
     );
   }
 
@@ -960,6 +1089,7 @@ final class RunState {
       $this->contributedSource,
       $this->seekerRounds,
       $this->workItem,
+      $this->loop,
     );
   }
 
@@ -1106,6 +1236,7 @@ final class RunState {
       'late_woven' => $this->lateWoven,
       'contributed_source' => $this->contributedSource,
       'work_item' => $this->workItem,
+      'loop' => $this->loop->toArray(),
     ];
   }
 
@@ -1209,6 +1340,9 @@ final class RunState {
       // Absent on every run.json written before tickets existed: those runs
       // answered none.
       self::readWorkItem($node),
+      // Absent on every run.json written before the fast flow: those runs
+      // never looped, which is what the strict default says.
+      LoopState::fromArray($node->optionalChild('loop')?->toArray()),
     );
   }
 
@@ -1348,6 +1482,7 @@ final class RunState {
       $this->contributedSource,
       $this->seekerRounds,
       $this->workItem,
+      $this->loop,
     );
   }
 
@@ -1854,6 +1989,8 @@ final class RunState {
    *   `seeker: NULL` cannot clear the verdict, only fail to set it.
    * @param array<string, mixed>|null $workItem
    *   The ticket binding to record, or NULL to keep the run's own.
+   * @param \Droost\Workflow\State\LoopState|null $loop
+   *   The loop record, or NULL to keep the run's own.
    *
    * @return self
    *   A new instance.
@@ -1873,6 +2010,7 @@ final class RunState {
     // shape produces, and one shipped.
     bool $clearSeeker = FALSE,
     ?array $workItem = NULL,
+    ?LoopState $loop = NULL,
   ): self {
     return new self(
       $this->runId,
@@ -1904,6 +2042,7 @@ final class RunState {
       $this->contributedSource,
       $this->seekerRounds,
       $workItem ?? $this->workItem,
+      $loop ?? $this->loop,
     );
   }
 

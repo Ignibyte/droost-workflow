@@ -9,6 +9,7 @@ use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\PhaseGateMap;
 use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\State\LoopState;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\Tests\WorkflowTestCase;
 
@@ -91,6 +92,68 @@ class FastFlowTest extends WorkflowTestCase {
     $this->expectException(ConfigError::class);
     $this->expectExceptionMessage('unknown flow "quick"');
     WorkflowConfig::fromArray(['preset' => 'low', 'flow' => 'quick'], 'test');
+  }
+
+  /**
+   * Each level sets its loop budget, and the file may say otherwise.
+   */
+  public function testTheLevelSetsTheLoopBudget(): void {
+    $expected = ['low' => 2, 'medium' => 3, 'high' => 5, 'xhigh' => 5, 'max' => 5];
+    foreach ($expected as $preset => $loops) {
+      $this->assertSame($loops, WorkflowConfig::fromArray(['preset' => $preset], 'test')->maxLoops, $preset);
+    }
+    $this->assertSame(0, WorkflowConfig::fromArray(['preset' => 'low', 'max_loops' => 0], 'test')->maxLoops);
+    $this->assertSame('auto', WorkflowConfig::fromArray(['preset' => 'low'], 'test')->followUps);
+  }
+
+  /**
+   * A follow-up target that is unknown, or a cockpit nobody set up, is refused.
+   */
+  public function testFollowUpsNamePlaceThatExists(): void {
+    try {
+      WorkflowConfig::fromArray(['preset' => 'low', 'follow_ups' => 'jira'], 'test');
+      $this->fail('an unknown target loads');
+    }
+    catch (ConfigError $e) {
+      $this->assertStringContainsString('unknown follow_ups "jira"', $e->getMessage());
+    }
+    $this->expectException(ConfigError::class);
+    $this->expectExceptionMessage('follow_ups: cockpit needs work_item.provider: droost_cockpit');
+    WorkflowConfig::fromArray(['preset' => 'low', 'follow_ups' => 'cockpit'], 'test');
+  }
+
+  /**
+   * A run freezes its loop: the flow, the budget, and how a spent one ends.
+   */
+  public function testTheRunFreezesItsLoop(): void {
+    $low = RunState::begin('r1', '2026-09-29T00:00:00+00:00', WorkflowConfig::fromArray(['preset' => 'low'], 'test'));
+    $this->assertTrue($low->loop->loops());
+    $this->assertSame(2, $low->loop->maxLoops);
+    $this->assertSame('follow-up', $low->loop->whenSpent);
+
+    $fastMax = WorkflowConfig::fromArray(['preset' => 'max', 'flow' => 'fast'], 'test');
+    $max = RunState::begin('r2', '2026-09-29T00:00:00+00:00', $fastMax);
+    $this->assertSame('fail', $max->loop->whenSpent, 'at max a spent budget fails the run');
+
+    $strict = RunState::begin('r3', '2026-09-29T00:00:00+00:00', WorkflowConfig::fromArray(['preset' => 'high'], 'test'));
+    $this->assertFalse($strict->loop->loops());
+    $this->expectException(\InvalidArgumentException::class);
+    $strict->returnTo(Phase::Code, 'failed', '2026-09-29T00:00:00+00:00', []);
+  }
+
+  /**
+   * A loop survives run.json, and a record without one never looped.
+   */
+  public function testTheLoopRoundTrips(): void {
+    $loop = (new LoopState('fast', 2, 'follow-up', 'auto'))
+      ->returned('test', 'code', 'failed', '2026-09-29T00:00:00+00:00', ['playwright' => 'failed'])
+      ->withSubject('code', 'abc')
+      ->deferring('test', [['phase' => 'test', 'gate' => 'playwright', 'id' => 'TICKET-1']]);
+    $this->assertEquals($loop, LoopState::fromArray($loop->toArray()));
+    $this->assertSame(1, $loop->spent());
+    $this->assertSame(['test' => ['playwright']], $loop->deferred);
+    $this->assertArrayNotHasKey('subjects', $loop->envelope(), 'the envelope carries no fingerprints');
+    $this->assertFalse(LoopState::fromArray(NULL)->loops());
   }
 
   /**

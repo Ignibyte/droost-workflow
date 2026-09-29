@@ -29,4 +29,10 @@ enum PhaseStatus: string {
   // Reached, but nothing to do.
   case Skipped = 'skipped';
 
+  // Left with its failures written up as follow-up tickets (the fast flow,
+  // 0.11): the run moved on, and the phase did NOT pass. Advancing records
+  // the phase it leaves as passed, so a phase whose gates still fail needs a
+  // word of its own or its failures read as a pass.
+  case Deferred = 'deferred';
+
 }

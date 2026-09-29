@@ -55,6 +55,7 @@ use Droost\Workflow\State\PhaseStatus;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
 use Droost\Workflow\WorkItem\CockpitEventRelay;
+use Droost\Workflow\WorkItem\FollowUps;
 use Droost\Workflow\WorkItem\WorkItem;
 use Droost\Workflow\WorkItem\WorkItemError;
 use Droost\Workflow\WorkItem\WorkItemSourceInterface;
@@ -214,6 +215,10 @@ final class WorkflowFacade {
         'custom_code' => $config->customCode,
         // Which phase-gate map a run begun now would dispatch from.
         'flow' => $config->flow,
+        // The fast flow's loop: how many times a test failure may send the run
+        // back to code, and where the follow-ups go once it may not.
+        'max_loops' => $config->maxLoops,
+        'follow_ups' => $config->followUps,
         'phases' => $config->phaseNames(),
         'gates' => $config->resolvedGates(),
         // WHEN each enabled gate runs — so "why did plan run nothing" is
@@ -873,7 +878,7 @@ final class WorkflowFacade {
     // checks land in the evidence store either way, which is what lets the Stop
     // hook name the reason rather than repeat that a phase is open.
     $outcome = $this->auditDeclarations($outcome, $phase, $projectRoot);
-    $advanced = $this->advanceIfDue($outcome, $phase);
+    $advanced = $this->advanceIfDue($outcome, $phase, $projectRoot);
     // The moment the contract stops being drafted and starts being binding.
     // Frozen on the way OUT of plan, not on the way in, because plan is where
     // the spec is written — and only when plan actually passed, so a refused
@@ -892,6 +897,7 @@ final class WorkflowFacade {
       'report' => $advanced->report?->toArray(),
     ]);
     $this->questionAsked($store, $state, $advanced->state, $advanced->question);
+    $this->announceLoop($store, $state, $advanced);
     $this->announceAdvanceOrComplete($phase, $advanced->state, $store);
     if ($advanced->state->currentPhase === NULL) {
       $advanced = new RunOutcome(
@@ -2008,7 +2014,7 @@ final class WorkflowFacade {
     // (see DeclarationAudit::checks()). This runs before advanceIfDue() writes
     // the terminal state, so a block holds the phase open.
     if (!in_array($phase, [Phase::Code, Phase::Test, Phase::Complete], TRUE)
-      || !in_array($outcome->outcome, [Outcome::Advanced, Outcome::InspectionDue, Outcome::Completed], TRUE)) {
+      || !in_array($outcome->outcome, [Outcome::Advanced, Outcome::InspectionDue, Outcome::Completed, Outcome::Deferred], TRUE)) {
       return $outcome;
     }
 
@@ -2590,7 +2596,16 @@ final class WorkflowFacade {
       $audit = new DeclarationAudit(
         $files,
         $tests,
-        $this->vcs->changedFiles($projectRoot, $state->baseCommit),
+        // Less the follow-up tickets this run's engine wrote (0.11): the files
+        // are the engine's, named one by one in the loop record, and a plan
+        // cannot declare a ticket nobody knew would be needed.
+        array_values(array_diff(
+          $this->vcs->changedFiles($projectRoot, $state->baseCommit),
+          array_filter(array_map(
+            static fn (array $record): ?string => $record['path'] ?? NULL,
+            $state->loop->followUpsFiled,
+          )),
+        )),
         $store->workType($state->runId),
         $store->measuredGates($state->runId),
         // Off by level, unreachable on this surface, or waived by the
@@ -2778,6 +2793,8 @@ final class WorkflowFacade {
    *   What the phase produced.
    * @param \Droost\Workflow\Config\Phase $phase
    *   The phase just worked.
+   * @param string $projectRoot
+   *   The repository, where a deferred phase's follow-ups are written.
    *
    * @return \Droost\Workflow\Mode\RunOutcome
    *   The outcome, with the state advanced when it should be.
@@ -2785,7 +2802,11 @@ final class WorkflowFacade {
   private function advanceIfDue(
     RunOutcome $outcome,
     Phase $phase,
+    string $projectRoot,
   ): RunOutcome {
+    if ($outcome->outcome === Outcome::Deferred) {
+      return $this->defer($outcome, $phase, $projectRoot);
+    }
     if ($outcome->outcome === Outcome::Completed) {
       // The final phase passed. This is the ONLY place the terminal state is
       // written: complete() records the phase passed and drops currentPhase to
@@ -2865,6 +2886,119 @@ final class WorkflowFacade {
       throw StateError::runEnded($store->label());
     }
     return $state;
+  }
+
+  /**
+   * Writes a deferred phase's follow-ups, then moves the run on.
+   *
+   * The fast flow's loop, at its end (0.11): each gate the engine could not
+   * send back to code becomes a follow-up ticket, the phase is recorded
+   * deferred, and a row at the phase names each ticket, so the record says
+   * where every failure went. A gate this run already wrote up is not written
+   * twice.
+   *
+   * @param \Droost\Workflow\Mode\RunOutcome $outcome
+   *   The Deferred outcome.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase being left.
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return \Droost\Workflow\Mode\RunOutcome
+   *   The outcome, with the run moved on.
+   */
+  private function defer(RunOutcome $outcome, Phase $phase, string $projectRoot): RunOutcome {
+    $state = $outcome->state;
+    $next = $this->nextPhase($state, $phase);
+    if ($next === NULL) {
+      // A deferral belongs to test, which complete always follows. A run
+      // configured without complete has nowhere to move on to, and a phase
+      // that did not pass is not a run that completed.
+      return new RunOutcome(Outcome::Failed, $state->withPhaseStatus($phase, PhaseStatus::Failed), $outcome->report);
+    }
+    // The ticket source as the lever file names it now. A file that no longer
+    // loads costs the cockpit, never the follow-ups: markdown takes them.
+    try {
+      $settings = WorkflowConfig::load($projectRoot, $this->contributed)->workItem;
+    }
+    catch (\Throwable) {
+      $settings = NULL;
+    }
+    $writer = new FollowUps($projectRoot, $this->workItems, $settings);
+    $filed = [];
+    $store = new EvidenceStore($projectRoot);
+    foreach ($outcome->deferred as $gate => $deferral) {
+      $record = $state->loop->filedFor($phase->value, $gate)
+        ?? $writer->file($state, $phase, $gate, $deferral['summary'], $deferral['why'], $this->now());
+      $filed[] = $record;
+      $written = is_string($record['id'] ?? NULL);
+      try {
+        $store->record($state->runId, $phase->value, new CheckRecord(
+          'follow_up',
+          $gate,
+          $written ? CheckState::Recorded : CheckState::Blocked,
+          $written ? Fault::None : Fault::Environment,
+          $written
+            ? sprintf(
+              '%s failed and was not fixed here: it is follow-up %s%s (%s)%s.',
+              $gate,
+              $record['id'],
+              is_string($record['path'] ?? NULL) ? ' at ' . $record['path'] : '',
+              $deferral['why'] === 'outside' ? 'every failure is in a spec this run did not change' : 'the loop budget is spent',
+              is_string($record['note'] ?? NULL) ? '; ' . $record['note'] : '',
+            )
+            : sprintf('%s failed, and %s.', $gate, $record['note'] ?? 'no follow-up could be written'),
+          $written ? NULL : 'Write the follow-up by hand: droost-workflow ticket new --title="…" --type=bug',
+        ), $this->now());
+      }
+      catch (\Throwable) {
+        // The run.json record keeps every follow-up whether or not this row
+        // could be written.
+      }
+    }
+
+    return new RunOutcome(
+      Outcome::Deferred,
+      $state->deferTo($next, array_values(array_filter(
+        $filed,
+        static fn (array $record): bool => $state->loop->filedFor($phase->value, (string) ($record['gate'] ?? '')) === NULL,
+      ))),
+      $outcome->report,
+      NULL,
+      [],
+      $outcome->deferred,
+    );
+  }
+
+  /**
+   * The loop's events: a return to code, and each follow-up written.
+   *
+   * @param \Droost\Workflow\State\RunStateStore $store
+   *   The run's store.
+   * @param \Droost\Workflow\State\RunState $before
+   *   The run before the phase was worked.
+   * @param \Droost\Workflow\Mode\RunOutcome $after
+   *   What working it did, already saved.
+   */
+  private function announceLoop(RunStateStore $store, RunState $before, RunOutcome $after): void {
+    if ($after->outcome === Outcome::Returned) {
+      $return = $after->state->loop->returns[array_key_last($after->state->loop->returns) ?? 0] ?? NULL;
+      if (is_array($return)) {
+        $this->event($store, $after->state, 'phase.returned', [
+          'from' => $return['from'],
+          'to' => $return['to'],
+          'reason' => $return['reason'],
+          'spent' => $after->state->loop->spent(),
+          'max_loops' => $after->state->loop->maxLoops,
+          'gates' => $return['gates'],
+        ]);
+      }
+      return;
+    }
+    $new = array_slice($after->state->loop->followUpsFiled, count($before->loop->followUpsFiled));
+    foreach ($new as $record) {
+      $this->event($store, $after->state, 'follow_up.filed', $record);
+    }
   }
 
   /**

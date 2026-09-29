@@ -31,10 +31,15 @@ executable form, and a test holds the two to each other route for route.
 |---|---|---|---|---|
 | GET | `/items/{id}` | none | 200 `{"item": WorkItem}` | 401, 403, 404 |
 | GET | `/items` | `?status=<state>`, optional | 200 `{"items": [WorkItem, …]}` | 400 (an unknown state), 401, 403 |
-| POST | `/items` | `{"title": "…", "type": "…"}` | 201 `{"item": WorkItem}`, created in `backlog` | 400 (no title or type), 401, 403 |
+| POST | `/items` | `{"title": "…", "type": "…", "body": "…"}`, `body` optional | 201 `{"item": WorkItem}`, created in `backlog` | 400 (no title or type), 401, 403 |
 | POST | `/events` | `{"events": [RunEvent, …]}` | 200 `{"accepted": n, "duplicates": m}` | 400 (not a list of events), 401, 403, 413 (over the limits) |
 
 `{id}` is the ticket's id, URL-encoded.
+
+`body` on `POST /items` is the ticket's text, sent only when the client has
+one (since droost/workflow 0.11): a follow-up the fast flow files names the
+gate that failed and what it said. A server that keeps text stores it as the
+item's `body`; one that does not ignores the key, as `/v1` allows.
 
 ## WorkItem
 

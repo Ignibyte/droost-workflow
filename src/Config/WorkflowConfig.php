@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Config;
 
+use Droost\Workflow\State\LoopState;
 use Droost\Workflow\Support\DataError;
 use Droost\Workflow\Support\TypedArray;
 use Symfony\Component\Yaml\Exception\ParseException;
@@ -45,7 +46,22 @@ final class WorkflowConfig {
     'baseline',
     'custom_code',
     'flow',
+    'max_loops',
+    'follow_ups',
   ];
+
+  /**
+   * Each level's loop budget (owner, 2026-09-29).
+   *
+   * How many times a failure at test may send the run back to code. A level
+   * with no row gets the middle value.
+   */
+  public const LOOP_BUDGETS = ['low' => 2, 'medium' => 3, 'high' => 5, 'xhigh' => 5, 'max' => 5];
+
+  /**
+   * The most returns a lever file may ask for.
+   */
+  private const MAX_LOOPS_CEILING = 20;
 
   /**
    * The options the baseline block accepts.
@@ -137,6 +153,13 @@ final class WorkflowConfig {
    *   Which phase-gate map the run dispatches from: `fast` (each gate at the
    *   phase that owns it, complete running none) or `strict` (every gate at
    *   every phase that writes source, complete re-running the set).
+   * @param int $maxLoops
+   *   How many times a failure at test may send a fast-flow run back to
+   *   code before the failures become follow-up tickets.
+   * @param string $followUps
+   *   Where follow-up tickets go: `auto` (the cockpit when it is the
+   *   project's ticket source, markdown otherwise), `markdown`, `cockpit`, or
+   *   `none` (nowhere, so a spent budget fails the phase).
    */
   private function __construct(
     public readonly Mode $mode,
@@ -155,6 +178,8 @@ final class WorkflowConfig {
     public readonly array $contributedGates = [],
     public readonly array $customCode = [],
     public readonly string $flow = 'strict',
+    public readonly int $maxLoops = 0,
+    public readonly string $followUps = 'auto',
   ) {}
 
   /**
@@ -397,6 +422,10 @@ final class WorkflowConfig {
         $declared,
         self::readCustomCode($root, $source),
         self::readFlow($root, $source, $base->name),
+        $root->has('max_loops')
+          ? $root->intInRange('max_loops', 0, self::MAX_LOOPS_CEILING)
+          : self::LOOP_BUDGETS[$base->name] ?? 3,
+        self::readFollowUps($root, $source),
       );
     }
     catch (DataError $e) {
@@ -549,6 +578,42 @@ final class WorkflowConfig {
     }
 
     return $flow;
+  }
+
+  /**
+   * Reads where follow-up tickets go.
+   *
+   * `cockpit` is refused unless the cockpit is the project's ticket source:
+   * a follow-up promised to a cockpit nobody configured would be written
+   * nowhere, and a run would defer its failures into the void.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label, for error messages.
+   *
+   * @return string
+   *   One of LoopState::FOLLOW_UPS.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When the value is unknown, or names a cockpit the file does not.
+   */
+  private static function readFollowUps(TypedArray $root, string $source): string {
+    if (!$root->has('follow_ups')) {
+      return 'auto';
+    }
+    $to = $root->string('follow_ups');
+    if (!in_array($to, LoopState::FOLLOW_UPS, TRUE)) {
+      throw ConfigError::unknownFollowUps($source, $to);
+    }
+    if ($to === 'cockpit') {
+      $provider = $root->optionalChild('work_item')?->optionalString('provider');
+      if ($provider !== 'droost_cockpit') {
+        throw ConfigError::followUpsNeedTheCockpit($source);
+      }
+    }
+
+    return $to;
   }
 
   /**

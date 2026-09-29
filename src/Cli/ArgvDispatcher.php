@@ -580,7 +580,10 @@ final class ArgvDispatcher {
     // retries.exhausted, where a caller can actually act on it.
     // Blocked is non-zero too — the run did not advance — but the envelope's
     // own word is what tells a reader whether to fix and re-run or to reset.
-    return $outcome->outcome === Outcome::Failed || $outcome->outcome === Outcome::Blocked
+    // So is Returned: the fast flow sent the run back to code, and the work
+    // named in `blocked` is still to do. Deferred moved on, so it exits 0,
+    // and the envelope's `loop` names the follow-ups it wrote.
+    return in_array($outcome->outcome, [Outcome::Failed, Outcome::Blocked, Outcome::Returned], TRUE)
       ? self::EXIT_RUN_FAILED
       : self::EXIT_OK;
   }

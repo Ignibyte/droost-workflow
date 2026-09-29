@@ -176,6 +176,12 @@ on the run's flow**, and `droost-workflow status` lists it under `phase_gates`:
   whole configured set. The test phase that follows runs only the
   browser suite, parity and the rendered check; nothing re-runs your
   analysers or unit tests after this phase, and complete runs no gate.
+
+  **The run can come back here.** A failure at test, or a code file changed
+  after this phase's gates ran, returns the run to code (`outcome:
+  returned`). The envelope's `blocked` row `returned_to_code` names what
+  failed and how many loops are left. Fix it, then `run`: this phase's gates
+  measure the fix, and test follows.
 - **strict** (`high` and above): code runs static analysis only, and the
   functional gates belong to the test phase, where they run again at
   complete.

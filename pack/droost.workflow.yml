@@ -78,6 +78,18 @@ preset: custom
 #   whole configured set, a full regression for the suites.
 #     gates:
 #       playwright: { scope: full }
+#
+# max_loops: <n>  (omitted, the level decides: low 2, medium 3, high+ 5)
+#   In the fast flow, how many times a failure at test sends the run back to
+#   code. Code edited after its gates ran also sends it back, and spends
+#   nothing. Once the loops are spent, or for a failure outside the ticket, the
+#   failure becomes a follow-up ticket and test is recorded deferred, never
+#   passed. At max a spent budget fails the phase instead.
+#
+# follow_ups: auto | markdown | cockpit | none  (omitted: auto)
+#   Where follow-up tickets go. auto: the cockpit when work_item.provider
+#   names it, markdown otherwise (the project's ticket directory, or
+#   docs/tickets/). none: nowhere, so a spent budget fails the phase.
 
 # hard | soft | off
 #   How hard the harness hooks hold the phase discipline WHILE A RUN IS

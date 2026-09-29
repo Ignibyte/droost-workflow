@@ -23,7 +23,9 @@
     { "if": { "properties": { "type": { "const": "question.asked" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/question.asked" } } } },
     { "if": { "properties": { "type": { "const": "question.answered" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/question.answered" } } } },
     { "if": { "properties": { "type": { "const": "run.completed" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/run.completed" } } } },
-    { "if": { "properties": { "type": { "const": "run.reset" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/run.reset" } } } }
+    { "if": { "properties": { "type": { "const": "run.reset" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/run.reset" } } } },
+    { "if": { "properties": { "type": { "const": "phase.returned" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/phase.returned" } } } },
+    { "if": { "properties": { "type": { "const": "follow_up.filed" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/follow_up.filed" } } } }
   ],
   "$defs": {
     "run.started": {
@@ -90,6 +92,36 @@
       "type": "object",
       "required": ["archived_run_id"],
       "properties": { "archived_run_id": { "type": "string" } }
+    },
+    "phase.returned": {
+      "description": "The fast flow's loop (0.11): a failure at test, or code that moved after code's gates ran, sent the run back to an earlier phase. reason is failed (spends the loop budget) or moved (spends nothing); gates carries what caused it.",
+      "type": "object",
+      "required": ["from", "to", "reason", "spent", "max_loops", "gates"],
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "reason": { "enum": ["failed", "moved"] },
+        "spent": { "type": "integer", "minimum": 0 },
+        "max_loops": { "type": "integer", "minimum": 0 },
+        "gates": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "follow_up.filed": {
+      "description": "The fast flow's loop (0.11): a gate that failed at a phase the run left deferred was written up as a follow-up ticket. why is spent (the loop budget ran out) or outside (every failure is in a spec the run did not change); id is null when it could not be written anywhere, and note says why.",
+      "type": "object",
+      "required": ["phase", "gate", "why", "summary", "title", "id", "source", "path", "at", "note"],
+      "properties": {
+        "phase": { "type": "string" },
+        "gate": { "type": "string" },
+        "why": { "enum": ["spent", "outside"] },
+        "summary": { "type": "string" },
+        "title": { "type": "string" },
+        "id": { "type": ["string", "null"] },
+        "source": { "type": ["string", "null"] },
+        "path": { "type": ["string", "null"] },
+        "at": { "type": "string" },
+        "note": { "type": ["string", "null"] }
+      }
     }
   }
 }

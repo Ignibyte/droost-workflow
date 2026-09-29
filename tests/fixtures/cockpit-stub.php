@@ -246,7 +246,7 @@ switch ($route) {
       'title' => $title,
       'status' => 'backlog',
       'type' => $type,
-      'body' => '',
+      'body' => is_string($body['body'] ?? NULL) ? $body['body'] : '',
       'extra' => [],
     ];
     $state['items'][$item['id']] = $item;
