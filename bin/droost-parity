@@ -152,10 +152,23 @@ async function read(browser, url, width) {
       const r = el.getBoundingClientRect();
       return r.width > 0 && r.height > 0;
     };
+    // An element's own text as it renders (F-146): text nodes side by side run
+    // together, as the browser draws them (React writes "{city}, {state}" as
+    // three, and "$" and "{price}" as two), and a child element between two
+    // keeps a word boundary ("Ages 8-12" before a <span>Youth</span>).
+    const ownText = (el) => {
+      let s = '';
+      let run = false;
+      for (const n of el.childNodes) {
+        if (n.nodeType === 3) { s += (run || !s ? '' : ' ') + n.textContent; run = true; }
+        else if (n.nodeType === 1) run = false;
+      }
+      return s.replace(/\s+/g, ' ').trim();
+    };
     const texts = [];
     for (const el of document.body.querySelectorAll('*')) {
       if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'PATH', 'TEMPLATE'].includes(el.tagName)) continue;
-      const own = [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join(' ').replace(/\s+/g, ' ').trim();
+      const own = ownText(el);
       if (!own || !visible(el)) continue;
       const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
       texts.push({
