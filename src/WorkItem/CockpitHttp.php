@@ -82,24 +82,27 @@ final class CockpitHttp {
     // The wrapper's `timeout` bounds each read; connecting is bounded by
     // default_socket_timeout, which is 60 s unless said otherwise.
     $previous = ini_set('default_socket_timeout', (string) self::TIMEOUT);
-    $http_response_header = [];
-    if (function_exists('http_clear_last_response_headers')) {
-      // A request nothing answers leaves the last one's headers otherwise.
-      http_clear_last_response_headers();
-    }
+    // The headers come from the stream's own metadata: the same on every PHP
+    // this package supports, where $http_response_header is deprecated from
+    // 8.5 and http_get_last_response_headers() exists only from 8.4.
+    $raw = FALSE;
+    $received = [];
     try {
-      $raw = @file_get_contents($url, FALSE, $context);
+      $stream = @fopen($url, 'r', FALSE, $context);
+      if (is_resource($stream)) {
+        $raw = stream_get_contents($stream);
+        $received = stream_get_meta_data($stream)['wrapper_data'];
+        fclose($stream);
+      }
     }
     finally {
       if ($previous !== FALSE) {
         ini_set('default_socket_timeout', $previous);
       }
     }
-    // PHP 8.4 has the function, and 8.5 deprecates the variable it replaces.
-    $received = function_exists('http_get_last_response_headers') ? (http_get_last_response_headers() ?? []) : $http_response_header;
     $status = 0;
-    foreach ($received as $line) {
-      if (preg_match('#^HTTP/\S+\s+(\d{3})#', $line, $m) === 1) {
+    foreach (is_array($received) ? $received : [] as $line) {
+      if (is_string($line) && preg_match('#^HTTP/\S+\s+(\d{3})#', $line, $m) === 1) {
         $status = (int) $m[1];
       }
     }
