@@ -3738,6 +3738,20 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
   // exactly `<root>/droost.workflow.yml` — but the pattern matched the
   // basename anywhere, so a `pack/droost.workflow.yml` shipped inside another
   // checkout was refused on the strength of an unrelated repository's run.
+  // The parity gate's reference (F-144): the source every page is judged
+  // against, kept in the project. The gate itself refuses a reference that
+  // changed since the run began, whatever changed it; this is the earlier
+  // word, for the doors this guard knows. Reading it is how a build matches
+  // it, and stays open.
+  $parity = guard_parity_reference($root, $stateDir);
+  if ($parity !== '' && ($relative === $parity || str_starts_with($relative, $parity . '/'))) {
+    return 'That is the parity gate\'s reference, the source this run\'s pages '
+      . 'are judged against, and a run is under way. A page built to match an '
+      . 'edited reference matches nothing, and the gate fails a reference that '
+      . 'is not the one the run began with. Read it as much as you like. If it '
+      . 'is wrong, the OPERATOR re-captures it with `droost-parity capture` '
+      . 'before a run.';
+  }
   if (preg_match('#^droost\.workflow\.yml$#', $relative) === 1) {
     return 'The lever file sets what this run is held to, and a run is under '
       . 'way. Its levers were frozen when the run began, so editing it now '
@@ -3980,6 +3994,39 @@ function guard_run_is_live(string $root, string $stateDir): bool {
   }
 
   return $document['current_phase'] !== NULL && $document['current_phase'] !== '';
+}
+
+/**
+ * The parity reference the live run is held to, project-relative, or ''.
+ *
+ * Read from the run's frozen levers, so a `reference` lever that names
+ * another directory moves the wall with it, and a run with the gate off has
+ * none.
+ *
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The resolved state directory.
+ *
+ * @return string
+ *   The reference directory without slashes at either end, or '' for none.
+ */
+function guard_parity_reference(string $root, string $stateDir): string {
+  $document = json_decode((string) @file_get_contents($root . '/' . $stateDir . '/run.json'), TRUE);
+  $parity = is_array($document) && is_array($document['resolved_gates']['parity'] ?? NULL)
+    ? $document['resolved_gates']['parity']
+    : NULL;
+  if ($parity === NULL || ($parity['on'] ?? FALSE) !== TRUE) {
+    return '';
+  }
+  $reference = is_string($parity['reference'] ?? NULL) && $parity['reference'] !== '' ? $parity['reference'] : 'droost/parity';
+  $path = normalised_path($reference);
+  $rootPath = normalised_path($root);
+  if (str_starts_with($path, $rootPath . '/')) {
+    $path = substr($path, strlen($rootPath) + 1);
+  }
+
+  return trim($path, '/');
 }
 
 /**

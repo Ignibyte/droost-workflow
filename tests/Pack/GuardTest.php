@@ -1379,6 +1379,48 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * The parity gate's reference is out of reach while a run holds it (F-144).
+   *
+   * It is the source every page is judged against, kept in the project, and
+   * nothing refused an edit to it. The gate now refuses a reference changed
+   * since the run began, whatever changed it; this wall is the earlier word,
+   * for the doors the guard knows, and it follows the run's frozen levers.
+   */
+  public function testParityReferenceIsOutOfReachWhileRunHoldsIt(): void {
+    $root = $this->makeRoot();
+    $reference = 'droost/parity/home.json';
+    mkdir($root . '/droost/parity', 0775, TRUE);
+    file_put_contents($root . '/' . $reference, '{}');
+    $this->assertSame(0, $this->writeAttempt($root, $reference), 'capturing one before a run is ordinary');
+
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    $run = [
+      'run_id' => 'r1',
+      'current_phase' => 'test',
+      'resolved_gates' => ['parity' => ['on' => TRUE, 'required' => TRUE, 'scope' => 'frame']],
+    ];
+    file_put_contents($root . '/droost/droost-workflow/run.json', json_encode($run));
+    $this->assertSame(2, $this->writeAttempt($root, $reference));
+    $this->assertSame(2, $this->writeAttempt($root, 'droost/parity/manifest.json'));
+    $this->assertSame(2, $this->shellAttempt($root, $reference), 'and through a shell');
+    // The Read tool never reaches this hook (its matcher is the editing
+    // tools), and a shell read stays open: reading the reference is how a
+    // build matches it.
+    $this->assertSame(0, $this->shellAttempt($root, 'cat droost/parity/home.json'));
+
+    // A lever naming another directory moves the wall with it.
+    $run['resolved_gates']['parity']['reference'] = 'design/refs';
+    file_put_contents($root . '/droost/droost-workflow/run.json', json_encode($run));
+    $this->assertSame(2, $this->writeAttempt($root, 'design/refs/home.json'));
+    $this->assertSame(0, $this->writeAttempt($root, $reference), 'the default is then an ordinary directory');
+
+    // A run with the gate off holds no reference.
+    $run['resolved_gates']['parity'] = ['on' => FALSE];
+    file_put_contents($root . '/droost/droost-workflow/run.json', json_encode($run));
+    $this->assertSame(0, $this->writeAttempt($root, 'design/refs/home.json'));
+  }
+
+  /**
    * The exit code of writing to a path through the editing tools.
    *
    * @param string $root

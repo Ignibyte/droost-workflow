@@ -156,17 +156,20 @@ When a ticket rebuilds a source (a design, or a site being replaced), the
 reference in `droost/parity/` it passes labelled, having compared nothing.
 
 ```bash
-vendor/bin/droost-parity capture --source <the source's url> --routes /,/camps   # once, from the SOURCE
-vendor/bin/droost-parity judge                       # what the gate runs, on the site
-vendor/bin/droost-parity judge --scope frame         # the header and footer only
+vendor/bin/droost-parity judge                               # every route, as the reference holds it
+vendor/bin/droost-parity judge --scope frame --pages /       # the frame everywhere, / whole
 ```
 
-Capture from the source the ticket names, never from the site: a reference
-read off the site agrees with it whatever it looks like, and the runner
-refuses one whose source is the site it judges. Each verdict names the
-source it compared against. A route fails on the first of D1 to D7 it
-misses, and the finding says which elements; run it as the gate does, where
-the phase runs (on DDEV, `ddev exec vendor/bin/droost-parity judge`).
+Run it with the scope and pages the gate's levers name (`status` shows them
+under the gate). The reference in `droost/parity/` is the operator's,
+captured from the source before the run, and it is frozen with the run: the
+gate fails a reference that has changed since the run began, so match the
+site to it and never the other way round. A reference captured at more than
+one width is judged at each (`/@390` is the home page at 390 pixels), which
+is how a menu that folds is held to the source's. A view fails on the first
+of D1 to D7 it misses, and the finding says which elements; run it as the
+gate does, where the phase runs (on DDEV, `ddev exec vendor/bin/droost-parity
+judge`).
 
 ## Fill `Verified By`
 

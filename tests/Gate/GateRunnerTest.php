@@ -435,6 +435,21 @@ class GateRunnerTest extends WorkflowTestCase {
   }
 
   /**
+   * The reference digest frozen at run start reaches the parity gate (F-144).
+   *
+   * Through the runner, as a run takes it, and past the live lever file,
+   * which cannot name it: withLiveTuning re-reads only the gate's own levers.
+   */
+  public function testFrozenReferenceDigestReachesTheParityGate(): void {
+    $root = $this->makeRootWithConfig("preset: low\n");
+    $state = RunState::begin('run-1', '2026-09-29T09:00:00+00:00', WorkflowConfig::load($root), NULL, NULL, NULL, 'digest-at-start');
+    $executor = new SettingsRecordingExecutor();
+    (new GateRunner($executor, new NullSiteDriver()))->run($state, Phase::Test, $root);
+
+    $this->assertSame('digest-at-start', $executor->option('parity', 'reference_digest'));
+  }
+
+  /**
    * A verdict noted for drifted levers keeps every field it had (F-64).
    *
    * The drift note rebuilt the result from eleven positional arguments and

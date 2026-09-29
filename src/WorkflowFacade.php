@@ -35,6 +35,7 @@ use Droost\Workflow\Evidence\SubjectHasher;
 use Droost\Workflow\Evidence\WorkType;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
+use Droost\Workflow\Gate\ParityReference;
 use Droost\Workflow\Gate\ShellGateExecutor;
 use Droost\Workflow\Gate\SiteDriverInterface;
 use Droost\Workflow\Mode\ModeEngine;
@@ -657,6 +658,9 @@ final class WorkflowFacade {
       // Frozen with the levers: where the tree is, and which baseline the
       // run is held to (none when the lever refuses one). A baseline that
       // moves under the run is then caught by every gate that consults it.
+      // And the parity reference the run is judged against: a reference the
+      // run could rewrite would judge nothing (F-144).
+      $parity = $config->resolvedGates()['parity'] ?? NULL;
       $state = RunState::begin(
         $this->newId(),
         $this->now(),
@@ -664,6 +668,9 @@ final class WorkflowFacade {
         $this->vcs->head($projectRoot),
         $config->baseline ? BaselineStore::hash($projectRoot) : NULL,
         $this->contributedSource(),
+        is_array($parity) && ($parity['on'] ?? FALSE) === TRUE
+          ? ParityReference::digest($projectRoot, ParityReference::directory($parity['reference'] ?? NULL))
+          : NULL,
       );
       if ($item !== NULL) {
         $state = $state->withWorkItem($item->binding());

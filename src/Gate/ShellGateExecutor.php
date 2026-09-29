@@ -497,6 +497,31 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     }
     $invocation = implode(' ', $argv);
 
+    // The reference as the run began (F-144). It is the source every page is
+    // judged against and it lives in the project, so a reference changed
+    // during the run could make any page pass. Asked before anything else,
+    // so a reference deleted mid-run is caught too, not read as none.
+    $parityFrozen = $gate->name === 'parity' ? $gate->option('reference_digest') : NULL;
+    if (is_string($parityFrozen) && $parityFrozen !== '') {
+      $parityNow = ParityReference::digest($root, self::parityReference($gate));
+      if (!hash_equals($parityFrozen, $parityNow)) {
+        return GateResult::ran(
+          $gate->name,
+          GateStatus::Failed,
+          0,
+          0,
+          sprintf(
+            'parity FAILED — the reference in %s is not the one this run began with (%s then, %s now). The gate judges the site against it, so a reference changed during a run could make any page pass. Put it back as it was, or re-capture it before a run and reset this one.',
+            self::parityReference($gate),
+            self::digestText($parityFrozen),
+            self::digestText($parityNow),
+          ),
+          [],
+          $invocation,
+        );
+      }
+    }
+
     if ($gate->name === 'parity'
       && $gate->option('required') !== TRUE
       && !is_file($root . '/' . self::parityReference($gate) . '/manifest.json')) {
@@ -1011,7 +1036,8 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         continue;
       }
       $findings[] = [
-        'key' => is_string($route['route'] ?? NULL) ? $route['route'] : '?',
+        // The view (`/@390`) when the reference holds more than one width.
+        'key' => is_string($route['view'] ?? NULL) ? $route['view'] : (is_string($route['route'] ?? NULL) ? $route['route'] : '?'),
         'detail' => $route['failing'] ?? [],
       ];
     }
@@ -1027,6 +1053,33 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   }
 
   /**
+   * The `--pages` a parity judgement takes, or none.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate's resolved levers.
+   *
+   * @return list<string>
+   *   `--pages` and the routes, or nothing when the lever names none.
+   */
+  private static function parityPages(GateSettings $gate): array {
+    $pages = $gate->option('pages');
+    return is_string($pages) && trim($pages) !== '' ? ['--pages', trim($pages)] : [];
+  }
+
+  /**
+   * A reference digest as a verdict names it.
+   *
+   * @param string $digest
+   *   The digest, or ParityReference::ABSENT.
+   *
+   * @return string
+   *   Its first twelve characters, or "none".
+   */
+  private static function digestText(string $digest): string {
+    return $digest === ParityReference::ABSENT ? 'none' : substr($digest, 0, 12);
+  }
+
+  /**
    * Where the parity gate reads its references, relative to the project.
    *
    * @param \Droost\Workflow\Config\GateSettings $gate
@@ -1036,8 +1089,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   The `reference` lever, or droost/parity.
    */
   private static function parityReference(GateSettings $gate): string {
-    $reference = $gate->option('reference');
-    return is_string($reference) && $reference !== '' ? $reference : 'droost/parity';
+    return ParityReference::directory($gate->option('reference'));
   }
 
   /**
@@ -2085,6 +2137,9 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         self::parityReference($gate),
         '--scope',
         is_string($gate->option('scope')) && $gate->option('scope') !== '' ? $gate->option('scope') : 'page',
+        // The pages a ticket rebuilds whole, held at page scope while the rest
+        // keep the lever's scope.
+        ...self::parityPages($gate),
         '--json',
       ],
       default => [$binary],

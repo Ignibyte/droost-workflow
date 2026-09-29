@@ -237,6 +237,10 @@ final class RunState {
    * @param string|null $contributedSource
    *   Where this surface got the contributed gates it resolved, for the
    *   record.
+   * @param string|null $parityDigest
+   *   The parity reference's digest as the run begins, frozen with the gate's
+   *   levers as `reference_digest` so the gate can refuse a changed one
+   *   (F-144); NULL when the gate is off.
    *
    * @return self
    *   A run positioned at its first configured phase.
@@ -248,12 +252,18 @@ final class RunState {
     ?string $baseCommit = NULL,
     ?string $baselineHash = NULL,
     ?string $contributedSource = NULL,
+    ?string $parityDigest = NULL,
   ): self {
     $phases = [];
     foreach ($config->phases as $index => $phase) {
       $phases[$phase->value] = $index === 0
         ? PhaseStatus::Active
         : PhaseStatus::Pending;
+    }
+
+    $gates = $config->resolvedGates();
+    if ($parityDigest !== NULL && isset($gates['parity'])) {
+      $gates['parity']['reference_digest'] = $parityDigest;
     }
 
     return new self(
@@ -264,7 +274,7 @@ final class RunState {
       $config->preset,
       $config->maxGateRetries,
       $config->provenance,
-      $config->resolvedGates(),
+      $gates,
       $phases,
       $config->phases[0] ?? NULL,
       phaseGates: self::weaveCustomGates(

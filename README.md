@@ -232,6 +232,15 @@ frame` judges only the header and footer, for a ticket that builds the frame
 before the pages. No Playwright, or no Node, REPORTS, as the browser suite
 does.
 
+A reference may be captured at several widths (`--width 1280,390`), and every
+route is judged at each: a narrow width is how a collapsed menu is held to the
+source's. `pages: /,/camps` judges those routes whole (page scope) at the
+first width while every other view keeps `scope`, so a ticket that rebuilds
+one page holds it and the frame everywhere at once. The reference is frozen
+with the run: its digest is taken when the run begins, and the gate fails a
+reference that has changed since, whatever changed it. Capturing is the
+operator's, before a run.
+
 **Why a spec and not an MCP call.** The browser check used to be "the agent
 called a Playwright MCP tool", counted from the guard's ledger. That forced
 looking and left nothing behind: one `browser_navigate` satisfied it, and the

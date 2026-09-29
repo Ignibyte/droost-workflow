@@ -27,9 +27,18 @@
  * same. A page this cannot read, or a colour it cannot parse, is INVALID,
  * never a pass.
  *
- *   droost-parity capture --source <url> --routes /,/camps [--out droost/parity] [--width 1280]
+ *   droost-parity capture --source <url> --routes /,/camps [--out droost/parity] [--width 1280[,390]]
  *   droost-parity judge [--reference droost/parity] [--routes …] [--scope page|frame|header|footer]
- *                       [--base <url>] [--json]
+ *                       [--pages /,…] [--base <url>] [--json]
+ *
+ * A reference may hold several widths (`--width 1280,390`): the first is the
+ * primary, kept as `<route>.json`, and each other as `<route>@<width>.json`.
+ * Every route is judged at every width it was captured at, each at `--scope`,
+ * except the routes `--pages` names, which are judged whole (page scope) at
+ * the primary width: a ticket that rebuilds one page holds that page to the
+ * source, and the frame everywhere, at once. A narrow width is how a
+ * collapsed menu is judged: what shows in the header there must be what the
+ * source shows.
  *
  * The site's base URL: --base, else DROOST_PARITY_BASE_URL, PLAYWRIGHT_BASE_URL
  * or DDEV_PRIMARY_URL (the address the site's own browser suite uses).
@@ -77,6 +86,11 @@ function playwright() {
 
 // A route's file name in the reference directory.
 const slug = (route) => (route === '/' ? 'home' : route.replace(/^\/+|\/+$/g, '').replace(/[^A-Za-z0-9_-]+/g, '_')) + '.json';
+// A route's reading at a width: the primary width keeps the plain name, so a
+// reference captured at one width reads as it always has.
+const viewFile = (route, width, primary) => (width === primary ? slug(route) : slug(route).replace(/\.json$/, `@${width}.json`));
+// The widths a comma list names, in its order.
+const widthsOf = (value) => String(value).split(',').map((w) => Number(w.trim())).filter((w) => Number.isInteger(w) && w > 0);
 
 // ---------------------------------------------------------------------------
 // Reading a page.
@@ -349,20 +363,26 @@ async function capture(opt) {
   const source = opt.source;
   const routes = String(opt.routes || '/').split(',').map((r) => r.trim()).filter(Boolean);
   const out = path.resolve(process.cwd(), String(opt.out || 'droost/parity'));
-  const width = Number(opt.width || 1280);
+  const widths = widthsOf(opt.width && opt.width !== true ? opt.width : 1280);
+  if (!widths.length) finish({ status: 'error', summary: 'capture needs --width <px>[,<px>…]' }, EXIT.invalid);
+  const width = widths[0];
   if (!source || source === true) finish({ status: 'error', summary: 'capture needs --source <url>' }, EXIT.invalid);
   const { chromium } = playwright();
   fs.mkdirSync(out, { recursive: true });
   const browser = await chromium.launch({ args: ['--disable-blink-features=AutomationControlled'] });
   const captured = [];
   for (const route of routes) {
-    const reading = await read(browser, source.replace(/\/$/, '') + route, width);
-    reading.route = route;
-    fs.writeFileSync(path.join(out, slug(route)), JSON.stringify(reading, null, 1));
-    captured.push({ route, status: reading.status, texts: (reading.texts || []).length });
+    for (const w of widths) {
+      const reading = await read(browser, source.replace(/\/$/, '') + route, w);
+      reading.route = route;
+      fs.writeFileSync(path.join(out, viewFile(route, w, width)), JSON.stringify(reading, null, 1));
+      captured.push({ route, width: w, status: reading.status, texts: (reading.texts || []).length });
+    }
   }
   await browser.close();
-  fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify({ source, width, routes, captured_at: new Date().toISOString() }, null, 1));
+  const manifest = { source, width, routes, captured_at: new Date().toISOString() };
+  if (widths.length > 1) manifest.widths = widths;
+  fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 1));
   const bad = captured.filter((c) => c.status !== 200 || !c.texts);
   finish({ status: bad.length ? 'invalid' : 'captured', summary: `${captured.length - bad.length} of ${captured.length} reference page(s) captured from ${source}`, routes: captured }, bad.length ? EXIT.invalid : EXIT.pass);
 }
@@ -373,7 +393,26 @@ async function judgeCommand(opt) {
   let manifest = {};
   try { manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')); } catch (e) { manifest = {}; }
   const routes = opt.routes && opt.routes !== true ? String(opt.routes).split(',').map((r) => r.trim()).filter(Boolean) : (manifest.routes || []);
-  const present = routes.filter((r) => fs.existsSync(path.join(dir, slug(r))));
+  const widths = Array.isArray(manifest.widths) && widthsOf(manifest.widths.join(',')).length ? widthsOf(manifest.widths.join(',')) : [Number(manifest.width || 1280)];
+  const primary = widths[0];
+  const pages = opt.pages && opt.pages !== true ? String(opt.pages).split(',').map((r) => r.trim()).filter(Boolean) : [];
+  // Every route at every width it was captured at; a page named whole at the
+  // primary width.
+  const views = [];
+  const skipped = [];
+  for (const route of routes) {
+    for (const width of widths) {
+      const file = viewFile(route, width, primary);
+      const name = width === primary ? route : `${route}@${width}`;
+      if (fs.existsSync(path.join(dir, file))) views.push({ route, width, file, name, scope: width === primary && pages.includes(route) ? 'page' : scope });
+      else skipped.push(name);
+    }
+  }
+  // A page named whole with nothing to hold it to is a lever the reference
+  // cannot keep, never a page skipped.
+  const unheld = pages.filter((p) => !views.some((v) => v.route === p && v.width === primary));
+  if (unheld.length) finish({ status: 'invalid', summary: `${unheld.join(', ')} ${unheld.length === 1 ? 'is' : 'are'} to be judged whole and the reference holds no reading of ${unheld.length === 1 ? 'it' : 'them'} at ${primary}px: capture ${unheld.length === 1 ? 'it' : 'them'} from the source` }, EXIT.invalid);
+  const present = views.map((v) => v.route);
   if (!present.length) finish({ status: 'nothing', summary: `no reference to compare with in ${path.relative(process.cwd(), dir) || dir} (capture one with: droost-parity capture --source <url> --routes /,…)` }, EXIT.nothing);
   const base = (opt.base && opt.base !== true ? String(opt.base) : '') || process.env.DROOST_PARITY_BASE_URL || process.env.PLAYWRIGHT_BASE_URL || process.env.DDEV_PRIMARY_URL || '';
   if (!base) finish({ status: 'invalid', summary: 'no site to read: pass --base, or set DROOST_PARITY_BASE_URL' }, EXIT.invalid);
@@ -387,27 +426,29 @@ async function judgeCommand(opt) {
   const { chromium } = playwright();
   const browser = await chromium.launch({ args: ['--disable-blink-features=AutomationControlled'] });
   const results = [];
-  for (const route of present) {
-    const reference = JSON.parse(fs.readFileSync(path.join(dir, slug(route)), 'utf8'));
-    const site = await read(browser, base.replace(/\/$/, '') + route, reference.viewport || manifest.width || 1280);
-    const rows = judge(reference, site, scope);
+  for (const view of views) {
+    const reference = JSON.parse(fs.readFileSync(path.join(dir, view.file), 'utf8'));
+    const site = await read(browser, base.replace(/\/$/, '') + view.route, reference.viewport || view.width);
+    const rows = judge(reference, site, view.scope);
     const failed = rows.filter((r) => r.verdict === 'FAIL');
     const invalid = rows.filter((r) => r.verdict === 'INVALID');
-    results.push({ route, verdict: failed.length ? 'FAIL' : invalid.length ? 'INVALID' : 'PASS', rows });
-    if (!opt.json) process.stdout.write(`${route}: ${failed.length ? 'FAIL ' + failed.map((r) => r.id).join(' ') : invalid.length ? 'INVALID ' + invalid.map((r) => r.id).join(' ') : 'as the reference'}\n`);
+    results.push({ ...view, verdict: failed.length ? 'FAIL' : invalid.length ? 'INVALID' : 'PASS', rows });
+    if (!opt.json) process.stdout.write(`${view.name} (${view.scope}): ${failed.length ? 'FAIL ' + failed.map((r) => r.id).join(' ') : invalid.length ? 'INVALID ' + invalid.map((r) => r.id).join(' ') : 'as the reference'}\n`);
   }
   await browser.close();
   const failedRoutes = results.filter((r) => r.verdict === 'FAIL');
   const invalidRoutes = results.filter((r) => r.verdict === 'INVALID');
-  const skipped = routes.filter((r) => !present.includes(r));
-  const detail = results.map((r) => ({ route: r.route, verdict: r.verdict, failing: r.rows.filter((x) => x.verdict !== 'PASS').map((x) => ({ id: x.id, verdict: x.verdict, said: String(x.said).slice(0, 400) })) }));
+  const detail = results.map((r) => ({ route: r.route, view: r.name, width: r.width, scope: r.scope, verdict: r.verdict, failing: r.rows.filter((x) => x.verdict !== 'PASS').map((x) => ({ id: x.id, verdict: x.verdict, said: String(x.said).slice(0, 400) })) }));
+  // One width and one scope reads as it always has; more says what was held.
+  const counted = widths.length > 1 ? `${results.length} view(s) (${routes.length} route(s) at ${widths.join(' and ')}px)` : `${results.length} route(s)`;
+  const held = `${scope} scope` + (pages.length ? `; page scope for ${pages.join(', ')} at ${primary}px` : '');
   if (failedRoutes.length) {
-    finish({ status: 'fail', scope, source: manifest.source || null, summary: `${failedRoutes.length} of ${results.length} route(s) differ from the reference${against}: ` + failedRoutes.map((r) => `${r.route} ${r.rows.filter((x) => x.verdict === 'FAIL').map((x) => x.id).join('+')}`).join(', '), routes: detail, skipped }, EXIT.fail);
+    finish({ status: 'fail', scope, source: manifest.source || null, summary: `${failedRoutes.length} of ${counted} differ from the reference${against}: ` + failedRoutes.map((r) => `${r.name} ${r.rows.filter((x) => x.verdict === 'FAIL').map((x) => x.id).join('+')}`).join(', '), routes: detail, skipped }, EXIT.fail);
   }
   if (invalidRoutes.length) {
-    finish({ status: 'invalid', scope, summary: `${invalidRoutes.length} of ${results.length} route(s) could not be judged: ` + invalidRoutes.map((r) => r.route).join(', '), routes: detail, skipped }, EXIT.invalid);
+    finish({ status: 'invalid', scope, summary: `${invalidRoutes.length} of ${counted} could not be judged: ` + invalidRoutes.map((r) => r.name).join(', '), routes: detail, skipped }, EXIT.invalid);
   }
-  finish({ status: 'pass', scope, source: manifest.source || null, summary: `${results.length} route(s) as the reference${against} (D1–D7, ${scope} scope)` + (skipped.length ? `; no reference for ${skipped.join(', ')}` : ''), routes: detail, skipped }, EXIT.pass);
+  finish({ status: 'pass', scope, source: manifest.source || null, summary: `${counted} as the reference${against} (D1–D7, ${held})` + (skipped.length ? `; no reference for ${skipped.join(', ')}` : ''), routes: detail, skipped }, EXIT.pass);
 }
 
 const opt = args(process.argv.slice(2));

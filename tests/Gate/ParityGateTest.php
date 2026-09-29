@@ -7,6 +7,7 @@ namespace Droost\Workflow\Tests\Gate;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
+use Droost\Workflow\Gate\ParityReference;
 use Droost\Workflow\Gate\ShellGateExecutor;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -157,6 +158,127 @@ final class ParityGateTest extends TestCase {
       ['vendor/bin/droost-parity', 'judge', '--reference', 'design/refs', '--scope', 'frame', '--json'],
       array_map(fn (string $arg): string => $this->relative($arg), $ran[0] ?? []),
     );
+  }
+
+  /**
+   * The pages a ticket rebuilds whole reach the runner as `--pages` (F-145).
+   */
+  public function testPagesLeverReachesTheCommand(): void {
+    $ran = [];
+    $pass = $this->line(['status' => 'pass', 'summary' => '1 route(s)']);
+    $this->verdict(0, $pass, ['scope' => 'frame', 'pages' => ' / '], FALSE, $ran);
+
+    $this->assertSame(
+      [
+        'vendor/bin/droost-parity',
+        'judge',
+        '--reference',
+        'droost/parity',
+        '--scope',
+        'frame',
+        '--pages',
+        '/',
+        '--json',
+      ],
+      array_map(fn (string $arg): string => $this->relative($arg), $ran[0] ?? []),
+    );
+  }
+
+  /**
+   * A failing view at another width is named as that view.
+   */
+  public function testFailureAtAnotherWidthNamesTheView(): void {
+    $result = $this->verdict(1, $this->line([
+      'status' => 'fail',
+      'summary' => '1 of 16 view(s) (8 route(s) at 1280 and 390px) differ from the reference: /@390 D6',
+      'routes' => [
+        ['route' => '/', 'view' => '/', 'width' => 1280, 'scope' => 'page', 'verdict' => 'PASS', 'failing' => []],
+        [
+          'route' => '/',
+          'view' => '/@390',
+          'width' => 390,
+          'scope' => 'frame',
+          'verdict' => 'FAIL',
+          'failing' => [['id' => 'D6']],
+        ],
+      ],
+    ]));
+
+    $this->assertSame(GateStatus::Failed, $result->status);
+    $this->assertSame(['/@390'], array_column($result->findings, 'key'));
+  }
+
+  /**
+   * A page named whole with no reading to hold it to is refused, not skipped.
+   */
+  public function testTheRunnerRefusesWholePageItCannotHold(): void {
+    $node = trim((string) shell_exec('command -v node 2>/dev/null'));
+    if ($node === '') {
+      $this->markTestSkipped('no Node on this machine to run bin/droost-parity with');
+    }
+    $root = $this->root();
+    mkdir($root . '/droost/parity', 0755, TRUE);
+    file_put_contents($root . '/droost/parity/manifest.json', '{"source": "http://design.test", "width": 1280, "widths": [1280, 390], "routes": ["/", "/camps"]}');
+    file_put_contents($root . '/droost/parity/home.json', '{"texts": []}');
+    file_put_contents($root . '/droost/parity/home@390.json', '{"texts": []}');
+    file_put_contents($root . '/droost/parity/camps@390.json', '{"texts": []}');
+    $runner = dirname(__DIR__, 2) . '/bin/droost-parity';
+    $output = [];
+    $exit = -1;
+    exec('cd ' . escapeshellarg($root) . ' && ' . escapeshellarg($runner) . ' judge --scope frame --pages /camps --base http://site.test --json 2>&1', $output, $exit);
+
+    $this->assertSame(2, $exit, implode("\n", $output));
+    $last = json_decode((string) end($output), TRUE);
+    $this->assertIsArray($last);
+    $this->assertIsArray($last['parity'] ?? NULL);
+    $this->assertSame('invalid', $last['parity']['status'] ?? NULL);
+    $summary = $last['parity']['summary'] ?? NULL;
+    $this->assertIsString($summary);
+    $this->assertStringContainsString('/camps is to be judged whole and the reference holds no reading of it at 1280px', $summary);
+  }
+
+  /**
+   * A reference that is not the one the run began with is never judged.
+   *
+   * F-144: the reference lives in the project, so a run that rewrote it could
+   * make any page pass. The digest frozen with the levers says which one the
+   * run is held to.
+   */
+  public function testReferenceChangedSinceTheRunBeganFails(): void {
+    $ran = [];
+    $pass = $this->line(['status' => 'pass', 'summary' => '1 route(s)']);
+    $result = $this->verdict(0, $pass, ['reference_digest' => str_repeat('a', 64)], TRUE, $ran);
+
+    $this->assertSame(GateStatus::Failed, $result->status);
+    $this->assertStringContainsString('is not the one this run began with (aaaaaaaaaaaa then, ', $result->summary);
+    $this->assertSame([], $ran, 'a changed reference is not judged at all');
+  }
+
+  /**
+   * A reference removed during the run is a change, not "no reference".
+   */
+  public function testReferenceRemovedDuringTheRunFails(): void {
+    $ran = [];
+    $result = $this->verdict(0, '', ['reference_digest' => str_repeat('b', 64)], FALSE, $ran);
+
+    $this->assertSame(GateStatus::Failed, $result->status, 'never the labelled pass a project with no reference gets');
+    $this->assertStringContainsString('(bbbbbbbbbbbb then, none now)', $result->summary);
+    $this->assertSame([], $ran);
+  }
+
+  /**
+   * The reference the run began with is judged as before.
+   */
+  public function testTheReferenceTheRunBeganWithIsJudged(): void {
+    $same = $this->root();
+    mkdir($same . '/droost/parity', 0755, TRUE);
+    file_put_contents($same . '/droost/parity/manifest.json', '{"routes": ["/"]}');
+    $ran = [];
+    $pass = $this->line(['status' => 'pass', 'summary' => '1 route(s)']);
+    $result = $this->verdict(0, $pass, ['reference_digest' => ParityReference::digest($same, 'droost/parity')], TRUE, $ran);
+
+    $this->assertSame(GateStatus::Passed, $result->status, $result->summary);
+    $this->assertCount(1, $ran);
   }
 
   /**
