@@ -229,6 +229,9 @@ final class DeclarationAudit {
    *   Project-relative files a scaffold wrote that still hold exactly what it
    *   wrote (ScaffoldRecord::untouched()). A test among them is the
    *   generator's, not the run's, so it does not meet the demand (F-65).
+   * @param array<string, list<string>>|null $phaseGates
+   *   The run's frozen phase-gate map, so a gate is asked about only at a
+   *   phase this run's flow runs it at. NULL reads the strict table.
    */
   public function __construct(
     private readonly array $declaredFiles,
@@ -243,6 +246,7 @@ final class DeclarationAudit {
     private readonly ?string $firstDeclaredAt = NULL,
     private readonly bool $testsInDiff = FALSE,
     private readonly array $untouchedScaffolds = [],
+    private readonly ?array $phaseGates = NULL,
   ) {}
 
   /**
@@ -538,7 +542,7 @@ final class DeclarationAudit {
       //
       // Each gate is now asked about at a phase it actually runs at, so the
       // same fact surfaces while it can still be acted on.
-      $due = self::gatesDueAt($phase);
+      $due = $this->gatesDueAt($phase);
       $subject = $due === NULL
         ? $this->workType->mustMeasure()
         : array_values(array_intersect($this->workType->mustMeasure(), $due));
@@ -917,9 +921,10 @@ final class DeclarationAudit {
   /**
    * The gates a phase actually runs, or NULL when the phase is unnamed.
    *
-   * Read from `PhaseGateMap::DEFAULT`, which is the same table the engine
-   * dispatches from — so "did this gate measure anything" can only be asked
-   * where the gate had a chance to.
+   * Read from the run's frozen map, the same one the engine dispatches from,
+   * so "did this gate measure anything" is only asked where the gate had a
+   * chance to. In the fast flow phpcs runs at code and not at test, and the
+   * strict table would have asked test for it.
    *
    * @param string|null $phase
    *   The phase name.
@@ -928,12 +933,12 @@ final class DeclarationAudit {
    *   Gate names, or NULL for an unnamed phase (every gate is then in scope,
    *   which is how the audit is exercised directly).
    */
-  private static function gatesDueAt(?string $phase): ?array {
+  private function gatesDueAt(?string $phase): ?array {
     if ($phase === NULL) {
       return NULL;
     }
 
-    return PhaseGateMap::DEFAULT[$phase] ?? [];
+    return ($this->phaseGates ?? PhaseGateMap::DEFAULT)[$phase] ?? [];
   }
 
   /**

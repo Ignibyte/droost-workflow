@@ -380,7 +380,8 @@ fewer gates than the same run through drush, and nothing said so). And a run
 that WAS begun blind — the binary run on a host where drush cannot reach the
 site — catches up: the first surface that can see the catalog weaves the
 missing gates into the run's record at the phase it is about to run, they run
-from then on (complete re-runs everything, so no run finishes without them),
+from then on (in the strict flow complete re-runs everything, so no run
+finishes without them; in the fast flow a gate woven at complete runs there),
 and the record says so — `run.contributed_source` names the door that began
 it, `run.late_woven` names each gate and the phase it joined at.
 
@@ -547,7 +548,18 @@ believe. Complete opens by capturing
 what was built — the documentation work that was its own phase until 0.4 —
 and then re-runs the full enabled set as the terminal safety net, custom
 gates included, so every other enabled gate is met at least twice: once at
-its own phase, once at the end. `wiki_fresh` is due only here, and only here
+its own phase, once at the end.
+
+That is the **strict** flow, which `high` and the levels above it run. Since
+0.11 `low` and `medium` run the **fast** flow (`flow: fast | strict`, a lever
+the level defaults): each gate runs once, at the phase that owns it. Code
+runs the analysers and the unit tests (phpunit, mutation and coverage where
+on), test runs playwright, parity, the rendered check and config_clean, and
+complete runs no gate but `wiki_fresh` on the documentation it writes. A run
+freezes its flow's table as `phase_gates` when it begins. P6 run 23 measured
+what the strict flow costs at the bottom of the dial: its 279-test browser
+suite ran three times in 86 minutes, for a ticket whose own tests were two
+files. `wiki_fresh` is due only here, and only here
 CAN it be true: it asks the site whether the project's own documentation
 still matches the code, and complete is the phase that just wrote it. A
 stale page is read as fact, which is worse than no page.

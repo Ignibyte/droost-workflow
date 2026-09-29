@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Droost\Workflow\Tests;
 
 use PHPUnit\Framework\Assert;
+use Droost\Workflow\Config\PhaseGateMap;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
@@ -55,7 +56,11 @@ class SurfaceParityTest extends WorkflowTestCase {
     $phaseGates = $levers['phase_gates'];
     $this->assertIsArray($phaseGates);
     $this->assertSame([], $phaseGates['plan']);
-    $this->assertSame(['phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier', 'config_clean', 'grounding_check'], $phaseGates['code']);
+    // Medium runs the fast flow: the unit tests are due at code, and complete
+    // runs nothing but the documentation check.
+    $this->assertSame(PhaseGateMap::FAST['code'], $phaseGates['code']);
+    $this->assertSame(['wiki_fresh'], $phaseGates['complete']);
+    $this->assertSame('fast', $levers['flow']);
   }
 
   /**

@@ -182,8 +182,9 @@ class GateRunnerTest extends WorkflowTestCase {
       return NULL;
     };
 
-    // The level dropped it: low's base has no phpunit.
-    $report = $runner->run($this->beginWith(['preset' => 'low']), Phase::Test, '/tmp');
+    // The level dropped it: low's base has no phpunit. Low runs the fast
+    // flow, where phpunit is due at code.
+    $report = $runner->run($this->beginWith(['preset' => 'low']), Phase::Code, '/tmp');
     $phpunit = $byGate($report->results, 'phpunit');
     $this->assertInstanceOf(GateResult::class, $phpunit);
     $this->assertSame(GateStatus::Off, $phpunit->status);

@@ -64,6 +64,14 @@ mode: agentic
 # line to let the level decide.
 preset: custom
 
+# flow: fast | strict  (omitted, the level decides)
+#   Which phases run which gates. fast, the default at low and medium: each
+#   gate runs once, at the phase that owns it. Code runs the analysers and the
+#   unit tests, test runs the browser suite, parity and the rendered check, and
+#   complete runs nothing but wiki_fresh on the documentation it writes.
+#   strict, the default from high up: every gate at every phase that writes
+#   source, and complete re-runs the whole set as the terminal safety net.
+
 # hard | soft | off
 #   How hard the harness hooks hold the phase discipline WHILE A RUN IS
 #   ACTIVE — outside a run the hooks are silent by construction. hard blocks

@@ -44,6 +44,7 @@ final class WorkflowConfig {
     'work_item',
     'baseline',
     'custom_code',
+    'flow',
   ];
 
   /**
@@ -132,6 +133,10 @@ final class WorkflowConfig {
    *   Project-relative directories whose files are the project's own code to
    *   `require_run`, beside every `modules/custom`, `themes/custom` and
    *   `profiles/custom` (F-154).
+   * @param string $flow
+   *   Which phase-gate map the run dispatches from: `fast` (each gate at the
+   *   phase that owns it, complete running none) or `strict` (every gate at
+   *   every phase that writes source, complete re-running the set).
    */
   private function __construct(
     public readonly Mode $mode,
@@ -149,6 +154,7 @@ final class WorkflowConfig {
     public readonly bool $baseline = TRUE,
     public readonly array $contributedGates = [],
     public readonly array $customCode = [],
+    public readonly string $flow = 'strict',
   ) {}
 
   /**
@@ -390,6 +396,7 @@ final class WorkflowConfig {
         self::readBaseline($root, $source),
         $declared,
         self::readCustomCode($root, $source),
+        self::readFlow($root, $source, $base->name),
       );
     }
     catch (DataError $e) {
@@ -508,6 +515,40 @@ final class WorkflowConfig {
       );
     }
     return $level;
+  }
+
+  /**
+   * Reads the flow lever.
+   *
+   * Omitted, the level decides: `low` and `medium` run fast, where each gate
+   * runs once at the phase that owns it and complete runs none; the levels
+   * above, and a custom file, run strict. The owner's call, 2026-09-29: most
+   * Drupal work lands at the bottom two levels, and a repeated sweep there
+   * cost more than it caught.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label, for error messages.
+   * @param string $preset
+   *   The resolved level's name.
+   *
+   * @return string
+   *   `fast` or `strict`.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When the value is neither.
+   */
+  private static function readFlow(TypedArray $root, string $source, string $preset): string {
+    if (!$root->has('flow')) {
+      return in_array($preset, ['low', 'medium'], TRUE) ? 'fast' : 'strict';
+    }
+    $flow = $root->string('flow');
+    if (!in_array($flow, PhaseGateMap::FLOWS, TRUE)) {
+      throw ConfigError::unknownFlow($source, $flow);
+    }
+
+    return $flow;
   }
 
   /**

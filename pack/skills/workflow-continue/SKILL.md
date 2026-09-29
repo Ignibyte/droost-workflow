@@ -237,12 +237,15 @@ operator grants a bypass. A finished run counts as no active run.
 WHEN a gate runs is the engine's phase map. WHETHER the optional tiers run,
 and with what thresholds, is the lever file's business:
 
-| phase | gates due |
-|---|---|
-| plan | none — the spec is the gate |
-| code | phpcs, phpstan, eslint, stylelint, prettier, config_clean, grounding_check, plus custom gates placed at `code`; then the seeker checkpoint, where the level runs one |
-| test | phpunit, mutation, playwright, parity, coverage, rendered_check, config_clean, plus custom gates placed at `test` |
-| complete | documentation first, then the full enabled set re-run — the terminal safety net — behind a clean inspection |
+| phase | fast flow (`low`, `medium`) | strict flow (`high` and above) |
+|---|---|---|
+| plan | none — the spec is the gate | none |
+| code | phpcs, phpstan, eslint, stylelint, prettier, phpunit, mutation, coverage, config_clean, grounding_check, plus custom gates placed at `code`; then the seeker checkpoint, where the level runs one | phpcs, phpstan, eslint, stylelint, prettier, config_clean, grounding_check, plus custom gates placed at `code`; then the seeker checkpoint |
+| test | playwright, parity, rendered_check, config_clean, plus custom gates placed at `test` | the static pair again, phpunit, mutation, playwright, parity, coverage, rendered_check, config_clean, plus custom gates placed at `test` |
+| complete | documentation, then `wiki_fresh` only | documentation first, then the full enabled set re-run, the terminal safety net |
+
+The run's own table is `phase_gates` in `droost-workflow status`: it is frozen
+when the run begins, and it is what the engine dispatches from.
 
 Custom gates are the repo's own commands (`gates.custom` in the lever file —
 semgrep, behat, anything); exit zero passes, a missing tool reports

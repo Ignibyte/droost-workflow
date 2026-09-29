@@ -278,7 +278,7 @@ final class RunState {
       $phases,
       $config->phases[0] ?? NULL,
       phaseGates: self::weaveCustomGates(
-        PhaseGateMap::forPhases($config->phaseNames()),
+        PhaseGateMap::forPhases($config->phaseNames(), $config->flow),
         $config->gates,
       ),
       enforcement: $config->enforcement,

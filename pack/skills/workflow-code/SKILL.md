@@ -54,7 +54,8 @@ three outcomes stop the phase:
 - **a test you named is RECORDED, never held against you.** droost sees that a
   suite ran and how many tests it held; it cannot see which ones, so it does not
   pretend to. What DOES block is the suite failing — that is the phpunit gate,
-  at the test phase, on its own merits.
+  on its own merits, at the phase the run's flow runs it at (code in the fast
+  flow, test in the strict one).
 - a file declared and not touched is recorded and does not block.
 
 The spec's contract sections were fingerprinted when plan passed —
@@ -162,10 +163,19 @@ exported to tracked files** (rule 6) — otherwise the diff the seeker inspects
 is blind to it (the static gates never read YAML either way), and a
 config-only run would pass having verified nothing it built.
 
-At this phase's `run`, the engine gates the diff with phpcs and phpstan —
-static analysis only, and non-negotiable: the pair is mandatory since 0.4,
-tunable but never off. The functional gates belong to the test phase, where
-there is behaviour to verify.
+At this phase's `run`, the engine gates the diff with phpcs and phpstan, the
+pair mandatory since 0.4, tunable but never off. **What else runs here depends
+on the run's flow**, and `droost-workflow status` lists it under `phase_gates`:
+
+- **fast** (`low` and `medium`): code runs every analyser the level turns on
+  AND the unit tests: phpunit, mutation and coverage, where on. So write the
+  ticket's unit tests in this phase, run them, fix what they and the
+  analysers find, and repeat. The test phase that follows runs only the
+  browser suite, parity and the rendered check; nothing re-runs your
+  analysers or unit tests after this phase, and complete runs no gate.
+- **strict** (`high` and above): code runs static analysis only, and the
+  functional gates belong to the test phase, where they run again at
+  complete.
 
 **Then the seeker checkpoint, wherever one is armed.** The envelope's
 `outcome` is the truth: `advanced` means no inspection is due; `inspection-due`

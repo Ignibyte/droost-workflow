@@ -212,11 +212,13 @@ final class WorkflowFacade {
         'require_run' => $config->requireRun->value,
         // What require_run holds besides the Drupal custom trees (F-154).
         'custom_code' => $config->customCode,
+        // Which phase-gate map a run begun now would dispatch from.
+        'flow' => $config->flow,
         'phases' => $config->phaseNames(),
         'gates' => $config->resolvedGates(),
         // WHEN each enabled gate runs — so "why did plan run nothing" is
         // answerable from status alone.
-        'phase_gates' => PhaseGateMap::forPhases($config->phaseNames()),
+        'phase_gates' => PhaseGateMap::forPhases($config->phaseNames(), $config->flow),
         'max_gate_retries' => $config->maxGateRetries,
         // Whether the adversarial reviewer inspects the diff after the code
         // gates pass. The single largest difference between `low` and
@@ -2609,6 +2611,7 @@ final class WorkflowFacade {
         // The level's demand that the run test what it wrote (F-61), read
         // from the levers frozen when the run began.
         testsInDiff: ($state->resolvedGates['phpunit']['in_diff'] ?? FALSE) === TRUE,
+        phaseGates: $state->phaseGates,
         // The scaffold's own files, still as it wrote them: a generated test
         // is not the run's test (F-65).
         untouchedScaffolds: ScaffoldRecord::untouched(

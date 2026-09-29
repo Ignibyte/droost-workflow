@@ -117,12 +117,17 @@ three questions, lighter medium.
 
 ### Second half: present
 
-This phase's `run` re-executes the FULL enabled gate set — the terminal
-safety net. A regression introduced since the test phase is caught now
-rather than shipped, and `wiki_fresh` runs here for the first time — the
-only phase at which it CAN be true, because this phase just wrote the
-documentation it checks. (At `low` it does not run at all and the report
-shows it `off` — the level's declared trade, listed like any other gate.)
+**What this phase's `run` executes depends on the run's flow**
+(`phase_gates` in `droost-workflow status`):
+
+- **fast** (`low` and `medium`): no gate but `wiki_fresh`, which checks the
+  documentation this phase just wrote. Every other gate ran once, at the
+  phase that owns it. (At `low` wiki_fresh is off too, and the report shows
+  it `off`: the level's declared trade.)
+- **strict** (`high` and above): the FULL enabled gate set re-runs, the
+  terminal safety net. A regression introduced since the test phase is caught
+  now rather than shipped, and `wiki_fresh` runs here for the first time,
+  the only phase at which it CAN be true.
 
 **Present the gate report before you say anything is done.** Not a summary
 of it — the report: every gate the run was configured for, and what happened

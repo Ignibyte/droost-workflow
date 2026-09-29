@@ -35,8 +35,56 @@ namespace Droost\Workflow\Config;
  * first half of complete — the wiki is built there and then the freshness
  * check has something true to verify; checking it any earlier would gate a
  * phase on documentation that phase had not yet produced.
+ *
+ * TWO FLOWS SINCE 0.11 (the owner, 2026-09-29). The map above is the STRICT
+ * flow: every gate at every phase that writes source, and complete as the
+ * terminal sweep. The FAST flow gives each gate to the phase that owns it and
+ * runs it there once: code runs the analysers and the unit tests (and fixes
+ * what they find), test runs the browser suite, parity and the rendered
+ * check, and complete writes the documentation and runs nothing but the
+ * check on that documentation. P6 run 23 measured the cost the strict flow
+ * pays: its 279-test browser suite ran three times in 86 minutes, for a
+ * ticket whose own tests were two files. `flow` is a lever; `low` and
+ * `medium` resolve to fast, and the levels above them to strict.
  */
 final class PhaseGateMap {
+
+  /**
+   * The flows a lever may name.
+   */
+  public const FLOWS = ['fast', 'strict'];
+
+  /**
+   * The fast flow: each gate at the phase that owns it, once.
+   *
+   * The config_clean gate runs at test as well as code: it spawns nothing,
+   * and the test phase is where a fix made while the browser suite ran would
+   * otherwise change config nobody checked.
+   */
+  public const FAST = [
+    'plan' => [],
+    'code' => [
+      'phpcs',
+      'phpstan',
+      'eslint',
+      'stylelint',
+      'prettier',
+      'phpunit',
+      'mutation',
+      'coverage',
+      'config_clean',
+      'grounding_check',
+    ],
+    'test' => [
+      'playwright',
+      'parity',
+      'rendered_check',
+      'config_clean',
+    ],
+    'complete' => [
+      'wiki_fresh',
+    ],
+  ];
 
   /**
    * The gates due at each phase, keyed by phase name.
@@ -110,12 +158,27 @@ final class PhaseGateMap {
    *
    * @param \Droost\Workflow\Config\Phase $phase
    *   The phase.
+   * @param string $flow
+   *   The flow: `fast` or `strict`.
    *
    * @return list<string>
    *   The due gate names, in KNOWN_GATES order.
    */
-  public static function gatesFor(Phase $phase): array {
-    return self::DEFAULT[$phase->value];
+  public static function gatesFor(Phase $phase, string $flow = 'strict'): array {
+    return self::table($flow)[$phase->value];
+  }
+
+  /**
+   * The table a flow dispatches from.
+   *
+   * @param string $flow
+   *   The flow: `fast` or `strict`.
+   *
+   * @return array<string, list<string>>
+   *   Phase name to its due gates.
+   */
+  public static function table(string $flow): array {
+    return $flow === 'fast' ? self::FAST : self::DEFAULT;
   }
 
   /**
@@ -128,14 +191,17 @@ final class PhaseGateMap {
    *
    * @param list<string> $phaseNames
    *   The configured phase names, in execution order.
+   * @param string $flow
+   *   The flow: `fast` or `strict`.
    *
    * @return array<string, list<string>>
    *   Phase name to its due gates, in the given order.
    */
-  public static function forPhases(array $phaseNames): array {
+  public static function forPhases(array $phaseNames, string $flow = 'strict'): array {
+    $table = self::table($flow);
     $due = [];
     foreach ($phaseNames as $name) {
-      $due[$name] = self::DEFAULT[$name] ?? [];
+      $due[$name] = $table[$name] ?? [];
     }
     return $due;
   }

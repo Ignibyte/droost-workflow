@@ -25,12 +25,22 @@ Thresholds, which gates are on, how many retries a failure gets — all of that
 was resolved before this phase began. Your job is to run them and report,
 not to re-derive a verdict.
 
-This is the phase where the engine runs the functional gates — phpunit,
-coverage, mutation, playwright and the rendered check. **The static pair runs
-here too, over the tests you write in this phase**, and before phpunit: a test
-method named in lowerCamel, or a fixture phpstan cannot follow, fails phpcs or
-phpstan here rather than surfacing at complete. Write tests to the same
-standard as the code they test. Everything enabled re-runs at complete.
+**What runs here depends on the run's flow** (`phase_gates` in
+`droost-workflow status`):
+
+- **fast** (`low` and `medium`): this phase checks the build in a browser.
+  Look at the pages by hand (Playwright MCP), write or update the ticket's
+  specs, and run them with the Playwright CLI. The engine runs playwright,
+  parity, the rendered check and config_clean. The analysers and the unit
+  tests ran at code and do not run again, and complete runs no gate, so a
+  failure here is fixed now or not at all in this run.
+- **strict** (`high` and above): the engine runs the functional gates here:
+  phpunit, coverage, mutation, playwright and the rendered check. **The static
+  pair runs here too, over the tests you write in this phase**, and before
+  phpunit: a test method named in lowerCamel, or a fixture phpstan cannot
+  follow, fails phpcs or phpstan here rather than surfacing at complete.
+  Write tests to the same standard as the code they test. Everything enabled
+  re-runs at complete.
 
 **Your declaration is audited here too, and again at complete.** A file you
 change in this phase that the declaration does not cover blocks, as it would

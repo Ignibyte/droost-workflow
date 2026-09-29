@@ -467,6 +467,21 @@ final class ConfigError extends \RuntimeException {
   }
 
   /**
+   * A flow the engine does not know.
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $flow
+   *   The offending value.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function unknownFlow(string $source, string $flow): self {
+    return new self($source, sprintf('unknown flow "%s" (known: %s)', $flow, implode(', ', PhaseGateMap::FLOWS)));
+  }
+
+  /**
    * A custom_code entry outside the project (F-154).
    *
    * @param string $source
