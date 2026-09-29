@@ -223,8 +223,9 @@ in the project under `droost/parity/`: every visible element that carries
 text, with its box and the computed style that decides how it looks. The gate
 runs `droost-parity judge`, reads the same routes on the site with the
 project's own Playwright, and fails a route whose text is missing or out of
-order, whose type, colour or place differs past a stated tolerance, or whose
-header and footer differ (D1 to D7, each named in the finding). A page it
+order, whose type, colour or place differs past a stated tolerance (every
+heading's type must match), or whose header and footer differ (D1 to D7, each
+named in the finding). A page it
 cannot read is INVALID and fails closed, never a pass. With no reference
 captured it is a labelled pass that measured nothing, so it is on at every
 preset; `required: true` makes a missing reference a failure, and `scope:

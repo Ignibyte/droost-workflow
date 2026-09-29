@@ -15,7 +15,7 @@
  *   D1  the page answers 200 and does not scroll sideways
  *   D2  every reference text is on the site, in order
  *   D3  each pair: the same typeface, size within 2px, weight within 100, the
- *       same case as rendered
+ *       same case as rendered; every heading, and 95% of the rest
  *   D4  each pair: text colour and the colour it sits on within 12 (CIE76)
  *   D5  each pair: x within 16px, width within 15% (or 24px), and y within
  *       24px of where it sits below its section's heading
@@ -305,17 +305,19 @@ function judge(reference, site, scope) {
 
   row('D1', site.status === 200 && !site.hscroll, `HTTP ${site.status}, scrolls sideways: ${site.hscroll ? 'yes' : 'no'}`);
   row('D2', !missing.length && D.length > 0, `${pairs.length}/${D.length} reference texts found in order` + (missing.length ? '; missing: ' + missing.slice(0, 12).map(show).join('; ') : ''), { missing: missing.map((d) => d.text) });
-  const bad3 = [];
+  // Every heading, and 95% of the rest (F-148): a page has few headings and
+  // they carry its type, so a share over every text let all of them differ.
+  const bad3 = []; const badHeads = [];
   for (const [d, s] of pairs) {
     const why = [];
     if (d.font !== s.font) why.push(`face ${s.font} for ${d.font}`);
     if (Math.abs(d.size - s.size) > 2) why.push(`size ${s.size} for ${d.size}`);
     if (Math.abs(d.weight - s.weight) > 100) why.push(`weight ${s.weight} for ${d.weight}`);
     if (caseOf(d) !== caseOf(s)) why.push(`case ${caseOf(s)} for ${caseOf(d)}`);
-    if (why.length) bad3.push(show(d) + ': ' + why.join(', '));
+    if (why.length) { bad3.push(show(d) + ': ' + why.join(', ')); if (/^h[1-6]$/.test(d.tag)) badHeads.push(show(d)); }
   }
   let [ok, said] = share(bad3, pairs.length, 0.95);
-  row('D3', ok && pairs.length > 0, said + (bad3.length ? '; ' + bad3.slice(0, 10).join('; ') : ''));
+  row('D3', ok && pairs.length > 0 && !badHeads.length, said + (badHeads.length ? `; ${badHeads.length} heading(s) differ, and every heading must match` : '') + (bad3.length ? '; ' + bad3.slice(0, 10).join('; ') : ''));
   const bad4 = []; const unread = [];
   for (const [d, s] of pairs) {
     let fg; let bg;
