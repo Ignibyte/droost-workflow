@@ -1832,6 +1832,14 @@ function operator_commands_strip_wrappers(array $tokens): array {
     if (preg_match($wrappers, $word) !== 1) {
       break;
     }
+    // `command -v NAME` and `command -V NAME` look a name up and run nothing
+    // (F-184). Stripped as a wrapper, the name was read where the program
+    // goes, so druplit's pre-flight loop, `"$(command -v "$t")"`, was refused
+    // as a variable program. The lookup stays whole, as `command` with its
+    // arguments; any other flag (`command -p rm …`) still runs what follows.
+    if ($word === 'command' && preg_match('/^-[pvV]*[vV][pvV]*$/', ltrim($tokens[1] ?? '', "\x01")) === 1) {
+      break;
+    }
     array_shift($tokens);
     $stripped++;
     // The wrapper's own flags and its argument: `nice -n 10`, `timeout 5`,
@@ -2383,6 +2391,14 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
       // argument to one.
       foreach ($selfExecuting ? $bare : array_slice($bare, 1) as $argument) {
         $file = ltrim($argument, "\x01");
+        // A LONE `-` IS THE PROGRAM, ON STDIN (F-180). `python3 - FILE <<'PY'`
+        // runs the heredoc, and FILE is its argv, data. It was read as the
+        // script, so once FILE existed past 64KB the command was refused as
+        // one this guard cannot read. The heredoc is judged as the code it is,
+        // elsewhere; nothing after the `-` is a script.
+        if ($file === '-' && !$selfExecuting) {
+          break;
+        }
         if ($file === '' || str_starts_with($file, '-') || preg_match('/\s/', $file) === 1) {
           continue;
         }
@@ -2965,10 +2981,7 @@ function shell_phase_guard(
         $target = ltrim($word, "\x01");
         break;
       }
-      $moved = $target === '' ? FALSE : realpath(
-        str_starts_with($target, '/') ? $target : $cwd . '/' . $target,
-      );
-      $cwd = $moved === FALSE ? $root : $moved;
+      $cwd = guard_cd_to($cwd, $target, $root);
       continue;
     }
     foreach ($tokens as $token) {
@@ -3121,10 +3134,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
         $target = ltrim($word, "\x01");
         break;
       }
-      $moved = $target === '' ? FALSE : realpath(
-        str_starts_with($target, '/') ? $target : $cwd . '/' . $target,
-      );
-      $cwd = $moved === FALSE ? $root : $moved;
+      $cwd = guard_cd_to($cwd, $target, $root);
       continue;
     }
     // Same reasoning as the verb tier: a program name this guard cannot read
@@ -3890,6 +3900,53 @@ function resolved_relative(string $file, string $root): string {
   // verified to depth 60. This is the belt to that brace, because the double
   // check is one refactor away from being a single one.
   return '.claude/hooks/droost-workflow-guard.php';
+}
+
+/**
+ * Where a `cd` or `pushd` leaves the shell, as the guard follows it.
+ *
+ * A directory the host resolves is where the shell goes. One it does not is
+ * followed by its spelling (F-186). It used to drop tracking to the project
+ * root, which was wrong both ways for a container path: inside
+ * `ddev exec "cd /var/www/html/droost/droost-workflow && rm run.json"` the
+ * `rm` was read at the root, where no run.json is, and ALLOWED, while
+ * `ddev exec "cd /tmp/cx; for f in *.yml; …"` read its wildcard at the
+ * root, onto the lever file, and was refused (P7 run 1). A directory the
+ * command has yet to make is the same case. A target that is not a literal
+ * path (`$DIR`, `~`, a glob) cannot be followed at all, and keeps the old
+ * answer, the root.
+ *
+ * @param string $cwd
+ *   Where the shell is before the `cd`.
+ * @param string $target
+ *   The `cd`'s operand, '' for none.
+ * @param string $root
+ *   The project root.
+ *
+ * @return string
+ *   Where the shell is after it.
+ */
+function guard_cd_to(string $cwd, string $target, string $root): string {
+  if ($target === '' || preg_match('/[$`~*?\[{]/', $target) === 1) {
+    return $root;
+  }
+  $joined = str_starts_with($target, '/') ? $target : $cwd . '/' . $target;
+  $real = realpath($joined);
+  if ($real !== FALSE) {
+    return $real;
+  }
+  $parts = [];
+  foreach (explode('/', str_replace('\\', '/', $joined)) as $part) {
+    if ($part === '' || $part === '.') {
+      continue;
+    }
+    if ($part === '..') {
+      array_pop($parts);
+      continue;
+    }
+    $parts[] = $part;
+  }
+  return '/' . implode('/', $parts);
 }
 
 /**

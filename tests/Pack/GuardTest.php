@@ -2532,6 +2532,69 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * A `cd` the host cannot resolve is followed by its spelling (F-186).
+   *
+   * Inside `ddev exec "…"` an absolute `cd` names a container path, which
+   * realpath() on the host does not find, and tracking dropped to the
+   * project root: `rm run.json` after `cd /var/www/html/droost/droost-workflow`
+   * was read at the root and allowed, and a read loop after `cd /tmp/cx`
+   * expanded its wildcard onto the lever file and was refused (P7 run 1).
+   */
+  public function testAnUnresolvableCdIsFollowedBySpelling(): void {
+    $root = $this->rootWithRun('code', 'active', 'hard', 'agentic');
+    file_put_contents($root . '/droost.workflow.yml', "preset: low\n");
+    foreach ([
+      'ddev exec "cd /var/www/html/droost/droost-workflow && rm run.json"',
+      'ddev exec "cd /var/www/html/.claude/hooks && echo x > droost-workflow-guard.php"',
+      'ddev exec "cd /var/www/html && rm droost/droost-workflow/run.json"',
+      'cd not-made-yet && rm ../droost/droost-workflow/run.json',
+    ] as $command) {
+      $this->assertSame(2, $this->shellAttempt($root, $command), $command);
+    }
+    foreach ([
+      'ddev exec "cd /tmp/cx; for f in *.yml; do cmp -s \\$f /var/www/html/config/sync/\\$f || echo CHG \\$f; done"',
+      'ddev exec "cd /tmp && echo x > run.json"',
+    ] as $command) {
+      $this->assertSame(0, $this->shellAttempt($root, $command), $command);
+    }
+  }
+
+  /**
+   * A lookup with `command -v` runs nothing (F-184).
+   */
+  public function testCommandLookupRunsNoProgram(): void {
+    $root = $this->rootWithRun('code', 'active', 'hard', 'agentic');
+    foreach ([
+      'for t in php git; do echo "$t: $(command -v "$t" || echo missing)"; done',
+      'command -V "$tool"',
+      'command -pv "$tool"',
+    ] as $command) {
+      $this->assertSame(0, $this->shellAttempt($root, $command), $command);
+    }
+    foreach ([
+      'command "$prog" -c x',
+      'command -p "$prog" -c x',
+      'command rm droost/droost-workflow/run.json',
+    ] as $command) {
+      $this->assertSame(2, $this->shellAttempt($root, $command), $command);
+    }
+  }
+
+  /**
+   * With `python3 - FILE` the program is stdin, and FILE its data (F-180).
+   */
+  public function testLoneDashMakesTheHeredocTheProgram(): void {
+    $root = $this->rootWithRun('code', 'active', 'hard', 'agentic');
+    file_put_contents($root . '/big.json', str_repeat('x', 70000));
+    $this->assertSame(0, $this->shellAttempt($root, "python3 - big.json <<'PY'\nimport sys\nprint(len(open(sys.argv[1]).read()))\nPY"));
+    // The heredoc is still judged as the code it is.
+    $this->assertSame(2, $this->shellAttempt($root, "python3 - big.json <<'PY'\nimport os\nos.remove('droost/droost-workflow/run.json')\nPY"));
+    // A script named before any `-` is still read.
+    file_put_contents($root . '/big.py', str_repeat('#', 70000));
+    $this->assertSame(2, $this->shellAttempt($root, 'python3 big.py -'));
+  }
+
+  /**
    * The gate's own executable is not the agent's to rewrite, but is to RUN.
    *
    * `ShellGateExecutor::binaryPathFor()` resolves each gate to `vendor/bin/` or
