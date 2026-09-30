@@ -1049,6 +1049,206 @@ function operator_commands_code_heredocs(string $command): array {
 }
 
 /**
+ * The command as the agent sent it, heredoc bodies and all.
+ *
+ * The tiers read the command after `operator_commands_scan_text()` has
+ * dropped every data heredoc, which is right for judging it as shell and
+ * wrong for knowing what a heredoc writes to a file (F-188). Each mode that
+ * reads a command records it here first.
+ *
+ * @param string|null $set
+ *   The command to record, or NULL to read the last one recorded.
+ *
+ * @return string
+ *   The recorded command, '' when none was.
+ */
+function guard_raw_command(?string $set = NULL): string {
+  static $raw = '';
+  if ($set !== NULL) {
+    $raw = $set;
+  }
+  return $raw;
+}
+
+/**
+ * What a command writes to a script it goes on to run (F-188).
+ *
+ * The script reader opens a file before the command runs, so a script the
+ * same command writes is read too early. This answers, for one path, whether
+ * the command writes it and, when it does, what it writes: the body of a
+ * heredoc redirected to it (`cat > s.sh <<'EOF'`, `tee s.sh <<EOF`), which
+ * is what the script will hold. A redirect of anything else, `tee` fed from
+ * elsewhere, or a `cp`, `mv`, `install` or download onto it is a write whose
+ * content cannot be known here.
+ *
+ * @param string $command
+ *   The command as the agent sent it.
+ * @param string $path
+ *   The script's path, resolved as the script reader resolves it.
+ *
+ * @return string|false|null
+ *   FALSE when the command does not write the path, the heredoc body when it
+ *   writes a known one, NULL when it writes something this cannot read.
+ */
+function operator_commands_writes_script(string $command, string $path): string|false|null {
+  // The tokeniser below is the one whose script tier calls this, so a nested
+  // call would recurse without end. The outer call answers for the command.
+  static $busy = FALSE;
+  if ($busy) {
+    return FALSE;
+  }
+  $busy = TRUE;
+  try {
+    return operator_commands_writes_script_inner($command, $path);
+  }
+  finally {
+    $busy = FALSE;
+  }
+}
+
+/**
+ * The body of operator_commands_writes_script(), outside its re-entry guard.
+ *
+ * @param string $command
+ *   The command as the tiers read it.
+ * @param string $path
+ *   The script's path.
+ *
+ * @return string|false|null
+ *   As operator_commands_writes_script().
+ */
+function operator_commands_writes_script_inner(string $command, string $path): string|false|null {
+  $norm = static function (string $p): string {
+    $p = str_starts_with($p, '/') ? $p : (getcwd() ?: '.') . '/' . $p;
+    $p = (string) preg_replace(['#/(?:\./)+#', '#//+#'], '/', $p);
+    while (preg_match('#/(?!\.\./)[^/]+/\.\./#', $p) === 1) {
+      $p = (string) preg_replace('#/(?!\.\./)[^/]+/\.\./#', '/', $p, 1);
+    }
+    return $p;
+  };
+  $want = $norm($path);
+  $unquote = static fn (string $w): string => trim($w, "'\"");
+
+  // A heredoc whose line redirects into the path: its body is the file.
+  // Read from the command as sent: the tiers see it with data heredocs
+  // already dropped.
+  $raw = guard_raw_command();
+  $source = $raw !== '' ? $raw : $command;
+  // A target spelled through a variable the command assigns literally
+  // (`S=/tmp/x; cat > $S/do.sh <<'EOF'`) is that path, as the tokeniser
+  // reads the script's own path.
+  $vars = [];
+  if (preg_match_all('/(?:^|[;&\s(])([A-Za-z_][A-Za-z0-9_]*)=("[^"$`]*"|\'[^\']*\'|[^\s;&|<>$`"\']+)/', $source, $assignments, PREG_SET_ORDER) > 0) {
+    foreach ($assignments as $assignment) {
+      $vars[$assignment[1]] = $unquote($assignment[2]);
+    }
+  }
+  $expand = static fn (string $w): string => (string) preg_replace_callback('/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/', static fn (array $v): string => $vars[$v[1]] ?? $v[0], $w);
+  $lines = preg_split('/\R/', $source) ?: [];
+  $count = count($lines);
+  for ($i = 0; $i < $count; $i++) {
+    if (preg_match('/<<-?\s*([\'"]?)([A-Za-z_][A-Za-z0-9_]*)\1/', $lines[$i], $m) !== 1) {
+      continue;
+    }
+    $targets = [];
+    if (preg_match_all('/(?<![<0-9&])>>?\s*("[^"]+"|\'[^\']+\'|[^\s;&|<>]+)/', $lines[$i], $r) > 0) {
+      $targets = array_map($unquote, $r[1]);
+    }
+    if (preg_match('/(?:^|[\s;&|(])tee\s+(?:-\S+\s+)*("[^"]+"|\'[^\']+\'|[^\s;&|<>]+)/', $lines[$i], $t) === 1) {
+      $targets[] = $unquote($t[1]);
+    }
+    $body = [];
+    for ($j = $i + 1; $j < $count && trim($lines[$j]) !== $m[2]; $j++) {
+      $body[] = $lines[$j];
+    }
+    foreach ($targets as $target) {
+      if ($norm($expand($target)) === $want) {
+        return implode("\n", $body);
+      }
+    }
+    $i = $j;
+  }
+
+  // Any other write onto the path. What it writes is known when the
+  // writer's input is: `echo` and `printf` hand over their arguments, `cat`
+  // and a copy the files they read, and an in-place edit leaves the file as
+  // it is plus whatever its expression puts in, which is judged whole.
+  // Anything else (a download, a program's output) is not known here.
+  foreach (operator_commands_invocations(operator_commands_scan_text($command)) as $tokens) {
+    [$bare] = operator_commands_strip_wrappers($tokens);
+    $words = array_values(array_filter($bare, static fn (string $t): bool => !str_starts_with($t, "\x01")));
+    $head = strtolower(basename($words[0] ?? ''));
+    $operands = array_values(array_filter(array_slice($words, 1), static fn (string $w): bool => !str_starts_with($w, '-')));
+    $readFile = static function (string $f) use ($norm): ?string {
+      $where = $norm($f);
+      return is_file($where) && is_readable($where) ? (string) file_get_contents($where, FALSE, NULL, 0, 65536) : NULL;
+    };
+    foreach ($bare as $token) {
+      if (!str_starts_with($token, "\x01") || $norm(ltrim($token, "\x01")) !== $want) {
+        continue;
+      }
+      if ($head === 'echo' || $head === 'printf') {
+        // printf, and echo -e, turn `\n` into a line break: the script has
+        // lines where the command has escapes.
+        $text = implode(' ', $operands);
+        return $head === 'printf' || (bool) preg_grep('/^-[a-zA-Z]*e/', $words) ? stripcslashes($text) : $text;
+      }
+      if ($head === 'cat' && $operands !== []) {
+        $text = array_map($readFile, $operands);
+        return in_array(NULL, $text, TRUE) ? NULL : implode("\n", $text);
+      }
+      return NULL;
+    }
+    if (in_array($head, ['cp', 'mv', 'install', 'ln', 'rsync'], TRUE) && count($operands) >= 2 && $norm((string) end($operands)) === $want) {
+      $text = array_map($readFile, array_slice($operands, 0, -1));
+      return in_array(NULL, $text, TRUE) ? NULL : implode("\n", $text);
+    }
+    if (($head === 'sed' || $head === 'perl') && (bool) preg_grep('/^-[a-zA-Z]*i/', $words)) {
+      foreach ($operands as $operand) {
+        if ($norm($operand) !== $want) {
+          continue;
+        }
+        // The file as it stands, and each substitution's replacement as a
+        // line of its own, its delimiter unescaped: what the edit can add.
+        $added = [];
+        foreach ($words as $word) {
+          if (preg_match_all('/(?:^|;)\s*s(.)(?:(?!\1)[^\\\\]|\\\\.)*\1((?:(?!\1)[^\\\\]|\\\\.)*)\1/', $word, $subs, PREG_SET_ORDER) > 0) {
+            foreach ($subs as $sub) {
+              $added[] = str_replace('\\' . $sub[1], $sub[1], $sub[2]);
+            }
+          }
+        }
+        return ($readFile($operand) ?? '') . "\n" . implode("\n", $added);
+      }
+    }
+    $destinations = match (TRUE) {
+      $head === 'tee' => $operands,
+      $head === 'dd' => array_map(static fn (string $o): string => substr($o, 3), array_filter($operands, static fn (string $o): bool => str_starts_with($o, 'of='))),
+      $head === 'curl' || $head === 'wget' => (static function () use ($words, $head): array {
+        $out = [];
+        foreach ($words as $k => $w) {
+          if (($head === 'curl' && ($w === '-o' || $w === '--output')) || ($head === 'wget' && $w === '-O')) {
+            $out[] = $words[$k + 1] ?? '';
+          }
+          elseif (str_starts_with($w, '--output=')) {
+            $out[] = substr($w, 9);
+          }
+        }
+        return $out;
+      })(),
+      default => [],
+    };
+    foreach ($destinations as $destination) {
+      if ($destination !== '' && $norm($destination) === $want) {
+        return NULL;
+      }
+    }
+  }
+
+  return FALSE;
+}
+
+/**
  * Refuses the operator's commands when the agent's shell issues them.
  *
  * `droost:workflow:gate-waive`, `droost:workflow:bypass` and
@@ -1075,6 +1275,7 @@ function operator_commands_guard(string $stdin): void {
   if ($command === '') {
     return;
   }
+  guard_raw_command($command);
   $command = operator_commands_scan_text($command);
   // A droost command must NAME its verb. `drush $(echo droost:workflow:byp)ass`
   // ran the bypass and matched nothing here, because `(` and `)` end a token
@@ -2406,77 +2607,104 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
           continue;
         }
         $path = str_starts_with($file, '/') ? $file : (getcwd() ?: '.') . '/' . $file;
-        // BEFORE `is_file()`, which follows links and answers FALSE for one
-        // that dangles — so a broken link fell through this `continue` as
-        // "not a file" and was never refused as unreadable.
-        $dangling = is_link($path) && realpath($path) === FALSE;
-        if (!$dangling && !is_file($path)) {
-          continue;
-        }
-        // A SCRIPT THIS GUARD CANNOT READ IS ONE IT MAY NOT PERMIT. These
-        // four skips were silent `continue`s, and each was a working bypass
-        // one Write away: a 72KB script with the verb on the last line, a
-        // symlinked script, a script under vendor/, and a script that only
-        // `source`s another. The file's own doctrine already says the answer
-        // — "a command it cannot read is not a command it may permit" — and
-        // this tier was the one place not following it.
-        //
-        // A LINK IS FOLLOWED, NOT REFUSED. `bin/drush -> ../vendor/drush/…` is
-        // the standard composer bin-dir layout, and refusing `./bin/drush cr`
-        // as "a symlink" was a false positive with no way to comply. The
-        // bypass the symlink refusal closed was `link.sh -> do.sh`, and the
-        // honest answer to that is to read do.sh — so the link is resolved
-        // and its TARGET judged: under vendor/ or node_modules/ it is a tool
-        // and skipped as one; a readable file anywhere else is read; a link
-        // that resolves to nothing is still a script this cannot read.
-        // THIS GUARD, RUN BY HAND (F-168). It was refused as a script larger
-        // than 64KB, which is true and not the reason. Run with a payload it
-        // decides and writes the run's own ledger, and `record` writes
-        // tool-call rows, so a hand-run could put a browser session on the
-        // record that never happened. Probing it belongs in a throwaway
-        // project, with CLAUDE_PROJECT_DIR set there.
-        $guardFile = realpath(rtrim(guard_named_root() !== '' ? guard_named_root() : (getcwd() ?: '.'), '/') . '/.claude/hooks/droost-workflow-guard.php');
-        if ($guardFile !== FALSE && realpath($path) === $guardFile) {
-          guard_refuse('operator-command:guard-by-hand', sprintf(
-            'This runs the guard itself. Handed a payload, it writes this run\'s '
-            . 'own ledger, and its `record` mode writes the tool calls the run is '
-            . 'judged on, so a hand-run puts events on the record that never '
-            . 'happened. To probe it, copy it into a throwaway project and point '
-            . 'CLAUDE_PROJECT_DIR there; `php -l` checks its syntax. (Refused: %s)',
+        // A SCRIPT THIS COMMAND WRITES BEFORE IT RUNS IT (F-188). The file
+        // is read here, before the command runs, so `cat > s.sh <<'EOF' …
+        // EOF; bash s.sh` or `printf '…' > s.py; python3 s.py` was judged
+        // on a file that did not exist yet, or on its old contents, and
+        // ALLOWED whatever the new ones did. What the command spells out
+        // (a heredoc, an echo, a copy's source, an edit's replacements) is
+        // judged as the script; any other write leaves nothing to read.
+        // A redirect's target is where output goes, and /dev/ is no file.
+        $writtenHere = str_starts_with($argument, "\x01") || str_starts_with($path, '/dev/')
+          ? FALSE
+          : operator_commands_writes_script($command, $path);
+        if ($writtenHere === NULL) {
+          guard_refuse('operator-command:script-written-here', sprintf(
+            'This command writes %s and then runs it, so what it runs does not '
+            . 'exist to be read when this guard has to answer. Write the script '
+            . 'first (the Write tool, or a command of its own), then run it in a '
+            . 'second command, where it can be read. (Refused: %s)',
+            $file,
             trim($command),
           ));
         }
-        $unreadable = '';
-        if (is_link($path)) {
-          $real = realpath($path);
-          if ($real === FALSE) {
-            $unreadable = 'a symlink to nothing this guard can open';
-          }
-          elseif (preg_match('#(^|/)(vendor|node_modules)/#', $real) === 1) {
+        if (is_string($writtenHere)) {
+          $script = $writtenHere;
+        }
+        else {
+          // BEFORE `is_file()`, which follows links and answers FALSE for one
+          // that dangles — so a broken link fell through this `continue` as
+          // "not a file" and was never refused as unreadable.
+          $dangling = is_link($path) && realpath($path) === FALSE;
+          if (!$dangling && !is_file($path)) {
             continue;
           }
-          else {
-            $path = $real;
+          // A SCRIPT THIS GUARD CANNOT READ IS ONE IT MAY NOT PERMIT. These
+          // four skips were silent `continue`s, and each was a working bypass
+          // one Write away: a 72KB script with the verb on the last line, a
+          // symlinked script, a script under vendor/, and a script that only
+          // `source`s another. The file's own doctrine already says the answer
+          // — "a command it cannot read is not a command it may permit" — and
+          // this tier was the one place not following it.
+          //
+          // A LINK IS FOLLOWED, NOT REFUSED. `bin/drush ->
+          // ../vendor/drush/…` is the standard composer bin-dir layout, and
+          // refusing `./bin/drush cr`
+          // as "a symlink" was a false positive with no way to comply. The
+          // bypass the symlink refusal closed was `link.sh -> do.sh`, and the
+          // honest answer to that is to read do.sh — so the link is resolved
+          // and its TARGET judged: under vendor/ or node_modules/ it is a tool
+          // and skipped as one; a readable file anywhere else is read; a link
+          // that resolves to nothing is still a script this cannot read.
+          // THIS GUARD, RUN BY HAND (F-168). It was refused as a script larger
+          // than 64KB, which is true and not the reason. Run with a payload it
+          // decides and writes the run's own ledger, and `record` writes
+          // tool-call rows, so a hand-run could put a browser session on the
+          // record that never happened. Probing it belongs in a throwaway
+          // project, with CLAUDE_PROJECT_DIR set there.
+          $guardFile = realpath(rtrim(guard_named_root() !== '' ? guard_named_root() : (getcwd() ?: '.'), '/') . '/.claude/hooks/droost-workflow-guard.php');
+          if ($guardFile !== FALSE && realpath($path) === $guardFile) {
+            guard_refuse('operator-command:guard-by-hand', sprintf(
+              'This runs the guard itself. Handed a payload, it writes this run\'s '
+              . 'own ledger, and its `record` mode writes the tool calls the run is '
+              . 'judged on, so a hand-run puts events on the record that never '
+              . 'happened. To probe it, copy it into a throwaway project and point '
+              . 'CLAUDE_PROJECT_DIR there; `php -l` checks its syntax. (Refused: %s)',
+              trim($command),
+            ));
           }
-        }
-        if ($unreadable === '' && (int) @filesize($path) > 65536) {
-          $unreadable = 'larger than 64KB';
-        }
-        if ($unreadable !== '') {
-          guard_refuse('operator-command:script-unreadable', sprintf(
-            'This runs a script droost cannot read — %s is %s. What it does '
-            . 'cannot be judged from here, and the operator-only verbs and '
-            . 'this guard\'s own file are exactly what that hides. Run the '
-            . 'commands directly, or keep the script under 64KB and pointing '
-            . 'at a real file so it can be read. (Refused: %s)',
-            $file,
-            $unreadable,
-            trim($command),
-          ));
-        }
-        $script = (string) @file_get_contents($path, FALSE, NULL, 0, 65536);
-        if ($script === '' || str_contains($script, "\0")) {
-          continue;
+          $unreadable = '';
+          if (is_link($path)) {
+            $real = realpath($path);
+            if ($real === FALSE) {
+              $unreadable = 'a symlink to nothing this guard can open';
+            }
+            elseif (preg_match('#(^|/)(vendor|node_modules)/#', $real) === 1) {
+              continue;
+            }
+            else {
+              $path = $real;
+            }
+          }
+          if ($unreadable === '' && (int) @filesize($path) > 65536) {
+            $unreadable = 'larger than 64KB';
+          }
+          if ($unreadable !== '') {
+            guard_refuse('operator-command:script-unreadable', sprintf(
+              'This runs a script droost cannot read — %s is %s. What it does '
+              . 'cannot be judged from here, and the operator-only verbs and '
+              . 'this guard\'s own file are exactly what that hides. Run the '
+              . 'commands directly, or keep the script under 64KB and pointing '
+              . 'at a real file so it can be read. (Refused: %s)',
+              $file,
+              $unreadable,
+              trim($command),
+            ));
+          }
+          $script = (string) @file_get_contents($path, FALSE, NULL, 0, 65536);
+          if ($script === '' || str_contains($script, "\0")) {
+            continue;
+          }
         }
         // SHELL IS TOKENISED AS SHELL. EVERY OTHER LANGUAGE IS READ AS TEXT.
         //
@@ -2512,6 +2740,24 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
               . 'verbs. Putting the command in a file does not make it the '
               . 'agent\'s to run — show the OPERATOR the command and the '
               . 'reason, and let them run it. (Refused: %s)',
+              $file,
+              trim($command),
+            ));
+          }
+          // AND WHAT IT WRITES, AS INLINE CODE IS JUDGED (F-189). A file was
+          // read for the verbs alone, so `python3 rm.py`, where rm.py removed
+          // the run record, was allowed while the same code as `python3 -c`
+          // was refused: one Write and one Bash call past the wall, the shape
+          // F-165 closed for shell scripts.
+          if (code_names_enforcement($script) && code_writes($script)) {
+            guard_refuse('protected-path:in-script', sprintf(
+              'This runs %s, and that program names the enforcement itself — '
+              . 'the guard, the run record, the evidence store, the baseline '
+              . 'or the settings — and writes. Putting the code in a file does '
+              . 'not make it readable as a command line, so what it writes '
+              . 'cannot be checked. Do the work through the pipeline, or if a '
+              . 'file genuinely must change, that is the OPERATOR\'s at a '
+              . 'terminal. (Refused: %s)',
               $file,
               trim($command),
             ));
@@ -3045,6 +3291,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
   $payload = is_array($payload) ? $payload : [];
   $input = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
   $command = $input['command'] ?? '';
+  guard_raw_command(is_string($command) ? $command : '');
   // DATA HEREDOCS DROPPED HERE TOO. Only the verb tier called this, so a
   // heredoc body was prose to one wall and code to the other — and the
   // opaque-head check then fired on any body line starting with `$`:
