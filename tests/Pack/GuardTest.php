@@ -2637,6 +2637,31 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * Inline code run through a container runner is judged as code (F-192).
+   *
+   * `ddev exec php -r '<code>'` had `ddev` at its head, so the code was
+   * re-scanned as a shell line: an unlink of the run record was allowed, and
+   * a read of it, or `$x = 1`, was refused.
+   */
+  public function testInlineCodeThroughDdevExecIsJudgedAsCode(): void {
+    $root = $this->rootWithRun('code', 'active', 'hard', 'agentic');
+    foreach ([
+      "ddev exec php -r 'unlink(\"droost/droost-workflow/run.json\");'",
+      "ddev exec -s web php -r 'unlink(\"droost/droost-workflow/run.json\");'",
+      "ddev exec python3 -c 'import os; os.remove(\"droost/droost-workflow/run.json\")'",
+      "ddev exec php -r 'file_put_contents(\".claude/hooks/droost-workflow-guard.php\", \"\");'",
+    ] as $command) {
+      $this->assertSame(2, $this->shellAttempt($root, $command), $command);
+    }
+    foreach ([
+      "ddev exec php -r '\$x = 1; echo \$x;'",
+      "ddev exec python3 -c 'import json; print(json.load(open(\"droost/droost-workflow/run.json\")))'",
+    ] as $command) {
+      $this->assertSame(0, $this->shellAttempt($root, $command), $command);
+    }
+  }
+
+  /**
    * The gate's own executable is not the agent's to rewrite, but is to RUN.
    *
    * `ShellGateExecutor::binaryPathFor()` resolves each gate to `vendor/bin/` or

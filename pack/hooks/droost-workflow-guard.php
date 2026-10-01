@@ -4956,6 +4956,24 @@ function operator_commands_inline_code(array $plain, string $cwd = ''): ?string 
     'node' => ['-e', '--eval', '-p', '--print'],
   ];
   $head = strtolower(basename(ltrim($plain[0] ?? '', "\x01")));
+  // A CONTAINER RUNNER HANDS ITS COMMAND ON (F-192). `ddev exec php -r
+  // '<code>'` runs `php -r` in the web container, and the head here was
+  // `ddev`, so the code was never read as code. It was re-scanned as a shell
+  // line instead, where `unlink("droost/droost-workflow/run.json");` names no
+  // path a shell would write: the run record was deleted under a verdict of
+  // ALLOW, while `$x = 1; echo $x;` read as a program held in a variable and
+  // a read of the record through `python3 -c` was refused (P7 run 10). The
+  // command after `exec` and its own flags is judged as if typed alone.
+  if (in_array($head, ['ddev', 'lando', 'fin'], TRUE) && strtolower(ltrim($plain[1] ?? '', "\x01")) === 'exec') {
+    $rest = array_slice($plain, 2);
+    while ($rest !== [] && str_starts_with(ltrim($rest[0], "\x01"), '-')) {
+      $flag = ltrim(array_shift($rest), "\x01");
+      if (in_array($flag, ['-s', '--service', '-d', '--dir'], TRUE)) {
+        array_shift($rest);
+      }
+    }
+    return $rest === [] ? NULL : operator_commands_inline_code(array_values($rest), $cwd);
+  }
   // AWK AND SED WRITE THROUGH THEIR OWN PROGRAMS, not through the shell.
   // `awk 'BEGIN{print > "droost/droost-workflow/run.json"}'` truncates the
   // record, and `sed -n 'w.claude/hooks/droost-workflow-guard.php' src/a.php`
