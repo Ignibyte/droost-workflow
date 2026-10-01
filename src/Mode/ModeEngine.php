@@ -513,7 +513,7 @@ final class ModeEngine {
 
     return [
       $which => $which === RunSubject::CODE
-        ? 'the files code\'s gates measured changed after they ran, so their green is not about the code as it stands'
+        ? 'files this run changed moved after code\'s gates ran, so code runs again on the tree as it stands'
         : 'files changed after test\'s gates ran (code or a spec), so neither code\'s green nor test\'s is about the tree as it stands',
     ];
   }

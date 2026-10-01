@@ -2662,6 +2662,45 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * In the archive, a word nothing opens for writing is not a write (F-193).
+   *
+   * After `cd droost/droost-workflow/history`, where every name is
+   * protected, the program's own name, a loop's `do`, and a word `echo`
+   * prints all resolved to a file in the archive. P7 run 11's agent looped
+   * `head -3` over archived specs with an `echo "== $f"` header and was
+   * refused under a message saying `head` reads them.
+   */
+  public function testWordsNothingWritesAreNotWritesInTheArchive(): void {
+    $root = $this->rootWithRun('plan', 'active', 'hard', 'agentic');
+    mkdir($root . '/droost/droost-workflow/history', 0775, TRUE);
+    file_put_contents($root . '/droost/droost-workflow/history/run-a.spec.md', "# a\n");
+    foreach ([
+      'cd droost/droost-workflow/history; for f in $(ls -t *.spec.md | head -3); do echo "== $f"; head -3 $f; done',
+      'cd droost/droost-workflow/history; for f in a b; do :; done',
+      'cd droost/droost-workflow/history; if true; then echo x; fi',
+      'cd droost/droost-workflow/history; printf "%s\n" x',
+    ] as $command) {
+      $this->assertSame(0, $this->shellAttempt($root, $command), $command);
+    }
+    foreach ([
+      'cd droost/droost-workflow/history; echo x > run-a.spec.md',
+      'cd droost/droost-workflow/history; printf x >> new.md',
+      'cd droost/droost-workflow/history; : > run-a.spec.md',
+      'cd droost/droost-workflow/history; rm run-a.spec.md',
+      'cd droost/droost-workflow/history; for f in *.md; do echo "== $f"; rm $f; done',
+      'cd droost/droost-workflow/history; for f in a b; do echo x > "$f.bak"; done',
+      'cd droost/droost-workflow/history; for f in a b; do echo "== $f"; rm "$f"; done',
+      '> droost/droost-workflow/run.json echo x',
+      // A substitution runs, and a pipe hands what is printed on.
+      'for f in droost/droost-workflow/history/*.spec.md; do cat "$(rm $f)"; done',
+      'for f in droost/droost-workflow/history/*.spec.md; do echo "${f%.md}" | xargs rm; done',
+      'for f in droost/droost-workflow/history/*.spec.md; do echo "rm $f" | sh; done',
+    ] as $command) {
+      $this->assertSame(2, $this->shellAttempt($root, $command), $command);
+    }
+  }
+
+  /**
    * The gate's own executable is not the agent's to rewrite, but is to RUN.
    *
    * `ShellGateExecutor::binaryPathFor()` resolves each gate to `vendor/bin/` or

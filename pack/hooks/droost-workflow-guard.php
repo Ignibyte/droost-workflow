@@ -1760,6 +1760,38 @@ function operator_commands_stdin_program(array $tokens): ?string {
 }
 
 /**
+ * The programs whose only write is a redirect.
+ *
+ * One list, because two tiers ask it: the operand tier, which skips what a
+ * reader reads, and the loop binder, which asks whether a loop's body can
+ * write to the names its list expands to (F-193).
+ *
+ * @return list<string>
+ *   Program names, as `basename()` gives them.
+ */
+function guard_reading_verbs(): array {
+  return [
+    'cat', 'less', 'more', 'head', 'tail', 'ls', 'stat', 'file', 'wc',
+    'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'diff', 'md5', 'shasum',
+    'md5sum', 'sha1sum', 'sha256sum', 'cmp', 'realpath', 'readlink', 'jq',
+    // `test -f run.json` and `[ -f run.json ]` only stat. Without them
+    // here, checking whether the record EXISTS was refused as editing it.
+    'test', '[',
+    // These open nothing at all (F-193). `echo` and `printf` print their
+    // operands and `:`, `true` and `false` ignore theirs, so the only thing
+    // any of them writes is a redirect, which is judged as for every
+    // reader. After `cd droost/droost-workflow/history`, where the archive
+    // protects every name, `echo "== $f"` in a loop that read the archived
+    // specs with `head` was refused as writing them.
+    'echo', 'printf', ':', 'true', 'false',
+    // NOT sqlite3. `sqlite3 db "select 1"` and `sqlite3 db "update …"`
+    // differ only in a string this cannot parse, and the store is what
+    // that string would be rewriting. Read it with `droost-workflow
+    // evidence`, which renders the whole round.
+  ];
+}
+
+/**
  * A line's own variables, read as what they hold before anything is judged.
  *
  * `f=droost/droost-workflow/run.json; rm $f` deleted the run record at `hard`:
@@ -1790,11 +1822,15 @@ function operator_commands_stdin_program(array $tokens): ?string {
  *
  * @param list<list<string>> $invocations
  *   The line's commands, as tokenised.
+ * @param array<int, bool>|null $producers
+ *   The indexes of the commands whose output a pipe carries on, or NULL
+ *   when the caller cannot say. A reader's words are set aside only where
+ *   this is known, since a pipe can hand them to a program that writes.
  *
  * @return list<list<string>>
  *   The same, variables read.
  */
-function operator_commands_bind_variables(array $invocations): array {
+function operator_commands_bind_variables(array $invocations, ?array $producers = NULL): array {
   // Name => the values it may hold, each value the words it expands to.
   $vars = [];
   $out = [];
@@ -1809,8 +1845,26 @@ function operator_commands_bind_variables(array $invocations): array {
       // refusal.
       $name = $plain[1];
       $unreadable = FALSE;
-      foreach (array_slice($invocations, $index + 1) as $later) {
+      foreach (array_slice($invocations, $index + 1, NULL, TRUE) as $laterIndex => $later) {
+        // A word a reader reads, or `echo` prints, is never opened for
+        // writing, whatever name it builds (F-193): `echo "== $f"` beside
+        // `head -3 $f` reads the archive. A redirect's target and a flag's
+        // value still count, and so does a word holding a substitution,
+        // which runs a command of its own (`cat "$(rm $f)"` deletes), and
+        // every word of a reader whose output a pipe carries on (`echo
+        // "${f%.md}" | xargs rm` deletes).
+        [$laterPlain] = operator_commands_strip_wrappers($later);
+        $reads = $producers !== NULL
+          && !isset($producers[$laterIndex])
+          && in_array(strtolower(basename(ltrim($laterPlain[0] ?? '', "\x01"))), guard_reading_verbs(), TRUE);
         foreach ($later as $token) {
+          if ($reads
+            && !str_starts_with($token, "\x01")
+            && !str_starts_with($token, '-')
+            && !str_contains($token, '$(')
+            && !str_contains($token, '`')) {
+            continue;
+          }
           $bare = ltrim($token, "\x01");
           if (preg_match('/\$\{?' . $name . '(?![A-Za-z0-9_])/', $bare) === 1
             && operator_commands_variable_values($bare, [$name => [['']]]) === NULL) {
@@ -2410,15 +2464,17 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
   // is not shell: it is judged as code, by the path tier (F-123), as `-c`
   // code is.
   $piped = FALSE;
+  $producers = [];
   foreach ($invocations as $n => $one) {
     if (($consumes[$n] ?? FALSE) && $n > 0) {
+      $producers[$n - 1] = TRUE;
       $pipes[] = [$invocations[$n - 1], $one];
       $family = operator_commands_stdin_program($one);
       $piped = $piped || $family === 'shell';
     }
   }
   // A VARIABLE THE LINE BINDS IS READ AS WHAT IT HOLDS (F-124, F-125).
-  $invocations = operator_commands_bind_variables($invocations);
+  $invocations = operator_commands_bind_variables($invocations, $producers);
   // INSIDE ITS SUBSTITUTIONS TOO (F-174). A `$( … )` is tokenised apart from
   // the line, so `v=…; out=$(php -r "$v")` never saw the `v` the line bound,
   // and the code it runs read as a variable nobody bound. The line's own
@@ -3726,18 +3782,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
         ));
       }
     }
-    $isReader = (in_array($verb, [
-      'cat', 'less', 'more', 'head', 'tail', 'ls', 'stat', 'file', 'wc',
-      'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'diff', 'md5', 'shasum',
-      'md5sum', 'sha1sum', 'sha256sum', 'cmp', 'realpath', 'readlink', 'jq',
-      // `test -f run.json` and `[ -f run.json ]` only stat. Without them
-      // here, checking whether the record EXISTS was refused as editing it.
-      'test', '[',
-      // NOT sqlite3. `sqlite3 db "select 1"` and `sqlite3 db "update …"`
-      // differ only in a string this cannot parse, and the store is what
-      // that string would be rewriting. Read it with `droost-workflow
-      // evidence`, which renders the whole round.
-    ], TRUE)
+    $isReader = (in_array($verb, guard_reading_verbs(), TRUE)
       // `add` and `commit` READ the working tree — into the index, into
       // history — and never write it, so staging the guard after `init` is
       // recording the enforcement, not rewriting it; it was refused as the
@@ -3874,8 +3919,19 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
         )));
       }
     }
+    // THE PROGRAM IS RUN, NOT WRITTEN (F-193). Every word was resolved
+    // against the tracked `cd`, the program's own name and the shell
+    // keywords and wrappers before it included, so after `cd
+    // droost/droost-workflow/history` a loop's `do`, a `:` or a `true` read
+    // as a file in the archive and was refused. The unwrapped list is a
+    // suffix of the tokens, so its head sits at this index; a redirect
+    // spelled before it keeps its mark and is still judged.
+    $headAt = count($tokens) - count($plain);
     foreach ($operands as $index => $operand) {
       if ($operand === '' || str_starts_with($operand, '-')) {
+        continue;
+      }
+      if ($index <= $headAt && !str_starts_with($operand, "\x01")) {
         continue;
       }
       if (isset($copySources[$index])) {

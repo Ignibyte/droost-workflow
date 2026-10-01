@@ -14,9 +14,14 @@ namespace Droost\Workflow\State;
  * so the record shows how many loops a ticket took and why.
  *
  * A return is `failed` when test's gates failed, and spends the budget.
- * It is `moved` when the files code's gates measured changed after they
- * passed. That spends nothing: the agent's own edit caused it, code's gates
- * are what measures the edit, and the next return is the agent's to cause.
+ * It is `moved` when a file the run changed, other than a spec or a
+ * document, changed after code's gates passed. That spends nothing: the
+ * agent's own edit caused it, code's gates are what measures the edit, and
+ * the next return is the agent's to cause. The subject is every such file,
+ * not only those a gate at this level reads, so a stylesheet edited at test
+ * returns at `low`, where no code gate reads CSS. The reason says which it
+ * is (F-195): it said "the files code's gates measured", which at `low`
+ * named a file none of them read.
  */
 final class LoopState {
 
