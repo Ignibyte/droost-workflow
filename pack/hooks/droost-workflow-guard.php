@@ -4409,8 +4409,12 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
   }
   // settings.php too, because `$settings['droost'][…]` set there is honoured
   // as the base GateState overlays. A different file, the same arming.
-  if (preg_match('#(^|/)sites/[^/]+/settings\.php$#', $relative) === 1) {
-    return 'That is the site\'s settings.php, and droost honours '
+  // AND THE FILES IT INCLUDES (F-199). On DDEV, settings.php includes
+  // settings.ddev.php, and the stock file offers settings.local.php: either
+  // sets `$settings['droost']` as surely as settings.php does, and the Write
+  // tool was allowed both.
+  if (preg_match('#(^|/)sites/[^/]+/settings(?:\.[A-Za-z0-9_-]+)?\.php$#', $relative) === 1) {
+    return 'That is the site\'s settings.php or a file it includes, and droost honours '
       . '`$settings[\'droost\'][\'allow_*\']` set there as the base for its '
       . 'write gates — so an edit to it can arm destructive work. It is also '
       . 'the file holding the database credentials and the hash salt. Ask the '

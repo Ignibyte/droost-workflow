@@ -434,6 +434,21 @@ final class ShellSurfaceTest extends WorkflowTestCase {
     ]);
     $this->assertSame(2, $write, 'the file that arms the gates is not the agent\'s to write');
 
+    // And the files settings.php includes (F-199): settings.ddev.php on DDEV,
+    // settings.local.php where the site turns it on.
+    foreach (['settings.ddev.php', 'settings.local.php'] as $included) {
+      [$write] = $this->guard($root, 'pre-tool-use', [
+        'tool_name' => 'Write',
+        'tool_input' => ['file_path' => $root . '/web/sites/default/' . $included],
+      ]);
+      $this->assertSame(2, $write, $included . ' sets $settings as settings.php does');
+    }
+    [$write] = $this->guard($root, 'pre-tool-use', [
+      'tool_name' => 'Write',
+      'tool_input' => ['file_path' => $root . '/web/sites/default/default.settings.php'],
+    ]);
+    $this->assertSame(0, $write, 'the template core ships is included by nothing');
+
     foreach ([
       'echo "<?php \$settings[\'droost\'][\'allow_entity_write\']=TRUE;" > web/sites/default/settings.droost.php',
       'echo "\$settings[\'droost\'][\'allow_destructive\']=TRUE;" >> web/sites/default/settings.php',
