@@ -1634,6 +1634,13 @@ final class EvidenceStore {
    * Each run of a phase records its checks under the next attempt number, so
    * the highest one is the count, and the attempt just made.
    *
+   * ONLY THE PHASE'S OWN CHECKS (F-201). The agent's recorded suite runs
+   * (`recorded_run`, one row per `droost-workflow specs`) and a return's
+   * marker (`loop`) are stored under the phase too, numbered by themselves.
+   * Counted, they made P7 run 15's single test attempt "attempt 2" in the
+   * run-event log, since the agent had recorded its spec twice, and a
+   * reader of the events saw a first attempt that never ran.
+   *
    * @param string $runId
    *   The run.
    * @param string $phase
@@ -1643,7 +1650,7 @@ final class EvidenceStore {
    *   The attempt, from 1; 1 when the phase recorded no check.
    */
   public function phaseAttempt(string $runId, string $phase): int {
-    $statement = $this->connection()->prepare('SELECT MAX(attempt) FROM check_result WHERE run_id = ? AND phase = ?');
+    $statement = $this->connection()->prepare("SELECT MAX(attempt) FROM check_result WHERE run_id = ? AND phase = ? AND kind NOT IN ('recorded_run', 'loop')");
     $statement->execute([$runId, $phase]);
     $max = $statement->fetchColumn();
 

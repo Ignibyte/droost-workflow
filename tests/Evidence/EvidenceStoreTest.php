@@ -48,6 +48,24 @@ final class EvidenceStoreTest extends TestCase {
   }
 
   /**
+   * A phase's attempt counts its own checks, not its recordings (F-201).
+   *
+   * P7 run 15's agent recorded its spec twice before the test phase ran
+   * once, and the run-event log called that one attempt "attempt 2".
+   */
+  public function testRecordedRunsAreNotAttemptsOfThePhase(): void {
+    $store = new EvidenceStore($this->root);
+    $store->record('r1', 'test', new CheckRecord('recorded_run', 'playwright', CheckState::Satisfied));
+    $store->record('r1', 'test', new CheckRecord('recorded_run', 'playwright', CheckState::Satisfied));
+    $store->record('r1', 'test', new CheckRecord('loop', 'returned_to_code', CheckState::Blocked, Fault::Agent, 'files moved'));
+    $this->assertSame(1, $store->phaseAttempt('r1', 'test'), 'nothing the phase ran yet');
+    $store->record('r1', 'test', new CheckRecord('gate', 'playwright', CheckState::Satisfied));
+    $this->assertSame(1, $store->phaseAttempt('r1', 'test'));
+    $store->record('r1', 'test', new CheckRecord('gate', 'playwright', CheckState::Satisfied));
+    $this->assertSame(2, $store->phaseAttempt('r1', 'test'), 'a second run of the gates is a second attempt');
+  }
+
+  /**
    * A gate that failed and then passed leaves both attempts on the record.
    *
    * The old record overwrote the failing attempt and kept only a counter, so a
