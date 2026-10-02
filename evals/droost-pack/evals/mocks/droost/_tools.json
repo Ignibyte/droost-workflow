@@ -1,0 +1,17 @@
+{
+  "tools": [
+    {
+      "name": "droost_decide",
+      "description": "Walks one of droost's decision graphs for this site. For build-surface, name the KIND of thing you are building and droost returns every surface that builds it here, best first. With no kind and no query it returns the catalogue of kinds. A query in your own words returns the nearest kinds. A page kind's answer carries this site's build rules.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph": {"type": "string", "description": "build-surface or config-change"},
+          "kind": {"type": "string", "description": "build-surface: a kind from the catalogue, such as \"landing page\", \"collection page\", \"detail page\", \"list section\""},
+          "query": {"type": "string", "description": "words to search the catalogue by"},
+          "answers": {"type": "object"}
+        }
+      }
+    }
+  ]
+}

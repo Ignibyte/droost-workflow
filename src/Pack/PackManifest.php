@@ -149,6 +149,11 @@ final class PackManifest {
     // droost_wiki module. Same string, two kinds of thing, both citable.
     'droost_wiki',
     'droost_wiki_write',
+    // The Canvas-first page tools the code skill names (owner, 2026-10-02):
+    // droost_canvas's pair, and droost_ui_kit's display composer.
+    'droost_canvas',
+    'droost_canvas_tree_set',
+    'droost_display_compose',
   ];
 
   /**

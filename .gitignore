@@ -14,3 +14,6 @@
 .php-cs-fixer.cache
 .eslintcache
 .stylelintcache
+
+# The eval suite is how this repository tests its skills; runs write here.
+/evals/*/evals/results/

@@ -1,0 +1,8 @@
+{
+  "name": "droost-guard",
+  "version": "0.1.0",
+  "description": "droost's guard inside Claude Code: refuses the agent's routes to loading a mod, records which mods could act before the guard, shows the run's phase",
+  "author": {
+    "name": "droost"
+  }
+}

@@ -318,6 +318,43 @@ Then produce the spec:
    so a sample command in your Tooling plan is never read as a real
    declaration.
 
+   **WHAT BUILDS EACH PAGE: walk the tree, then declare it** (owner,
+   2026-10-02). For every page this change makes or changes, ask one
+   question: **what is this page's main content?**
+
+   1. **One entity** (a rink, a camp, a post): its own page is the entity's
+      display, Manage display with the theme's components: `--kind=detail`.
+   2. **The collection itself** (an archive, a directory, a search): a View
+      page: `--kind=collection`.
+   3. **Neither** (a home, landing or single page that is not an entity):
+      on a Canvas site a Canvas page, each section its own component:
+      `--kind=page`. A list on it, such as the three latest posts, is a View
+      block placed in it (`list_section`), judged on its page.
+   4. **Its form** (a contact page): `--kind=form`.
+
+   **Ask before you declare, for every page.** The tree gives the kind; it
+   does not give this site's owner. That depends on whether the site has
+   Canvas, and the operator's rules may say otherwise, and only the router
+   knows either: call `droost_decide` with `kind="landing page"`,
+   `"collection page"`, `"detail page"` or `"list section"`, and its answer
+   carries this site's rule. A page declared from the defaults above,
+   without asking, is a guess. Write the path you took into `## Routes`,
+   then declare the page with the owner the answer named:
+
+   ```bash
+   vendor/bin/droost-workflow declare-route / --kind=page --owner=canvas_page "the home page"
+   vendor/bin/droost-workflow declare-route /rinks --kind=collection --owner=view_page "the directory"
+   vendor/bin/droost-workflow declare-route /rinks/pepsi-ice-midwest --kind=detail --owner=entity_view_display
+   ```
+
+   `composition_check` reads what really builds each declared page, at code.
+   **A declaration that is false fails, whatever the rules say.** A page
+   built as its kind's rule does not allow is reported, or fails where the
+   operator made the rule block. Say why with `--except="<reason>"`, and the
+   reason is recorded beside it. A judgement call (a coach grid between two
+   panels: a landing page with a list, or the collection itself?) is yours
+   to make and to write down, never to hide.
+
    Two of three live rounds lost their routes to that shape: one fenced its
    list and had a placeholder harvested out of a sentence instead, rendering
    a 404 while the page the ticket existed to build was never requested.

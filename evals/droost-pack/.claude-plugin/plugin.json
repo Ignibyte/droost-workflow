@@ -1,0 +1,8 @@
+{
+  "name": "droost-pack",
+  "version": "0.12.0",
+  "description": "droost's plan skill and a mocked droost server, for evals of what the skill makes an agent do",
+  "author": {
+    "name": "droost"
+  }
+}

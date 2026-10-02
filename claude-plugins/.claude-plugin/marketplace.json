@@ -1,0 +1,14 @@
+{
+  "name": "droost",
+  "description": "droost's own Claude Code plugins, shipped by droost/workflow and copied into a project only when its operator says yes",
+  "owner": {
+    "name": "droost"
+  },
+  "plugins": [
+    {
+      "name": "droost-guard",
+      "source": "./droost-guard",
+      "description": "droost's guard inside Claude Code: refuses the agent's routes to loading a mod, records which mods could act before the guard, shows the run's phase"
+    }
+  ]
+}

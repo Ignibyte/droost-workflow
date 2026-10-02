@@ -283,6 +283,11 @@ final class WorkflowFacade {
       'run' => NULL,
     ];
 
+    // Which Claude Code ran the latest session here (E5, 2026-10-02), as the
+    // guard read it from the transcript, and the mods droost's own mod saw
+    // load, when it is installed and running. NULL before any session.
+    $status['host'] = self::hostRecord($projectRoot);
+
     if ($state === NULL) {
       return $status;
     }
@@ -1395,6 +1400,33 @@ final class WorkflowFacade {
     $store->declareRoute($state->runId, self::openPhase($state), $path, $reason, $this->now(), $kind, $owner, $exception);
 
     return ['run' => $state->runId, 'routes' => $store->specRoutes($state->runId)];
+  }
+
+  /**
+   * The host record the guard and droost's mod keep in the state directory.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return array<string, mixed>|null
+   *   The guard's `host.json`, with droost-guard's `host-mods.json` under
+   *   `mods` when it exists; NULL when neither does.
+   */
+  private static function hostRecord(string $projectRoot): ?array {
+    $directory = rtrim($projectRoot, '/') . '/' . RunStateStore::resolveStateDir($projectRoot);
+    $host = json_decode((string) @file_get_contents($directory . '/host.json'), TRUE);
+    $mods = json_decode((string) @file_get_contents($directory . '/host-mods.json'), TRUE);
+    if (!is_array($host) && !is_array($mods)) {
+      return NULL;
+    }
+    $record = [];
+    foreach (is_array($host) ? $host : [] as $key => $value) {
+      $record[(string) $key] = $value;
+    }
+    if (is_array($mods)) {
+      $record['mods'] = $mods;
+    }
+    return $record;
   }
 
   /**

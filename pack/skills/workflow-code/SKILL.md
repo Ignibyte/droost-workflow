@@ -155,6 +155,44 @@ Then the rules that do not bend:
    inspecting it — the one blind spot in an otherwise file-based gate set,
    and yours to close by exporting.
 
+### Pages, and the components they are built from
+
+**Build each page as you declared it** (owner, 2026-10-02).
+`composition_check` reads what really builds every page the spec declared,
+at this phase: a Canvas page, a View page, an entity's display, a Webform,
+or a route. A page declared as one and built as another fails, whatever the
+rules say. If the build had to change what owns a page, declare it again
+with its new owner, and say why where it breaks the rule.
+
+- **A Canvas page:** create it with `droost_entity_create`
+  (`entity_type: canvas_page`, with its title and path), then write its
+  tree with `droost_canvas_tree_set`. `droost_canvas` lists what can be
+  placed, a View's block display among them
+  (`block.views_block.<view>-<display>`). Each section is its own component,
+  so an editor can move it or change it; text an editor changes is a
+  component's input, never a template string.
+- **An entity's own page:** its full view mode, composed with
+  `droost_display_compose`, its fields bound to the theme's components.
+
+**Components are SDC by default** (owner, 2026-10-02). Adapted, for SDC,
+from the Drupal Canvas team's skills (`drupal-canvas/skills`, MIT), which
+are written for code components:
+
+- **Decompose before you build.** One component per visual unit that
+  repeats (a card, a button, a page head), placed and composed, never one
+  component per page and never one per element.
+- **A prop for a value, a slot for content.** Text, a link, an image or a
+  variant is a prop; a region another component fills is a slot.
+- **Every prop is declared in `*.component.yml`** with its type and title,
+  an enum for a fixed set of variants, and `required` only where the
+  component cannot render without it.
+- **Style with the theme's tokens** (its Tailwind theme), never a colour or
+  a size written into one component.
+- **A code component** (a React component Canvas renders in the browser) is
+  allowed only on a site whose rules allow one, only for a piece that is
+  genuinely interactive, and only from the repository, never written in
+  Canvas's in-browser editor, where no gate reads it.
+
 ## Exit gate
 
 Every construct the spec named exists, and nothing exists that the spec did

@@ -295,6 +295,16 @@ $recordCall = static function () use ($root, $stateDir): void {
   if (!is_dir($directory)) {
     return;
   }
+  // WHICH CLAUDE CODE THIS IS (E5, 2026-10-02): a run's evidence names its
+  // host, read from the transcript the hook was handed, once per session.
+  // Claude Code 2.1.287 turned mods on, and a mod runs before this hook, so
+  // a record that cannot say which host ran it cannot say what could have
+  // stood in front of the guard.
+  $session = $GLOBALS['workflow_guard_session'] ?? NULL;
+  $transcript = $GLOBALS['workflow_guard_transcript'] ?? NULL;
+  if (is_string($session) && $session !== '' && is_string($transcript) && $transcript !== '') {
+    guard_record_host($directory, $session, $transcript);
+  }
   $run = NULL;
   // The PHASE AS THE HOOK SAW IT, from the document it is already reading.
   // The engine stamps its rows with the phase open at ingest, which is the
@@ -371,6 +381,9 @@ $stopHookActive = $flag === TRUE
   || $flag === 1
   || (is_string($flag) && in_array(strtolower($flag), ['true', '1', 'yes'], TRUE));
 $GLOBALS['workflow_guard_continued'] = $stopHookActive;
+// The session and its transcript, for the host record the diary writes.
+$GLOBALS['workflow_guard_session'] = is_string($payload['session_id'] ?? NULL) ? $payload['session_id'] : NULL;
+$GLOBALS['workflow_guard_transcript'] = is_string($payload['transcript_path'] ?? NULL) ? $payload['transcript_path'] : NULL;
 
 // THE TOOL'S NAME, recorded and never acted on here. Every other branch in
 // this file infers what is happening from `tool_input` — a `command` key means
@@ -1361,6 +1374,18 @@ function operator_commands_guard(string $stdin): void {
     if (operator_commands_help_only($verbHead)) {
       continue;
     }
+    $plugin = operator_commands_plugin_loading($verbHead, $tokens);
+    if ($plugin !== NULL) {
+      guard_refuse('plugin-loading', sprintf(
+        '%s, and that is the OPERATOR\'s act. A mod runs inside Claude Code '
+        . 'with the user\'s permissions and runs before this guard: its '
+        . '`tool.check` can approve a call the guard refused. Name the plugin '
+        . 'and why it is needed, and ask the operator to install it in THEIR '
+        . 'terminal. Reading what is installed (`claude plugin list`, '
+        . '`claude plugin validate <dir>`) is not refused.',
+        $plugin,
+      ));
+    }
     $which = NULL;
     // BOTH SPELLINGS, for all three. These matched the drush verb only,
     // and the standalone binary grew the same three commands on 2026-09-15 —
@@ -1445,6 +1470,106 @@ function operator_commands_guard(string $stdin): void {
       $handover,
       $gate ? ' (Disarming a gate — `off` — needs no operator; only arming does.)' : '',
     ));
+  }
+}
+
+/**
+ * What a command does to load a Claude Code plugin, or NULL (E3).
+ *
+ * Installing, enabling or updating a plugin, adding a marketplace, naming a
+ * plugin directory or URL for a session, and setting the variable that names
+ * plugin directories for every later session. Reading what is installed
+ * (`list`, `details`, `validate`) is not loading anything.
+ *
+ * @param list<string> $head
+ *   The invocation's unwrapped tokens.
+ * @param list<string> $tokens
+ *   The invocation's tokens as written, environment assignments included.
+ *
+ * @return string|null
+ *   What it does, as the start of a sentence, or NULL.
+ */
+function operator_commands_plugin_loading(array $head, array $tokens): ?string {
+  foreach ($tokens as $token) {
+    if (preg_match('/^(?:export\s+)?CLAUDE_CODE_PLUGIN_DIRS=/', ltrim($token, "\x01")) === 1) {
+      return 'Setting CLAUDE_CODE_PLUGIN_DIRS loads plugin directories into every later session';
+    }
+  }
+  $words = array_map(static fn (string $t): string => strtolower(ltrim($t, "\x01")), $head);
+  if (($words[0] ?? '') === 'export' && preg_match('/^claude_code_plugin_dirs=/', $words[1] ?? '') === 1) {
+    return 'Setting CLAUDE_CODE_PLUGIN_DIRS loads plugin directories into every later session';
+  }
+  if (basename($words[0] ?? '') !== 'claude') {
+    return NULL;
+  }
+  foreach ($words as $word) {
+    if (preg_match('/^--plugin-(dir|url)(=|$)/', $word, $m) === 1) {
+      return sprintf('`claude --plugin-%s` loads a plugin into a session', $m[1]);
+    }
+  }
+  if (!in_array($words[1] ?? '', ['plugin', 'plugins'], TRUE)) {
+    return NULL;
+  }
+  $sub = $words[2] ?? '';
+  if (in_array($sub, ['install', 'i', 'enable', 'update'], TRUE)) {
+    return sprintf('`claude plugin %s` loads a plugin into Claude Code', $sub);
+  }
+  if ($sub === 'marketplace' && in_array($words[3] ?? '', ['add', 'update'], TRUE)) {
+    return sprintf('`claude plugin marketplace %s` gives Claude Code a new source of plugins', $words[3]);
+  }
+
+  return NULL;
+}
+
+/**
+ * Records which Claude Code ran a session, once per session (E5).
+ *
+ * Read from the session's transcript, whose every line carries the version,
+ * and written to `host.json` in the state directory with the sessions seen
+ * before it. Silenced throughout, as the diary is: a host record that could
+ * fail a tool call would be worth less than none.
+ *
+ * @param string $directory
+ *   The state directory, which exists.
+ * @param string $session
+ *   The session id the hook was handed.
+ * @param string $transcript
+ *   The transcript path the hook was handed.
+ */
+function guard_record_host(string $directory, string $session, string $transcript): void {
+  $file = $directory . '/host.json';
+  $known = json_decode((string) @file_get_contents($file), TRUE);
+  $known = is_array($known) ? $known : [];
+  if (($known['session_id'] ?? NULL) === $session) {
+    return;
+  }
+  $version = NULL;
+  $handle = @fopen($transcript, 'r');
+  if ($handle !== FALSE) {
+    for ($i = 0; $i < 200 && ($line = fgets($handle)) !== FALSE; $i++) {
+      $row = json_decode($line, TRUE);
+      if (is_array($row) && is_string($row['version'] ?? NULL) && $row['version'] !== '') {
+        $version = $row['version'];
+        break;
+      }
+    }
+    fclose($handle);
+  }
+  $entry = [
+    'session_id' => $session,
+    'claude_code' => $version,
+    'recorded_at' => date('c'),
+  ];
+  $sessions = is_array($known['sessions'] ?? NULL) ? $known['sessions'] : [];
+  $sessions[] = $entry;
+  $record = $entry + [
+    'host' => 'claude-code',
+    'source' => 'the transcript the hook was handed',
+    'sessions' => array_slice($sessions, -20),
+  ];
+  $json = json_encode($record, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+  if ($json !== FALSE) {
+    @file_put_contents($file, $json . "\n", LOCK_EX);
   }
 }
 
@@ -4352,6 +4477,22 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
   // Claude Code reads both — so the wall's own wiring could be overridden from
   // a file beside the one the wall defends, which is the same disarm with an
   // extra dot in the name.
+  // WHERE CLAUDE CODE LOADS PLUGINS FROM (E3, 2026-10-02). A mod runs
+  // inside Claude Code with the user's permissions, and a user's mod runs
+  // before this hook: its `tool.check` can approve what this guard refused.
+  // So the places a mod is loaded from are the operator's, run or no run:
+  // the mods Claude writes (`~/.claude/dev-mods/`), installed plugins
+  // (`~/.claude/plugins/`), Claude Code's own state (`~/.claude.json`, which
+  // holds trust and MCP servers), and droost's own mod in the project.
+  if (preg_match('#(^|/)\.claude/(dev-mods|plugins|droost-plugins)(/|$)#', $relative) === 1
+    || preg_match('#(^|/)\.claude\.json$#', $relative) === 1) {
+    return 'That is where Claude Code loads plugins and mods from, or the file '
+      . 'that says which projects it trusts. A mod runs inside Claude Code '
+      . 'with the user\'s permissions and can approve a tool call this guard '
+      . 'refused, so choosing one is the OPERATOR\'s decision, never the '
+      . 'agent\'s. If the work needs a plugin, name it and why, and let the '
+      . 'operator install it.';
+  }
   if (preg_match('#(^|/)\.claude/settings(\.local)?\.json$#', $relative) === 1) {
     return 'That file wires the enforcement in. Removing an entry from it '
       . 'disarms the wall exactly as surely as deleting the guard, and quietly. '
