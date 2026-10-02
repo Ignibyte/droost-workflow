@@ -117,14 +117,14 @@ class SurfaceParityTest extends WorkflowTestCase {
       [],
       array_intersect(
         array_keys($cliGates),
-        ['rendered_check', 'config_clean', 'grounding_check'],
+        ['rendered_check', 'config_clean', 'grounding_check', 'composition_check'],
       ),
       'and at least one site gate, which is what the two surfaces differ on — '
       . 'without one in the set, the branch this test exists for is never taken',
     );
 
     foreach ($cliGates as $name => $cliResult) {
-      if (in_array($name, ['rendered_check', 'config_clean', 'grounding_check'], TRUE)) {
+      if (in_array($name, ['rendered_check', 'config_clean', 'grounding_check', 'composition_check'], TRUE)) {
         $this->assertSame('skipped-no-site', $cliResult['status']);
         $this->assertSame('passed', $liveGates[$name]['status']);
         continue;
@@ -569,7 +569,7 @@ class SurfaceParityTest extends WorkflowTestCase {
        * {@inheritdoc}
        */
       public function supports(): array {
-        return ['rendered_check', 'config_clean', 'grounding_check'];
+        return ['rendered_check', 'config_clean', 'grounding_check', 'composition_check'];
       }
 
       /**

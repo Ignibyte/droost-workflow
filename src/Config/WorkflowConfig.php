@@ -48,6 +48,7 @@ final class WorkflowConfig {
     'flow',
     'max_loops',
     'follow_ups',
+    'rules',
   ];
 
   /**
@@ -160,6 +161,9 @@ final class WorkflowConfig {
    *   Where follow-up tickets go: `auto` (the cockpit when it is the
    *   project's ticket source, markdown otherwise), `markdown`, `cockpit`, or
    *   `none` (nowhere, so a spent budget fails the phase).
+   * @param \Droost\Workflow\Config\BuildRules|null $rules
+   *   The owner's rules for what builds a page, as written; NULL for none,
+   *   which is every case's defaults (owner, 2026-10-02).
    */
   private function __construct(
     public readonly Mode $mode,
@@ -180,7 +184,19 @@ final class WorkflowConfig {
     public readonly string $flow = 'strict',
     public readonly int $maxLoops = 0,
     public readonly string $followUps = 'auto',
+    private readonly ?BuildRules $rules = NULL,
   ) {}
+
+  /**
+   * The owner's rules for what builds a page, as written.
+   *
+   * @return \Droost\Workflow\Config\BuildRules
+   *   The rules; empty when the file names none, so every kind keeps its
+   *   case's default.
+   */
+  public function rules(): BuildRules {
+    return $this->rules ?? BuildRules::none();
+  }
 
   /**
    * Loads the levers for a project.
@@ -433,6 +449,7 @@ final class WorkflowConfig {
           ? $root->intInRange('max_loops', 0, self::MAX_LOOPS_CEILING)
           : self::LOOP_BUDGETS[$base->name] ?? 3,
         self::readFollowUps($root, $source),
+        $root->has('rules') ? BuildRules::read($root->child('rules'), $source) : BuildRules::none(),
       );
     }
     catch (DataError $e) {

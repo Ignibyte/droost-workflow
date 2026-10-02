@@ -60,7 +60,7 @@ final class EvidenceStore {
    * build does not know about costs it nothing. A store written by an older one
    * is migrated up in place.
    */
-  public const int SCHEMA_VERSION = 12;
+  public const int SCHEMA_VERSION = 13;
 
   /**
    * Substrings that identify a browser tool in a host's tool name.
@@ -232,6 +232,7 @@ final class EvidenceStore {
         10 => $this->migrateToV10($pdo),
         11 => $this->migrateToV11($pdo),
         12 => $this->migrateToV12($pdo),
+        13 => $this->migrateToV13($pdo),
         default => NULL,
       };
       // Stamped per rung, so an interrupted upgrade resumes where it stopped
@@ -349,7 +350,10 @@ final class EvidenceStore {
         revision    INTEGER NOT NULL,
         path        TEXT NOT NULL,
         reason      TEXT,
-        declared_at TEXT NOT NULL
+        declared_at TEXT NOT NULL,
+        kind        TEXT,
+        owner       TEXT,
+        exception   TEXT
       );
       CREATE INDEX IF NOT EXISTS spec_route_by_run ON spec_route (run_id, path, revision);
 
@@ -1891,10 +1895,16 @@ final class EvidenceStore {
    *   Why it is in scope, for the reader. Never read mechanically.
    * @param string|null $now
    *   The timestamp, ISO-8601.
+   * @param string|null $kind
+   *   What the page's main content is (BuildRules::KINDS), or NULL.
+   * @param string|null $owner
+   *   What builds it (BuildRules::OWNERS), or NULL.
+   * @param string|null $exception
+   *   Why it breaks the owner's rules, when it does, or NULL.
    */
-  public function declareRoute(string $runId, string $phase, string $path, ?string $reason = NULL, ?string $now = NULL): void {
+  public function declareRoute(string $runId, string $phase, string $path, ?string $reason = NULL, ?string $now = NULL, ?string $kind = NULL, ?string $owner = NULL, ?string $exception = NULL): void {
     $this->connection()
-      ->prepare('INSERT INTO spec_route (run_id, phase, revision, path, reason, declared_at) VALUES (?, ?, ?, ?, ?, ?)')
+      ->prepare('INSERT INTO spec_route (run_id, phase, revision, path, reason, declared_at, kind, owner, exception) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
       ->execute([
         $runId,
         $phase,
@@ -1902,6 +1912,9 @@ final class EvidenceStore {
         $path,
         $reason,
         $now ?? date('c'),
+        $kind,
+        $owner,
+        $exception,
       ]);
   }
 
@@ -1911,12 +1924,12 @@ final class EvidenceStore {
    * @param string $runId
    *   The run.
    *
-   * @return list<array{path: string, phase: string, reason: string|null, declared_at: string}>
+   * @return list<array{path: string, phase: string, reason: string|null, declared_at: string, kind: string|null, owner: string|null, exception: string|null}>
    *   One entry per distinct path, in the order they were first declared.
    */
   public function specRoutes(string $runId): array {
     $statement = $this->connection()->prepare(
-      'SELECT path, phase, reason, declared_at FROM spec_route r
+      'SELECT path, phase, reason, declared_at, kind, owner, exception FROM spec_route r
         WHERE run_id = ? AND revision = (
           SELECT MAX(revision) FROM spec_route WHERE run_id = r.run_id AND path = r.path
         )
@@ -1930,6 +1943,9 @@ final class EvidenceStore {
         'phase' => self::text($row, 'phase'),
         'reason' => self::nullableText($row, 'reason'),
         'declared_at' => self::text($row, 'declared_at'),
+        'kind' => self::nullableText($row, 'kind'),
+        'owner' => self::nullableText($row, 'owner'),
+        'exception' => self::nullableText($row, 'exception'),
       ];
     }
 
@@ -3007,6 +3023,30 @@ SQL);
     }
     catch (\PDOException) {
       // Already there — V1's DDL carries it for a new store.
+    }
+  }
+
+  /**
+   * V13 — what each declared page is, and what owns it.
+   *
+   * Owner, 2026-10-02: a page is judged by its main content (`kind`: page,
+   * collection, detail, form), declared with what builds it (`owner`: a
+   * Canvas page, a View page, a display, a Webform, a route) and, where it
+   * breaks the owner's rules, why (`exception`). The composition gate reads
+   * the site's real owner against all three. NULL on every route declared
+   * before this version, which declared none of them.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   */
+  private function migrateToV13(\PDO $pdo): void {
+    foreach (['kind', 'owner', 'exception'] as $column) {
+      try {
+        $pdo->exec('ALTER TABLE spec_route ADD COLUMN ' . $column . ' TEXT');
+      }
+      catch (\PDOException) {
+        // Already there — V1's DDL carries it for a new store.
+      }
     }
   }
 

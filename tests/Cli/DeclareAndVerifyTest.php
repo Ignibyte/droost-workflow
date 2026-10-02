@@ -43,6 +43,58 @@ final class DeclareAndVerifyTest extends WorkflowTestCase {
   }
 
   /**
+   * A page is declared with what its main content is and what builds it.
+   *
+   * Owner, 2026-10-02: the composition gate reads the site's real owner
+   * against the declaration and the owner's rules, so both go in the store,
+   * with the reason when the page breaks a rule.
+   */
+  public function testPageIsDeclaredWithItsKindAndOwner(): void {
+    $root = $this->openRun();
+
+    [$code, $out] = $this->cli($root, [
+      'declare-route', '/', '--kind=page', '--owner=canvas_page', 'the home page',
+    ]);
+    $this->assertSame(0, $code);
+    $this->assertStringContainsString('a page, built as canvas_page', $out);
+    $this->assertSame(0, $this->cli($root, [
+      'declare-route', '/camps/week', '--kind=collection', '--owner=view_page',
+      '--except=the week rides in the path',
+    ])[0]);
+    $this->assertSame(0, $this->cli($root, ['declare-route', '/camps'])[0]);
+
+    $routes = (new EvidenceStore($root))->specRoutes($this->runId($root));
+    $this->assertSame(['page', 'canvas_page', NULL], [$routes[0]['kind'], $routes[0]['owner'], $routes[0]['exception']]);
+    $this->assertSame('the home page', $routes[0]['reason']);
+    $this->assertSame(
+      ['collection', 'view_page', 'the week rides in the path'],
+      [$routes[1]['kind'], $routes[1]['owner'], $routes[1]['exception']],
+    );
+    $this->assertSame([NULL, NULL], [$routes[2]['kind'], $routes[2]['owner']], 'a route may still be declared with neither');
+  }
+
+  /**
+   * A kind without an owner, an unknown name, or a bare exception is refused.
+   */
+  public function testHalfDeclaredPageIsRefused(): void {
+    $root = $this->openRun();
+
+    [$code, , $err] = $this->cli($root, ['declare-route', '/', '--kind=page']);
+    $this->assertSame(2, $code);
+    $this->assertStringContainsString('with both its kind', $err);
+    [$code, , $err] = $this->cli($root, ['declare-route', '/', '--kind=landing', '--owner=canvas_page']);
+    $this->assertSame(2, $code);
+    $this->assertStringContainsString('--kind=landing is not a kind', $err);
+    [$code, , $err] = $this->cli($root, ['declare-route', '/', '--kind=page', '--owner=paragraphs']);
+    $this->assertSame(2, $code);
+    $this->assertStringContainsString('--owner=paragraphs is not an owner', $err);
+    [$code, , $err] = $this->cli($root, ['declare-route', '/', '--except=because']);
+    $this->assertSame(2, $code);
+    $this->assertStringContainsString('An exception (--except=) is to a rule', $err);
+    $this->assertSame([], (new EvidenceStore($root))->specRoutes($this->runId($root)));
+  }
+
+  /**
    * A route that is not a path is refused, and it is the only route refusal.
    *
    * The cost of accepting it is a gate rendering a value that cannot be

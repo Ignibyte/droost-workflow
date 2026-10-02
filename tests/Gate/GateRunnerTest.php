@@ -105,7 +105,7 @@ class GateRunnerTest extends WorkflowTestCase {
       ['phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier'],
       $executor->ran,
     );
-    $this->assertCount(7, $report->results);
+    $this->assertCount(8, $report->results);
   }
 
   /**
@@ -134,12 +134,12 @@ class GateRunnerTest extends WorkflowTestCase {
       $executor->ran,
       'every non-site gate must execute at complete',
     );
-    // Fourteen results: the eleven shell gates above plus the three site gates,
+    // Fifteen results: the eleven shell gates above plus the four site gates,
     // which are the ones NullSiteDriver skips. wiki_fresh is a shell gate and
     // its own skip comes from the executor finding no drush — see
     // ShellGateExecutorTest — so the fake executor here runs it like any other.
-    $this->assertCount(14, $report->results);
-    $this->assertCount(3, $report->skipped());
+    $this->assertCount(15, $report->results);
+    $this->assertCount(4, $report->skipped());
   }
 
   /**

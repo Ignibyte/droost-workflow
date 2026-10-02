@@ -533,6 +533,23 @@ final class ConfigError extends \RuntimeException {
   }
 
   /**
+   * A rules entry that cannot be understood.
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $rule
+   *   The rule's key under `rules`.
+   * @param string $problem
+   *   What is wrong with it.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function invalidRule(string $source, string $rule, string $problem): self {
+    return new self($source, sprintf('rules.%s %s', $rule, $problem));
+  }
+
+  /**
    * A custom gate entry that cannot be understood.
    *
    * @param string $source

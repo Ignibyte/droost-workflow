@@ -176,6 +176,32 @@ final class SchemaMigrationTest extends TestCase {
   }
 
   /**
+   * A v12 store gains what each page is and what builds it.
+   *
+   * Owner, 2026-10-02. A route declared before v13 declared none of the
+   * three, and reads back with all three NULL.
+   */
+  public function testAnOlderStoreGainsThePageColumns(): void {
+    $store = new EvidenceStore($this->root);
+    $store->declareRoute('r1', 'plan', '/camps', 'the listing');
+    unset($store);
+    $pdo = $this->raw();
+    foreach (['kind', 'owner', 'exception'] as $column) {
+      $pdo->exec('ALTER TABLE spec_route DROP COLUMN ' . $column);
+    }
+    $pdo->exec('PRAGMA user_version = 12');
+    unset($pdo);
+
+    $upgraded = new EvidenceStore($this->root);
+    $upgraded->declareRoute('r1', 'plan', '/', 'the home page', NULL, 'page', 'canvas_page', NULL);
+    $this->assertSame(EvidenceStore::SCHEMA_VERSION, $this->version(), 'the rung ran');
+    $routes = $upgraded->specRoutes('r1');
+    $this->assertSame(['/camps', '/'], array_column($routes, 'path'));
+    $this->assertSame([NULL, NULL, NULL], [$routes[0]['kind'], $routes[0]['owner'], $routes[0]['exception']]);
+    $this->assertSame(['page', 'canvas_page'], [$routes[1]['kind'], $routes[1]['owner']]);
+  }
+
+  /**
    * An EXISTING store gains the guard ledger, not just a fresh one.
    *
    * THIS IS THE CASE EVERY OTHER TEST IN THIS SUITE MISSES, and it cost a live

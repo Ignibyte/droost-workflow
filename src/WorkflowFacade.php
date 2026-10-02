@@ -12,6 +12,7 @@ use Droost\Workflow\Cli\CliProcess;
 use Droost\Workflow\State\StateError;
 use Droost\Workflow\Vcs\CliVcs;
 use Droost\Workflow\Vcs\VcsInterface;
+use Droost\Workflow\Config\BuildRules;
 use Droost\Workflow\Config\ContributedGate;
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Config\Phase;
@@ -219,6 +220,17 @@ final class WorkflowFacade {
         // back to code, and where the follow-ups go once it may not.
         'max_loops' => $config->maxLoops,
         'follow_ups' => $config->followUps,
+        // The owner's rules for what builds a page (owner, 2026-10-02): what
+        // the file wrote, and the table each site case resolves to. Which
+        // case this site is, only the site reads; the composition gate
+        // resolves against it, and says so.
+        'rules' => [
+          'written' => $config->rules()->toArray(),
+          'by_case' => array_combine(
+            BuildRules::CASES,
+            array_map(static fn (string $case): array => $config->rules()->resolve($case), BuildRules::CASES),
+          ),
+        ],
         'phases' => $config->phaseNames(),
         'gates' => $config->resolvedGates(),
         // WHEN each enabled gate runs — so "why did plan run nothing" is
@@ -1330,6 +1342,15 @@ final class WorkflowFacade {
    *   or 401 or 403 for a page that must refuse one (an admin listing).
    *   Declaring a path again replaces its expectation, so a plan that named
    *   an admin page bare can correct it (F-120).
+   * @param string|null $kind
+   *   What the page's main content is (BuildRules::KINDS): page, collection,
+   *   detail, form or list_section. Declared with its owner, or not at all.
+   * @param string|null $owner
+   *   What builds it (BuildRules::OWNERS). The composition gate fails a page
+   *   whose real owner is another, whatever the rules say.
+   * @param string|null $exception
+   *   Why the page breaks the owner's rules, when it does. Recorded beside
+   *   the break; under a rule in `block` mode it does not lift the block.
    *
    * @return array<string, mixed>
    *   The routes the run now declares.
@@ -1337,8 +1358,22 @@ final class WorkflowFacade {
    * @throws \InvalidArgumentException
    *   When the path is not a path, or the status is neither.
    */
-  public function declareRoute(string $projectRoot, string $path, ?string $reason = NULL, int $status = 200): array {
+  public function declareRoute(string $projectRoot, string $path, ?string $reason = NULL, int $status = 200, ?string $kind = NULL, ?string $owner = NULL, ?string $exception = NULL): array {
     $path = trim($path);
+    if (($kind === NULL) !== ($owner === NULL)) {
+      throw new \InvalidArgumentException(
+        'A page is declared with both its kind (--kind=, what its main content is) and its owner (--owner=, what builds it), or with neither',
+      );
+    }
+    if ($kind !== NULL && !BuildRules::isKind($kind)) {
+      throw new \InvalidArgumentException(sprintf('--kind=%s is not a kind (known: %s)', $kind, implode(', ', BuildRules::KINDS)));
+    }
+    if ($owner !== NULL && !BuildRules::isOwner($owner)) {
+      throw new \InvalidArgumentException(sprintf('--owner=%s is not an owner (known: %s)', $owner, implode(', ', BuildRules::OWNERS)));
+    }
+    if ($exception !== NULL && $kind === NULL) {
+      throw new \InvalidArgumentException('An exception (--except=) is to a rule, so it needs the page\'s --kind= and --owner=');
+    }
     if ($path === '' || !str_starts_with($path, '/') || str_contains($path, '@')) {
       throw new \InvalidArgumentException(sprintf(
         'A route is a path the site serves and must begin with "/" — got "%s"',
@@ -1357,7 +1392,7 @@ final class WorkflowFacade {
     $path = RenderedRoutes::withStatus($path, $status);
     $state = $this->requireRun(new RunStateStore($projectRoot));
     $store = new EvidenceStore($projectRoot);
-    $store->declareRoute($state->runId, self::openPhase($state), $path, $reason, $this->now());
+    $store->declareRoute($state->runId, self::openPhase($state), $path, $reason, $this->now(), $kind, $owner, $exception);
 
     return ['run' => $state->runId, 'routes' => $store->specRoutes($state->runId)];
   }

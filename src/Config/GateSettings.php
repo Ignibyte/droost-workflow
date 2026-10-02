@@ -54,6 +54,11 @@ final class GateSettings {
     // graph. Engine-side this gate has only a name and a phase; the truth
     // lives where the graph does, exactly as rendered_check does.
     'grounding_check',
+    // Reads what really builds each page the spec declares (a Canvas page, a
+    // View page, a display, a Webform, a route) against the declaration and
+    // the owner's rules (owner, 2026-10-02). Engine-side, a name and a phase;
+    // the truth lives in the site, as it does for rendered_check.
+    'composition_check',
     'wiki_fresh',
   ];
 
@@ -215,6 +220,8 @@ final class GateSettings {
     // real files the index simply did not carry (F-22); the forcing half of
     // the gate never needed the citation half to be fatal.
     'grounding_check' => ['strict_citations' => 'flag'],
+    // The rules themselves are the `rules` block, not levers on the gate.
+    'composition_check' => [],
     // The front-end lint trio takes `paths` for the same reason the static
     // PHP pair does: pointed at a directory, each tool discovers config with
     // nothing but argv. `config` pins the project's own file instead and

@@ -74,6 +74,8 @@ final class PhaseGateMap {
       'coverage',
       'config_clean',
       'grounding_check',
+      // What builds each page is decided in code, so it is judged there.
+      'composition_check',
     ],
     'test' => [
       'playwright',
@@ -108,6 +110,7 @@ final class PhaseGateMap {
       // on disk. Resolving here means a citation to a symbol that does not
       // exist fails while the phase that invented it is still open.
       'grounding_check',
+      'composition_check',
     ],
     'test' => [
       // The test phase writes source, so the gates that read source are due
@@ -149,6 +152,7 @@ final class PhaseGateMap {
       'rendered_check',
       'config_clean',
       'grounding_check',
+      'composition_check',
       'wiki_fresh',
     ],
   ];

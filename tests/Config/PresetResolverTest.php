@@ -63,6 +63,7 @@ class PresetResolverTest extends TestCase {
       'rendered_check' => ['on' => TRUE],
       'config_clean' => ['on' => TRUE],
       'grounding_check' => ['on' => TRUE],
+      'composition_check' => ['on' => TRUE],
       'wiki_fresh' => ['on' => TRUE],
     ];
     $high = $baseline;
@@ -82,6 +83,7 @@ class PresetResolverTest extends TestCase {
       'rendered_check' => ['on' => TRUE],
       'config_clean' => ['on' => TRUE],
       'grounding_check' => ['on' => TRUE],
+      'composition_check' => ['on' => TRUE],
       'wiki_fresh' => ['on' => FALSE],
     ];
     $medium = [
@@ -98,6 +100,7 @@ class PresetResolverTest extends TestCase {
       'rendered_check' => ['on' => TRUE],
       'config_clean' => ['on' => TRUE],
       'grounding_check' => ['on' => TRUE],
+      'composition_check' => ['on' => TRUE],
       'wiki_fresh' => ['on' => TRUE, 'cover_diff' => TRUE],
     ];
     $xhigh = [
@@ -114,6 +117,7 @@ class PresetResolverTest extends TestCase {
       'rendered_check' => ['on' => TRUE],
       'config_clean' => ['on' => TRUE],
       'grounding_check' => ['on' => TRUE],
+      'composition_check' => ['on' => TRUE],
       'wiki_fresh' => ['on' => TRUE, 'cover_diff' => TRUE],
     ];
     $max = [
@@ -130,6 +134,7 @@ class PresetResolverTest extends TestCase {
       'rendered_check' => ['on' => TRUE],
       'config_clean' => ['on' => TRUE],
       'grounding_check' => ['on' => TRUE],
+      'composition_check' => ['on' => TRUE],
       'wiki_fresh' => ['on' => TRUE, 'cover_diff' => TRUE],
     ];
     return [

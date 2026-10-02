@@ -169,6 +169,7 @@ final class PresetResolver {
       'rendered_check' => new GateSettings('rendered_check', TRUE),
       'config_clean' => new GateSettings('config_clean', TRUE),
       'grounding_check' => new GateSettings('grounding_check', TRUE),
+      'composition_check' => new GateSettings('composition_check', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', FALSE),
     ]);
   }
@@ -209,6 +210,7 @@ final class PresetResolver {
       'rendered_check' => new GateSettings('rendered_check', TRUE),
       'config_clean' => new GateSettings('config_clean', TRUE),
       'grounding_check' => new GateSettings('grounding_check', TRUE),
+      'composition_check' => new GateSettings('composition_check', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', TRUE, ['cover_diff' => TRUE]),
     ]);
   }
@@ -264,6 +266,7 @@ final class PresetResolver {
       'rendered_check' => new GateSettings('rendered_check', TRUE),
       'config_clean' => new GateSettings('config_clean', TRUE),
       'grounding_check' => new GateSettings('grounding_check', TRUE),
+      'composition_check' => new GateSettings('composition_check', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', TRUE, ['cover_diff' => TRUE]),
     ]);
   }
@@ -301,6 +304,7 @@ final class PresetResolver {
       'rendered_check' => new GateSettings('rendered_check', TRUE),
       'config_clean' => new GateSettings('config_clean', TRUE),
       'grounding_check' => new GateSettings('grounding_check', TRUE),
+      'composition_check' => new GateSettings('composition_check', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', TRUE, ['cover_diff' => TRUE]),
     ]);
   }
@@ -343,6 +347,7 @@ final class PresetResolver {
       'rendered_check' => new GateSettings('rendered_check', TRUE),
       'config_clean' => new GateSettings('config_clean', TRUE),
       'grounding_check' => new GateSettings('grounding_check', TRUE),
+      'composition_check' => new GateSettings('composition_check', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', TRUE),
     ];
   }

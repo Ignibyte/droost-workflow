@@ -175,6 +175,9 @@ final class RunState {
    *   it, or NULL when the run answers no ticket.
    * @param \Droost\Workflow\State\LoopState $loop
    *   The fast flow's loop: its budget, every return and the follow-ups.
+   * @param array<array-key, mixed> $rules
+   *   The owner's rules for what builds a page, as BuildRules::toArray()
+   *   froze them at begin; empty for none.
    */
   public function __construct(
     public readonly string $runId,
@@ -228,6 +231,15 @@ final class RunState {
      * never returns is what those runs were.
      */
     public readonly LoopState $loop = new LoopState(),
+    /**
+     * The owner's rules for what builds a page, frozen at begin.
+     *
+     * As the lever file wrote them when the run began (owner, 2026-10-02).
+     * Frozen like the levers: an edit mid-run changes no rule this run is
+     * held to. Absent on every run.json written before rules existed, and
+     * no rules, every case's defaults, is what those runs had.
+     */
+    public readonly array $rules = [],
   ) {}
 
   /**
@@ -301,6 +313,7 @@ final class RunState {
         $config->preset === 'max' || $config->followUps === 'none' ? 'fail' : 'follow-up',
         $config->followUps,
       ),
+      rules: $config->rules()->toArray(),
     );
   }
 
@@ -419,6 +432,7 @@ final class RunState {
       $this->seekerRounds,
       $this->workItem,
       $this->loop,
+      rules: $this->rules,
     );
   }
 
@@ -784,6 +798,7 @@ final class RunState {
       $this->seekerRounds,
       $this->workItem,
       $this->loop,
+      rules: $this->rules,
     );
   }
 
@@ -946,6 +961,7 @@ final class RunState {
       $this->seekerRounds,
       $this->workItem,
       $this->loop,
+      rules: $this->rules,
     );
   }
 
@@ -992,6 +1008,7 @@ final class RunState {
       $this->seekerRounds,
       $this->workItem,
       $this->loop,
+      rules: $this->rules,
     );
   }
 
@@ -1121,6 +1138,7 @@ final class RunState {
       $this->seekerRounds,
       $this->workItem,
       $this->loop,
+      rules: $this->rules,
     );
   }
 
@@ -1268,6 +1286,7 @@ final class RunState {
       'contributed_source' => $this->contributedSource,
       'work_item' => $this->workItem,
       'loop' => $this->loop->toArray(),
+      'rules' => $this->rules,
     ];
   }
 
@@ -1374,6 +1393,8 @@ final class RunState {
       // Absent on every run.json written before the fast flow: those runs
       // never looped, which is what the strict default says.
       LoopState::fromArray($node->optionalChild('loop')?->toArray()),
+      // Absent on every run.json written before rules existed.
+      rules: $node->optionalChild('rules')?->toArray() ?? [],
     );
   }
 
@@ -1514,6 +1535,7 @@ final class RunState {
       $this->seekerRounds,
       $this->workItem,
       $this->loop,
+      rules: $this->rules,
     );
   }
 
@@ -2074,6 +2096,7 @@ final class RunState {
       $this->seekerRounds,
       $workItem ?? $this->workItem,
       $loop ?? $this->loop,
+      rules: $this->rules,
     );
   }
 

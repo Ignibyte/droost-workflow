@@ -67,7 +67,7 @@ final class GateRunner {
    *
    * @var list<string>
    */
-  public const SITE_GATES = ['rendered_check', 'config_clean', 'grounding_check'];
+  public const SITE_GATES = ['rendered_check', 'config_clean', 'grounding_check', 'composition_check'];
 
   /**
    * Constructs a GateRunner.

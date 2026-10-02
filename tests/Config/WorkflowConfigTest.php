@@ -388,14 +388,14 @@ class WorkflowConfigTest extends WorkflowTestCase {
         ['gate' => []],
         'droost.workflow.yml: unknown setting "gate" (known: mode, phases, '
         . 'preset, gates, max_gate_retries, enforcement, require_run, seekers, '
-        . 'work_item, baseline, custom_code, flow, max_loops, follow_ups)',
+        . 'work_item, baseline, custom_code, flow, max_loops, follow_ups, rules)',
       ],
       'unknown gate' => [
         ['gates' => ['phpstain' => ['on' => TRUE]]],
         'droost.workflow.yml: unknown gate "phpstain" (known: phpcs, phpstan, '
         . 'eslint, stylelint, prettier, phpunit, mutation, playwright, parity, '
         . 'coverage, '
-        . 'rendered_check, config_clean, grounding_check, wiki_fresh)',
+        . 'rendered_check, config_clean, grounding_check, composition_check, wiki_fresh)',
       ],
       'unknown gate option' => [
         ['gates' => ['phpcs' => ['levl' => 1]]],

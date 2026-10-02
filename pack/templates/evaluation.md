@@ -90,6 +90,7 @@ preset frozen into **this** run — a lever's meaning changes with it.
 | `config_clean` | | | ″ | | | ″ | |
 | `wiki_fresh` | | | ″ | | | ″ | |
 | `grounding_check` | | | ″ | | | ″ + §4b | |
+| `composition_check` | | | ″, and `.rules` | | | ″ | |
 | `custom:*` | | | `.levers.gates.custom` | | | ″ | |
 | `module:*` | | | `.levers.contributed` | | | ″ | |
 

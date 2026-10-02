@@ -753,7 +753,10 @@ final class ArgvDispatcher {
   }
 
   /**
-   * Declares a route: `declare-route <path> [--status=403] [reason]`.
+   * Declares a route: `declare-route <path> [options] [reason]`.
+   *
+   * Options: `--status=403`, and for a page `--kind=` and `--owner=`, with
+   * `--except=` where it breaks the owner's rules.
    *
    * @param string $projectRoot
    *   The repository.
@@ -764,13 +767,19 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function declareRoute(string $projectRoot, array $argv): int {
-    // `--status=403` may sit anywhere after the verb; everything else is the
-    // path and then the reason, in that order.
+    // `--status=403`, `--kind=`, `--owner=` and `--except=` may sit anywhere
+    // after the verb; everything else is the path and then the reason, in
+    // that order.
     $status = 200;
+    $page = ['kind' => NULL, 'owner' => NULL, 'except' => NULL];
     $words = [];
     foreach (array_slice($argv, 1) as $word) {
       if (preg_match('/^--status=(\d{3})$/', $word, $m) === 1) {
         $status = (int) $m[1];
+        continue;
+      }
+      if (preg_match('/^--(kind|owner|except)=(.*)$/s', $word, $m) === 1) {
+        $page[$m[1]] = trim($m[2]) === '' ? NULL : trim($m[2]);
         continue;
       }
       $words[] = $word;
@@ -785,11 +794,15 @@ final class ArgvDispatcher {
       $path,
       ($words[1] ?? '') === '' ? NULL : $words[1],
       $status,
+      $page['kind'],
+      $page['owner'],
+      $page['except'],
     );
     $this->say(sprintf(
-      'route: %s%s — %d declared in this run',
+      'route: %s%s%s — %d declared in this run',
       $path,
       $status === 200 ? '' : sprintf(' (must refuse an anonymous visitor with %d)', $status),
+      $page['kind'] === NULL ? '' : sprintf(' — a %s, built as %s%s', $page['kind'], $page['owner'], $page['except'] === NULL ? '' : ' (an exception: ' . $page['except'] . ')'),
       is_array($declared['routes'] ?? NULL) ? count($declared['routes']) : 0,
     ));
 
