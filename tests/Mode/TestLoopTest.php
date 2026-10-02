@@ -196,6 +196,27 @@ class TestLoopTest extends WorkflowTestCase {
   }
 
   /**
+   * The browser tier's snapshots are its output, not moved code (F-203).
+   *
+   * P7 run 16 went back to code for `.playwright-mcp/`, written when the
+   * agent looked at a page through Playwright MCP, and back again from
+   * complete when it deleted the folder.
+   */
+  public function testBrowserSnapshotsAreNotMovedCode(): void {
+    $root = $this->project("preset: low\n");
+    $gates = $this->gates([]);
+
+    $this->walkTo($root, $gates, Phase::Test);
+    mkdir($root . '/.playwright-mcp');
+    file_put_contents($root . '/.playwright-mcp/page-2026-10-02.yml', "- main\n");
+    $this->assertSame(Outcome::Advanced, $this->facade($gates)->run($root)->outcome, 'test runs on the code it measured');
+
+    unlink($root . '/.playwright-mcp/page-2026-10-02.yml');
+    rmdir($root . '/.playwright-mcp');
+    $this->assertSame(Outcome::Completed, $this->facade($gates)->run($root)->outcome, 'and complete, with the folder gone');
+  }
+
+  /**
    * Code edited at complete goes back to code, and complete runs nothing.
    */
   public function testEditAtCompleteGoesBackToCode(): void {

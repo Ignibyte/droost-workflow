@@ -36,6 +36,12 @@ final class RunSubject {
 
   /**
    * Where the test tools write their reports, by default.
+   *
+   * And where the browser tier writes its snapshots (F-203): Playwright
+   * MCP keeps `.playwright-mcp/` in the project root. P7 run 16's agent
+   * looked at a page after code's gates ran and was sent back to code for
+   * the folder; it deleted the folder, and was sent back again from
+   * complete. Neither was a change to anything a gate measures.
    */
   private const TOOL_OUTPUT = [
     'test-results/',
@@ -44,6 +50,7 @@ final class RunSubject {
     'coverage/',
     '.phpunit.cache/',
     '.phpunit.result.cache',
+    '.playwright-mcp/',
   ];
 
   /**
