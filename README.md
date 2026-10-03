@@ -537,7 +537,15 @@ test: phpcs, phpstan, eslint, prettier, phpunit, mutation, playwright, parity, c
 complete: phpcs, phpstan, eslint, stylelint, prettier, phpunit, mutation, playwright, parity, coverage, rendered_check, config_clean, grounding_check, composition_check, wiki_fresh
 ```
 
-Plan runs nothing — there is nothing yet to measure. Code gates the diff with
+Plan runs no gate — there is no code yet to measure. droost's Drupal half
+adds one check there, `plan_consulted`: plan waits until the spec as it
+stands was put to droost (`droost_consult`). That is the one thing about how
+a site is built that the workflow forces (owner, 2026-10-02: "we force the
+workflow … but droost is the question and answer"). What is built after it
+is the agent's choice: `grounding_check` and `composition_check` record it
+beside droost's advice, a build rule in `rules:` is advice (`block` is read
+as `report`), and only a record that is false fails, such as a page declared
+as one owner and served by another. Code gates the diff with
 static analysis, and `config_clean` asks the booted site whether a fresh
 `drush config:export` would change the tracked tree: Drupal compares
 configuration as data, so a hand-written file that imports fine can still

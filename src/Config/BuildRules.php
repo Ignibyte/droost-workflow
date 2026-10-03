@@ -21,8 +21,10 @@ use Droost\Workflow\Support\TypedArray;
  * with code components). A file names only what it changes; every kind it
  * leaves out keeps its case's default, and the resolved table says which.
  *
- * A rule's mode is how a break is treated: `report` records it on a passing
- * gate, `block` fails the gate, `off` does not look. A FALSE declaration —
+ * A rule is advice: what droost believes is good Drupal practice on the
+ * site, told to the agent at plan. Its mode is `report`, which records a
+ * break on a passing gate, or `off`, which does not look; `block` is retired
+ * and read as `report` (owner, 2026-10-02). A FALSE declaration —
  * a page declared one owner and built as another — is not a rule and has no
  * mode: the composition gate fails it whatever the rules say.
  */
@@ -55,15 +57,28 @@ final class BuildRules {
   ];
 
   /**
-   * How a broken rule is treated.
+   * How a broken rule is treated: recorded, or not held at all.
+   *
+   * A rule is ADVICE (owner, 2026-10-02: "we guide it, not enforce it"). It
+   * is what droost believes is good Drupal practice on a site, told to the
+   * agent at plan, and the composition gate records what built each page
+   * beside it. Nothing fails a run for building a page another way; a false
+   * declaration still fails, because that is the record, not the rule.
    */
-  public const MODES = ['off', 'report', 'block'];
+  public const MODES = ['off', 'report'];
+
+  /**
+   * A mode the rules once had, read as `report`.
+   *
+   * A lever file written before the correction keeps working: `block` is
+   * read as advice, never refused.
+   */
+  public const RETIRED_MODES = ['block' => 'report'];
 
   /**
    * The mode a rule takes when nothing names one.
    *
-   * Report: a run shows what an advised agent does unforced, and the owner
-   * tightens a rule to block once the record says it should hold (D4).
+   * Report: a run shows what an advised agent does unforced.
    */
   public const DEFAULT_MODE = 'report';
 
@@ -359,6 +374,7 @@ final class BuildRules {
    */
   private static function mode(string $mode, string $source, string $key): string {
     $mode = trim($mode);
+    $mode = self::RETIRED_MODES[$mode] ?? $mode;
     if (!in_array($mode, self::MODES, TRUE)) {
       throw ConfigError::invalidRule($source, $key, sprintf('mode "%s" is not a mode (known: %s)', $mode, implode(', ', self::MODES)));
     }

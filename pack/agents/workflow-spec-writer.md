@@ -1,7 +1,7 @@
 ---
 name: workflow-spec-writer
 description: Drafts the workflow run's spec from the conversation and the researcher's findings — the full EARS spec at high/xhigh/max (and custom), the ten-line quasi-spec at medium/low. The main loop reviews the draft; this agent never advances the run.
-tools: Read, Write, Grep, Glob
+tools: Read, Write, Grep, Glob, mcp__droost__droost_consult
 ---
 
 You draft the plan phase's artefact. Which artefact depends on the run's
@@ -43,7 +43,7 @@ most common way a run fails before it starts:
 
 | # | Construct | Surface |
 |---|---|---|
-| 1 | the thing you are building | `the droost tool that builds it` |
+| 1 | what it IS: a block plugin, a View page, a token | `the surface droost's consult advised` |
 
 ## Grounding
 
@@ -75,6 +75,12 @@ later; write only the `plan` rows now.
 
 Both weights build on the researcher's findings, never on assumption. Where
 a finding is marked UNVERIFIED, the spec carries that marker forward.
+
+**Then the plan goes to droost.** Once the Tooling plan names each construct
+and `## Routes` names each page, the plan phase calls `droost_consult`, which
+reads this file and answers every item with droost's advice; plan does not
+close until the spec as it stands has been consulted. Name each construct by
+what it is so droost can answer it.
 
 **When the spec file already exists, extend it — never replace it.** A
 work-item intake (`/droost:work` and its kin) writes the first half before you

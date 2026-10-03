@@ -28,8 +28,8 @@ this phase is describing a site that does not exist: a content type already
 there under another name, a route that is taken, a field you were about to
 duplicate.
 
-This is a **contract, not advice**. The plan phase cannot end without a
-`## Grounding` section, and neither can code. One row per lookup:
+Write a `## Grounding` section, one row per lookup: it is the record of what
+you asked and what came back.
 
 ```markdown
 ## Grounding
@@ -53,14 +53,12 @@ each tried in this order:
 | a negative claim | `none: rink` | re-running the lookup still returns nothing. **A `plan` row that your own `code` phase makes true is recorded as superseded, not failed** — building the thing you said was absent is the job |
 
 **A citation that resolves nowhere is reported, not fatal.** It appears on the
-gate's findings and in the evaluation, and the run goes on. What DOES stop you:
-
-- **a tier you claim with nothing that resolves** — you said you searched it,
-  so show one thing the site can confirm;
-- **the ledger showing no knowledge-tool call this run** — the gate reads
-  `tool-calls.jsonl` for THIS run, and a table with no droost lookups behind
-  it fails whatever it cites, because a citation can be copied out of a file;
-- **a droost tool your Tooling plan named that was never called.**
+gate's findings and in the evaluation, and the run goes on. One thing about
+the table DOES stop you: **a tier you claim with nothing that resolves** — you
+said you searched it, so show one thing the site can confirm. Whether this
+run's ledger shows droost lookups, and whether the tools your Tooling plan
+named were called, are recorded beside your plan and never fail it: asking
+droost is required once, at plan, by the consult (below).
 
 Prose in `Found` is what you say about yourself; the citation is what the site
 can confirm. A table with no `Evidence` column is refused at CODE, where
@@ -84,18 +82,18 @@ answer** — often the most valuable, because it is the one that proves a
 duplicate was not about to be built. An empty cell is a claim to have looked,
 and is refused.
 
-Why this is enforced rather than suggested: grounding used to be advice while
-routing was a contract, and usage followed the contract. Across 39 graded
-rounds the build-surface router was called 179 times; the codebase knowledge
-behind it was called six, and `droost_symbol`, `droost_graph`,
-`droost_deprecations` and a module-pattern lookup droost has since dropped
-were never called at all.
-A lookup that produces no row is a lookup nobody can tell you made.
+**Ask droost: it knows this codebase first-hand.** Its index, its symbol
+graph and its wiki are built from this project's own code, core and contrib
+included, so asking is faster than walking the tree, and every question is
+recorded. Ask at plan, and keep asking while you code. These are the
+questions it answers, and the evaluation counts each as a knowledge call:
 
-Ask the site before you assume. These twelve are what the gate counts as
-knowledge calls — the ledger half of `grounding_check` — so a plan that used
-none of them fails however good its citations:
-
+- `droost_wiki` — start here: how this project is put together and how it
+  documents itself, its pages, whether they are still true, and the
+  factsheet that grounds a new one. On a site with no code of its own yet,
+  it says so.
+- `droost_consult` — your plan, put to droost: every construct and page it
+  names, answered (below).
 - `droost_search` — what this codebase says, lexically and (if indexed)
   semantically.
 - `droost_symbol` and `droost_graph` — a class, its callers and what it calls.
@@ -106,8 +104,6 @@ none of them fails however good its citations:
 - `droost_entities` and `droost_routes` — what already exists.
 - `droost_services` and `droost_db_schema` — the services and the tables
   that exist, with a renamed service's modern name.
-- `droost_wiki` — how this project documents itself: its pages, whether they
-  are still true, and the factsheet that grounds a new one.
 
 Then produce the spec:
 
@@ -119,12 +115,14 @@ Then produce the spec:
 4. **A `## Tooling plan` section — expected, and its absence is RECORDED.**
    The engine no longer refuses a phase over a missing section: it writes a
    `spec`/`shape` row naming what the document does not say, and the phase
-   advances. Write it anyway — the tool-call ledger is checked against it,
-   and the ledger is the half nothing can rewrite. Every construct from item 2, mapped to the
-   surface that builds it, in this order of preference: a droost write tool
+   advances. Write it anyway: it is what `droost_consult` reads, and the
+   record sets what you used beside it. Name each construct by what it IS
+   (a block plugin, a View page, a token, a content type), not only by the
+   class you will write, so droost can answer it. Map each to the surface
+   you will build it with. droost's advice, best first: a droost write tool
    (`droost_structure_create`, `droost_views_compose`, `droost_config_set`,
-   `droost_scaffold` and its blueprints), `drush generate`, or —
-   last — hand-written, WITH the reason stated on the same line.
+   `droost_scaffold` and its blueprints), `drush generate`, or hand-written,
+   with the reason on the same line.
 
    **Droost extends drush; it never competes with it** (owner ruling,
    2026-09-01). Droost ships blueprints only where drush's generators stop
@@ -152,20 +150,17 @@ Then produce the spec:
    command lists every generator) and check the construct against THAT
    list: a validation round hand-wrote `.permissions.yml`,
    `.links.menu.yml` and a route while `yml:permissions`, `yml:links:menu`
-   and `controller` sat in the list it had itself printed. A hand-written
-   row's reason must name what was checked: "no kind in droost's catalogue
-   builds this", the gate is off and the operator declined, or the
-   construct is genuinely novel.
+   and `controller` sat in the list it had itself printed.
 
-   **The code is checked, not the question.** At code and at complete,
-   `grounding_check` reads every file the run ADDED. One that has the shape
-   of a kind droost builds (a `*.permissions.yml`, a block plugin, a
-   component, a kernel test, a controller) must come from one of that
-   kind's surfaces: a file a blueprint wrote, a `drush generate` the guard
-   saw run, or a droost tool call. Otherwise a Tooling plan row must name
-   the file, its class or its kind and say hand-written, with the reason.
-   Scaffold or generate, then edit the result: that is always allowed.
-   Writing the file by hand is allowed too, when the row says so.
+   **What you build is your choice, and the record shows it.** At code and
+   at complete, `grounding_check` reads every file the run ADDED and sets
+   each one that has the shape of a kind droost builds (a
+   `*.permissions.yml`, a block plugin, a component, a kernel test, a
+   controller) beside the surfaces droost advised for it: a file a
+   blueprint wrote, a `drush generate` the guard saw run, a droost tool
+   call, or a Tooling plan row that says hand-written. Scaffold or
+   generate and then edit the result, or write it by hand: the gate
+   records which, and fails neither.
 5. **Declare what will change, before it changes.** Two lists, recorded by
    droost rather than written in prose. They are not the same kind of claim:
 
@@ -334,12 +329,12 @@ Then produce the spec:
 
    **Ask before you declare, for every page.** The tree gives the kind; it
    does not give this site's owner. That depends on whether the site has
-   Canvas, and the operator's rules may say otherwise, and only the router
-   knows either: call `droost_decide` with `kind="landing page"`,
-   `"collection page"`, `"detail page"` or `"list section"`, and its answer
-   carries this site's rule. A page declared from the defaults above,
-   without asking, is a guess. Write the path you took into `## Routes`,
-   then declare the page with the owner the answer named:
+   Canvas and on the operator's rules, and droost knows both: the consult
+   answers every page in `## Routes` with this site's practice, and
+   `droost_decide` with `kind="landing page"`, `"collection page"`,
+   `"detail page"` or `"list section"` answers one kind on its own. Write
+   the path you took into `## Routes`, then declare the page with the
+   owner you chose:
 
    ```bash
    vendor/bin/droost-workflow declare-route / --kind=page --owner=canvas_page "the home page"
@@ -348,10 +343,10 @@ Then produce the spec:
    ```
 
    `composition_check` reads what really builds each declared page, at code.
-   **A declaration that is false fails, whatever the rules say.** A page
-   built as its kind's rule does not allow is reported, or fails where the
-   operator made the rule block. Say why with `--except="<reason>"`, and the
-   reason is recorded beside it. A judgement call (a coach grid between two
+   **A declaration that is false fails**: that is the record, and it must be
+   true. A page built another way than the rules advise is recorded beside
+   the advice, never failed. Say why with `--except="<reason>"`, and the
+   reason is recorded with it. A judgement call (a coach grid between two
    panels: a landing page with a list, or the collection itself?) is yours
    to make and to write down, never to hide.
 
@@ -373,15 +368,14 @@ from, not out) — to
 `droost/droost-workflow/tmp-spec-<slug>.md`, presented back in chat at
 complete.
 **Plan only the capture your level makes.** Complete's capture follows the
-same frozen preset, and the Tooling plan is held to it: every droost tool a
-row names is a promise grounding_check checks against the ledger. At
-**`low`** complete writes **no wiki pages** (`wiki_fresh` is off), so a
-`droost_wiki_write` row is a promise the level forbids you to keep, and the
-check holds it at complete (P6 run 19 lost its retry there). Plan the
-change's documentation as hand-written at `low`: the spec's `## Realized`
-section and the READMEs. From **`medium`** up complete writes a page through
-`droost_wiki_write` for every custom module or theme the change touches, and
-that row belongs in the plan.
+same frozen preset, and every droost tool a Tooling plan row names is set
+beside the ledger in the record. At **`low`** complete writes
+**no wiki pages** (`wiki_fresh` is off), so a
+`droost_wiki_write` row is a promise the level forbids you to keep: plan the
+change's documentation as hand-written at `low`, in the spec's `## Realized`
+section and the READMEs. From
+**`medium`** up complete writes a page through `droost_wiki_write` for every
+custom module or theme the change touches, and that row belongs in the plan.
 
 One spec format everywhere is what the seeker checkpoint grades against;
 a criterion-free sketch would give the adversarial reviewer nothing to hold
@@ -389,6 +383,26 @@ the diff to. Either way the file exists BEFORE code does: the lighter weight
 trims depth, never the discipline. The `workflow-researcher` agent grounds the
 facts and `workflow-spec-writer` drafts the artefact at either weight; review
 what it drafted rather than rubber-stamping it.
+
+## Consult droost with your plan
+
+**The one thing plan requires of how you build.** When the spec names its
+constructs (the Tooling plan) and its pages (`## Routes`), call
+`droost_consult`. It reads the spec from disk (name it with `spec` only when
+the state directory holds more than one) and answers every construct and
+page: the kinds each reads as and what builds each on this site, best first;
+this site's page practice where it is a page; and what already exists of it,
+in custom code, in the symbol graph and in the wiki. It is what droost
+believes is good Drupal practice here.
+
+It is advice. Use it to write each construct's surface and to declare each
+page, and build as you judge: the record sets what droost advised beside
+what you built, and nothing fails you for choosing differently.
+
+Plan does not close until **every construct and page in the spec as it
+stands** was among the items a consult of this run answered. Add a
+construct or a page, or reword one, after consulting, and consult again: it
+is one call, and it answers the whole plan.
 
 ## When intake already wrote the spec
 
@@ -405,8 +419,10 @@ developer agreed and may already have on the ticket.
 The spec exists, and every acceptance criterion is observable. If you cannot
 say how a criterion would be checked, rewrite it until you can.
 
-The engine runs no shell gates at this phase — the spec is the gate. Static
-analysis first fires at code, on code that exists.
+The engine runs no shell gates at this phase. It runs one check,
+`plan_consulted`: plan waits until the spec as it stands was put to droost
+with `droost_consult`. That is the only thing about how you build that the
+workflow forces; static analysis first fires at code, on code that exists.
 
 In pair mode the run pauses here and asks before continuing — even though no
 gates ran. That is the cheapest moment in the whole pipeline to be told you

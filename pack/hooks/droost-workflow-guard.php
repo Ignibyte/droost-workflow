@@ -192,6 +192,11 @@ if (!is_file($root . '/droost/droost-workflow/run.json')) {
 $GLOBALS['workflow_guard_mode'] = $argv[1] ?? '';
 $GLOBALS['workflow_guard_continued'] = FALSE;
 $crashExit = static function (): int {
+  // A note is guidance on a call that already ran: a nudge that crashed has
+  // nothing to refuse, so it never reads as a refusal.
+  if (($GLOBALS['workflow_guard_mode'] ?? '') === 'nudge') {
+    return 0;
+  }
   return (($GLOBALS['workflow_guard_mode'] ?? '') === 'stop'
     && ($GLOBALS['workflow_guard_continued'] ?? FALSE) === TRUE) ? 0 : 2;
 };
@@ -287,6 +292,9 @@ $recordCall = static function () use ($root, $stateDir): void {
     return;
   }
   $written = TRUE;
+  if (($GLOBALS['workflow_guard_quiet'] ?? FALSE) === TRUE) {
+    return;
+  }
   $directory = $root . '/' . $stateDir;
   // Only where the run state already lives. Creating the directory to record
   // that the hook fired would make this file a writer on every project that
@@ -427,6 +435,33 @@ $GLOBALS['workflow_guard_command'] = is_string($guardInput['command'] ?? NULL) ?
 // this script leaves, so `return` here is a complete recording.
 if ($mode === 'record') {
   return;
+}
+
+// NUDGE MODE: guidance, never a wall (owner, 2026-10-02: "we guide it, not
+// enforce it"). Wired to PostToolUse, so the call has already run and nothing
+// here can stop it. It adds a note the agent reads beside the tool's result:
+// consult droost with the plan, ask droost instead of walking core and
+// contrib, and which generator makes the file just hand-written. Each note is
+// a diary row (verdict `note`), so a record shows the nudge and what the agent
+// did next; a call that earns nothing leaves no row. The Claude mod carries
+// the same notes in the same words where this floor is not installed.
+if ($mode === 'nudge') {
+  $GLOBALS['workflow_guard_quiet'] = TRUE;
+  $note = guard_nudge($root . '/' . $stateDir, $GLOBALS['workflow_guard_tool'] ?? '', $guardInput);
+  if ($note !== NULL) {
+    $GLOBALS['workflow_guard_quiet'] = FALSE;
+    $GLOBALS['workflow_guard_verdict'] = $note['verdict'];
+    $GLOBALS['workflow_guard_rule'] = $note['rule'];
+    if ($note['text'] !== NULL) {
+      echo json_encode([
+        'hookSpecificOutput' => [
+          'hookEventName' => 'PostToolUse',
+          'additionalContext' => $note['text'],
+        ],
+      ], JSON_UNESCAPED_SLASHES), "\n";
+    }
+  }
+  exit(0);
 }
 
 // A NUL byte is never part of a real path or a real command — no filesystem
@@ -6381,4 +6416,203 @@ function unresolved_checks(string $root, string $stateDir, mixed $runId, string 
     'summary' => (string) ($row['summary'] ?? ''),
     'remedy' => (string) ($row['remedy'] ?? ''),
   ], $rows);
+}
+
+/**
+ * The words of each note, identical to the Claude mod's (`NOTES`).
+ *
+ * A function, not a constant: a `const` at the foot of this file is not yet
+ * defined when the code above it runs, where a function is.
+ *
+ * @return array<string, string>
+ *   The notes, by kind.
+ */
+function guard_nudge_notes(): array {
+  return [
+    'consult' => 'droost: consult droost with your plan. When the spec names its constructs (the Tooling plan) and its pages (## Routes), call `droost_consult`: it reads the spec and answers each one with what droost believes is good Drupal practice on this site, the generator or tool that builds it, and the code and wiki pages that already cover it. Plan does not close until every construct and page in the spec has been put to it. What you build after that is your choice.',
+    'traverse' => 'droost: droost knows this codebase first-hand, core and contrib included. `droost_symbol` says where a class or hook lives and what calls it, `droost_graph` what depends on what, `droost_module_docs` what an installed module gives you, `droost_wiki` how this project is put together, and `droost_search` finds this site\'s code by words. Reading files works too; asking is faster, and it is recorded.',
+    'generator' => 'droost: this file has the shape of one a generator writes (LABEL). `droost_decide` with that kind names the generator or blueprint, and a scaffold carries the conventions you would otherwise remember. Writing it by hand is your choice; the record shows which you took.',
+  ];
+}
+
+/**
+ * The files a generator or a droost blueprint makes, by path in custom code.
+ *
+ * A label names the kind to ask droost about; it is never a verdict.
+ *
+ * @return array<string, string>
+ *   Path pattern to label.
+ */
+function guard_nudge_shapes(): array {
+  return [
+    '#/src/Plugin/Block/[^/]+\.php$#' => 'a block plugin',
+    '#/src/Form/[^/]+\.php$#' => 'a form',
+    '#/src/Controller/[^/]+\.php$#' => 'a controller',
+    '#/src/EventSubscriber/[^/]+\.php$#' => 'an event subscriber',
+    '#/src/Hook/[^/]+\.php$#' => 'a hook class',
+    '#/src/Plugin/Field/Field(Type|Widget|Formatter)/[^/]+\.php$#' => 'a field plugin',
+    '#/src/Plugin/views/[^/]+/[^/]+\.php$#' => 'a Views plugin',
+    '#/src/Plugin/Condition/[^/]+\.php$#' => 'a condition plugin',
+    '#/src/Plugin/Derivative/[^/]+\.php$#' => 'a plugin deriver',
+    '#/src/Entity/[^/]+\.php$#' => 'an entity type',
+    '#/src/Drush/Commands/[^/]+\.php$#' => 'a drush command',
+    '#/tests/src/(Unit|Kernel|Functional|FunctionalJavascript)/.+\.php$#' => 'a test',
+    '#/components/[^/]+/[^/]+\.component\.yml$#' => 'a single-directory component',
+    '#\.routing\.yml$#' => 'routes',
+    '#\.permissions\.yml$#' => 'permissions',
+    '#\.links\.(menu|task|action|contextual)\.yml$#' => 'menu, task or action links',
+    '#\.services\.yml$#' => 'services',
+    '#\.info\.yml$#' => 'a module or theme',
+  ];
+}
+
+/**
+ * Whether a path is code that is not the project's own: core, contrib, vendor.
+ */
+function guard_nudge_foreign(string $path): bool {
+  return preg_match('#(^|/)(web/core|core|vendor|(web/)?(modules|themes|profiles)/contrib)(/|$)#', $path) === 1;
+}
+
+/**
+ * Whether a finished call searched code that is not the project's own.
+ *
+ * Grep and Glob by their `path` (Glob's pattern too); a shell command when a
+ * search program runs over a path in core, contrib or vendor. A bare `core`
+ * is as likely a search term as a directory, so a shell word counts when it
+ * is a path (it has a slash) or is `vendor`.
+ *
+ * @param string $tool
+ *   The tool's name.
+ * @param array<array-key, mixed> $input
+ *   The tool's input.
+ */
+function guard_nudge_traverses(string $tool, array $input): bool {
+  if ($tool === 'Grep' || $tool === 'Glob') {
+    $path = is_string($input['path'] ?? NULL) ? $input['path'] : '';
+    $pattern = is_string($input['pattern'] ?? NULL) ? $input['pattern'] : '';
+    return guard_nudge_foreign($path) || ($tool === 'Glob' && guard_nudge_foreign($pattern));
+  }
+  if ($tool !== 'Bash') {
+    return FALSE;
+  }
+  $command = is_string($input['command'] ?? NULL) ? $input['command'] : '';
+  if (preg_match('#(^|[\s;&|(`]|\$\()(grep|egrep|fgrep|rg|ag|ack|find|fd|tree)\b#', $command) !== 1) {
+    return FALSE;
+  }
+  foreach (preg_split('/\s+/', $command) ?: [] as $word) {
+    $word = (string) preg_replace('/^[\'"]|[\'"]$/', '', $word);
+    if ((str_contains($word, '/') || $word === 'vendor') && guard_nudge_foreign($word)) {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * The kind a written file has the shape of, when it is custom code, or NULL.
+ */
+function guard_nudge_shape(string $path): ?string {
+  if (preg_match('#(^|/)(web/)?(modules|themes|profiles)/custom/#', $path) !== 1) {
+    return NULL;
+  }
+  foreach (guard_nudge_shapes() as $pattern => $label) {
+    if (preg_match($pattern, $path) === 1) {
+      return $label;
+    }
+  }
+  return NULL;
+}
+
+/**
+ * The note a finished tool call earns, or NULL for no row at all.
+ *
+ * A search of core, contrib or vendor is noted the first time in a phase and
+ * every tenth after; every one is a row, so the count is the diary's. The
+ * spec is noted until the plan is consulted, on its first write and every
+ * fifth. A hand-written file of a generator's shape is noted once per kind per
+ * phase.
+ *
+ * @param string $directory
+ *   The state directory.
+ * @param string $tool
+ *   The tool's name.
+ * @param array<array-key, mixed> $input
+ *   The tool's input.
+ *
+ * @return array{verdict: string, rule: string, text: string|null}|null
+ *   The row to write and the note to show, or NULL.
+ */
+function guard_nudge(string $directory, string $tool, array $input): ?array {
+  if (!is_dir($directory)) {
+    return NULL;
+  }
+  $run = NULL;
+  $phase = NULL;
+  $record = json_decode((string) @file_get_contents($directory . '/run.json'), TRUE);
+  if (is_array($record)) {
+    $run = is_string($record['run_id'] ?? NULL) ? $record['run_id'] : NULL;
+    $phase = is_string($record['current_phase'] ?? NULL) ? $record['current_phase'] : NULL;
+  }
+  // This run's and phase's earlier rows, by rule.
+  $count = static function (string $prefix) use ($directory, $run, $phase): int {
+    $n = 0;
+    foreach (@file($directory . '/guard-calls.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+      $row = json_decode($line, TRUE);
+      if (is_array($row) && ($row['mode'] ?? NULL) === 'nudge'
+        && ($row['run'] ?? NULL) === $run && ($row['phase'] ?? NULL) === $phase
+        && is_string($row['rule'] ?? NULL) && str_starts_with($row['rule'], $prefix)) {
+        $n++;
+      }
+    }
+    return $n;
+  };
+
+  if (guard_nudge_traverses($tool, $input)) {
+    $n = $count('traverse') + 1;
+    return ($n === 1 || $n % 10 === 0)
+      ? ['verdict' => 'note', 'rule' => 'traverse:noted', 'text' => guard_nudge_notes()['traverse']]
+      : ['verdict' => 'allow', 'rule' => 'traverse', 'text' => NULL];
+  }
+  if (!in_array($tool, ['Write', 'Edit', 'MultiEdit'], TRUE)) {
+    return NULL;
+  }
+  $path = is_string($input['file_path'] ?? NULL) ? $input['file_path'] : '';
+  if (preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/tmp-spec-[^/]+\.md$#', $path) === 1) {
+    if (guard_nudge_consulted($directory, $run)) {
+      return NULL;
+    }
+    $n = $count('spec') + 1;
+    return ($n === 1 || $n % 5 === 0)
+      ? ['verdict' => 'note', 'rule' => 'spec:noted', 'text' => guard_nudge_notes()['consult']]
+      : ['verdict' => 'allow', 'rule' => 'spec', 'text' => NULL];
+  }
+  if ($tool !== 'Write') {
+    return NULL;
+  }
+  $label = guard_nudge_shape($path);
+  if ($label === NULL || $count('generator:' . $label) > 0) {
+    return NULL;
+  }
+  return [
+    'verdict' => 'note',
+    'rule' => 'generator:' . $label,
+    'text' => str_replace('LABEL', $label, guard_nudge_notes()['generator']),
+  ];
+}
+
+/**
+ * Whether the tool-call ledger holds a successful consult for this run.
+ *
+ * A row made before the run opened (`run` null) counts, as the ledger's own
+ * reader keeps such rows for the run that opens next.
+ */
+function guard_nudge_consulted(string $directory, ?string $run): bool {
+  foreach (@file($directory . '/tool-calls.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+    $row = json_decode($line, TRUE);
+    if (is_array($row) && ($row['tool'] ?? NULL) === 'droost_consult' && ($row['outcome'] ?? NULL) === 'ok'
+      && (($row['run'] ?? NULL) === NULL || $run === NULL || $row['run'] === $run)) {
+      return TRUE;
+    }
+  }
+  return FALSE;
 }

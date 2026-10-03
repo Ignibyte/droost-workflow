@@ -60,7 +60,9 @@ final class BuildRulesTest extends WorkflowTestCase {
     ], 'test')->rules()->resolve('sdc');
 
     $this->assertSame(['canvas_page'], $rules['kinds']['page']['owners']);
-    $this->assertSame('block', $rules['kinds']['page']['mode']);
+    // `block` is retired: a rule advises, and a file that says block is read
+    // as report (owner, 2026-10-02), never refused.
+    $this->assertSame('report', $rules['kinds']['page']['mode']);
     $this->assertSame('file', $rules['kinds']['page']['source']);
     $this->assertSame(['content_template'], $rules['kinds']['detail']['owners']);
     $this->assertSame('report', $rules['kinds']['detail']['mode']);
@@ -145,7 +147,7 @@ final class BuildRulesTest extends WorkflowTestCase {
     $this->assertNotNull($loaded);
     $frozen = BuildRules::fromArray($loaded->rules)->resolve('sdc');
     $this->assertSame(['canvas_page', 'route'], $frozen['kinds']['page']['owners']);
-    $this->assertSame('block', $frozen['kinds']['page']['mode']);
+    $this->assertSame('report', $frozen['kinds']['page']['mode']);
 
     $plain = new RunStateStore($this->makeRoot());
     $plain->save(RunState::begin('run-2', '2026-10-02T00:00:00Z', WorkflowConfig::fromArray([], 'test')));

@@ -73,8 +73,21 @@ else
   FAIL=1
 fi
 
+# The Claude mod's own functions (claude-plugins/droost-guard), under node.
+# Claude Code's runner (`claude plugin test`) needs mods switched on, which is
+# served from Anthropic's side, so the mod's logic is tested as plain
+# JavaScript. A machine with no node skips this leg and says so.
+LEGS=3
+if command -v node >/dev/null 2>&1; then
+  LEGS=4
+  run_leg "droost-guard mod (node --test)" \
+    node --test claude-plugins/droost-guard/tests/notes.node.test.mjs
+else
+  printf '  \033[33mSKIP\033[0m  droost-guard mod: no node on this machine\n'
+fi
+
 if [ "$FAIL" -eq 0 ]; then
-  printf '\033[32mGATE GREEN\033[0m — 3 legs run, 0 skipped\n'
+  printf '\033[32mGATE GREEN\033[0m — %d legs run\n' "$LEGS"
 else
   printf '\033[31mGATE RED\033[0m — fix at the source (no baselines, §0)\n'
 fi

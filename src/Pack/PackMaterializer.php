@@ -196,7 +196,7 @@ final class PackMaterializer {
     // in the path. The guard resolves the same var internally for its run
     // state, so both the script and what it reads are project-anchored.
     $guard = 'php "$CLAUDE_PROJECT_DIR/.claude/hooks/droost-workflow-guard.php"';
-    // Three wirings of one script; two of them on PreToolUse with different
+    // Five wirings of one script; three of them on PreToolUse with different
     // matchers, so this is a list of (event, entry) pairs and presence is
     // checked per COMMAND, not per event — an install that already carries
     // the edit guard still gets the Bash guard added (R23-F2).
@@ -229,6 +229,17 @@ final class PackMaterializer {
       ],
       ['Stop', [
         'hooks' => [['type' => 'command', 'command' => $guard . ' stop']],
+      ],
+      ],
+      // GUIDANCE, after the call (owner, 2026-10-02: "we guide it, not
+      // enforce it"). On PostToolUse, so the call has already run and the
+      // entry can refuse nothing: it adds a note beside the result when the
+      // agent searches core, contrib or vendor, hand-writes a file a
+      // generator makes, or writes its spec before consulting droost with
+      // it. The Claude mod carries the same notes where this is absent.
+      ['PostToolUse', [
+        'matcher' => 'Bash|Grep|Glob|Write|Edit|MultiEdit',
+        'hooks' => [['type' => 'command', 'command' => $guard . ' nudge']],
       ],
       ],
     ];

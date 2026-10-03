@@ -64,14 +64,12 @@ one is RECORDED, not refused.** A `spec`/`frozen_sections` row names what
 moved and the phase advances. Appending is still expected: `## Realized` and
 the seeker's ledgers belong in this file.
 
-**So when a gate tells you to change the plan, change it.** `grounding_check`
-fails with `planned-not-called` when the Tooling plan names a tool the ledger
-never saw, and its remedy says to change the row to the surface that did the
-work. That is a real instruction and the edit goes through.
-A live run read this paragraph's earlier wording — *"editing one is refused by
-name"*, true until 0.9.4 and false after — declined the remedy it was given,
-spent its one retry, escalated to a waiver it is not allowed to run, and
-stopped. It was wedged by a wall that no longer exists.
+**When the build took another surface than the plan named, say so in the
+plan.** `grounding_check` records a `planned-not-called` row when the Tooling
+plan names a tool the ledger never saw, and a file made another way than
+droost advised; it fails neither (owner, 2026-10-02: droost guides, the agent
+chooses). Changing the row to the surface that did the work keeps the record
+true, and the edit goes through.
 
 State the reason in the row you write, so the record says "I planned X and
 needed Y". How to write X depends on the surface that replaced it:
@@ -82,8 +80,8 @@ needed Y". How to write X depends on the surface that replaced it:
 - **Another droost tool:** name only the tool you used, and describe the one
   you planned in words ("the views composer"). In a row whose surface is
   a droost tool, every `droost_*` id is read as a promise, so writing
-  "planned: `droost_views_compose` first" re-arms the failure and spends a
-  retry. A live run at `max` did exactly that.
+  "planned: `droost_views_compose` first" records it as planned and not
+  called.
 
 The plan as it froze is kept in the record, so nothing is lost by not naming
 it again.
@@ -95,6 +93,19 @@ it again.
   deliberate act, not something this phase does on the way past.
 
 ## Work
+
+**Ask droost and generate, rather than walk the tree.** droost knows this
+codebase first-hand: its wiki, its index and its symbol graph are built from
+this project's own code, core and contrib included. The questions that send
+an agent grepping through `web/core` or `vendor` are the ones it answers,
+and it is there all phase, not only at plan:
+
+- `droost_wiki` — how this project is put together, page by page.
+- `droost_symbol` and `droost_graph` — where an existing class or hook lives,
+  what calls it and what it calls, before you change it.
+- `droost_module_docs` — what an installed module gives you.
+- `droost_search` — this site's code, by words.
+- `droost_decide` — what builds a kind of thing here.
 
 **Scaffold before you type** — when there is a site to reach. Generated
 structure is consistent structure, and the generator already knows the
@@ -110,20 +121,17 @@ site, `droost_scaffold` included:
   plugins, recipes, MCP tools.
 - `droost_decide graph=build-surface kind="<kind>"` — every surface that
   builds a kind on this site, best first, when the lists above do not
-  settle it. With no kind it lists the kinds. A file you add that has the
-  shape of one must come from one of its surfaces, or be declared
-  hand-written in the Tooling plan: grounding_check reads the diff.
+  settle it. With no kind it lists the kinds. grounding_check reads the
+  diff and records each file of a kind droost builds beside the surfaces
+  it advised; what you choose is yours.
 - `droost_structure_create` — content types, fields, bundles.
 - `droost_entity_create` / `droost_entity_update` — content.
 - `droost_config_set` — configuration.
-- `droost_symbol` and `droost_graph` — where an existing thing lives and what
-  depends on it, before you change it.
 
 Scaffold the skeleton, then edit its method bodies with your FILE tools.
 Writing a whole source file through a shell heredoc (`cat <<` into
-modules/custom) is the hand-roll the Tooling plan exists to prevent — the
-seeker cites it against the plan's own row, and a live round lost exactly
-those points after declaring the right blueprint and then typing past it.
+modules/custom) skips what the scaffold knew; the seeker reads it against
+the plan's own row.
 
 Then the rules that do not bend:
 
@@ -160,9 +168,11 @@ Then the rules that do not bend:
 **Build each page as you declared it** (owner, 2026-10-02).
 `composition_check` reads what really builds every page the spec declared,
 at this phase: a Canvas page, a View page, an entity's display, a Webform,
-or a route. A page declared as one and built as another fails, whatever the
-rules say. If the build had to change what owns a page, declare it again
-with its new owner, and say why where it breaks the rule.
+or a route. A page declared as one and built as another fails: the record
+must be true. A page built another way than droost's advice is recorded
+beside it, never failed. If the build had to change what owns a page,
+declare it again with its new owner, and say why where it departs from the
+advice.
 
 - **A Canvas page:** create it with `droost_entity_create`
   (`entity_type: canvas_page`, with its title and path), then write its

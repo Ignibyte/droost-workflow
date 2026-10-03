@@ -83,7 +83,9 @@ after the plan had already grounded could not attribute any of that work
    the spec at the preset's weight (a full EARS spec at `high`/`xhigh`/`max`,
    a shorter same-shape spec at `medium`/`low`), reading the frozen preset
    from the `run.json` that now exists. The spec file exists BEFORE code
-   does, at every level of the dial. While the run is in plan the guard
+   does, at every level of the dial. When it names its constructs and pages,
+   consult droost with it (`droost_consult`): plan does not close until the
+   spec as it stands has been put to droost. While the run is in plan the guard
    permits writes only under `droost/droost-workflow/` — the spec is plan's
    artefact; project files wait for code.
 5. **Declare the spec and gate the plan phase** —

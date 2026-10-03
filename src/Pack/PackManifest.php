@@ -122,6 +122,7 @@ final class PackManifest {
     'droost_capabilities',
     'droost_config_set',
     'droost_db_schema',
+    'droost_consult',
     'droost_decide',
     'droost_entities',
     'droost_entity_create',

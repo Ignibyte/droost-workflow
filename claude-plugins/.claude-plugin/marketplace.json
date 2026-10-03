@@ -8,7 +8,7 @@
     {
       "name": "droost-guard",
       "source": "./droost-guard",
-      "description": "droost's guard inside Claude Code: refuses the agent's routes to loading a mod, records which mods could act before the guard, shows the run's phase"
+      "description": "droost's guard inside Claude Code: refuses the agent's routes to loading a mod, records which mods could act before the guard, shows the run's phase and whether the plan was put to droost, and carries droost's guidance: consult droost with the plan, ask droost instead of walking core and contrib"
     }
   ]
 }
