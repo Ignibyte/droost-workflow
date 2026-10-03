@@ -109,10 +109,14 @@ final class GuardNudgeTest extends WorkflowTestCase {
     ] as $command) {
       $this->assertNotNull($this->nudge($this->project(), 'Bash', ['command' => $command]), $command);
     }
+    $this->assertNotNull($this->nudge($this->project(), 'Bash', ['command' => 'cd web/core/modules/system && grep -rn hook_tokens .']), 'a search after a cd into core');
     foreach ([
       'grep -rn "core" web/modules/custom',
       'cat web/core/lib/Drupal.php',
       'ddev drush status',
+      // P8 run 1: a listing piped into grep searches no code of vendor's.
+      'cd /x/site; ddev drush cget system.theme; ls vendor/bin | grep -i droost',
+      'cat vendor/composer/installed.json | grep droost/workflow',
     ] as $command) {
       $root = $this->project();
       $this->assertNull($this->nudge($root, 'Bash', ['command' => $command]), $command);

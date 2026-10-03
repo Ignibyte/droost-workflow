@@ -14,6 +14,7 @@ test('a search of core, contrib or vendor is a traversal', () => {
     { tool: 'Bash', command: 'find vendor/drush -name "*.php" | head' },
     { tool: 'Bash', command: 'rg -l LocalActionManager web/core' },
     { tool: 'Bash', command: 'cd /var/www/html && grep -r Trash web/modules/contrib/trash/src' },
+    { tool: 'Bash', command: 'cd web/core/modules/system && grep -rn hook_tokens .' },
   ]) assert.equal(traverses(e), true, JSON.stringify(e))
 })
 
@@ -25,6 +26,9 @@ test('the project\'s own code, and reading one file, are not', () => {
     { tool: 'Bash', command: 'ddev drush status' },
     { tool: 'Read', file_path: 'web/core/lib/Drupal.php' },
     { tool: 'Glob', pattern: 'web/modules/custom/**/*.yml' },
+    // P8 run 1: a listing piped into grep searches no code of vendor's.
+    { tool: 'Bash', command: 'cd /x/site; ddev drush cget system.theme; ls vendor/bin | grep -i droost' },
+    { tool: 'Bash', command: 'cat vendor/composer/installed.json | grep droost/workflow' },
   ]) assert.equal(traverses(e), false, JSON.stringify(e))
 })
 

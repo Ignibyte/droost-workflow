@@ -45,7 +45,7 @@ export const NOTES = {
 
 // Where a search walks code that is not the project's own.
 const FOREIGN_PATH = /(^|\/)(web\/core|core|vendor|(web\/)?(modules|themes|profiles)\/contrib)(\/|$)/
-const SEARCH_PROGRAM = /(^|[\s;&|(`]|\$\()(grep|egrep|fgrep|rg|ag|ack|find|fd|tree)\b/
+const SEARCH_HEAD = /^(?:\S*\/)?(grep|egrep|fgrep|rg|ag|ack|find|fd|tree)$/
 
 // The files a generator or a droost blueprint makes, by their path in custom
 // code. A label names the kind to ask droost about; it is never a verdict.
@@ -108,14 +108,24 @@ export function traverses(e) {
     return FOREIGN_PATH.test(path) || (tool === 'Glob' && FOREIGN_PATH.test(pattern))
   }
   if (tool === 'Bash') {
-    const command = String(e.command ?? '')
-    if (!SEARCH_PROGRAM.test(command)) return false
-    // A bare `core` is as likely a search term as a directory, so a word
-    // counts when it is a path (it has a slash) or is `vendor`.
-    return command.split(/\s+/).some((word) => {
-      const w = word.replace(/^['"]|['"]$/g, '')
-      return (w.includes('/') || w === 'vendor') && FOREIGN_PATH.test(w)
-    })
+    // A SEARCH, read segment by segment: a search program whose own words
+    // name core, contrib or vendor, or that runs after a `cd` into one. P8
+    // run 1's first note fell on `ls vendor/bin | grep -i droost`. A bare
+    // `core` is as likely a search term as a directory, so a word counts when
+    // it is a path (it has a slash) or is `vendor`.
+    let inForeign = false
+    for (const segment of String(e.command ?? '').split(/\s*(?:&&|\|\||[;|\n])\s*/)) {
+      const words = segment.trim().split(/\s+/).map((w) => w.replace(/^['"]|['"]$/g, '')).filter(Boolean)
+      if (!words.length) continue
+      if (words[0] === 'cd') {
+        inForeign = Boolean(words[1]) && FOREIGN_PATH.test(words[1])
+        continue
+      }
+      if (!SEARCH_HEAD.test(words[0])) continue
+      if (inForeign) return true
+      if (words.slice(1).some((w) => (w.includes('/') || w === 'vendor') && FOREIGN_PATH.test(w))) return true
+    }
+    return false
   }
   return false
 }

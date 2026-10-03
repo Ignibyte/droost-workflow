@@ -6477,9 +6477,9 @@ function guard_nudge_foreign(string $path): bool {
  * Whether a finished call searched code that is not the project's own.
  *
  * Grep and Glob by their `path` (Glob's pattern too); a shell command when a
- * search program runs over a path in core, contrib or vendor. A bare `core`
- * is as likely a search term as a directory, so a shell word counts when it
- * is a path (it has a slash) or is `vendor`.
+ * search program runs over a path in core, contrib or vendor, or after a `cd`
+ * into one. A bare `core` is as likely a search term as a directory, so a
+ * shell word counts when it is a path (it has a slash) or is `vendor`.
  *
  * @param string $tool
  *   The tool's name.
@@ -6496,13 +6496,33 @@ function guard_nudge_traverses(string $tool, array $input): bool {
     return FALSE;
   }
   $command = is_string($input['command'] ?? NULL) ? $input['command'] : '';
-  if (preg_match('#(^|[\s;&|(`]|\$\()(grep|egrep|fgrep|rg|ag|ack|find|fd|tree)\b#', $command) !== 1) {
-    return FALSE;
-  }
-  foreach (preg_split('/\s+/', $command) ?: [] as $word) {
-    $word = (string) preg_replace('/^[\'"]|[\'"]$/', '', $word);
-    if ((str_contains($word, '/') || $word === 'vendor') && guard_nudge_foreign($word)) {
+  // A SEARCH, read segment by segment: a search program whose own words name
+  // core, contrib or vendor, or that runs after a `cd` into one. P8 run 1's
+  // first note fell on `ls vendor/bin | grep -i droost`, a listing piped into
+  // grep: the path was `ls`'s, and nothing searched vendor's code.
+  $inForeign = FALSE;
+  foreach (preg_split('/\s*(?:&&|\|\||[;|\n])\s*/', $command) ?: [] as $segment) {
+    $words = array_values(array_filter(
+      array_map(static fn (string $w): string => (string) preg_replace('/^[\'"]|[\'"]$/', '', $w), preg_split('/\s+/', trim($segment)) ?: []),
+      static fn (string $w): bool => $w !== '',
+    ));
+    if ($words === []) {
+      continue;
+    }
+    if ($words[0] === 'cd') {
+      $inForeign = isset($words[1]) && guard_nudge_foreign($words[1]);
+      continue;
+    }
+    if (preg_match('#^(?:\S*/)?(grep|egrep|fgrep|rg|ag|ack|find|fd|tree)$#', $words[0]) !== 1) {
+      continue;
+    }
+    if ($inForeign) {
       return TRUE;
+    }
+    foreach (array_slice($words, 1) as $word) {
+      if ((str_contains($word, '/') || $word === 'vendor') && guard_nudge_foreign($word)) {
+        return TRUE;
+      }
     }
   }
   return FALSE;
