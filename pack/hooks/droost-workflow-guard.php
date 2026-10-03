@@ -447,7 +447,8 @@ if ($mode === 'record') {
 // the same notes in the same words where this floor is not installed.
 if ($mode === 'nudge') {
   $GLOBALS['workflow_guard_quiet'] = TRUE;
-  $note = guard_nudge($root . '/' . $stateDir, $GLOBALS['workflow_guard_tool'] ?? '', $guardInput);
+  $guardResponse = is_array($payload['tool_response'] ?? NULL) ? $payload['tool_response'] : [];
+  $note = guard_nudge($root . '/' . $stateDir, $GLOBALS['workflow_guard_tool'] ?? '', $guardInput, $guardResponse);
   if ($note !== NULL) {
     $GLOBALS['workflow_guard_quiet'] = FALSE;
     $GLOBALS['workflow_guard_verdict'] = $note['verdict'];
@@ -6558,11 +6559,13 @@ function guard_nudge_shape(string $path): ?string {
  *   The tool's name.
  * @param array<array-key, mixed> $input
  *   The tool's input.
+ * @param array<array-key, mixed> $response
+ *   The tool's response: a Write's says whether it created the file.
  *
  * @return array{verdict: string, rule: string, text: string|null}|null
  *   The row to write and the note to show, or NULL.
  */
-function guard_nudge(string $directory, string $tool, array $input): ?array {
+function guard_nudge(string $directory, string $tool, array $input, array $response = []): ?array {
   if (!is_dir($directory)) {
     return NULL;
   }
@@ -6606,7 +6609,11 @@ function guard_nudge(string $directory, string $tool, array $input): ?array {
       ? ['verdict' => 'note', 'rule' => 'spec:noted', 'text' => guard_nudge_notes()['consult']]
       : ['verdict' => 'allow', 'rule' => 'spec', 'text' => NULL];
   }
-  if ($tool !== 'Write') {
+  // A file the Write CREATED. P8 run 1's agent ran `drush generate theme`
+  // and then rewrote the .info.yml it made: an update of a generated file,
+  // noted as hand-written. Claude Code says `create` or `update`; a host
+  // that says neither earns no note.
+  if ($tool !== 'Write' || ($response['type'] ?? NULL) !== 'create') {
     return NULL;
   }
   $label = guard_nudge_shape($path);

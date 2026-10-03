@@ -173,7 +173,7 @@ export function consulted(ledger, runId) {
  * `seen` counts per phase, so a search gets a note the first time in a phase
  * and every tenth time after, and a file shape once per phase.
  */
-export function noteFor(e, phase, seen, planConsulted) {
+export function noteFor(e, phase, seen, planConsulted, existed = false) {
   const tool = String(e?.tool ?? '')
   const key = (name) => `${phase ?? 'none'}:${name}`
   if (traverses(e)) {
@@ -187,7 +187,9 @@ export function noteFor(e, phase, seen, planConsulted) {
       const n = (seen[key('spec')] = (seen[key('spec')] ?? 0) + 1)
       return n === 1 || n % 5 === 0 ? NOTES.consult : null
     }
-    if (tool === 'Write') {
+    // A file the Write CREATED (P8 run 1 rewrote the .info.yml `drush
+    // generate theme` had just made, and was told a generator writes it).
+    if (tool === 'Write' && !existed) {
       const label = generatorShape(path)
       if (label && !seen[key('generator:' + label)]) {
         seen[key('generator:' + label)] = 1
@@ -280,12 +282,18 @@ export function register(on) {
         deny: `droost: this ${why}, and that is the OPERATOR's act. A mod runs inside Claude Code with the user's permissions and can approve a call droost's guard refused. Name the plugin and why it is needed, and ask the operator to install it.`,
       }
     }
+    let existed = false
+    try {
+      if (e?.tool === 'Write' && e?.file_path) existed = await $.fs.exists(String(e.file_path))
+    } catch {
+      existed = true
+    }
     const out = await next(e)
     try {
       if (await hasFloor($)) return out
       if (!out || typeof out.result !== 'string') return out
       const run = await openRun($)
-      const note = noteFor(e, run.phase, seen, await consultedNow($, run.id))
+      const note = noteFor(e, run.phase, seen, await consultedNow($, run.id), existed)
       return note ? { ...out, result: out.result + '\n\n' + note } : out
     } catch {
       return out

@@ -81,6 +81,7 @@ test('a hand-written generator file earns one note per kind per phase', () => {
   assert.match(noteFor(a, 'code', seen, true), /\(a form\)/)
   assert.equal(noteFor(b, 'code', seen, true), null)
   assert.equal(noteFor({ tool: 'Edit', file_path: a.file_path }, 'code', {}, true), null, 'an edit is not a new file')
+  assert.equal(noteFor({ tool: 'Write', file_path: 'web/themes/custom/kc/kc.info.yml' }, 'code', {}, true, true), null, 'a rewrite of a file that existed is not a new one')
 })
 
 test('notes never refuse, and refusals are unchanged', () => {

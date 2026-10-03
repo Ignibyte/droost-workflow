@@ -40,12 +40,18 @@ final class GuardNudgeTest extends WorkflowTestCase {
    *   The tool's name.
    * @param array<string, mixed> $input
    *   The tool's input.
+   * @param array<string, mixed> $response
+   *   The tool's response; a Write creates by default.
    *
    * @return string|null
    *   The note the agent reads, or NULL for none.
    */
-  private function nudge(string $root, string $tool, array $input): ?string {
-    [$code, $out] = $this->guard($root, 'nudge', ['tool_name' => $tool, 'tool_input' => $input]);
+  private function nudge(string $root, string $tool, array $input, array $response = ['type' => 'create']): ?string {
+    [$code, $out] = $this->guard($root, 'nudge', [
+      'tool_name' => $tool,
+      'tool_input' => $input,
+      'tool_response' => $response,
+    ]);
     $this->assertSame(0, $code, 'a nudge never refuses');
     if (trim($out) === '') {
       return NULL;
@@ -137,6 +143,9 @@ final class GuardNudgeTest extends WorkflowTestCase {
     $this->assertNotNull($this->nudge($root, 'Write', ['file_path' => $root . '/web/modules/custom/kc/kc.routing.yml']));
     $this->assertNull($this->nudge($root, 'Write', ['file_path' => $root . '/web/modules/contrib/x/src/Form/A.php']));
     $this->assertNull($this->nudge($root, 'Edit', ['file_path' => $root . '/web/modules/custom/kc/src/Plugin/Block/A.php']));
+    // P8 run 1: the .info.yml `drush generate theme` had made, rewritten.
+    $this->assertNull($this->nudge($root, 'Write', ['file_path' => $root . '/web/themes/custom/kc/kc.info.yml'], ['type' => 'update']));
+    $this->assertNull($this->nudge($root, 'Write', ['file_path' => $root . '/web/themes/custom/kc/kc.libraries.yml'], []), 'a host that says neither');
   }
 
   /**
