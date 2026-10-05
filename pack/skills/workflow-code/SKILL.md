@@ -78,10 +78,11 @@ needed Y". How to write X depends on the surface that replaced it:
   row's last cell. A row with a hand or drush surface is not read as a
   promise to call anything.
 - **Another droost tool:** name only the tool you used, and describe the one
-  you planned in words ("the views composer"). In a row whose surface is
-  a droost tool, every `droost_*` id is read as a promise, so writing
-  "planned: `droost_views_compose` first" records it as planned and not
-  called.
+  you planned in words ("the views composer"), or name it in a column headed
+  Why or Reason. Anywhere else in a row whose surface is a droost tool,
+  every `droost_*` id is read as a promise, so writing "planned:
+  `droost_views_compose` first" in the surface records it as planned and
+  not called.
 
 The plan as it froze is kept in the record, so nothing is lost by not naming
 it again.
