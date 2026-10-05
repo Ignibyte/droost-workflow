@@ -152,7 +152,7 @@ final class GuardEvidenceLedgerTest extends WorkflowTestCase {
     ] as $command) {
       [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
       $this->assertSame(2, $exit, $command);
-      $this->assertStringContainsString('is not one the record is named by', $stderr, $command);
+      $this->assertStringContainsString('is not one the record or the pipeline is named by', $stderr, $command);
       $this->assertStringContainsString('tell the OPERATOR it is there', $stderr, $command);
       $this->assertStringNotContainsString('forged entry', $stderr, $command);
     }
@@ -162,41 +162,40 @@ final class GuardEvidenceLedgerTest extends WorkflowTestCase {
   }
 
   /**
-   * A write target here that is not the spec is refused before it is made.
+   * The pipeline's own files are refused before they exist; scratch is not.
    *
-   * A file not there yet was allowed, so that a word after a `cd` is not
-   * refused as a file (F-96), and a redirect made one the agent could not
-   * remove again (F-220). A word the command writes is refused here; a word
-   * it reads, runs or merely names stays open.
+   * The run-event log, the host record, a cached work item and a warn-once
+   * marker were protected only once they existed, so one written first by
+   * hand was the file the pipeline then appended to or read (F-220). Any
+   * other new name stays open: P7 and P8 agents handed scripts to the
+   * container by copying them here, running them and removing them in one
+   * command, and refusing every new file here refused four such commands in
+   * the series' replay.
    */
-  public function testWriteTargetHereIsRefusedBeforeItIsMade(): void {
+  public function testPipelineFilesAreRefusedBeforeTheyExist(): void {
     $root = $this->rootWithEvidence(TRUE);
 
     foreach ([
-      'git show HEAD:config/sync/eca.eca.setup_seo_fields.yml > droost/droost-workflow/restore-eca.yml',
-      'cd droost/droost-workflow && echo x > notes.txt',
-      'echo x | tee droost/droost-workflow/scratch.txt',
-      'touch droost/droost-workflow/marker',
-      'cp README.md droost/droost-workflow/readme-copy.md',
-      'mv /tmp/render.html droost/droost-workflow/render.html',
-      'git diff --output=droost/droost-workflow/changes.diff',
+      'echo \'{"event":"phase.passed"}\' >> droost/droost-workflow/events.jsonl',
+      'cd droost/droost-workflow && echo \'{"host":"x"}\' > host.json',
+      'echo x | tee droost/droost-workflow/host-mods.json',
+      'cp /tmp/item.json droost/droost-workflow/work-item-T7.json',
+      'touch droost/droost-workflow/.guard-warned-soft-code',
     ] as $command) {
       [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
       $this->assertSame(2, $exit, $command);
-      $this->assertStringContainsString('where the spec is the one file that is yours', $stderr, $command);
+      $this->assertStringContainsString('one the pipeline writes beside the run\'s record', $stderr, $command);
     }
-
-    [$exit, , $stderr] = $this->guard($root, 'pre-tool-use', $this->write($root . '/droost/droost-workflow/notes.md'));
-    $this->assertSame(2, $exit, 'Write to a scratch file');
-    $this->assertStringContainsString('where the spec is the one file that is yours', $stderr);
+    [$exit, , $stderr] = $this->guard($root, 'pre-tool-use', $this->write($root . '/droost/droost-workflow/host.json'));
+    $this->assertSame(2, $exit, 'Write to host.json');
+    $this->assertStringContainsString('one the pipeline writes beside the run\'s record', $stderr);
 
     foreach ([
+      'cp /tmp/scratchpad/data.php droost/droost-workflow/.data.php; ddev drush php:script droost/droost-workflow/.data.php; rm droost/droost-workflow/.data.php',
+      'git show HEAD:config/sync/eca.eca.setup_seo_fields.yml > droost/droost-workflow/restore-eca.yml',
       'cd droost/droost-workflow && echo x > spec-b.md',
-      'cd droost/droost-workflow && echo x > tmp-spec-t7.md',
       'cd droost/droost-workflow && ls -la',
-      'cd droost/droost-workflow && grep -c droost_search tool-calls.jsonl > /tmp/count.txt',
       'cp droost/droost-workflow/tool-calls.jsonl /tmp/ledger.jsonl',
-      'cd droost/droost-workflow && wc -l nothing-here.txt',
     ] as $command) {
       [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
       $this->assertSame(0, $exit, $command . ': ' . $stderr);

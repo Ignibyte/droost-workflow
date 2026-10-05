@@ -4052,10 +4052,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // other operand is then a source), the last operand otherwise. `install
     // -d` makes every operand a directory, so it keeps them all.
     $copySources = [];
-    // The operand a copy, a move or a link makes (F-220): what lands there
-    // may not exist yet, and is judged as a write target.
-    $destinationAt = NULL;
-    if (in_array($verb, ['cp', 'rsync', 'install', 'mv', 'ln'], TRUE)) {
+    if (in_array($verb, ['cp', 'rsync', 'install'], TRUE)) {
       $positional = [];
       $namedTarget = NULL;
       $makesDirectories = FALSE;
@@ -4077,14 +4074,10 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       }
       if (!$makesDirectories && $positional !== []) {
         $destination = $namedTarget ?? end($positional);
-        $destinationAt = $destination;
-        // A move removes its sources, so only a copy's are read.
-        if ($verb !== 'mv' && $verb !== 'ln') {
-          $copySources = array_flip(array_values(array_filter(
-            $positional,
-            static fn (int $index): bool => $index !== $destination,
-          )));
-        }
+        $copySources = array_flip(array_values(array_filter(
+          $positional,
+          static fn (int $index): bool => $index !== $destination,
+        )));
       }
     }
     // THE PROGRAM IS RUN, NOT WRITTEN (F-193). Every word was resolved
@@ -4216,10 +4209,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
         }
       }
       $absolute = str_starts_with($operand, '/') ? $operand : $cwd . '/' . $operand;
-      // A redirect or a value-bearing flag, a copy's destination, or what
-      // `tee` and `touch` make (F-220).
-      $creates = $target || $index === $destinationAt || in_array($verb, ['tee', 'touch'], TRUE);
-      $refusal = enforcement_refusal($absolute, $root, $stateDir, $creates);
+      $refusal = enforcement_refusal($absolute, $root, $stateDir);
       if ($refusal !== ''
         && preg_match('#(^|/)(vendor/bin|node_modules/\.bin)/[^/]+$#', $operand) === 1
         && !$target
@@ -4449,16 +4439,11 @@ function guard_cd_to(string $cwd, string $target, string $root): string {
  *   The project root.
  * @param string $stateDir
  *   The resolved state directory.
- * @param bool $creates
- *   Whether the caller knows the path is a write target (a redirect, a
- *   Write, a copy's destination), so that a file not there yet would be
- *   made by it. A plain operand is not: after a `cd` every word resolves
- *   to a path, and most of them are read or are no file at all.
  *
  * @return string
  *   A refusal message, or '' when the path is not protected.
  */
-function enforcement_refusal(string $file, string $root, string $stateDir, bool $creates = FALSE): string {
+function enforcement_refusal(string $file, string $root, string $stateDir): string {
   $path = normalised_path($file);
   // Compare against the project-relative tail, so an absolute path lands too.
   $rootPath = normalised_path($root);
@@ -4473,14 +4458,14 @@ function enforcement_refusal(string $file, string $root, string $stateDir, bool 
   // `resolved_relative()` returns '') still gets the spelling check.
   $landing = resolved_relative($file, $root);
   if ($landing !== '' && $landing !== $relative) {
-    $viaLink = enforcement_refusal_for($landing, $root, $stateDir, $creates);
+    $viaLink = enforcement_refusal_for($landing, $root, $stateDir);
     if ($viaLink !== '') {
       return $viaLink . ' (That path reaches it through a link or a renamed '
         . 'directory; what the write lands on is what matters here.)';
     }
   }
 
-  return enforcement_refusal_for($relative, $root, $stateDir, $creates);
+  return enforcement_refusal_for($relative, $root, $stateDir);
 }
 
 /**
@@ -4495,13 +4480,11 @@ function enforcement_refusal(string $file, string $root, string $stateDir, bool 
  *   The project root.
  * @param string $stateDir
  *   The resolved state directory.
- * @param bool $creates
- *   Whether the path is a write target, as `enforcement_refusal()` says.
  *
  * @return string
  *   A refusal message, or '' when the path is not protected.
  */
-function enforcement_refusal_for(string $relative, string $root, string $stateDir, bool $creates = FALSE): string {
+function enforcement_refusal_for(string $relative, string $root, string $stateDir): string {
 
   // The run's own record. `baseline_dir_guard()` protected the evidence store
   // beside it and not this, and a single ordinary Write to it takes the whole
@@ -4650,18 +4633,23 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
   // ledger and to write its spec with Edit, under a generic rule name. The
   // store's own refusal names it and says how to read it.
   //
-  // AND IN WORDS THAT ARE TRUE OF THE FILE (F-220). A file not there yet was
-  // allowed, so a redirect could make one, and once made it was protected
-  // under the record's words: P8 run 4's agent wrote four scratch renders
-  // here, was told its `rm` of them would forge the tool-call ledger, the
-  // pack lock or an archived run, and left them for the operator. A file
-  // the record is made of keeps those words. A file already here that is
-  // none of them is protected because the guard cannot tell one the
-  // pipeline wrote (the run-event log, the host record, a work item) from
-  // one written by hand, and its refusal says that. A write target that is
-  // not there yet is refused before it is made, which only a caller that
-  // knows the word is written can say: a redirect, a Write, a copy's
-  // destination.
+  // AND IN WORDS THAT ARE TRUE OF THE FILE (F-220). A file already here was
+  // protected under the record's words, whatever it was: P8 run 4's agent
+  // rendered four scratch cards here, was told its `rm` of them would forge
+  // the tool-call ledger, the pack lock or an archived run, and left them for
+  // the operator. A file the record is made of keeps those words. The files
+  // the pipeline writes here beside the record (the run-event log, the host
+  // record the run reports, a cached work item, a warn-once marker) are named
+  // now, so one is refused before it exists too: written first by hand, it
+  // would be the line the pipeline appends to or reads. Any other file
+  // already here is protected because the guard cannot tell it from one
+  // written by something it does not name, and its refusal says that.
+  //
+  // A NEW FILE OF ANOTHER NAME STAYS OPEN. Agents hand a script to the
+  // container through this directory, the one place in the project git
+  // ignores: copy it in, `drush php:script` it, remove it, in one command.
+  // Replayed over the series' 6,473 commands, refusing every new file here
+  // refused four of those and caught one scratch write.
   if (preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/([A-Za-z0-9._/-]+)$#', $relative, $inState) === 1
     && preg_match('#^(tmp-)?spec(-[A-Za-z0-9._-]+)?\.md$#', $inState[3]) !== 1
     && preg_match('#^evidence\.sqlite(-wal|-shm|-journal)?$#', $inState[3]) !== 1) {
@@ -4676,27 +4664,26 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
         . 'and `grep` read it, so does the Read tool, and `droost-workflow '
         . 'evidence` renders the whole record.';
     }
+    if (preg_match('#^(events\.jsonl|host\.json|host-mods\.json|\.?work-item-[A-Za-z0-9._-]*|\.guard-warned-[A-Za-z0-9._-]+)$#', $inState[3]) === 1) {
+      return 'That file is one the pipeline writes beside the run\'s record: the '
+        . 'run-event log, the host record the run reports, a cached work item or '
+        . 'a warn-once marker. droost, the guard and the pipeline write it, and '
+        . 'one written or removed by hand changes what they read next, whether '
+        . 'it exists yet or not. Reading it is not refused: `cat`, `head`, `grep` '
+        . 'and the Read tool read it.';
+    }
     if (is_file(rtrim($root, '/') . '/' . $relative)) {
       return 'That file is in droost\'s state directory and is not one the '
-        . 'record is named by (the spec, the run record, the ledgers, the store, '
-        . 'the pack lock or the archive). The guard protects every file already '
-        . 'here, whatever it is called, because it cannot tell one the pipeline '
-        . 'wrote (the run-event log, the host record, a work item) from one '
-        . 'written by hand, so it refuses changing or removing it too. If you '
-        . 'made it, leave it and tell the OPERATOR it is there: `reset` does not '
-        . 'archive it, and they remove it. Reading it is not refused. Make '
-        . 'scratch files outside this directory, under the system temp '
-        . 'directory (on DDEV, the container\'s `/tmp`, read back with `ddev '
-        . 'exec cat`).';
-    }
-    if ($creates) {
-      return 'That path is in droost\'s state directory, where the spec is the '
-        . 'one file that is yours. A file made here is protected once it '
-        . 'exists, because the guard cannot tell it from one the pipeline '
-        . 'wrote, so you could not change or remove it again, and `reset` does '
-        . 'not archive it. Write scratch output outside this directory, under '
-        . 'the system temp directory (`mktemp -d`; on DDEV, the container\'s '
-        . '`/tmp`), and write the spec with the Write or Edit tool.';
+        . 'record or the pipeline is named by (the spec, the run record, the '
+        . 'ledgers, the store, the event log, the host record, the pack lock or '
+        . 'the archive). The guard protects every file already here, whatever '
+        . 'it is called, because it cannot tell it from one written by something '
+        . 'it does not name, so it refuses changing or removing it. If you made '
+        . 'it, leave it and tell the OPERATOR it is there: `reset` does not '
+        . 'archive it, and they remove it. Reading it is not refused. Keep '
+        . 'scratch files outside this directory; to hand one to the DDEV '
+        . 'container, pipe it in (`ddev exec sh -c \'cat > /tmp/<name>\' < '
+        . '<file>`).';
     }
   }
 
@@ -6106,9 +6093,7 @@ function baseline_dir_guard(string $stdin, string $root, string $stateDir): void
   }
   // The enforcement itself comes first: a guard an agent can rewrite is not a
   // guard, and neither is a settings file it can blank.
-  // Every editor tool writes the file it names, so a path not there yet is
-  // one it makes.
-  $refusal = enforcement_refusal($file, $root, $stateDir, TRUE);
+  $refusal = enforcement_refusal($file, $root, $stateDir);
   if ($refusal !== '') {
     guard_refuse('protected-path:editor', sprintf('%s (Refused: %s)', $refusal, $file));
   }
