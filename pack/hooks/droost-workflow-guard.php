@@ -3883,10 +3883,14 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // reach exactly as `find … -delete` would be; anything else — `cat`, `ls`,
     // a file — is unreadable and refused, and the message names the form
     // that can be judged.
+    // Where xargs's program sits in the unwrapped words, and whether it only
+    // reads (F-230): judged below.
+    $xargsProgramIn = NULL;
+    $xargsReads = FALSE;
     if ($verb === 'xargs') {
       $program = '';
       $valueNext = FALSE;
-      foreach (array_slice($plain, 1) as $word) {
+      foreach (array_slice($plain, 1) as $k => $word) {
         $word = ltrim($word, "\x01");
         if ($valueNext) {
           $valueNext = FALSE;
@@ -3900,6 +3904,8 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
           continue;
         }
         $program = strtolower(basename($word));
+        $xargsProgramIn = $k + 1;
+        $xargsReads = in_array($program, guard_reading_verbs(), TRUE);
         break;
       }
       $writers = '/^(?:rm|unlink|rmdir|mv|cp|ln|install|rsync|shred|truncate|dd|sed'
@@ -4102,6 +4108,17 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
         continue;
       }
       if ($index <= $headAt && !str_starts_with($operand, "\x01")) {
+        continue;
+      }
+      // XARGS RUNNING A READER READS (F-230). Its program's name, its own
+      // options and the program's words resolved against the tracked `cd`,
+      // so in the archive `grep -l T8 *.spec.md | xargs ls -t` read as a
+      // write to `history/ls` and was refused, in P8 run 9's plan. Only a
+      // program this guard already reads as a reader is set aside: for a
+      // writer the words stay judged, because in the archive `ls | xargs rm`
+      // is stopped by exactly that (its feeder names no file), the accident
+      // F-193 met in a loop.
+      if ($xargsReads && $xargsProgramIn !== NULL && $index > $headAt && !str_starts_with($operand, "\x01")) {
         continue;
       }
       if (isset($copySources[$index])) {

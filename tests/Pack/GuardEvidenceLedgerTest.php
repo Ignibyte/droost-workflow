@@ -203,6 +203,41 @@ final class GuardEvidenceLedgerTest extends WorkflowTestCase {
   }
 
   /**
+   * In the archive, xargs running a reader reads; running a writer does not.
+   *
+   * P8 run 9's agent ran `cd droost/droost-workflow/history; f=$(grep -l "T8"
+   * *.spec.md | xargs ls -t | head -1); cat $f` and was refused as forging
+   * the record: xargs's program, `ls`, resolved against the `cd` as a file in
+   * the archive (F-230). A writer's words stay judged, which is what stops
+   * `ls | xargs rm` there.
+   */
+  public function testXargsRunningReadersInTheArchiveRead(): void {
+    $root = $this->rootWithEvidence(TRUE);
+    file_put_contents($root . '/droost/droost-workflow/history/run-a.spec.md', "# A\n");
+
+    foreach ([
+      'cd droost/droost-workflow/history; f=$(grep -l "T8" *.spec.md | xargs ls -t | head -1); echo $f; cat $f',
+      'cd droost/droost-workflow/history && ls | xargs cat',
+      'cd droost/droost-workflow/history && ls *.spec.md | xargs -n 1 head -1',
+      'cd droost/droost-workflow/history && ls | xargs grep -c droost',
+    ] as $command) {
+      [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
+      $this->assertSame(0, $exit, $command . ': ' . $stderr);
+    }
+
+    foreach ([
+      'cd droost/droost-workflow/history && ls | xargs rm',
+      'cd droost/droost-workflow/history && ls | xargs -n 1 rm -f',
+      'cd droost/droost-workflow/history && echo run-old.json | xargs tee',
+      'xargs rm droost/droost-workflow/history/run-old.json',
+      'cd droost/droost-workflow/history && ls | xargs cat > run-old.json',
+    ] as $command) {
+      [$exit] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
+      $this->assertSame(2, $exit, $command);
+    }
+  }
+
+  /**
    * A Write tool call's payload.
    *
    * @param string $path
