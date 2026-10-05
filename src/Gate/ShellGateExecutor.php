@@ -320,14 +320,39 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    * {@inheritdoc}
    */
   public function execute(GateSettings $gate, string $projectRoot): GateResult {
-    return $this->withScopeNote($gate, $this->withSubjects($gate, $projectRoot, $this->withLastOutput($this->run($gate, $projectRoot, NULL))));
+    return $this->finish($gate, $projectRoot, $this->run($gate, $projectRoot, NULL));
   }
 
   /**
    * {@inheritdoc}
    */
   public function executeWithBaseline(GateSettings $gate, string $projectRoot, BaselineContext $context): GateResult {
-    return $this->withScopeNote($gate, $this->withSubjects($gate, $projectRoot, $this->withLastOutput($this->run($gate, $projectRoot, $context))));
+    return $this->finish($gate, $projectRoot, $this->run($gate, $projectRoot, $context));
+  }
+
+  /**
+   * A verdict with its output, its subjects and its scope said.
+   *
+   * The spec files a browser run names are read here, from the output before
+   * it is capped for the record: the cap keeps the head and the tail, and the
+   * files in the middle are the ones a count would miss (F-226).
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate's resolved levers.
+   * @param string $projectRoot
+   *   The project root.
+   * @param \Droost\Workflow\Gate\GateResult $result
+   *   The verdict, its tool's output still unread.
+   *
+   * @return \Droost\Workflow\Gate\GateResult
+   *   The verdict as the record keeps it.
+   */
+  private function finish(GateSettings $gate, string $projectRoot, GateResult $result): GateResult {
+    $ran = [];
+    if ($gate->name === 'playwright' && preg_match_all('#›\s+([^\s›]+\.spec\.[cm]?[jt]sx?):\d+#u', $this->lastStdout, $files) > 0) {
+      $ran = array_values(array_unique($files[1]));
+    }
+    return $this->withScopeNote($gate, $this->withSubjects($gate, $projectRoot, $this->withLastOutput($result)), $ran);
   }
 
   /**
@@ -487,11 +512,13 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   The gate's resolved levers, as the runner handed them.
    * @param \Droost\Workflow\Gate\GateResult $result
    *   The verdict.
+   * @param list<string> $ran
+   *   The spec files a browser run's output names, or none.
    *
    * @return \Droost\Workflow\Gate\GateResult
    *   The verdict, its summary noted.
    */
-  private function withScopeNote(GateSettings $gate, GateResult $result): GateResult {
+  private function withScopeNote(GateSettings $gate, GateResult $result, array $ran = []): GateResult {
     if (!in_array($gate->name, self::TICKET_SCOPED, TRUE) || $gate->option('scope') !== 'ticket' || $result->invocation === NULL || str_contains($result->summary, '(ticket scope')) {
       return $result;
     }
@@ -505,6 +532,18 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       default => '/\.(' . implode('|', self::ANALYSABLE[$gate->name]) . ')$/i',
     };
     $count = count(array_filter($listed, static fn (string $f): bool => preg_match($pattern, $f) === 1));
+    // MORE RAN THAN WAS ASKED FOR (F-226). Playwright runs every project a
+    // project depends on, so a changed spec whose project depends on the
+    // others runs the whole suite: P8 run 7's one changed spec ran seven,
+    // 105 tests, under "not the full suite".
+    if (count($ran) > $count) {
+      return $result->withSummary(sprintf(
+        '%s — ticket scope: %d file(s) this run changed, and the projects they depend on ran with them: %d spec file(s) in all',
+        $result->summary,
+        $count,
+        count($ran),
+      ));
+    }
 
     return $result->withSummary(sprintf(
       '%s — ticket scope: %d file(s) this run changed, not the %s',

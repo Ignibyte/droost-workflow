@@ -1591,10 +1591,19 @@ function guard_record_host(string $directory, string $session, string $transcrip
     }
     fclose($handle);
   }
+  // WHETHER DROOST'S MOD RECORDED THIS SESSION (F-223). droost-guard writes
+  // `host-mods.json` at session start with a time and no session, and a
+  // session it did not run in leaves the last one's file there: P8 run 6's
+  // status showed run 5's. It is this session's when it was written after
+  // the previous session's record.
+  $mods = json_decode((string) @file_get_contents($directory . '/host-mods.json'), TRUE);
+  $modsAt = is_array($mods) && is_string($mods['at'] ?? NULL) ? strtotime($mods['at']) : FALSE;
+  $previousAt = is_string($known['recorded_at'] ?? NULL) ? strtotime($known['recorded_at']) : FALSE;
   $entry = [
     'session_id' => $session,
     'claude_code' => $version,
     'recorded_at' => date('c'),
+    'mods_recorded' => $modsAt !== FALSE && ($previousAt === FALSE || $modsAt > $previousAt),
   ];
   $sessions = is_array($known['sessions'] ?? NULL) ? $known['sessions'] : [];
   $sessions[] = $entry;

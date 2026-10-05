@@ -1425,6 +1425,15 @@ final class WorkflowFacade {
     }
     if (is_array($mods)) {
       $record['mods'] = $mods;
+      // A mod record the guard found older than the previous session's is
+      // not this session's (F-223): say so, rather than show it as the host.
+      if (($record['mods_recorded'] ?? NULL) === FALSE) {
+        $record['mods']['this_session'] = FALSE;
+        $record['mods']['note'] = 'written in an earlier session: droost-guard did not record this one (it did not run, or its record failed)';
+      }
+      elseif (($record['mods_recorded'] ?? NULL) === TRUE) {
+        $record['mods']['this_session'] = TRUE;
+      }
     }
     return $record;
   }

@@ -91,6 +91,39 @@ class TicketScopeTest extends WorkflowTestCase {
   }
 
   /**
+   * When the changed spec's project depends on others, the scope says so.
+   *
+   * P8 run 7's gate ran one changed spec, and the agent's projects depend on
+   * one another, so Playwright ran all seven: "105 passed" beside "not the
+   * full suite" (F-226). The count of spec files is read from the output
+   * before it is capped for the record.
+   */
+  public function testDependentProjectsWidenTheScopeAndItIsSaid(): void {
+    $root = $this->project();
+    // The lower rung's line sits in the middle, which the record's cap cuts.
+    $padding = str_repeat("  · a line of output the record's cap will cut\n", 400);
+    $listing = "Running 2 tests using 1 worker\n\n" . $padding
+      . "  ✓  1 [t1] › tests/e2e/theirs.spec.ts:3:1 › a lower rung's test (1.0s)\n"
+      . $padding
+      . "  ✓  2 [t7] › tests/e2e/mine.spec.ts:3:1 › the ticket's test (1.0s)\n\n  2 passed (2.0s)\n";
+    $executor = new ShellGateExecutor(
+      static fn (array $argv): array => [0, $listing, ''],
+      static fn (): int => 0,
+    );
+    $gate = new GateSettings('playwright', TRUE, [
+      'required' => TRUE,
+      'scope' => 'ticket',
+      'ticket_files' => "tests/e2e/mine.spec.ts\nweb/modules/custom/x/src/Thing.php",
+    ]);
+
+    $result = $executor->execute($gate, $root);
+
+    $this->assertStringContainsString('ticket scope: 1 file(s) this run changed, and the projects they depend on ran with them: 2 spec file(s) in all', $result->summary);
+    $this->assertStringNotContainsString('not the full suite', $result->summary);
+    $this->assertStringNotContainsString('theirs.spec.ts', (string) $result->stdout, 'the record keeps the head and the tail only');
+  }
+
+  /**
    * A required suite with nothing of the ticket's to run fails.
    */
   public function testRequiredSuiteWithNoTicketTestFails(): void {

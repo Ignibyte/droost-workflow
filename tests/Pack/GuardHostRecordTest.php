@@ -71,6 +71,74 @@ final class GuardHostRecordTest extends WorkflowTestCase {
   }
 
   /**
+   * A mod record left by an earlier session is not shown as this one's.
+   *
+   * The droost-guard mod ran in P8 runs 2, 3, 5 and 7 and not in 1, 4 and 6,
+   * and after run 6's session status showed run 5's mod record (F-223).
+   */
+  public function testModRecordFromAnEarlierSessionIsMarked(): void {
+    $root = $this->makeRoot();
+    $state = $root . '/droost/droost-workflow';
+    mkdir($state, 0755, TRUE);
+    $transcript = $root . '/t.jsonl';
+    file_put_contents($transcript, '{"version":"2.1.289"}' . "\n");
+    $mods = static fn (int $at): int|false => file_put_contents($state . '/host-mods.json', (string) json_encode([
+      'claude_code' => '2.1.289',
+      'recorded_by' => 'droost-guard',
+      'mods_that_hook_tool_calls_or_prompts' => [],
+      'at' => gmdate('Y-m-d\TH:i:s.000\Z', $at),
+    ]));
+
+    // The mod recorded the first session, before its first tool call.
+    $mods(time() - 2);
+    $this->call($root, 's1', $transcript);
+    $this->assertTrue($this->modsRecord($root)['this_session'] ?? NULL);
+
+    // The next session leaves the file as it was: the mod did not run.
+    $this->call($root, 's2', $transcript);
+    $record = $this->modsRecord($root);
+    $this->assertFalse($record['this_session'] ?? NULL);
+    $note = $record['note'] ?? NULL;
+    $this->assertIsString($note);
+    $this->assertStringContainsString('earlier session', $note);
+
+    // A third session the mod records again is its own.
+    $mods(time() + 2);
+    $this->call($root, 's3', $transcript);
+    $this->assertTrue($this->modsRecord($root)['this_session'] ?? NULL);
+  }
+
+  /**
+   * The mod's record, as status reports it.
+   *
+   * @return array<mixed>
+   *   The record.
+   */
+  private function modsRecord(string $root): array {
+    $status = (new WorkflowFacade(
+      new class implements GateExecutorInterface {
+
+        /**
+         * {@inheritdoc}
+         */
+        public function execute(GateSettings $gate, string $projectRoot): GateResult {
+          return new GateResult($gate->name, GateStatus::Passed, 0, 5, 'ok');
+        }
+
+      },
+      new NullSiteDriver(),
+      new RunStateOnlySink(),
+      static fn (): string => '2026-10-05T12:00:00+00:00',
+      static fn (): string => 'run-host',
+    ))->status($root);
+    $host = $status['host'] ?? NULL;
+    $this->assertIsArray($host);
+    $mods = $host['mods'] ?? NULL;
+    $this->assertIsArray($mods);
+    return $mods;
+  }
+
+  /**
    * A project with no state directory gains no record, and no directory.
    */
   public function testNoStateDirectoryWritesNothing(): void {
