@@ -3247,19 +3247,44 @@ function operator_commands_closing_paren(string $command, int $open): int {
  * recorded: the ledger is evidence that a file came from a generator, and a
  * dry run is not.
  *
+ * A call to a shell function the same command defines runs the function's
+ * body with the call's words as its arguments (F-242): P8 run 15's agent ran
+ * four generators as `G(){ ddev drush generate "$@" 2>&1 | grep …; }` and
+ * then `G plugin:condition …`, and the ledger named none of them, so
+ * grounding_check recorded two files as made another way than droost
+ * advised.
+ *
  * @param string $command
  *   The shell command as the agent sent it.
+ * @param int $depth
+ *   How many function calls deep this reading is, so a function that calls
+ *   itself ends.
+ * @param array<string, string> $outer
+ *   The functions the line around a body defines, which the body may call.
  *
  * @return list<string>
  *   The generator names, each once.
  */
-function operator_commands_generators(string $command): array {
+function operator_commands_generators(string $command, int $depth = 0, array $outer = []): array {
   $names = [];
-  foreach (operator_commands_invocations(operator_commands_scan_text($command)) as $tokens) {
+  // A definition runs nothing: its body is read only where it is called, so
+  // the line is read with each definition cut out.
+  $calls = $command;
+  $functions = $depth < 3 ? operator_commands_shell_functions($command, $calls) + $outer : [];
+  foreach (operator_commands_invocations(operator_commands_scan_text($calls)) as $tokens) {
     $words = array_values(array_map(
       static fn (string $token): string => ltrim($token, "\x01"),
       array_filter(operator_commands_unwrapped($tokens), static fn (string $token): bool => !str_starts_with($token, "\x01")),
     ));
+    if (isset($functions[$words[0] ?? ''])) {
+      $body = operator_commands_function_call($functions[$words[0]], array_slice($words, 1));
+      foreach (operator_commands_generators($body, $depth + 1, $functions) as $name) {
+        if (!in_array($name, $names, TRUE)) {
+          $names[] = $name;
+        }
+      }
+      continue;
+    }
     // The command is drush, or `ddev drush`: a drush named anywhere else on
     // the line is an argument (`echo drush generate module`).
     $at = basename($words[0] ?? '') === 'ddev' ? 1 : 0;
@@ -3296,6 +3321,105 @@ function operator_commands_generators(string $command): array {
   }
 
   return $names;
+}
+
+/**
+ * The shell functions a command defines, by name, each to its body's text.
+ *
+ * `name() { … }`, `name(){ …; }` and `function name { … }`, the body taken to
+ * its matching brace, quotes kept.
+ *
+ * @param string $command
+ *   The shell command.
+ * @param string|null $rest
+ *   Set to the command with each definition cut out, `;` in its place.
+ *
+ * @return array<string, string>
+ *   Name => body.
+ */
+function operator_commands_shell_functions(string $command, ?string &$rest = NULL): array {
+  $rest = $command;
+  $functions = [];
+  $spans = [];
+  $pattern = '/(?:^|[\s;&|(])(?:function\s+([A-Za-z_][\w-]*)\s*(?:\(\s*\))?|([A-Za-z_][\w-]*)\s*\(\s*\))\s*\{/';
+  if (preg_match_all($pattern, $command, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) < 1) {
+    return [];
+  }
+  foreach ($matches as $match) {
+    $name = $match[1][0] !== '' ? $match[1][0] : ($match[2][0] ?? '');
+    if ($name === '') {
+      continue;
+    }
+    $open = $match[0][1] + strlen($match[0][0]);
+    $depth = 1;
+    $quote = '';
+    $length = strlen($command);
+    for ($i = $open; $i < $length; $i++) {
+      $char = $command[$i];
+      if ($quote === '\'') {
+        if ($char === '\'') {
+          $quote = '';
+        }
+        continue;
+      }
+      if ($char === '\\' && $i + 1 < $length) {
+        $i++;
+        continue;
+      }
+      if ($quote === '"') {
+        if ($char === '"') {
+          $quote = '';
+        }
+        continue;
+      }
+      if ($char === '\'' || $char === '"') {
+        $quote = $char;
+        continue;
+      }
+      if ($char === '{') {
+        $depth++;
+      }
+      elseif ($char === '}' && --$depth === 0) {
+        $functions[$name] = substr($command, $open, $i - $open);
+        $spans[] = [$match[0][1] + (preg_match('/^[\s;&|(]/', $match[0][0]) === 1 ? 1 : 0), $i];
+        break;
+      }
+    }
+  }
+  foreach (array_reverse($spans) as [$start, $end]) {
+    $rest = substr($rest, 0, max(0, $start)) . ';' . substr($rest, $end + 1);
+  }
+
+  return $functions;
+}
+
+/**
+ * A function's body as one call runs it: its arguments put in.
+ *
+ * `"$@"`, `$@`, `"$*"` and `$*` become every argument and `$1` to `$9` one,
+ * each argument single-quoted as the call's words were split.
+ *
+ * @param string $body
+ *   The function's body.
+ * @param list<string> $arguments
+ *   The call's words after the name.
+ *
+ * @return string
+ *   The body to read.
+ */
+function operator_commands_function_call(string $body, array $arguments): string {
+  $quoted = array_map(static fn (string $word): string => "'" . str_replace("'", "'\\''", $word) . "'", $arguments);
+  $body = (string) preg_replace_callback(
+    '/"\$\{?[@*]\}?"|\$\{?[@*]\}?/',
+    static fn (): string => implode(' ', $quoted),
+    $body,
+  );
+
+  return (string) preg_replace_callback(
+    '/"\$\{?([1-9])\}?"|\$\{?([1-9])\}?/',
+    static fn (array $m): string => $quoted[(int) ($m[1] !== '' ? $m[1] : $m[2]) - 1] ?? '',
+    $body,
+  );
 }
 
 /**

@@ -82,6 +82,20 @@ final class GuardGeneratorLedgerTest extends WorkflowTestCase {
         'if true; then drush generate module -a x; fi',
         ['module'],
       ],
+      // P8 run 15's agent ran four generators through one function, and the
+      // ledger named none of them (F-242).
+      'through a shell function' => [
+        "cd /var/www; G(){ ddev drush generate \"\$@\" 2>&1 | grep -E \"^\\s*•\" ; echo ----; }\n"
+        . "G service:custom --answer=m --answer=m.notices --answer=Notices --answer=No --answer=No\n"
+        . "G plugin:block --answer=m --answer=\"Rink notices\" --answer=m_notices --answer=NoticesBlock\n"
+        . "G plugin:condition --answer=m --answer=\"Viewing a rink\" --answer=m_viewing --answer=Viewing --answer=No\n"
+        . "G service:event-subscriber --answer=m --answer=ExpiresSubscriber --answer=No",
+        ['service:custom', 'plugin:block', 'plugin:condition', 'service:event-subscriber'],
+      ],
+      'a function keyword and a positional argument' => [
+        'function gen { drush generate "$1" -a m; }; gen plugin:block; gen yml:permissions',
+        ['plugin:block', 'yml:permissions'],
+      ],
     ];
   }
 
@@ -117,6 +131,8 @@ final class GuardGeneratorLedgerTest extends WorkflowTestCase {
       'named in an echo' => ['echo drush generate module'],
       'another drush verb' => ['ddev drush cr'],
       'the console\'s list' => ['cd web && ddev drush generate list'],
+      'a function that only looks' => ['G(){ ddev drush generate "$@" --dry-run 2>&1 | head; }; G plugin:block -a m'],
+      'a function defined and not called' => ['G(){ ddev drush generate "$@"; }'],
     ];
   }
 
