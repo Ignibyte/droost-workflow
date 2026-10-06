@@ -1962,6 +1962,49 @@ function guard_reading_verbs(): array {
 }
 
 /**
+ * Whether every command a word substitutes only reads.
+ *
+ * A word with no substitution runs nothing. One holding `$( … )` runs what
+ * is inside it, and in a loop over the archive F-193 kept F-112's refusal
+ * for every such word, since `cat "$(rm $f)"` deletes. P8 run 10's agent
+ * listed the archived specs' titles with `for f in *.spec.md; do echo "$f:
+ * $(head -1 $f)"; done` and was refused under words saying `head` reads the
+ * archive (F-232). A substitution that is one reader and nothing else, with
+ * no pipe, list, redirect, nested substitution or backtick, opens nothing
+ * for writing, and what it prints goes to the reader around it.
+ *
+ * @param string $token
+ *   The word, as tokenised.
+ *
+ * @return bool
+ *   TRUE when the word substitutes nothing, or only readers.
+ */
+function guard_substitutions_only_read(string $token): bool {
+  if (str_contains($token, '`')) {
+    return FALSE;
+  }
+  $at = 0;
+  while (($open = strpos($token, '$(', $at)) !== FALSE) {
+    $close = strpos($token, ')', $open + 2);
+    if ($close === FALSE) {
+      return FALSE;
+    }
+    $inside = substr($token, $open + 2, $close - $open - 2);
+    // A list, a pipe, a redirect, a nested substitution or arithmetic
+    // (`$((`): each is more than one reader, or not one at all.
+    if (preg_match('/[|;&<>()$`\n]/', str_replace(['${', '$'], ['', ''], $inside)) === 1 || str_contains($inside, '$(')) {
+      return FALSE;
+    }
+    $words = preg_split('/\s+/', trim($inside)) ?: [];
+    if (!in_array(strtolower(basename(trim($words[0] ?? '', '"\''))), guard_reading_verbs(), TRUE)) {
+      return FALSE;
+    }
+    $at = $close + 1;
+  }
+  return TRUE;
+}
+
+/**
  * A line's own variables, read as what they hold before anything is judged.
  *
  * `f=droost/droost-workflow/run.json; rm $f` deleted the run record at `hard`:
@@ -2031,8 +2074,7 @@ function operator_commands_bind_variables(array $invocations, ?array $producers 
           if ($reads
             && !str_starts_with($token, "\x01")
             && !str_starts_with($token, '-')
-            && !str_contains($token, '$(')
-            && !str_contains($token, '`')) {
+            && guard_substitutions_only_read($token)) {
             continue;
           }
           $bare = ltrim($token, "\x01");

@@ -110,15 +110,17 @@ final class GuardEvidenceLedgerTest extends WorkflowTestCase {
    * P6 run 9's agent ran `for f in droost/droost-workflow/history/*.spec.md;
    * do echo "$f: $(head -1 $f)"; done` and was told only that a hand-written
    * line forges the record and to write its spec with Edit. It read the same
-   * files with `grep -r` a call later, allowed. The refusal stands, since a
-   * loop's body can write to every name its list expands to, and now it says
-   * why, and how to read (F-112). Naming the files to a reader stays open.
+   * files with `grep -r` a call later, allowed. A loop whose body the guard
+   * cannot read stays refused, since it can write to every name its list
+   * expands to, and the refusal says why, and how to read (F-112). Naming the
+   * files to a reader stays open, and that loop itself reads since F-232: its
+   * substitution is one reader. One holding a pipe is not.
    */
   public function testLoopOverTheArchiveSaysHowToRead(): void {
     $root = $this->rootWithEvidence(TRUE);
     file_put_contents($root . '/droost/droost-workflow/history/run-a.spec.md', "# A\n");
 
-    [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => 'for f in droost/droost-workflow/history/*.spec.md; do echo "$f: $(head -1 $f)"; done']]);
+    [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => 'for f in droost/droost-workflow/history/*.spec.md; do echo "$f: $(head -1 $f | tr a-z A-Z)"; done']]);
     $this->assertSame(2, $exit);
     $this->assertStringContainsString('`for` loop\'s body can write to every name its list expands to', $stderr);
     $this->assertStringContainsString('the Read tool', $stderr);
@@ -231,6 +233,43 @@ final class GuardEvidenceLedgerTest extends WorkflowTestCase {
       'cd droost/droost-workflow/history && echo run-old.json | xargs tee',
       'xargs rm droost/droost-workflow/history/run-old.json',
       'cd droost/droost-workflow/history && ls | xargs cat > run-old.json',
+    ] as $command) {
+      [$exit] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
+      $this->assertSame(2, $exit, $command);
+    }
+  }
+
+  /**
+   * A loop over the archive may print what one reader substitutes.
+   *
+   * P8 run 10's agent listed the archived specs' titles with `for f in
+   * *.spec.md; do echo "$f: $(head -1 $f)"; done` from the archive, and was
+   * refused under words saying `head` reads it (F-232). A substitution that
+   * runs more than one reader, or anything else, keeps F-112's refusal.
+   */
+  public function testReadersSubstitutedInLoopsOverTheArchiveRead(): void {
+    $root = $this->rootWithEvidence(TRUE);
+    file_put_contents($root . '/droost/droost-workflow/history/run-a.spec.md', "# A\n");
+
+    foreach ([
+      'cd droost/droost-workflow/history; for f in *.spec.md; do echo "$f: $(head -1 $f)"; done',
+      'for f in droost/droost-workflow/history/*.spec.md; do echo "$f $(grep -c AC- $f)"; done',
+    ] as $command) {
+      [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
+      $this->assertSame(0, $exit, $command . ': ' . $stderr);
+    }
+
+    $h = 'cd droost/droost-workflow/history; for f in *.spec.md; do ';
+    foreach ([
+      $h . 'echo "$f: $(rm $f)"; done',
+      $h . 'echo "$(head -1 $f; rm $f)"; done',
+      $h . 'echo "$(head -1 $f || rm $f)"; done',
+      $h . 'echo "$(cat $f | tee $f)"; done',
+      $h . 'echo "$(head -1 $f > $f)"; done',
+      $h . 'echo "$(head -1 $(rm $f))"; done',
+      $h . 'echo "`rm $f`"; done',
+      $h . '$(head -1 $f) $f; done',
+      $h . 'echo "rm $(ls $f)" | sh; done',
     ] as $command) {
       [$exit] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
       $this->assertSame(2, $exit, $command);
