@@ -1494,10 +1494,34 @@ final class GuardTest extends WorkflowTestCase {
     $this->assertSame(2, $this->shellAttempt($root, 'vendor/bin/droost-parity capture --source http://design.test --out droost/parity'));
     $this->assertSame(2, $this->shellAttempt($root, 'vendor/bin/droost-parity capture --source http://design.test --out=./droost/parity/'));
 
+    // Code that writes it is refused too, however it reaches the interpreter
+    // (F-235): from outside the directory, the path tier saw only the
+    // interpreter's name, and the same code naming the run record was refused
+    // where this was allowed. Code that only reads it stays open.
+    $this->assertSame(2, $this->shellAttempt($root, 'python3 -c "open(\'droost/parity/home.json\',\'w\').write(\'{}\')"'));
+    $this->assertSame(2, $this->shellAttempt($root, 'php -r "file_put_contents(\'droost/parity/home.json\', \'{}\');"'));
+    $this->assertSame(2, $this->shellAttempt($root, 'node -e "require(\'fs\').writeFileSync(\'droost/parity/home.json\',\'{}\')"'));
+    $this->assertSame(2, $this->shellAttempt($root, 'echo "open(\'droost/parity/home.json\',\'w\').write(\'{}\')" | python3'));
+    $this->assertSame(2, $this->shellAttempt($root, "python3 - <<'EOF'\nopen('droost/parity/home.json','w').write('{}')\nEOF"));
+    $this->assertSame(0, $this->shellAttempt($root, 'python3 -c "import json; print(json.load(open(\'droost/parity/home.json\')))"'));
+    $this->assertSame(0, $this->shellAttempt($root, 'python3 -c "open(\'droost/parity-notes.md\',\'w\').write(\'x\')"'), 'a sibling is not the reference');
+    // The write is judged by its target, not by a mention: the series replay
+    // found a Python edit of a README that mentions `droost/parity/*.json`,
+    // and scripts that only printed the reference, refused by "writes
+    // anything and names it anywhere".
+    $this->assertSame(0, $this->shellAttempt($root, "python3 - <<'EOF'\np='README.md'; s=open(p).read()\nopen(p,'w').write(s.replace('x', 'the capture in droost/parity/*.json'))\nEOF"));
+    $this->assertSame(0, $this->shellAttempt($root, 'python3 -c "import shutil; shutil.copy(\'droost/parity/home.json\', \'/tmp/home.json\')"'), 'a copy out of it reads it');
+    $this->assertSame(2, $this->shellAttempt($root, 'python3 -c "p=\'droost/parity/home.json\'; open(p, \'r+\').write(\'{}\')"'));
+    $this->assertSame(2, $this->shellAttempt($root, "perl -e 'open(my \$fh, \">\", \"droost/parity/home.json\"); print \$fh 1;'"));
+    $this->assertSame(2, $this->shellAttempt($root, "perl -e 'open(FH, \">droost/parity/home.json\"); print FH 1;'"));
+    $this->assertSame(2, $this->shellAttempt($root, "ruby -e 'IO.write(\"droost/parity/home.json\", \"{}\")'"));
+    $this->assertSame(2, $this->shellAttempt($root, "awk 'BEGIN { print 1 > \"droost/parity/home.json\" }'"));
+
     // A lever naming another directory moves the wall with it.
     $run['resolved_gates']['parity']['reference'] = 'design/refs';
     file_put_contents($root . '/droost/droost-workflow/run.json', json_encode($run));
     $this->assertSame(2, $this->writeAttempt($root, 'design/refs/home.json'));
+    $this->assertSame(2, $this->shellAttempt($root, 'python3 -c "open(\'design/refs/home.json\',\'w\').write(\'{}\')"'), 'and code that writes it');
     $this->assertSame(0, $this->writeAttempt($root, $reference), 'the default is then an ordinary directory');
 
     // A run with the gate off holds no reference.

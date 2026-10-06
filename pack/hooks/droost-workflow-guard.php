@@ -3575,7 +3575,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
   // CODE HEREDOCS ARE CODE (F-78): checked as text for the two things that
   // matter, as `python3 -c` code is below, and left out of the shell parse.
   foreach (is_string($command) ? operator_commands_code_heredocs($command) : [] as $body) {
-    guard_judge_code($body, $command);
+    guard_judge_code($body, $command, $root, $stateDir);
   }
   $command = is_string($command) ? operator_commands_scan_text($command) : '';
   if ($command === '') {
@@ -3614,7 +3614,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     }
     $code = operator_commands_piped_text($producer, $root);
     if ($code !== NULL) {
-      guard_judge_code($code, $command);
+      guard_judge_code($code, $command, $root, $stateDir);
     }
   }
   $unwrappedByIndex = array_map(
@@ -3748,7 +3748,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // reading the run record got refused), so the verbs are looked for in the
     // text, the same way the script reader looks for them in a `.py`.
     if ($inlineCode !== NULL) {
-      guard_judge_code($inlineCode, $command);
+      guard_judge_code($inlineCode, $command, $root, $stateDir);
     }
     // CODE HELD IN A VARIABLE THIS LINE DOES NOT BIND IS CODE NOBODY READ
     // (F-174). `php -r "$v"` runs whatever `$v` holds; bound to a literal or
@@ -5158,6 +5158,66 @@ function code_writes(string $code): bool {
 }
 
 /**
+ * Whether a piece of code writes to a path, as the TARGET of a write.
+ *
+ * Asked instead of code_writes(), which asks whether code writes anything:
+ * paired with "names the path anywhere", that refused a Python edit of a
+ * README whose text mentions `droost/parity/*.json`, and three scripts that
+ * only printed what they read from the reference (F-235's replay). So here
+ * the path must be what is written: a string literal naming it as the first
+ * argument of a write call, of `open()` with a writing mode, of
+ * `Path(…).write_text()`, or the second of a copy; or a variable assigned
+ * such a literal and then written the same way. A path assembled at run
+ * time is not seen, as with every literal rule in this file.
+ *
+ * @param string $code
+ *   The program's text.
+ * @param string $path
+ *   The project-relative path, matched anywhere inside a string literal.
+ *
+ * @return bool
+ *   TRUE when the code writes, renames, truncates or deletes it.
+ */
+function code_writes_path(string $code, string $path): bool {
+  $named = '(?<![\w.-])' . preg_quote($path, '#') . '(?![\w.-])';
+  $literal = '[\'"][^\'"]*' . $named . '[^\'"]*[\'"]';
+  $writers = 'file_put_contents|writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream'
+    . '|unlink|unlinkSync|rmSync|rename|renameSync|truncate|ftruncate|touch|rmtree|remove|rmdir';
+  $mode = '\s*,\s*(?:mode\s*=\s*)?[\'"][rwaxbt+]*[wax+][rwaxbt+]*[\'"]';
+  $methods = '\.\s*(?:write_text|write_bytes|unlink|touch|rename|replace|rmdir)\b';
+  $targets = [$literal];
+  if (preg_match_all('#\$?(\w+)\s*=\s*' . $literal . '#', $code, $assigned) > 0) {
+    foreach (array_unique($assigned[1]) as $name) {
+      $targets[] = '\$?' . preg_quote($name, '#') . '\b';
+    }
+  }
+  foreach ($targets as $target) {
+    $patterns = [
+      '#\b(?:' . $writers . ')\s*\(\s*' . $target . '#i',
+      '#\bf?open\s*\(\s*' . $target . $mode . '#i',
+      '#(?:\bPath\s*\(\s*' . $target . '\s*\)|(?<![\w.])' . $target . ')' . $methods . '#',
+      '#\bcopy\w*\s*\([^,()]+,\s*' . $target . '#i',
+      '#\b(?:File|IO)\.(?:write|binwrite|delete|unlink|rename|open)\s*\(\s*' . $target . '#',
+      // Perl's three-argument open, `open(my $fh, '>', <path>)`.
+      '#\bopen\s*\([^,()]*,\s*[\'"]\s*(?:\+?>{1,2}|\+<)\s*[\'"]\s*,\s*' . $target . '#',
+      // A redirect inside awk or Perl, `print > "<path>"`.
+      '#>{1,2}\s*' . $target . '#',
+    ];
+    // Perl's two-argument open, the mode inside the path, `open(FH, ">p")`.
+    if (preg_match('#\bopen\s*\([^,()]*,\s*[\'"]\s*\+?>{1,2}[^\'"]*' . $named . '#', $code) === 1) {
+      return TRUE;
+    }
+    foreach ($patterns as $pattern) {
+      if (preg_match($pattern, $code) === 1) {
+        return TRUE;
+      }
+    }
+  }
+
+  return FALSE;
+}
+
+/**
  * Whether a program's text names the enforcement, the run's spec aside.
  *
  * THE SPEC IS THE AGENT'S, in code as with the Write tool (F-98). The
@@ -5204,12 +5264,24 @@ function enforcement_path_markers(): string {
  * One judgement for every way code reaches an interpreter: a heredoc body,
  * `-c`/`-r`/`-e` code, and a program fed through a pipe.
  *
+ * THE PARITY REFERENCE TOO (F-235). The path tier keeps the reference out
+ * of reach of shell words while a run holds it (F-144), and code reached it
+ * all the same: `python3 -c "open('droost/parity/camps.json','w')…"`,
+ * `php -r` and `node -e` were allowed from outside the directory, where the
+ * same code naming the run record was refused. Code that writes and names
+ * the reference the live run is held to is refused here, in the
+ * reference's own words; code that only reads it stays open.
+ *
  * @param string $code
  *   The program's text.
  * @param string $command
  *   The command line, for the refusal.
+ * @param string|null $root
+ *   The project root, or NULL for the one this hook runs in.
+ * @param string|null $stateDir
+ *   The state directory, or NULL for the one this hook resolved.
  */
-function guard_judge_code(string $code, string $command): void {
+function guard_judge_code(string $code, string $command, ?string $root = NULL, ?string $stateDir = NULL): void {
   if (preg_match(operator_verb_pattern(), $code) === 1) {
     guard_refuse('operator-command:in-interpreter', sprintf(
       'This hands an interpreter code carrying one of the operator-only '
@@ -5227,6 +5299,16 @@ function guard_judge_code(string $code, string $command): void {
       . 'what it writes cannot be checked. Do the work through the pipeline, '
       . 'or if a file genuinely must change, that is the OPERATOR\'s at a '
       . 'terminal. (Refused: %s)',
+      trim($command),
+    ));
+  }
+  $root ??= is_string($GLOBALS['root'] ?? NULL) ? $GLOBALS['root'] : guard_named_root();
+  $stateDir ??= is_string($GLOBALS['stateDir'] ?? NULL) ? $GLOBALS['stateDir'] : 'droost/droost-workflow';
+  $reference = $root === '' ? '' : guard_parity_reference($root, $stateDir);
+  if ($reference !== '' && code_writes_path($code, $reference)) {
+    guard_refuse('protected-path:interpreter', sprintf(
+      '%s Code handed to an interpreter that writes and names it is refused the same way. (Refused: %s)',
+      enforcement_refusal(rtrim($root, '/') . '/' . $reference, $root, $stateDir),
       trim($command),
     ));
   }
