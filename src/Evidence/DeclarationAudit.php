@@ -474,7 +474,10 @@ final class DeclarationAudit {
     //
     // `Docs` is the type with contradictions, so re-asking at test is exactly
     // where the escape is.
-    if ($this->workType !== NULL && ($scopeIsDue || $coverageIsDue) && !$this->diffVisible) {
+    // Read once: a call on $this between a check and its use (the exempt()
+    // filter below) could change a property, so a local keeps the narrowing.
+    $workType = $this->workType;
+    if ($workType !== NULL && ($scopeIsDue || $coverageIsDue) && !$this->diffVisible) {
       $checks[] = new CheckRecord(
         'declaration',
         'work_type',
@@ -483,11 +486,11 @@ final class DeclarationAudit {
         sprintf(
           'NOT MEASURED: declared "%s", but no repository is visible where the gates run, '
           . 'so the declaration could not be checked against the diff.',
-          $this->workType->value,
+          $workType->value,
         ),
       );
     }
-    elseif ($this->workType !== NULL && ($scopeIsDue || $coverageIsDue)) {
+    elseif ($workType !== NULL && ($scopeIsDue || $coverageIsDue)) {
       // Exempt paths filtered FIRST. Without it the audit was blocked by the
       // database recording the block: evidence.sqlite, its -wal and -shm, and
       // run.json counted as "not that kind of work" and outvoted the diff.
@@ -495,7 +498,7 @@ final class DeclarationAudit {
         $this->changedFiles,
         fn (string $file): bool => !$this->exempt($file),
       ));
-      $unexpected = $this->workType->contradictedBy($subject);
+      $unexpected = $workType->contradictedBy($subject);
       // Contradiction, not a census — and still proportional, because one file
       // that happens to match AMONG OTHERS is not the shape of a false
       // declaration. When the one file IS the whole diff it is not stray, and
@@ -518,17 +521,17 @@ final class DeclarationAudit {
             . 'The type decides which gates must have measured, so declaring one and building '
             . 'another means the wrong things were checked. Re-declare with the type this '
             . 'really is.',
-            $this->workType->value,
-            $this->workType->label(),
+            $workType->value,
+            $workType->label(),
             count($unexpected),
             count($subject),
             self::someOf($unexpected),
           )
-          : sprintf('declared "%s" (%s); the diff matches', $this->workType->value, $this->workType->label()),
+          : sprintf('declared "%s" (%s); the diff matches', $workType->value, $workType->label()),
       );
 
     }
-    if ($this->workType !== NULL && $coverageIsDue) {
+    if ($workType !== NULL && $coverageIsDue) {
       // ASKED WHERE THE GATE RUNS. This asked about all three of `code` work's
       // gates at TEST, and phpcs and phpstan do not run at test — so a phpcs
       // whose `paths` lever pointed at nothing blocked the run one phase after
@@ -544,13 +547,13 @@ final class DeclarationAudit {
       // same fact surfaces while it can still be acted on.
       $due = $this->gatesDueAt($phase);
       $subject = $due === NULL
-        ? $this->workType->mustMeasure()
-        : array_values(array_intersect($this->workType->mustMeasure(), $due));
+        ? $workType->mustMeasure()
+        : array_values(array_intersect($workType->mustMeasure(), $due));
       $missed = array_values(array_diff($subject, $this->measuredGates));
       // A gate the LEVEL turned off is not a gate the agent failed to satisfy.
       $missed = array_values(array_diff($missed, $this->gatesOff));
       $rests = array_values(array_diff($subject, $this->gatesOff));
-      if ($rests === [] && $this->workType->mustMeasure() !== []) {
+      if ($rests === [] && $workType->mustMeasure() !== []) {
         // Every gate this type rests on is off at this level. Green would be a
         // verification nobody performed; blocked would be unclearable, since no
         // phase can turn a gate back on.
@@ -570,8 +573,8 @@ final class DeclarationAudit {
             '%s work rests on %s, and none of them could produce a measurement here — turned off '
             . 'by the level, unreachable on this surface, or waived by the operator. Nothing in '
             . 'this phase is verified by a gate, and that is not a pass.',
-            $this->workType->value,
-            implode(', ', $this->workType->mustMeasure()),
+            $workType->value,
+            implode(', ', $workType->mustMeasure()),
           ),
         );
       }
@@ -593,12 +596,12 @@ final class DeclarationAudit {
           // unblock, which is the difference between a block and a wedge.
           $missed === [] ? Fault::None : Fault::Environment,
           $missed === []
-            ? sprintf('%s work: %s all measured something', $this->workType->value, implode(', ', $rests))
+            ? sprintf('%s work: %s all measured something', $workType->value, implode(', ', $rests))
             : sprintf(
               '%s work rests on %s, and %s ran without examining anything. A gate that passes '
               . 'over an empty path set has not checked the thing this ticket is about — so this '
               . 'is the gate\'s configuration talking, not the code.',
-              $this->workType->value,
+              $workType->value,
               implode(', ', $rests),
               implode(', ', $missed),
             ),
