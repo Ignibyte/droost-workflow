@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Mode;
 
+use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\PhaseReport;
 use Droost\Workflow\State\PhaseStatus;
 use Droost\Workflow\State\RunState;
@@ -15,6 +16,11 @@ use Droost\Workflow\State\RunState;
  * forgets to persist has visibly not persisted, instead of believing it had.
  */
 final class RunOutcome {
+
+  /**
+   * How much of a failed gate's own words the envelope carries.
+   */
+  private const OUTPUT_TAIL = 1500;
 
   /**
    * Constructs a RunOutcome.
@@ -73,6 +79,45 @@ final class RunOutcome {
   }
 
   /**
+   * The phase report, with what a failed gate that parsed nothing said.
+   *
+   * A custom gate is a shell command, and droost parses nothing out of it,
+   * so a failed one reached the envelope as a summary and no findings: the
+   * reason was only in `droost-workflow evidence`, and nothing said to look
+   * there (F-183, druplit-02). The tail of what it wrote rides on its row
+   * here, and the row names where the whole of it is. Only the envelope
+   * carries it; the report the run keeps in run.json stays as it was.
+   *
+   * @return array<string, mixed>|null
+   *   The report, or NULL when no gates ran.
+   */
+  private function reportWithOutput(): ?array {
+    if ($this->report === NULL) {
+      return NULL;
+    }
+    $report = $this->report->toArray();
+    $gates = [];
+    foreach ($this->report->results as $result) {
+      $row = $result->toArray();
+      // A failure, or one a gate in report mode recorded without blocking.
+      $failed = $result->status->blocksAdvance() || $result->status === GateStatus::Reported;
+      $said = implode("\n", array_filter(
+        [trim($result->stderr), trim($result->stdout)],
+        static fn (string $part): bool => $part !== '',
+      ));
+      if ($failed && $result->findings === [] && $said !== '') {
+        $row['output_tail'] = strlen($said) > self::OUTPUT_TAIL
+          ? '…' . mb_strcut($said, strlen($said) - self::OUTPUT_TAIL, self::OUTPUT_TAIL, 'UTF-8')
+          : $said;
+        $row['output_in'] = 'droost-workflow evidence';
+      }
+      $gates[] = $row;
+    }
+    $report['gates'] = $gates;
+    return $report;
+  }
+
+  /**
    * The one run envelope every surface renders.
    *
    * Until this existed the same five fields were assembled three times — in
@@ -92,7 +137,7 @@ final class RunOutcome {
       'outcome' => $this->outcome->value,
       'current_phase' => $this->state->currentPhase?->value,
       'preset' => $this->state->preset,
-      'report' => $this->report?->toArray(),
+      'report' => $this->reportWithOutput(),
       // The blocks that are NOT gates, which used to exist only as rows in a
       // SQLite file. A reviewer driving a real run hit `outcome: failed` with
       // `failed: 0`, `advance: true`, every gate green and no reason anywhere
