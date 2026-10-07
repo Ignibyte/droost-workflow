@@ -70,6 +70,16 @@ final class GateRunner {
   public const SITE_GATES = ['rendered_check', 'config_clean', 'grounding_check', 'composition_check'];
 
   /**
+   * The gates that read the site's pages as they stand.
+   *
+   * After a browser suite killed at its timeout, what they read is the site
+   * as the suite left it, mid-test (F-245).
+   *
+   * @var list<string>
+   */
+  public const SITE_READERS = ['parity', 'rendered_check'];
+
+  /**
    * Constructs a GateRunner.
    *
    * @param \Droost\Workflow\Gate\GateExecutorInterface $executor
@@ -133,6 +143,7 @@ final class GateRunner {
     // Read once per phase and only when a gate ran: no gate here writes a
     // file, so the diff does not move between them.
     $changed = NULL;
+    $killedSuite = FALSE;
 
     foreach ($state->gatesDueFor($phase) as $name => $levers) {
       if ($only !== NULL && !in_array($name, $only, TRUE)) {
@@ -207,6 +218,19 @@ final class GateRunner {
             rtrim($result->summary, '. ') . sprintf(' [levers re-read at gate time: %s]', implode('; ', $drift)),
           );
         }
+      }
+      // A SUITE KILLED AT ITS TIMEOUT leaves the site as it was mid-test,
+      // since no spec's teardown ran (F-245): P8 run 17's suite was killed
+      // while a spec held a camp in 2030, and parity then failed `/` and
+      // `/camps` on differences the build did not have. A gate after it that
+      // reads the site keeps its verdict and says which site it read.
+      if ($killedSuite && in_array($name, self::SITE_READERS, TRUE) && $result->status !== GateStatus::Passed) {
+        $result = $result->withSummary(
+          rtrim($result->summary, '. ') . ' [the browser suite before it in this attempt was killed at its timeout, so no spec\'s teardown ran: this verdict reads the site as that suite left it]',
+        );
+      }
+      if ($name === 'playwright' && $result->status === GateStatus::ErrorToolFailed && $result->exitCode === ShellGateExecutor::EXIT_KILLED) {
+        $killedSuite = TRUE;
       }
       $report = $report->with($result);
       if ($onResult !== NULL) {

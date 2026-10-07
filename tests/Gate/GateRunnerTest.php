@@ -53,6 +53,73 @@ class GateRunnerTest extends WorkflowTestCase {
   }
 
   /**
+   * After a suite killed at its timeout, parity says which site it read.
+   *
+   * F-245: P8 run 17's browser suite was killed at 600 s while a spec held a
+   * camp in 2030, and parity, the next gate, failed `/` and `/camps` on
+   * design differences the build did not have, with nothing to say why. The
+   * verdict stands; the note names the site it was taken on.
+   *
+   * @param \Droost\Workflow\Gate\GateStatus $suite
+   *   How the browser suite ended.
+   * @param int $suiteExit
+   *   Its exit code.
+   * @param \Droost\Workflow\Gate\GateStatus $parity
+   *   How parity ended.
+   * @param bool $noted
+   *   Whether parity's summary carries the note.
+   */
+  #[DataProvider('suitesAndParity')]
+  public function testParityAfterKilledSuiteSaysWhichSiteItRead(GateStatus $suite, int $suiteExit, GateStatus $parity, bool $noted): void {
+    $executor = new class($suite, $suiteExit, $parity) implements GateExecutorInterface {
+
+      public function __construct(
+        private GateStatus $suite,
+        private int $suiteExit,
+        private GateStatus $parity,
+      ) {}
+
+      /**
+       * {@inheritdoc}
+       */
+      public function execute(GateSettings $gate, string $projectRoot): GateResult {
+        return match ($gate->name) {
+          'playwright' => new GateResult('playwright', $this->suite, $this->suiteExit, 600000, 'playwright could not run (exit 124): killed after 600s'),
+          'parity' => new GateResult('parity', $this->parity, $this->parity === GateStatus::Passed ? 0 : 1, 57000, 'parity FAILED — 2 of 16 view(s) differ from the reference: / D2+D5, /camps D2+D5'),
+          default => new GateResult($gate->name, GateStatus::Passed, 0, 1, 'ok'),
+        };
+      }
+
+    };
+    $runner = new GateRunner($executor, new NullSiteDriver());
+    $state = $this->beginWith(['preset' => 'custom']);
+
+    $report = $runner->run($state, Phase::Test, '/tmp');
+
+    $summaries = [];
+    foreach ($report->results as $result) {
+      $summaries[$result->gate] = $result->summary;
+    }
+    $this->assertArrayHasKey('parity', $summaries);
+    $this->assertSame($noted, str_contains($summaries['parity'], 'was killed at its timeout'), $summaries['parity']);
+  }
+
+  /**
+   * The suite's end and parity's, and whether parity is noted.
+   *
+   * @return array<string, array{\Droost\Workflow\Gate\GateStatus, int, \Droost\Workflow\Gate\GateStatus, bool}>
+   *   The cases.
+   */
+  public static function suitesAndParity(): array {
+    return [
+      'killed, parity failed' => [GateStatus::ErrorToolFailed, 124, GateStatus::Failed, TRUE],
+      'killed, parity passed' => [GateStatus::ErrorToolFailed, 124, GateStatus::Passed, FALSE],
+      'passed, parity failed' => [GateStatus::Passed, 0, GateStatus::Failed, FALSE],
+      'failed otherwise, parity failed' => [GateStatus::ErrorToolFailed, 1, GateStatus::Failed, FALSE],
+    ];
+  }
+
+  /**
    * Plan and document run no gates: there is nothing yet to measure.
    *
    * The regression guard for the defect this map fixed — a live run's PLAN
