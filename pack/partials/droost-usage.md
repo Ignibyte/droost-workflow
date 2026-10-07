@@ -22,6 +22,33 @@ This is worth stating plainly because the opposite assumption is the easy
 one to make, and it produces exactly the failure this workflow exists to
 prevent: an agent that believes it verified something it never could.
 
+## When droost's MCP server stops answering
+
+The editor reaches droost through one long `drush mcp:server` process, and
+the site can end it under you: a `ddev snapshot restore`, a `ddev restart`, a
+failed module install, or a fatal in a plugin you just wrote. That is a
+server that died, not a site without droost.
+
+- **On a site droost:install set up, the server comes back by itself.** A
+  call that was running when it died is answered with what happened, and the
+  supervisor starts the server again within seconds. Call again. Nothing is
+  repeated for you, so read the state before repeating a call that writes.
+- **Every droost tool also runs through drush**, with the same answer and
+  the same row in the run's tool-call ledger, so a consult made this way
+  counts for the plan as one made over MCP:
+
+  ```bash
+  ddev drush droost:tool                                     # the tools
+  ddev drush droost:tool droost_consult                      # the plan's consult
+  ddev drush droost:tool droost_decide '{"kind":"block"}'    # one call, JSON arguments
+  ```
+
+  (`drush droost:tool …` without DDEV.) It prints the tool's answer as
+  JSON, and exits 1 when the tool says no.
+
+Do not stop and wait for someone to reconnect the editor: use drush, and say
+in the spec that you did.
+
 ## What droost_verify actually does
 
 It runs static and test legs over a target — **and which legs run depends on

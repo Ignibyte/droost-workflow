@@ -287,6 +287,17 @@ whole pipeline is built to prevent.
 Gates verify rules; the seeker verifies judgment. The checkpoint spends no
 retry budget: it is a hold, not a failure.
 
+## When droost's tools stop answering
+
+A site that is up can still lose droost's MCP server mid-run: a
+`ddev snapshot restore`, a `ddev restart`, a failed module install or a fatal
+in a plugin you wrote ends that one process. The supervisor droost:install
+put in front of it starts it again: call again. And every droost tool runs
+through drush, with the same answer and the same ledger row:
+`ddev drush droost:tool <tool> '<json arguments>'` (with no tool named, it
+lists them). Use it rather than wait for someone to reconnect the editor,
+and say in the spec that you did.
+
 ## Without a site
 
 **Every tool above is unavailable** — including `droost_scaffold`. They are
