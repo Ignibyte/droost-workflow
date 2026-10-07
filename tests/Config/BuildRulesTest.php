@@ -29,10 +29,16 @@ final class BuildRulesTest extends WorkflowTestCase {
 
     $sdc = $rules->resolve('sdc');
     $this->assertSame(['canvas_page'], $sdc['kinds']['page']['owners']);
-    $this->assertSame(['view_page'], $sdc['kinds']['collection']['owners']);
+    // Views lists content entities only: a configuration entity type's
+    // listing is its list builder (F-241).
+    $this->assertSame(['view_page', 'list_builder'], $sdc['kinds']['collection']['owners']);
     $this->assertSame(['view_block'], $sdc['kinds']['list_section']['owners']);
     $this->assertSame(['entity_view_display', 'content_template'], $sdc['kinds']['detail']['owners']);
     $this->assertSame(['webform'], $sdc['kinds']['form']['owners']);
+    // A settings form saves configuration and is no Webform (F-237); a feed
+    // or a download is a route outside the page rules (F-228).
+    $this->assertSame(['config_form'], $sdc['kinds']['settings']['owners']);
+    $this->assertSame(['route', 'view_page'], $sdc['kinds']['resource']['owners']);
     $this->assertSame('report', $sdc['kinds']['page']['mode']);
     $this->assertSame('default', $sdc['kinds']['page']['source']);
     $this->assertSame(['role' => 'content_editor', 'mode' => 'report', 'source' => 'default'], $sdc['editor_proof']);

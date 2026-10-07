@@ -14,7 +14,10 @@ use Droost\Workflow\Support\TypedArray;
  * or a Webform. These are the owner's answers, by the page's MAIN CONTENT:
  * one entity is its `detail` page, the collection itself is a `collection`
  * page, and a page that is neither is a `page`, whose lists are each a
- * `list_section`. A page whose main content is its form is a `form`.
+ * `list_section`. A page whose main content is its form is a `form`, and one
+ * whose form saves configuration is a `settings` page. A route that answers
+ * no HTML page at all (a feed, a download, JSON) is a `resource`: declared,
+ * so the record says what it is, and outside the page rules.
  *
  * The defaults depend on the site's case, which only the site can read:
  * `none` (no Canvas), `sdc` (Canvas, components from SDC) or `code` (Canvas
@@ -38,13 +41,15 @@ final class BuildRules {
   /**
    * What a page's main content can be, in the decision tree's order.
    */
-  public const KINDS = ['page', 'list_section', 'collection', 'detail', 'form'];
+  public const KINDS = ['page', 'list_section', 'collection', 'detail', 'form', 'settings', 'resource'];
 
   /**
    * What can own a page.
    *
    * `view_block` is a View's block display placed in a page, `route` a
-   * controller of the project's own.
+   * controller of the project's own, `config_form` a settings form
+   * (ConfigFormBase) on a route, and `list_builder` an entity type's own
+   * listing on its `entity.<type>.collection` route.
    */
   public const OWNERS = [
     'canvas_page',
@@ -54,6 +59,8 @@ final class BuildRules {
     'content_template',
     'webform',
     'route',
+    'config_form',
+    'list_builder',
   ];
 
   /**
@@ -93,28 +100,41 @@ final class BuildRules {
    * On a site without Canvas, regular Drupal: a page is a node's display or
    * a route. On a Canvas site, Canvas first: a page is a Canvas page, and a
    * detail page may be a content template as well as Manage display.
+   *
+   * On every case a collection may also be an entity type's own list
+   * builder: Views lists content entities only, so the listing of a
+   * configuration entity type cannot be a View page (F-241). A settings
+   * page is its settings form, never a Webform, whose submissions are
+   * content (F-237). A resource is a route of the project's own, or a
+   * View's feed display (F-228).
    */
   public const DEFAULTS = [
     'none' => [
       'page' => ['entity_view_display', 'route'],
       'list_section' => ['view_block'],
-      'collection' => ['view_page'],
+      'collection' => ['view_page', 'list_builder'],
       'detail' => ['entity_view_display'],
       'form' => ['webform'],
+      'settings' => ['config_form'],
+      'resource' => ['route', 'view_page'],
     ],
     'sdc' => [
       'page' => ['canvas_page'],
       'list_section' => ['view_block'],
-      'collection' => ['view_page'],
+      'collection' => ['view_page', 'list_builder'],
       'detail' => ['entity_view_display', 'content_template'],
       'form' => ['webform'],
+      'settings' => ['config_form'],
+      'resource' => ['route', 'view_page'],
     ],
     'code' => [
       'page' => ['canvas_page'],
       'list_section' => ['view_block'],
-      'collection' => ['view_page'],
+      'collection' => ['view_page', 'list_builder'],
       'detail' => ['entity_view_display', 'content_template'],
       'form' => ['webform'],
+      'settings' => ['config_form'],
+      'resource' => ['route', 'view_page'],
     ],
   ];
 
@@ -134,7 +154,17 @@ final class BuildRules {
   /**
    * The keys the rules block may hold.
    */
-  private const KEYS = ['page', 'list_section', 'collection', 'detail', 'form', 'editor_proof', 'code_components'];
+  private const KEYS = [
+    'page',
+    'list_section',
+    'collection',
+    'detail',
+    'form',
+    'settings',
+    'resource',
+    'editor_proof',
+    'code_components',
+  ];
 
   /**
    * Constructs the rules as written.

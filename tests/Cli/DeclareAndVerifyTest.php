@@ -62,6 +62,15 @@ final class DeclareAndVerifyTest extends WorkflowTestCase {
       '--except=the week rides in the path',
     ])[0]);
     $this->assertSame(0, $this->cli($root, ['declare-route', '/camps'])[0]);
+    // A settings page (F-237), a configuration entity's listing (F-241) and
+    // a calendar feed that is no page at all (F-228) each have their words.
+    foreach ([
+      ['/admin/config/reminders', '--kind=settings', '--owner=config_form', '--status=403'],
+      ['/admin/structure/notices', '--kind=collection', '--owner=list_builder', '--status=403'],
+      ['/camps.ics', '--kind=resource', '--owner=route'],
+    ] as $declaration) {
+      $this->assertSame(0, $this->cli($root, ['declare-route', ...$declaration])[0]);
+    }
 
     $routes = (new EvidenceStore($root))->specRoutes($this->runId($root));
     $this->assertSame(['page', 'canvas_page', NULL], [$routes[0]['kind'], $routes[0]['owner'], $routes[0]['exception']]);
@@ -71,6 +80,13 @@ final class DeclareAndVerifyTest extends WorkflowTestCase {
       [$routes[1]['kind'], $routes[1]['owner'], $routes[1]['exception']],
     );
     $this->assertSame([NULL, NULL], [$routes[2]['kind'], $routes[2]['owner']], 'a route may still be declared with neither');
+    $this->assertSame(
+      [['settings', 'config_form'], ['collection', 'list_builder'], ['resource', 'route']],
+      array_map(
+        static fn (array $route): array => [$route['kind'], $route['owner']],
+        array_slice($routes, 3),
+      ),
+    );
   }
 
   /**

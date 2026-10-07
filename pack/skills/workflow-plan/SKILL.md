@@ -320,12 +320,22 @@ Then produce the spec:
    1. **One entity** (a rink, a camp, a post): its own page is the entity's
       display, Manage display with the theme's components: `--kind=detail`.
    2. **The collection itself** (an archive, a directory, a search): a View
-      page: `--kind=collection`.
+      page: `--kind=collection`. Views lists content entities only, so the
+      listing of a configuration entity type is that type's own list
+      builder, on its `entity.<type>.collection` route:
+      `--kind=collection --owner=list_builder`.
    3. **Neither** (a home, landing or single page that is not an entity):
       on a Canvas site a Canvas page, each section its own component:
       `--kind=page`. A list on it, such as the three latest posts, is a View
       block placed in it (`list_section`), judged on its page.
-   4. **Its form** (a contact page): `--kind=form`.
+   4. **Its form** (a contact page): `--kind=form`. A form that saves the
+      site's configuration is a settings page, a settings form
+      (`drush generate form:config`) on a route:
+      `--kind=settings --owner=config_form`.
+   5. **No HTML page at all** (a feed, a calendar file, a download, JSON):
+      a resource, a route of the module's own or a View's feed display.
+      Declare it so the record says what it is: `--kind=resource
+      --owner=route` (or `--owner=view_page` for a Views feed).
 
    **Ask before you declare, for every page.** The tree gives the kind; it
    does not give this site's owner. That depends on whether the site has
@@ -403,6 +413,12 @@ Plan does not close until **every construct and page in the spec as it
 stands** was among the items a consult of this run answered. Add a
 construct or a page, or reword one, after consulting, and consult again: it
 is one call, and it answers the whole plan.
+
+If droost's MCP tools stop answering (the server died under a snapshot
+restore, a restart or a fatal), the consult runs through drush and counts
+the same: `ddev drush droost:tool droost_consult` (`drush droost:tool …`
+without DDEV). `.claude/partials/droost-usage.md` says more. Do not wait for
+someone to reconnect the editor.
 
 ## When intake already wrote the spec
 

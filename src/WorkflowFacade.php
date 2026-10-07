@@ -1349,7 +1349,8 @@ final class WorkflowFacade {
    *   an admin page bare can correct it (F-120).
    * @param string|null $kind
    *   What the page's main content is (BuildRules::KINDS): page, collection,
-   *   detail, form or list_section. Declared with its owner, or not at all.
+   *   detail, form, settings, resource or list_section. Declared with its
+   *   owner, or not at all.
    * @param string|null $owner
    *   What builds it (BuildRules::OWNERS). The composition gate fails a page
    *   whose real owner is another, whatever the rules say.
