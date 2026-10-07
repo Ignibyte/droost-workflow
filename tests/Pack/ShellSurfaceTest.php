@@ -229,6 +229,9 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       'drush $(echo droost:workflow:byp)ass "x"',
       'drush `echo droost:workflow:gate`-waive phpcs',
       'droost-workflow ${VERB} --force',
+      'vendor/bin/droost-workflow $(echo baseline) --force',
+      '/var/www/html/vendor/bin/drush.php $(echo droost:workflow:effort) max',
+      'ddev drush droost:workflow:bypass "$(cat /tmp/reason)"',
     ] as $command) {
       [$exit] = $this->shell($root, $command);
       $this->assertSame(2, $exit, $command . ' hides its verb');
@@ -241,6 +244,9 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       'cd $(git rev-parse --show-toplevel) && ls',
       'git commit -m "ran drush droost:workflow:bypass on $(date)"',
       'echo "ask the operator: drush droost:workflow:gate-waive phpcs" > /tmp/note',
+      // A directory of that name is not the program (F-246).
+      'ls droost/droost-workflow/history/$(ls droost/droost-workflow/history | tail -1)',
+      'ls vendor/drush/drush/$(echo src)',
     ] as $command) {
       [$exit, , $stderr] = $this->shell($root, $command);
       $this->assertSame(0, $exit, $command . ' is ordinary: ' . $stderr);

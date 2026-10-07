@@ -1336,9 +1336,13 @@ function operator_commands_guard(string $stdin): void {
   // --show-toplevel)`
   // and `git commit -m "$(cat msg)"` are ordinary work and stay ordinary. That
   // narrowness is the point — a guard that refused every `$(` would be switched
-  // off within a day, and a guard switched off enforces nothing.
+  // off within a day, and a guard switched off enforces nothing. The name
+  // is the PROGRAM, never a directory of that name: the state directory is
+  // `droost/droost-workflow/`, and P8 run 17's `ls
+  // droost/droost-workflow/history/$(ls … | tail -1)` was refused as a droost
+  // command built from a substitution (F-246).
   if (preg_match(
-    '/(?:^|[;&|(]|\s)(?:\S*\/)?(?:drush|droost-workflow)\b[^;&|\n]*(?:\$\(|`|\$\{)/',
+    '/(?:^|[;&|(]|\s)(?:\S*\/)?(?:drush|droost-workflow)(?![\w\/-])[^;&|\n]*(?:\$\(|`|\$\{)/',
     operator_commands_unquoted($command),
   ) === 1) {
     guard_refuse('operator-command:substitution',
