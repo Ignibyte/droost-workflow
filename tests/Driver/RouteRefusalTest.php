@@ -40,6 +40,8 @@ final class RouteRefusalTest extends WorkflowTestCase {
     $this->assertSame(['path' => '/admin/x', 'status' => 403], RenderedRoutes::expectation('/admin/x@403'));
     $this->assertSame(['path' => '/admin/x', 'status' => 401], RenderedRoutes::expectation('/admin/x@401'));
     $this->assertSame(['path' => '/admin/x@500', 'status' => 200], RenderedRoutes::expectation('/admin/x@500'), 'a 500 is no refusal to declare');
+    // A redirect is an answer to declare too (F-179).
+    $this->assertSame(['path' => '/account', 'status' => 303], RenderedRoutes::expectation('/account@303'));
     $this->assertSame('/admin/x@403', RenderedRoutes::withStatus('/admin/x', 403));
     $this->assertSame('/camps', RenderedRoutes::withStatus('/camps', 200));
   }
@@ -65,12 +67,12 @@ final class RouteRefusalTest extends WorkflowTestCase {
    */
   public function testTheSectionTakesTheRefusalInBrackets(): void {
     $root = $this->makeRoot();
-    RunWithSpec::open($root, "- /camps — the listing\n- /admin/content/registrations (403) — editors only\n- /members (401)\n- /odd (500)\n");
+    RunWithSpec::open($root, "- /camps — the listing\n- /admin/content/registrations (403) — editors only\n- /members (401)\n- /odd (500)\n- /account (303) — to the login\n");
 
     $routes = SpecContract::routes($root, 'droost/droost-workflow/spec-routes.md');
 
     $this->assertNotNull($routes);
-    $this->assertSame(['/camps', '/admin/content/registrations@403', '/members@401', '/odd'], $routes['routes']);
+    $this->assertSame(['/camps', '/admin/content/registrations@403', '/members@401', '/odd', '/account@303'], $routes['routes']);
     RunWithSpec::close($root);
   }
 
@@ -90,6 +92,12 @@ final class RouteRefusalTest extends WorkflowTestCase {
     [$code, , $err] = $this->cli($root, ['declare-route', '/admin/content/registrations', '--status=500']);
     $this->assertNotSame(0, $code);
     $this->assertStringContainsString('401 or 403', $err);
+    $this->assertStringContainsString('301, 302, 303, 307, 308', $err);
+
+    // A page whose honest answer is a redirect is declared as one (F-179).
+    [$code, $out] = $this->cli($root, ['declare-route', '/account', '--status=303', 'to the login']);
+    $this->assertSame(0, $code);
+    $this->assertStringContainsString('must redirect an anonymous visitor with 303', $out);
     RunWithSpec::close($root);
   }
 
@@ -110,6 +118,35 @@ final class RouteRefusalTest extends WorkflowTestCase {
     $problem = $public->findings[0]['problem'] ?? NULL;
     $this->assertIsString($problem);
     $this->assertStringContainsString('the page is public', $problem);
+  }
+
+  /**
+   * A declared redirect passes on that redirect only (F-179).
+   */
+  public function testDeclaredRedirectIsMeasured(): void {
+    $gate = new GateSettings('rendered_check', TRUE, ['routes' => '/account@303']);
+
+    $passed = (new BootedSiteDriver($this->kernel(303), static fn (): int => 0))->run($gate, '/tmp');
+    $this->assertSame(GateStatus::Passed, $passed->status);
+    $this->assertSame('0 route(s) rendered, 1 redirected an anonymous visitor as declared', $passed->summary);
+
+    $renders = (new BootedSiteDriver($this->kernel(200), static fn (): int => 0))->run($gate, '/tmp');
+    $this->assertSame(GateStatus::Failed, $renders->status);
+    $problem = $renders->findings[0]['problem'] ?? NULL;
+    $this->assertIsString($problem);
+    $this->assertStringContainsString('declared to redirect anonymous visitors with 303, and it rendered', $problem);
+
+    $other = (new BootedSiteDriver($this->kernel(302), static fn (): int => 0))->run($gate, '/tmp');
+    $this->assertSame(GateStatus::Failed, $other->status);
+    $problem = $other->findings[0]['problem'] ?? NULL;
+    $this->assertIsString($problem);
+    $this->assertStringContainsString('declared to redirect with 303, answered 302', $problem);
+
+    $bare = (new BootedSiteDriver($this->kernel(303), static fn (): int => 0))->run(new GateSettings('rendered_check', TRUE, ['routes' => '/account']), '/tmp');
+    $this->assertSame(GateStatus::Failed, $bare->status);
+    $problem = $bare->findings[0]['problem'] ?? NULL;
+    $this->assertIsString($problem);
+    $this->assertStringContainsString('declare-route /account --status=303', $problem);
   }
 
   /**

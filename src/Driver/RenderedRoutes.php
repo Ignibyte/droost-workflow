@@ -51,6 +51,29 @@ final class RenderedRoutes {
   public const REFUSALS = [401, 403];
 
   /**
+   * The redirects a route may be declared to answer an anonymous visitor with.
+   *
+   * A page whose honest answer to an anonymous visitor is to send them
+   * elsewhere (a 303 to the login page) could only be declared as the
+   * refusal it is not (F-179, druplit-02). A declared redirect is measured
+   * like a declared refusal: exactly that status, or a finding.
+   */
+  public const REDIRECTS = [301, 302, 303, 307, 308];
+
+  /**
+   * Whether a route may be declared to answer with a status.
+   *
+   * @param int $status
+   *   The status.
+   *
+   * @return bool
+   *   TRUE for 200, one of REFUSALS or one of REDIRECTS.
+   */
+  public static function declarable(int $status): bool {
+    return $status === 200 || in_array($status, [...self::REFUSALS, ...self::REDIRECTS], TRUE);
+  }
+
+  /**
    * A route's path and the status it must answer an anonymous visitor with.
    *
    * @param string $route
@@ -60,7 +83,7 @@ final class RenderedRoutes {
    *   The path, and 200 unless the route names a refusal.
    */
   public static function expectation(string $route): array {
-    if (preg_match('/^(\/.*)@(\d{3})$/', trim($route), $m) === 1 && in_array((int) $m[2], self::REFUSALS, TRUE)) {
+    if (preg_match('/^(\/.*)@(\d{3})$/', trim($route), $m) === 1 && (int) $m[2] !== 200 && self::declarable((int) $m[2])) {
       return ['path' => $m[1], 'status' => (int) $m[2]];
     }
     return ['path' => trim($route), 'status' => 200];
@@ -72,7 +95,7 @@ final class RenderedRoutes {
    * @param string $path
    *   The path.
    * @param int $status
-   *   200, or one of REFUSALS.
+   *   200, or one of REFUSALS or REDIRECTS.
    *
    * @return string
    *   The path alone for 200, else `path@status`.

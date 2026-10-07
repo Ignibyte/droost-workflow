@@ -595,7 +595,7 @@ final class SpecContract {
         // path in brackets: `- /admin/content/x (403) — editors only`
         // (F-120). Carried as `path@403`, as a declared row carries it.
         if (preg_match('~^\s*\((\d{3})\)~', substr($item, strlen($r[0])), $status) === 1
-          && in_array((int) $status[1], RenderedRoutes::REFUSALS, TRUE)) {
+          && (int) $status[1] !== 200 && RenderedRoutes::declarable((int) $status[1])) {
           $route = RenderedRoutes::withStatus($route, (int) $status[1]);
         }
         if (!in_array($route, $routes, TRUE)) {

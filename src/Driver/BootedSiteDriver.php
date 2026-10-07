@@ -94,9 +94,13 @@ final class BootedSiteDriver implements SiteDriverInterface {
 
     $elapsed = $this->tick() - $started;
     $failed = count($findings);
-    $refusals = count(array_filter($routes, static fn (string $route): bool => RenderedRoutes::expectation($route)['status'] !== 200));
+    $declared = array_map(static fn (string $route): int => RenderedRoutes::expectation($route)['status'], $routes);
+    $refusals = count(array_filter($declared, static fn (int $status): bool => in_array($status, RenderedRoutes::REFUSALS, TRUE)));
+    $redirects = count(array_filter($declared, static fn (int $status): bool => in_array($status, RenderedRoutes::REDIRECTS, TRUE)));
     $summary = $failed === 0
-      ? sprintf('%d route(s) rendered', count($routes) - $refusals) . ($refusals === 0 ? '' : sprintf(', %d refused an anonymous visitor as declared', $refusals))
+      ? sprintf('%d route(s) rendered', count($routes) - $refusals - $redirects)
+        . ($refusals === 0 ? '' : sprintf(', %d refused an anonymous visitor as declared', $refusals))
+        . ($redirects === 0 ? '' : sprintf(', %d redirected an anonymous visitor as declared', $redirects))
       : sprintf('%d of %d route(s) did not render', $failed, count($routes));
     // Where the routes came from, when a run's spec was consulted. Under the
     // render-probe there is no run to read (the probe is handed the merged
@@ -203,22 +207,28 @@ final class BootedSiteDriver implements SiteDriverInterface {
 
     // A route declared to refuse anonymous visitors must refuse them, with
     // exactly the status it declared: a 200 is a page that is public (F-120).
+    // A declared redirect is held the same way (F-179).
     if ($expected !== 200) {
+      $redirect = in_array($expected, RenderedRoutes::REDIRECTS, TRUE);
       return $status === $expected ? NULL : [
         'route' => $route,
         'status' => $status,
-        'problem' => $status === 200
-          ? sprintf('declared to refuse anonymous visitors with %d, and it rendered for one: the page is public', $expected)
-          : sprintf('declared to refuse with %d, answered %d', $expected, $status),
+        'problem' => match (TRUE) {
+          $status === 200 && $redirect => sprintf('declared to redirect anonymous visitors with %d, and it rendered for one', $expected),
+          $status === 200 => sprintf('declared to refuse anonymous visitors with %d, and it rendered for one: the page is public', $expected),
+          default => sprintf('declared to %s with %d, answered %d', $redirect ? 'redirect' : 'refuse', $expected, $status),
+        },
       ];
     }
     if ($status !== 200) {
       return [
         'route' => $path,
         'status' => $status,
-        'problem' => in_array($status, RenderedRoutes::REFUSALS, TRUE)
-          ? sprintf('not 200: it refused an anonymous visitor (%d). If it is meant to, declare it so and the gate checks the refusal instead: declare-route %s --status=%d', $status, $path, $status)
-          : 'not 200',
+        'problem' => match (TRUE) {
+          in_array($status, RenderedRoutes::REFUSALS, TRUE) => sprintf('not 200: it refused an anonymous visitor (%d). If it is meant to, declare it so and the gate checks the refusal instead: declare-route %s --status=%d', $status, $path, $status),
+          in_array($status, RenderedRoutes::REDIRECTS, TRUE) => sprintf('not 200: it redirected an anonymous visitor (%d to %s). If it is meant to, declare it so and the gate checks the redirect instead: declare-route %s --status=%d', $status, (string) $response->headers->get('Location', '(no Location)'), $path, $status),
+          default => 'not 200',
+        },
       ];
     }
     // A 200 with nothing in it is a rendered page in name only, and is

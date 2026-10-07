@@ -1344,7 +1344,8 @@ final class WorkflowFacade {
    *   Why the route is in scope, for the reader. Never read mechanically.
    * @param int $status
    *   What the route must answer an anonymous visitor with: 200 to render,
-   *   or 401 or 403 for a page that must refuse one (an admin listing).
+   *   401 or 403 for a page that must refuse one (an admin listing), or a
+   *   redirect (301, 302, 303, 307, 308) for one that sends them elsewhere.
    *   Declaring a path again replaces its expectation, so a plan that named
    *   an admin page bare can correct it (F-120).
    * @param string|null $kind
@@ -1386,10 +1387,11 @@ final class WorkflowFacade {
         $path,
       ));
     }
-    if ($status !== 200 && !in_array($status, RenderedRoutes::REFUSALS, TRUE)) {
+    if (!RenderedRoutes::declarable($status)) {
       throw new \InvalidArgumentException(sprintf(
-        'A route is declared to render (200) or to refuse an anonymous visitor (%s) — got %d',
+        'A route is declared to render (200), to refuse an anonymous visitor (%s) or to redirect one (%s) — got %d',
         implode(' or ', RenderedRoutes::REFUSALS),
+        implode(', ', RenderedRoutes::REDIRECTS),
         $status,
       ));
     }

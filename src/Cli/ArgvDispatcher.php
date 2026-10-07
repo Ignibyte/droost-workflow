@@ -12,6 +12,7 @@ use Droost\Workflow\Config\EffortSwitch;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Config\WorkItemSettings;
 use Droost\Workflow\Config\Mode;
+use Droost\Workflow\Driver\RenderedRoutes;
 use Droost\Workflow\Evidence\EvidenceError;
 use Droost\Workflow\Event\RunEventLog;
 use Droost\Workflow\Gate\GateStatus;
@@ -801,7 +802,11 @@ final class ArgvDispatcher {
     $this->say(sprintf(
       'route: %s%s%s — %d declared in this run',
       $path,
-      $status === 200 ? '' : sprintf(' (must refuse an anonymous visitor with %d)', $status),
+      match (TRUE) {
+        $status === 200 => '',
+        in_array($status, RenderedRoutes::REDIRECTS, TRUE) => sprintf(' (must redirect an anonymous visitor with %d)', $status),
+        default => sprintf(' (must refuse an anonymous visitor with %d)', $status),
+      },
       $page['kind'] === NULL ? '' : sprintf(' — a %s, built as %s%s', $page['kind'], $page['owner'], $page['except'] === NULL ? '' : ' (an exception: ' . $page['except'] . ')'),
       is_array($declared['routes'] ?? NULL) ? count($declared['routes']) : 0,
     ));
@@ -1567,8 +1572,10 @@ final class ArgvDispatcher {
       declare-route    declare a path this change serves, which is what
                        rendered_check renders: `declare-route /rinks "the new
                        listing"`. A page that must refuse an anonymous
-                       visitor (an admin listing) takes `--status=403`, and
-                       the gate checks it refuses; declaring a path again
+                       visitor (an admin listing) takes `--status=403`, one
+                       that sends them elsewhere its redirect
+                       (`--status=303`), and the gate checks exactly that
+                       answer; declaring a path again
                        replaces it. Repeatable and idempotent. `## Routes` stays
                        in the spec for a human; nothing mechanical reads it,
                        so a fenced list or a heading in the wrong place can no
