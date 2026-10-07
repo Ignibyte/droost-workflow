@@ -156,6 +156,24 @@ final class BootedSiteDriver implements SiteDriverInterface {
   }
 
   /**
+   * What the site answers a visitor for a path, its exception listeners run.
+   *
+   * @param string $path
+   *   The internal path.
+   *
+   * @return \Symfony\Component\HttpFoundation\Response|null
+   *   The response, or NULL when the kernel threw even with catching on.
+   */
+  private function answered(string $path): ?Response {
+    try {
+      return $this->kernel->handle(Request::create($path), HttpKernelInterface::SUB_REQUEST, TRUE);
+    }
+    catch (\Throwable) {
+      return NULL;
+    }
+  }
+
+  /**
    * Checks one route, returning a finding when it did not answer as declared.
    *
    * @param string $route
@@ -177,10 +195,17 @@ final class BootedSiteDriver implements SiteDriverInterface {
     catch (HttpExceptionInterface $e) {
       // The sub-request runs with catching off, so Drupal ANSWERS a refusal
       // by throwing it: access denied is an AccessDeniedHttpException, not a
-      // 403 response. It is read as the status it carries, and judged like
-      // one (F-120). A refusal faked as a response in a test passed while a
-      // real site's threw.
-      $response = new Response('', $e->getStatusCode());
+      // 403 response (F-120: a refusal faked as a response in a test passed
+      // while a real site's threw). A visitor never meets the exception: the
+      // site's kernel.exception listeners answer it, with the 403 page or
+      // with something else entirely, such as a login redirect (F-253, P8
+      // run 20: a 303 every visitor got read as a 403). So the refusal is
+      // asked again with catching on, as the site answers a visitor, and
+      // what it answers is judged. Catching stays off for the first request,
+      // or an error would come back as a 500 page instead of a finding with
+      // its origin. When the second answer throws too, the refusal's own
+      // status stands.
+      $response = $this->answered($path) ?? new Response('', $e->getStatusCode());
     }
     catch (\Throwable $e) {
       // An exception IS the finding. Letting it escape would fail the whole

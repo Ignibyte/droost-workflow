@@ -12,6 +12,7 @@ use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Spec\SpecContract;
 use Droost\Workflow\Tests\WorkflowTestCase;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
@@ -192,6 +193,48 @@ final class RouteRefusalTest extends WorkflowTestCase {
     $problem = $bare->findings[0]['problem'] ?? NULL;
     $this->assertIsString($problem);
     $this->assertStringContainsString('declare-route /admin/content --status=403', $problem);
+  }
+
+  /**
+   * A refusal the site's exception listeners answer is judged as answered.
+   *
+   * P8 run 20's agent sent an anonymous visitor of /my-registrations to log
+   * in from a kernel.exception subscriber: the View threw access denied, and
+   * the subscriber answered it with a 303. Every visitor got the 303; the
+   * gate, rendering with catching off, read the thrown 403 and failed a
+   * declared redirect the site makes (F-253). This kernel does what Drupal
+   * does: it throws the refusal with catching off and answers it, through
+   * its listener, with catching on.
+   */
+  public function testRefusalAnsweredByListenersIsJudgedAsAnswered(): void {
+    $listens = new class() implements HttpKernelInterface {
+
+      /**
+       * {@inheritdoc}
+       */
+      public function handle(Request $request, int $type = self::MAIN_REQUEST, bool $catch = TRUE): Response {
+        if (!$catch) {
+          throw new AccessDeniedHttpException('access denied');
+        }
+        return new RedirectResponse('/user/login?destination=/my-registrations', 303);
+      }
+
+    };
+
+    $declared = (new BootedSiteDriver($listens, static fn (): int => 0))->run(new GateSettings('rendered_check', TRUE, ['routes' => '/my-registrations@303']), '/tmp');
+    $this->assertSame(GateStatus::Passed, $declared->status, 'a redirect made in kernel.exception is the redirect a visitor gets');
+
+    $refusal = (new BootedSiteDriver($listens, static fn (): int => 0))->run(new GateSettings('rendered_check', TRUE, ['routes' => '/my-registrations@403']), '/tmp');
+    $this->assertSame(GateStatus::Failed, $refusal->status, 'a visitor gets the 303, not the 403 the route threw');
+    $problem = $refusal->findings[0]['problem'] ?? NULL;
+    $this->assertIsString($problem);
+    $this->assertStringContainsString('answered 303', $problem);
+
+    $bare = (new BootedSiteDriver($listens, static fn (): int => 0))->run(new GateSettings('rendered_check', TRUE, ['routes' => '/my-registrations']), '/tmp');
+    $this->assertSame(GateStatus::Failed, $bare->status);
+    $problem = $bare->findings[0]['problem'] ?? NULL;
+    $this->assertIsString($problem);
+    $this->assertStringContainsString('declare-route /my-registrations --status=303', $problem);
   }
 
   /**
