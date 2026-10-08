@@ -101,6 +101,12 @@ final class AgentsBlock {
       . "terminal. Never grant it yourself — the guard refuses it from your\n"
       . "shell, and a bypass with no human behind it is indistinguishable from\n"
       . "tampering.",
+      "A WHOLE SITE from a design (a Replit or Vite app, a folder of HTML)\n"
+      . "starts with an intake, not a run: follow `.claude/skills/intake/SKILL.md`.\n"
+      . "It reads the source (`vendor/bin/droost-workflow intake audit`),\n"
+      . "proposes the content model, asks the human what the source cannot say,\n"
+      . "and writes the roadmap; no run opens until the OPERATOR approves it\n"
+      . "(`droost-workflow intake approve`, in their own terminal).",
     ];
   }
 

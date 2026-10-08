@@ -61,12 +61,18 @@ final class PackManifest {
     => '.claude/skills/workflow-test/SKILL.md',
     'skills/workflow-complete/SKILL.md'
     => '.claude/skills/workflow-complete/SKILL.md',
+    // The intake (0.14): a whole site from a design, planned with the human
+    // before any run. A skill every host reads, and its Claude Code pointer.
+    'skills/intake/SKILL.md'
+    => '.claude/skills/intake/SKILL.md',
     'commands/droost/workflow/start.md'
     => '.claude/commands/droost/workflow/start.md',
     'commands/droost/workflow/continue.md'
     => '.claude/commands/droost/workflow/continue.md',
     'commands/droost/workflow/status.md'
     => '.claude/commands/droost/workflow/status.md',
+    'commands/droost/intake.md'
+    => '.claude/commands/droost/intake.md',
     'partials/droost-usage.md' => '.claude/partials/droost-usage.md',
     'hooks/droost-workflow-guard.php'
     => '.claude/hooks/droost-workflow-guard.php',

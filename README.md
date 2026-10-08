@@ -649,6 +649,52 @@ written as markdown, and the record says why. A tool that could not run
 retry above. Every return, its reason and each follow-up are in the envelope's
 `loop` block and in `run.json`.
 
+## The intake: a site from a design, planned before it is built
+
+A run builds one ticket. When the human hands over a whole design ("build me
+a site off this html": a Replit or Vite app, a folder of HTML) the work
+before the first ticket is deciding what the source becomes, and that is the
+intake: the `intake` skill (`/droost:intake`), with the human, and nothing
+built until they approve.
+
+```
+droost-workflow intake start --request="<the human's words>" --source=<path|URL>
+droost-workflow intake audit --url=<where the source is served> --files=<its folder>
+droost-workflow intake check
+droost-workflow intake approve          # the operator's, in their terminal
+```
+
+- **`droost-source`** (`vendor/bin/droost-source`, Node, the project's own
+  Playwright) reads the served source and its files once, the same way every
+  time: the routes (the router's table, a crawl, a pattern's instances), each
+  page's outline, sections, repeated structures (each slot: a field that
+  varies or a label that does not, its values' pattern, the record field it
+  shows), forms, media, the frame's menus and the tokens, and the data the
+  files declare (records, the interfaces that type them, database tables,
+  API paths; a template's empty schema says so). `intake audit` runs it and
+  records `audit.json`'s sha256 where the agent cannot write. `serve <dir>`
+  serves a static source.
+- **The agent** writes, in `droost/intake/`: `model.md`, a Tooling plan
+  droost's consult reads (each construct, what it is, the audit ids that are
+  its evidence, the rung that builds it) with its `## Routes` and a
+  `## Not built` for what it sets aside; `questions.md`, what only the human
+  can say, each with a recommendation, asked through AskUserQuestion;
+  `roadmap.md`, the rungs in order, each consuming one below, each with its
+  ticket in `tickets/`.
+- **`intake check`** judges no decision (that is the human's), and closes
+  the ways the human's part or droost's could be skipped or forged: the audit
+  is the one the tool wrote; every cited id is in it; every route, structure,
+  form, set of records and the frame is decided or set aside; the model as it
+  stands was put to droost (a consult row holds its sha256); every question's
+  answer is on record (the guard writes it from AskUserQuestion; the operator
+  from a terminal with `intake answer`) and the file agrees; the ladder is in
+  order and shows nothing before the rung that builds it.
+- **While an intake is open, no run opens.** `approve` and `abandon` are the
+  operator's, and archive the intake's ledgers, since a row written outside a
+  run is the next run's and the intake's consult would otherwise satisfy the
+  first rung's `plan_consulted`. Each rung then runs from its ticket, as any
+  ticket does.
+
 ## Run state
 
 Run state lives beside the lever file, in `droost/droost-workflow/run.json`
@@ -730,11 +776,11 @@ state directory, which `init` keeps out of version control, as it does
 
 ## The pack
 
-The phases ship as a `.claude/` pack — seven skills (the three entry verbs
-`workflow-start`, `workflow-continue` and `workflow-status`, and one skill per
-phase), three slash commands that are one-paragraph pointers to the verb
-skills (`/droost:workflow:start`, `/droost:workflow:continue`,
-`/droost:workflow:status` — Claude Code's way in; every other host reads the
+The phases ship as a `.claude/` pack — eight skills (the three entry verbs
+`workflow-start`, `workflow-continue` and `workflow-status`, one skill per
+phase, and `intake`), four slash commands that are one-paragraph pointers to
+the verb skills (`/droost:workflow:start`, `/droost:workflow:continue`,
+`/droost:workflow:status`, `/droost:intake` — Claude Code's way in; every other host reads the
 skill itself, which is why the procedure lives there and not in the
 command), five agents (the plan researcher and spec-writer, the adversarial
 `workflow-seeker`, the one-finding-at-a-time `workflow-bug-fixer`, and
@@ -745,7 +791,9 @@ writes:
 ```
 .claude/skills/workflow-{start,continue,status}/SKILL.md
 .claude/skills/workflow-{plan,code,test,complete}/SKILL.md
+.claude/skills/intake/SKILL.md
 .claude/commands/droost/workflow/{start,continue,status}.md
+.claude/commands/droost/intake.md
 .claude/agents/workflow-{researcher,spec-writer,seeker,bug-fixer}.md
 .claude/agents/droost-debugger.md
 .claude/hooks/droost-workflow-guard.php
