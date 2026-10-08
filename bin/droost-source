@@ -96,6 +96,13 @@ function normalPath(p) {
   return out || '/';
 }
 
+// A static site's page by its clean path: `/contact.html` and `/contact` are
+// one page, as `serve` answers both, and `/about/index.html` is `/about`.
+function staticPath(p) {
+  const out = normalPath(p).replace(/\/index\.html?$/i, '/').replace(/\.html?$/i, '');
+  return normalPath(out);
+}
+
 // Whether a route is a pattern (`/camps/:id`, `/camps/[id]`, `*`).
 const isPattern = (route) => /(^|\/)(:|\[|\*)/.test(route);
 
@@ -964,11 +971,9 @@ async function audit(opts) {
   const declared = filesRead.routes;
   const patterns = declared.filter(isPattern);
   const given = (opts.routes || []).map(normalPath);
-  const queue = ['/', ...given, ...declared.filter((r) => !isPattern(r))];
-  for (const h of filesRead.html) {
-    const p = '/' + h.replace(/(^|\/)index\.html$/, '$1').replace(/\/$/, '');
-    if (opts.static) queue.push(normalPath(p));
-  }
+  const key = opts.static ? staticPath : normalPath;
+  const queue = ['/', ...given, ...declared.filter((r) => !isPattern(r))].map(key);
+  if (opts.static) for (const h of filesRead.html) queue.push(staticPath('/' + h));
   const pw = playwright();
   const browser = await pw.chromium.launch();
   const seen = new Map();
@@ -977,7 +982,7 @@ async function audit(opts) {
     const missing = await readPage(browser, new URL(`/__droost-source-${Date.now()}-not-a-page`, origin).href, opts.width);
     const notFound = missing.status === 404 ? null : signature(missing);
     while (queue.length && seen.size < opts.maxPages) {
-      const route = normalPath(queue.shift());
+      const route = key(queue.shift());
       if (seen.has(route)) continue;
       const reading = await readPage(browser, new URL(route, origin).href, opts.width);
       seen.set(route, reading);
@@ -985,8 +990,9 @@ async function audit(opts) {
       if (notFound && signature(reading) === notFound) { reading.notFound = true; continue; }
       for (const [n] of each(reading.tree)) {
         if (n.t !== 'a' || !n.h) continue;
-        const p = linkPath(n.h, origin);
-        if (!p.startsWith('/') || /\.(pdf|jpe?g|png|gif|webp|svg|zip|docx?|xlsx?|ics|xml|txt)$/i.test(p)) continue;
+        const raw = linkPath(n.h, origin);
+        if (!raw.startsWith('/') || /\.(pdf|jpe?g|png|gif|webp|svg|zip|docx?|xlsx?|ics|xml|txt)$/i.test(raw)) continue;
+        const p = key(raw);
         if (!seen.has(p) && !queue.includes(p)) queue.push(p);
       }
     }
@@ -1002,7 +1008,7 @@ async function audit(opts) {
   for (const [route, reading] of seen) {
     const pattern = matchPattern(route, patterns);
     routes.push({ id: `r:${route}`, path: route, status: reading.status, declared: declared.includes(route), pattern, notFound: Boolean(reading.notFound), ...(reading.error ? { invalid: reading.error } : {}) });
-    if (!reading.tree || reading.notFound) continue;
+    if (!reading.tree || reading.notFound || (typeof reading.status === 'number' && reading.status >= 400)) continue;
     const a = analyse(reading.tree, origin);
     const id = `p:${route}`;
     const page = {
@@ -1153,4 +1159,4 @@ if (require.main === module) {
   main().catch((e) => finish({ status: 'error', summary: String(e && e.message ? e.message : e).split('\n')[0] }, EXIT.nothing));
 }
 
-module.exports = { literalValue, objectValues, showsValue, matchRecords, sectionRecords, normalPath, isPattern, matchPattern, routerRoutes, stripComments, scriptData, prismaData, openapiData, jsonData, readFiles, shape, slotsOf, repeatsOf, formsOf, sectionsOf, analyse, frameOf, valuePattern, textOf, markdown };
+module.exports = { staticPath, literalValue, objectValues, showsValue, matchRecords, sectionRecords, normalPath, isPattern, matchPattern, routerRoutes, stripComments, scriptData, prismaData, openapiData, jsonData, readFiles, shape, slotsOf, repeatsOf, formsOf, sectionsOf, analyse, frameOf, valuePattern, textOf, markdown };

@@ -23,6 +23,13 @@ test('a router declares its routes, and a file that imports none declares nothin
   assert.deepEqual(src.routerRoutes(`const x = { path: "/not-a-route" };`), []);
 });
 
+test('a static page is one page by its clean path', () => {
+  assert.equal(src.staticPath('/contact.html'), '/contact');
+  assert.equal(src.staticPath('/index.html'), '/');
+  assert.equal(src.staticPath('/about/index.html'), '/about');
+  assert.equal(src.staticPath('/events/'), '/events');
+});
+
 test('a pattern route matches its instances', () => {
   assert.equal(src.isPattern('/camps/:id'), true);
   assert.equal(src.isPattern('/camps'), false);
@@ -204,6 +211,8 @@ test('the fixture site, served and audited', { skip: !PW_CWD && 'no DROOST_SOURC
     for (const p of ['/', '/events', '/contact']) assert.ok(paths.includes(p), `route ${p}`);
     const linked = audit.routes.find((r) => r.path === '/events/poetry-night');
     assert.equal(linked.status, 404, 'a card links a page the source does not have');
+    assert.ok(!audit.pages.some((p) => p.route === '/events/poetry-night'), 'a page that answers 404 is a route, not a page');
+    assert.ok(!paths.some((p) => p.endsWith('.html')), 'a static page is read once, by its clean path: ' + paths.join(', '));
     const home = audit.pages.find((p) => p.route === '/');
     const cards = home.repeats.find((r) => r.kind === 'cards');
     assert.equal(cards.data.id, 'd:data/events.ts#EVENTS');
