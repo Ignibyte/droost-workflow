@@ -20,6 +20,8 @@ use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Event\NullWorkflowListener;
 use Droost\Workflow\Event\RunEventLog;
+use Droost\Workflow\Intake\IntakeError;
+use Droost\Workflow\Intake\IntakeService;
 use Droost\Workflow\Event\WorkflowListenerInterface;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Evidence\CheckAdjudicatorInterface;
@@ -696,6 +698,12 @@ final class WorkflowFacade {
     }
 
     if ($state === NULL) {
+      // Nothing builds before the human approves an intake's roadmap: while
+      // one is open, no run opens (the intake plans the runs).
+      $intake = (new IntakeService($projectRoot))->open();
+      if ($intake !== NULL) {
+        throw IntakeError::buildBeforeApproval($intake->id);
+      }
       $config = WorkflowConfig::load($projectRoot, $this->contributed);
       // Frozen with the levers: where the tree is, and which baseline the
       // run is held to (none when the lever refuses one). A baseline that

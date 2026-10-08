@@ -34,6 +34,11 @@ final class RunEvent {
     'run.reset',
     'phase.returned',
     'follow_up.filed',
+    'intake.opened',
+    'intake.audited',
+    'intake.answered',
+    'intake.approved',
+    'intake.abandoned',
   ];
 
   /**

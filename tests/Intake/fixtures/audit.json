@@ -1,0 +1,130 @@
+{
+    "schema": "droost-source/audit@1",
+    "routes": [
+        {
+            "id": "r:/",
+            "path": "/",
+            "status": 200,
+            "declared": true,
+            "pattern": null,
+            "notFound": false
+        },
+        {
+            "id": "r:/events",
+            "path": "/events",
+            "status": 200,
+            "declared": true,
+            "pattern": null,
+            "notFound": false
+        },
+        {
+            "id": "r:/contact",
+            "path": "/contact",
+            "status": 200,
+            "declared": true,
+            "pattern": null,
+            "notFound": false
+        },
+        {
+            "id": "r:/lost",
+            "path": "/lost",
+            "status": 200,
+            "declared": false,
+            "pattern": null,
+            "notFound": true
+        }
+    ],
+    "pages": [
+        {
+            "id": "p:/",
+            "route": "/",
+            "sections": [
+                {
+                    "id": "p:/#s1"
+                }
+            ],
+            "repeats": [
+                {
+                    "id": "p:/#r1",
+                    "count": 3,
+                    "kind": "links",
+                    "inside": "nav",
+                    "slots": [],
+                    "seenOn": []
+                },
+                {
+                    "id": "p:/#r2",
+                    "count": 3,
+                    "kind": "cards",
+                    "inside": "main",
+                    "slots": [],
+                    "seenOn": []
+                }
+            ],
+            "forms": []
+        },
+        {
+            "id": "p:/events",
+            "route": "/events",
+            "sections": [],
+            "repeats": [
+                {
+                    "id": "p:/events#r1",
+                    "count": 3,
+                    "kind": "cards",
+                    "inside": "main",
+                    "slots": [],
+                    "seenOn": []
+                }
+            ],
+            "forms": []
+        },
+        {
+            "id": "p:/contact",
+            "route": "/contact",
+            "sections": [],
+            "repeats": [],
+            "forms": [
+                {
+                    "id": "p:/contact#f1",
+                    "fields": []
+                }
+            ]
+        }
+    ],
+    "frame": {
+        "id": "frame",
+        "header": {
+            "links": [
+                {
+                    "label": "Home",
+                    "href": "/"
+                }
+            ]
+        },
+        "footer": {
+            "links": []
+        }
+    },
+    "data": [
+        {
+            "id": "d:data/events.ts#BookEvent",
+            "kind": "interface",
+            "name": "BookEvent"
+        },
+        {
+            "id": "d:data/events.ts#EVENTS",
+            "kind": "records",
+            "name": "EVENTS",
+            "count": 3
+        },
+        {
+            "id": "d:lib/api.yaml#api",
+            "kind": "api",
+            "paths": [
+                "/healthz"
+            ],
+            "note": "a health check only: no content in this API"
+        }
+    ]
+}

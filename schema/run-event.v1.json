@@ -25,7 +25,12 @@
     { "if": { "properties": { "type": { "const": "run.completed" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/run.completed" } } } },
     { "if": { "properties": { "type": { "const": "run.reset" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/run.reset" } } } },
     { "if": { "properties": { "type": { "const": "phase.returned" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/phase.returned" } } } },
-    { "if": { "properties": { "type": { "const": "follow_up.filed" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/follow_up.filed" } } } }
+    { "if": { "properties": { "type": { "const": "follow_up.filed" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/follow_up.filed" } } } },
+    { "if": { "properties": { "type": { "const": "intake.opened" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/intake.opened" } } } },
+    { "if": { "properties": { "type": { "const": "intake.audited" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/intake.audited" } } } },
+    { "if": { "properties": { "type": { "const": "intake.answered" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/intake.answered" } } } },
+    { "if": { "properties": { "type": { "const": "intake.approved" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/intake.approved" } } } },
+    { "if": { "properties": { "type": { "const": "intake.abandoned" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/intake.abandoned" } } } }
   ],
   "$defs": {
     "run.started": {
@@ -121,6 +126,58 @@
         "path": { "type": ["string", "null"] },
         "at": { "type": "string" },
         "note": { "type": ["string", "null"] }
+      }
+    },
+    "intake.opened": {
+      "description": "An intake opened (0.14): droost reads a design and plans the site with the human before any run. run_id is the intake's id; request is the human's words, verbatim.",
+      "type": "object",
+      "required": ["intake_id", "request", "source"],
+      "properties": {
+        "intake_id": { "type": "string" },
+        "request": { "type": "string" },
+        "source": { "type": "string" }
+      }
+    },
+    "intake.audited": {
+      "description": "droost-source read the source. sha is audit.json's sha256, which the intake's check holds the file to.",
+      "type": "object",
+      "required": ["intake_id", "sha"],
+      "properties": {
+        "intake_id": { "type": "string" },
+        "sha": { "type": "string" },
+        "summary": { "type": "string" }
+      }
+    },
+    "intake.answered": {
+      "description": "The operator typed an answer to one of the intake's questions (via terminal). Answers given through AskUserQuestion are recorded by the guard in the state directory's intake-answers.jsonl.",
+      "type": "object",
+      "required": ["intake_id", "question", "answer"],
+      "properties": {
+        "intake_id": { "type": "string" },
+        "question": { "type": "string" },
+        "answer": { "type": "string" },
+        "via": { "type": "string" }
+      }
+    },
+    "intake.approved": {
+      "description": "The operator approved the roadmap. digest is each intake file's sha256 at approval; rungs are the roadmap's rows; archived names the ledgers moved into history so no run inherits the intake's rows.",
+      "type": "object",
+      "required": ["intake_id", "digest", "rungs"],
+      "properties": {
+        "intake_id": { "type": "string" },
+        "digest": { "type": "object", "additionalProperties": { "type": "string" } },
+        "rungs": { "type": "array" },
+        "archived": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "intake.abandoned": {
+      "description": "The operator abandoned the intake, with a reason.",
+      "type": "object",
+      "required": ["intake_id", "reason"],
+      "properties": {
+        "intake_id": { "type": "string" },
+        "reason": { "type": "string" },
+        "archived": { "type": "array", "items": { "type": "string" } }
       }
     }
   }

@@ -18,6 +18,10 @@ use Droost\Workflow\Event\RunEventLog;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Gate\ShellGateExecutor;
+use Droost\Workflow\Intake\IntakeError;
+use Droost\Workflow\Intake\IntakeFinding;
+use Droost\Workflow\Intake\IntakeService;
+use Droost\Workflow\Intake\IntakeStore;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Pack\PackError;
@@ -240,6 +244,7 @@ final class ArgvDispatcher {
         'effort' => $this->effort($projectRoot, $argv),
         'evidence' => $this->evidence($projectRoot, $argv),
         'ticket' => $this->ticket($projectRoot, $argv),
+        'intake' => $this->intake($projectRoot, $argv),
         'events' => $this->events($projectRoot, $argv),
         'specs' => $this->specs($projectRoot),
         'relay' => $this->relay($projectRoot),
@@ -259,7 +264,7 @@ final class ArgvDispatcher {
     // silence.
     catch (
       ConfigError | StateError | PackError | SeekerError | BaselineError
-      | SpecError | EvidenceError | DataError | WorkItemError $e
+      | SpecError | EvidenceError | DataError | WorkItemError | IntakeError $e
     ) {
       $this->fail($e->getMessage());
       return self::EXIT_USAGE;
@@ -1393,6 +1398,78 @@ final class ArgvDispatcher {
   }
 
   /**
+   * The intake: plan a site from a design with the human, before any run.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The arguments: `intake`, the sub-verb, its options.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function intake(string $projectRoot, array $argv): int {
+    $sub = $argv[1] ?? '';
+    $rest = array_slice($argv, 2);
+    $options = [];
+    $positional = [];
+    foreach ($rest as $arg) {
+      if (preg_match('/^--([a-z-]+)=(.*)$/s', $arg, $m) === 1) {
+        $options[$m[1]] = $m[2];
+      }
+      elseif (!str_starts_with($arg, '--')) {
+        $positional[] = $arg;
+      }
+    }
+    $intake = new IntakeService($projectRoot, fn (): string => date('c'));
+    if (in_array($sub, ['approve', 'abandon', 'answer'], TRUE) && !$this->operatorTerminal()) {
+      $this->fail($this->noTerminalRefusal('intake ' . $sub));
+      return self::EXIT_USAGE;
+    }
+    switch ($sub) {
+      case 'start':
+        $state = $intake->start($options['request'] ?? '', $options['source'] ?? '');
+        $this->say($this->encode(['intake' => $state->toArray()]));
+        return self::EXIT_OK;
+
+      case 'audit':
+        $this->say($this->encode(['audit' => $intake->audit($rest)]));
+        return self::EXIT_OK;
+
+      case 'check':
+        $findings = $intake->check();
+        $this->say($this->encode([
+          'ready' => $findings === [],
+          'findings' => array_map(static fn (IntakeFinding $f): array => $f->toArray(), $findings),
+        ]));
+        return $findings === [] ? self::EXIT_OK : 1;
+
+      case 'status':
+        $this->say($this->encode($intake->status()));
+        return self::EXIT_OK;
+
+      case 'answer':
+        $intake->answer($positional[0] ?? '', $positional[1] ?? '');
+        $this->say('Answer recorded.');
+        return self::EXIT_OK;
+
+      case 'approve':
+        $state = $intake->approve();
+        $this->say(sprintf('Intake %s APPROVED: its rungs may run, each from its ticket in %s/tickets/. Its ledgers are in history, so no run inherits its consults.', $state->id, IntakeStore::DIR));
+        return self::EXIT_OK;
+
+      case 'abandon':
+        $state = $intake->abandon($positional[0] ?? '');
+        $this->say(sprintf('Intake %s abandoned: %s', $state->id, (string) $state->reason));
+        return self::EXIT_OK;
+
+      default:
+        $this->fail('intake needs one of: start --request="…" --source=<path|URL>, audit --url=<served> [--files=<dir>], check, status, and the operator\'s approve, abandon "<why>", answer "<question>" "<answer>".');
+        return self::EXIT_USAGE;
+    }
+  }
+
+  /**
    * The project's built-in work-item source, or NULL when it has none.
    *
    * A lever file that cannot be read has no source here: the verb that needs
@@ -1634,6 +1711,13 @@ final class ArgvDispatcher {
                        States: backlog, ready, in_progress, review, done.
                        `ticket move <id> <state>` is the operator's (below),
                        and in cockpit mode the cockpit's
+      intake           plan a site from a design with the human, before any
+                       run (no run opens while one is open): `intake start
+                       --request="<the human's words>" --source=<path|URL>`,
+                       `intake audit --url=<served source> --files=<dir>`
+                       (droost-source, its sha recorded), `intake check`
+                       (what approval still needs), `intake status`.
+                       `approve`, `abandon` and `answer` are the operator's
 
     The OPERATOR's commands. Each one loosens what a run is held to, or
     decides what only a person decides, so each refuses to run without an
@@ -1655,6 +1739,13 @@ final class ArgvDispatcher {
                        move a ticket to another state; `done` only ever by a
                        person. The engine moves a bound ticket to in_progress
                        and review, never further
+      intake approve   approve the intake's roadmap, once `intake check`
+                       finds nothing; its rungs may then run
+      intake abandon "<why>"
+                       close the intake unapproved
+      intake answer "<question>" "<answer>"
+                       record a human's answer to an intake question asked
+                       outside AskUserQuestion
       baseline         write the adoption baseline (droost/baseline/): the
                        debt the tree carries today, inherited from then on.
                        --measure shows the bill without writing; --status

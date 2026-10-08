@@ -437,6 +437,40 @@ if ($mode === 'record') {
   return;
 }
 
+// ANSWERS MODE: the human's answers to an intake's questions, on record.
+// Wired to PostToolUse on AskUserQuestion, so the dialog has closed and the
+// result is what the human chose or typed. An intake's questions are its
+// Q&A with the human, and `intake check` holds `questions.md` to what is
+// written here: the agent writes the file, never this record, and the state
+// directory's rule refuses it the file (intake-answers.jsonl, run or no run).
+// With no intake open, a question is ordinary conversation and nothing is
+// kept. Never a wall: nothing here can refuse.
+if ($mode === 'answers') {
+  $GLOBALS['workflow_guard_quiet'] = TRUE;
+  $intake = json_decode((string) @file_get_contents($root . '/' . $stateDir . '/intake.json'), TRUE);
+  if (is_array($intake) && ($intake['status'] ?? NULL) === 'open' && is_string($intake['id'] ?? NULL)) {
+    $answers = guard_question_answers($payload);
+    foreach ($answers as $question => $answer) {
+      $line = json_encode([
+        'intake' => $intake['id'],
+        'question' => $question,
+        'answer' => $answer,
+        'via' => 'AskUserQuestion',
+        'at' => date('c'),
+      ], JSON_UNESCAPED_SLASHES);
+      if ($line !== FALSE) {
+        @file_put_contents($root . '/' . $stateDir . '/intake-answers.jsonl', $line . "\n", FILE_APPEND | LOCK_EX);
+      }
+    }
+    if ($answers !== []) {
+      $GLOBALS['workflow_guard_quiet'] = FALSE;
+      $GLOBALS['workflow_guard_verdict'] = 'note';
+      $GLOBALS['workflow_guard_rule'] = 'intake-answers';
+    }
+  }
+  exit(0);
+}
+
 // NUDGE MODE: guidance, never a wall (owner, 2026-10-02: "we guide it, not
 // enforce it"). Wired to PostToolUse, so the call has already run and nothing
 // here can stop it. It adds a note the agent reads beside the tool's result:
@@ -1298,6 +1332,48 @@ function operator_commands_writes_script_inner(string $command, string $path): s
 }
 
 /**
+ * The answers an AskUserQuestion call came back with, by question.
+ *
+ * Claude Code's result carries `answers`, each question's text to the label
+ * chosen or the words typed; the call's input carries the same map once the
+ * dialog has filled it. The text result ("…"="…") is read last, for a host
+ * that sends only that.
+ *
+ * @param array<mixed> $payload
+ *   The PostToolUse payload.
+ *
+ * @return array<string, string>
+ *   Each answer by its question.
+ */
+function guard_question_answers(array $payload): array {
+  foreach ([$payload['tool_response'] ?? NULL, $payload['tool_input'] ?? NULL] as $holder) {
+    $map = is_array($holder) ? ($holder['answers'] ?? NULL) : NULL;
+    if (is_array($map) && $map !== []) {
+      $out = [];
+      foreach ($map as $question => $answer) {
+        if (is_string($question) && (is_string($answer) || is_array($answer))) {
+          $out[$question] = is_array($answer) ? implode(', ', array_filter($answer, 'is_string')) : $answer;
+        }
+      }
+      if ($out !== []) {
+        return $out;
+      }
+    }
+  }
+  $text = $payload['tool_response'] ?? NULL;
+  if (is_array($text)) {
+    $text = $text['content'] ?? ($text[0]['text'] ?? NULL);
+  }
+  $out = [];
+  if (is_string($text) && preg_match_all('/"((?:[^"\\\\]|\\\\.)+)"="((?:[^"\\\\]|\\\\.)*)"/u', $text, $m, PREG_SET_ORDER) > 0) {
+    foreach ($m as $pair) {
+      $out[stripslashes($pair[1])] = stripslashes($pair[2]);
+    }
+  }
+  return $out;
+}
+
+/**
  * Refuses the operator's commands when the agent's shell issues them.
  *
  * `droost:workflow:gate-waive`, `droost:workflow:bypass` and
@@ -1469,6 +1545,19 @@ function operator_commands_guard(string $stdin): void {
       // review on its own; everything else, done above all, is the
       // operator's.
       $which = 'ticket move';
+    }
+    // The intake's approval, its abandonment and the answers given outside
+    // AskUserQuestion are the human's: an agent proposes the roadmap and
+    // asks, and never approves its own plan or answers its own question.
+    // `dwfin` is the drush alias. Checking and reading stay the agent's.
+    elseif (preg_match('/(?:droost-workflow\s+|droost:workflow:|(?<![\w-])dwfin\s+)intake\s+approve\b|(?<![\w-])dwfin\s+approve\b/', $line) === 1) {
+      $which = 'intake approve';
+    }
+    elseif (preg_match('/(?:droost-workflow\s+|droost:workflow:)intake\s+abandon\b|(?<![\w-])dwfin\s+abandon\b/', $line) === 1) {
+      $which = 'intake abandon';
+    }
+    elseif (preg_match('/(?:droost-workflow\s+|droost:workflow:)intake\s+answer\b|(?<![\w-])dwfin\s+answer\b/', $line) === 1) {
+      $which = 'intake answer';
     }
     elseif (operator_commands_arms_write_gate($tokens)
       || operator_commands_php_arms_write_gate($tokens)) {
@@ -4859,6 +4948,16 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
         . 'the Write or Edit tool. Reading the rest is not refused: `cat`, `head` '
         . 'and `grep` read it, so does the Read tool, and `droost-workflow '
         . 'evidence` renders the whole record.';
+    }
+    if (preg_match('#^(intake\.json|intake-answers\.jsonl)$#', $inState[3]) === 1) {
+      return 'That file is the intake\'s record: its state (the audit it argues '
+        . 'from, whether the human approved it) or the human\'s answers to its '
+        . 'questions, which the guard writes from AskUserQuestion and the '
+        . 'operator from a terminal. A line written by hand is an answer the '
+        . 'human never gave, or an approval they never made, whether the file '
+        . 'exists yet or not. Ask the question through AskUserQuestion, with the '
+        . 'words questions.md carries; `intake check` and `intake status` read '
+        . 'the record, and so do `cat` and the Read tool.';
     }
     if (preg_match('#^(events\.jsonl|host\.json|host-mods\.json|\.?work-item-[A-Za-z0-9._-]*|\.guard-warned-[A-Za-z0-9._-]+)$#', $inState[3]) === 1) {
       return 'That file is one the pipeline writes beside the run\'s record: the '

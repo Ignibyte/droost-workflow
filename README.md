@@ -707,6 +707,11 @@ is the record a relay or a dashboard reads (`droost-workflow events
 | `run.reset` | `reset` archived the run | `archived_run_id` |
 | `phase.returned` | the fast flow sent the run back to code | `from`, `to`, `reason` (`failed` or `moved`), `spent`, `max_loops`, `gates` |
 | `follow_up.filed` | a deferred phase's failure was written up | `phase`, `gate`, `why` (`spent` or `outside`), `summary`, `title`, `id`, `source`, `path`, `at`, `note` |
+| `intake.opened` | an intake opened, before any run (`run_id` is the intake's id) | `intake_id`, `request` (the human's words), `source` |
+| `intake.audited` | droost-source read the source | `intake_id`, `sha` (audit.json's sha256), `summary` |
+| `intake.answered` | the operator typed an answer to an intake question | `intake_id`, `question`, `answer`, `via` |
+| `intake.approved` | the operator approved the roadmap | `intake_id`, `digest`, `rungs`, `archived` |
+| `intake.abandoned` | the operator abandoned the intake | `intake_id`, `reason`, `archived` |
 
 Every event has `schema`, `event_id` (`evt-` and 16 hex digits, the consumer's
 dedup key: delivery is at least once), `seq` (strictly increasing per log from
@@ -775,6 +780,7 @@ command it hands the operator is one they can actually run.
 | `droost:workflow:effort <level>`, `droost-workflow effort <level>` | bare `effort` (reports) and `effort <level> --preview` (prices it) |
 | arming a write gate — `droost:gate allow_* on`, or the `config:set droost.settings allow_* true` form | disarming the same gate, which tightens |
 | `droost-workflow ticket move <id> <state>` | `ticket list`, `ticket show` and `ticket new` (a follow-up, filed in backlog) |
+| `droost:workflow:intake approve`, `intake abandon`, `intake answer` (and `droost-workflow intake …`) | `intake start`, `intake audit`, `intake check` and `intake status`; asking the human through AskUserQuestion, whose answers the guard records |
 
 The pattern is the same in each row: the reading and the tightening are the
 agent's, the loosening is not. An agent that needs one proposes it — the
