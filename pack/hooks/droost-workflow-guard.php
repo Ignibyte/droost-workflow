@@ -6419,7 +6419,7 @@ function wildcard_directory_refusal(string $directory, string $root, string $sta
     foreach ($trees + $files as $dir => $what) {
       if ($candidate !== '' && ($candidate === $dir || str_starts_with($candidate, $dir . '/'))) {
         return sprintf(
-          'A shell command in this run expands a wildcard inside `%s`, which holds %s. '
+          'This shell command expands a wildcard inside `%s`, which holds %s. '
           . 'The shell expands it; this guard sees a `*` and never the names it '
           . 'becomes, so it cannot tell a tidy-up from the one move that removes '
           . 'the enforcement. Name the file you mean.',
@@ -6431,11 +6431,11 @@ function wildcard_directory_refusal(string $directory, string $root, string $sta
     foreach ($trees as $dir => $what) {
       if (str_starts_with($dir . '/', $candidate === '' ? '' : $candidate . '/')) {
         return sprintf(
-          'A shell command in this run expands a wildcard across `%s`, which holds %s. '
+          'This shell command expands a wildcard across `%s`, which holds %s. '
           . 'The shell expands it; this guard sees a `*` and never the names it '
           . 'becomes, so it cannot tell a tidy-up from the one move that removes '
           . 'the enforcement. Name what you mean, or work below the directory '
-          . 'that holds the run.',
+          . 'that holds the enforcement.',
           $candidate === '' ? 'the project root' : $candidate,
           $what,
         );
