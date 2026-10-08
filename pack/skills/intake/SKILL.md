@@ -93,6 +93,11 @@ form, say), run it again with `--routes=/that,/other`.
   shown twice (a listing and a home-page block), never two types.
 - **A section that "shows" one record** is a spotlight: a View block or a
   reference field, not a type of its own.
+- **A value worked out from another** is shown, not stored: initials from a
+  name, a full name from its parts, a "FREE" for a price of 0. A record field
+  of the source can be one (a mock data file stores what a template should
+  compute); when you keep one as a field, say in Why what an editor gains by
+  typing it.
 - **Data**: records (exported or kept in a page), the interfaces that type
   them, database tables, API paths. A schema with no table, or an API with
   only a health check, is a template's scaffolding: set it aside.
@@ -218,11 +223,15 @@ drush droost:workflow:intake check
 
 Repeat until it reads `ready: true`. Then show the human the roadmap in a
 few lines (the rungs and what each builds, the decisions you made for them),
-and ask them to approve it **in their own terminal**:
+and ask them to approve it **in a terminal of their own**, outside this
+session (under DDEV, `ddev drush …` there):
 
 ```
-! drush droost:workflow:intake approve
+drush droost:workflow:intake approve
 ```
+
+Not with Claude Code's `!`: it runs a command with no terminal, and approval
+refuses it as it refuses you.
 
 Approving, abandoning and answering are the operator's; the guard refuses
 them from your shell. Do not start a run before approval: it is refused, and

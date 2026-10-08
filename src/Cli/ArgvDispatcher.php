@@ -1592,8 +1592,9 @@ final class ArgvDispatcher {
       'droost-workflow %1$s is the operator\'s command and this shell has no '
       . 'terminal (an agent\'s tool shell, a pipe, a script). It records a '
       . 'HUMAN\'s decision, so a human types it: run `droost-workflow %1$s …` '
-      . 'in your own terminal (`! droost-workflow %1$s …` from inside Claude '
-      . 'Code).',
+      . 'in a terminal of your own, outside the agent\'s session. Claude '
+      . 'Code\'s `!` runs a command with no terminal, so it is refused there '
+      . 'too (F-256).',
       $command,
     );
   }

@@ -581,11 +581,14 @@ final class GuardTest extends WorkflowTestCase {
         // blanket assertion is what let that pass; per-surface is stricter.
         $this->assertStringContainsString(
           str_contains($command, 'droost-workflow ')
-            ? '! droost-workflow '
-            : '! drush droost:workflow:',
+            ? '`droost-workflow '
+            : '`drush droost:workflow:',
           $stderr,
           $command . ': the refusal hands over a command this surface can run',
         );
+        // And not through Claude Code's `!`, which has no terminal (F-256).
+        $this->assertStringNotContainsString('`! ', $stderr, $command . ': no `!` hand-over');
+        $this->assertStringContainsString('terminal of THEIR own', $stderr);
       }
     }
 

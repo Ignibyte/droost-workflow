@@ -1982,7 +1982,8 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       $this->assertStringContainsString('OPERATOR', $stderr, $command);
     }
     [, , $handover] = $this->shell($root, 'vendor/bin/droost-workflow ticket move TICKET-12 done');
-    $this->assertStringContainsString('`! droost-workflow ticket move …`', $handover, 'the hand-over names the binary that was used');
+    $this->assertStringContainsString('`droost-workflow ticket move …`', $handover, 'the hand-over names the binary that was used');
+    $this->assertStringNotContainsString('`! ', $handover, 'and not through Claude Code\'s `!`, which has no terminal (F-256)');
 
     foreach ([
       'vendor/bin/droost-workflow ticket list',

@@ -1585,16 +1585,21 @@ function operator_commands_guard(string $stdin): void {
     // The RUNNABLE command, which is not the same string as the verb's name.
     // A drush verb is not a command without `drush` in front of it, and the
     // hand-over line is the whole point of this refusal: printing
-    // `! droost:workflow:gate-waive …` gives the operator something their
+    // `droost:workflow:gate-waive …` gives the operator something their
     // shell does not have. The standalone binary IS the command, so it stands
     // alone. Caught by GuardTest, which pins the hand-over's exact shape.
+    //
+    // AND A TERMINAL OF THEIR OWN (F-256). The refusal used to say "in Claude
+    // Code: `! …`", and Claude Code's `!` gives a command no terminal: the
+    // operator who followed it was refused as the agent is.
     $handover = $cli ? $name : 'drush ' . $name;
     guard_refuse('operator-command:' . $which, sprintf(
       '%1$s is the OPERATOR\'s command — an agent may propose it, never run it. '
       . 'Show the operator the exact command with your reason and ask them to '
-      . 'run it in THEIR terminal (in Claude Code: `! %2$s …`), then '
-      . 'continue once they say it is done. The record must carry a human\'s '
-      . 'decision, not yours.%3$s',
+      . 'run it in a terminal of THEIR own, outside this session: `%2$s …`. '
+      . 'Not with Claude Code\'s `!`, which runs a command with no terminal, '
+      . 'so it is refused there as it is here. Continue once they say it is '
+      . 'done. The record must carry a human\'s decision, not yours.%3$s',
       $name,
       $handover,
       $gate ? ' (Disarming a gate — `off` — needs no operator; only arming does.)' : '',

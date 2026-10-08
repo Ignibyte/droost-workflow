@@ -131,7 +131,8 @@ final class GuardIntakeTest extends WorkflowTestCase {
       [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
       $this->assertSame(2, $exit, $command . ' must be refused');
       $this->assertStringContainsString("OPERATOR's command", $stderr);
-      $this->assertStringContainsString(str_contains($command, 'droost-workflow ') ? '! droost-workflow intake ' : '! drush droost:workflow:intake ', $stderr, $command);
+      $this->assertStringContainsString(str_contains($command, 'droost-workflow ') ? '`droost-workflow intake ' : '`drush droost:workflow:intake ', $stderr, $command);
+      $this->assertStringNotContainsString('`! ', $stderr, $command . ': no `!` hand-over (F-256)');
     }
     foreach ([
       'vendor/bin/droost-workflow intake check',

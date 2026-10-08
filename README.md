@@ -831,8 +831,10 @@ command it hands the operator is one they can actually run.
 
 The pattern is the same in each row: the reading and the tightening are the
 agent's, the loosening is not. An agent that needs one proposes it — the
-refusal prints the exact command to hand over, and in Claude Code the operator
-runs it with `! drush …` (or `! droost-workflow …`) so it lands in the same transcript. On a host without pre-tool hooks the status document's
+refusal prints the exact command to hand over, and the operator runs it in a
+terminal of their own, outside the agent's session. Not with Claude Code's
+`!`: it runs a command with no terminal, so the command refuses it as it
+refuses the agent (F-256). On a host without pre-tool hooks the status document's
 run half says so — `enforcement.effective: advisory` — because the gates still
 hold the run server-side but nothing stops an out-of-phase edit, and a report
 must not claim a discipline the host never had.
