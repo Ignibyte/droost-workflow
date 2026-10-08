@@ -93,6 +93,11 @@ form, say), run it again with `--routes=/that,/other`.
   shown twice (a listing and a home-page block), never two types.
 - **A section that "shows" one record** is a spotlight: a View block or a
   reference field, not a type of its own.
+- **A broken image** (the audit marks it, and its slot says how many of
+  the items' images are broken) holds content nobody has seen. Never say
+  what it shows from its file name or alt text: say it is missing, and ask
+  the human what it held. If a record's name, price or text might be drawn
+  into it, that is a question, not a field.
 - **A value worked out from another** is shown, not stored: initials from a
   name, a full name from its parts, a "FREE" for a price of 0. A record field
   of the source can be one (a mock data file stores what a template should
@@ -223,17 +228,17 @@ drush droost:workflow:intake check
 
 Repeat until it reads `ready: true`. Then show the human the roadmap in a
 few lines (the rungs and what each builds, the decisions you made for them),
-and ask them to approve it **in a terminal of their own**, outside this
-session (under DDEV, `ddev drush …` there):
+and **ask them through AskUserQuestion whether to approve it** ("Approve this
+roadmap?", with Approve and Not yet). The guard records their answer. Only on
+their yes, approve it yourself:
 
 ```
 drush droost:workflow:intake approve
 ```
 
-Not with Claude Code's `!`: it runs a command with no terminal, and approval
-refuses it as it refuses you.
-
-Approving, abandoning and answering are the operator's; the guard refuses
-them from your shell. Do not start a run before approval: it is refused, and
-the refusal says why. After approval, each rung runs through
+Never approve without that yes: the approval records whose yes it was, and
+an approval with none on record says so. Abandoning the intake and recording
+an answer outside AskUserQuestion stay the operator's; the guard refuses them
+from your shell. Do not start a run before approval: it is refused, and the
+refusal says why. After approval, each rung runs through
 `/droost:workflow:start` with its ticket, one at a time, in order.

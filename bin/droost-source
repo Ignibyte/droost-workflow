@@ -486,7 +486,13 @@ function serializeInPage() {
       const l = el.getAttribute('aria-label') || el.getAttribute('title');
       if (l) node.l = l;
     }
-    if (el.tagName === 'IMG') { node.s = el.currentSrc || el.src; node.a = el.alt || ''; }
+    if (el.tagName === 'IMG') {
+      node.s = el.currentSrc || el.src;
+      node.a = el.alt || '';
+      // An image that finished and drew nothing is broken: its content is
+      // unknown, whatever its name and alt text suggest (F-257).
+      if (el.complete && el.naturalWidth === 0) node.b = 1;
+    }
     if (el.tagName === 'IFRAME') node.s = el.src;
     if (['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(el.tagName)) {
       const f = { type: el.tagName === 'INPUT' ? (el.getAttribute('type') || 'text') : el.tagName.toLowerCase(), name: el.getAttribute('name') || '', label: labelOf(el), required: el.required || el.getAttribute('aria-required') === 'true' };
@@ -619,7 +625,7 @@ function slotsOf(item) {
   const go = (n, at) => {
     const key = at;
     if (HEADING.test(n.t)) { out.push({ key, role: 'heading', value: textOf(n) }); return; }
-    if (n.t === 'img') { out.push({ key, role: 'image', value: n.a || '', src: n.s || '' }); return; }
+    if (n.t === 'img') { out.push({ key, role: 'image', value: n.a || '', src: n.s || '', broken: Boolean(n.b) }); return; }
     if (n.t === 'iframe') { out.push({ key, role: 'embed', value: n.s || '' }); return; }
     if (n.t === 'svg') return;
     const kids = n.k || [];
@@ -681,6 +687,10 @@ function repeatsOf(tree, origin) {
         if (new Set(hrefs).size > 1) slot.varies = true;
       }
       if (first.role === 'list') slot.items = per.map((p) => (p.find((s) => s.key === key) || {}).items || 0);
+      if (first.role === 'image') {
+        const broken = per.filter((p) => (p.find((s) => s.key === key) || {}).broken).length;
+        if (broken) slot.broken = broken;
+      }
       return slot;
     });
     const roles = slots.map((s) => s.role);
@@ -758,12 +768,15 @@ function analyse(tree, origin) {
   const landmarks = new Set();
   const internal = new Set();
   const external = new Set();
-  const media = { images: 0, embeds: [], videos: 0 };
+  const media = { images: 0, embeds: [], videos: 0, broken: [] };
   for (const [n] of each(tree)) {
     if (HEADING.test(n.t)) outline.push({ level: Number(n.t[1]), text: textOf(n) });
     if (LANDMARKS[n.t]) landmarks.add(n.t);
     if (n.r && Object.values(LANDMARKS).includes(n.r)) landmarks.add(Object.keys(LANDMARKS).find((k) => LANDMARKS[k] === n.r));
-    if (n.t === 'img') media.images++;
+    if (n.t === 'img') {
+      media.images++;
+      if (n.b) media.broken.push({ src: n.s || '', alt: n.a || '' });
+    }
     if (n.t === 'video') media.videos++;
     if (n.t === 'iframe' && n.s) { try { media.embeds.push(new URL(n.s).host); } catch (e) { media.embeds.push(n.s); } }
     if (n.t === 'a' && n.h) {
@@ -909,7 +922,13 @@ async function readPage(browser, url, width) {
   const page = await ctx.newPage();
   let crashed = false;
   page.on('crash', () => { crashed = true; });
-  const out = { status: 'ERR' };
+  const out = { status: 'ERR', failedImages: {} };
+  page.on('response', (res) => {
+    if (res.request().resourceType() === 'image' && res.status() >= 400) out.failedImages[res.url()] = res.status();
+  });
+  page.on('requestfailed', (req) => {
+    if (req.resourceType() === 'image') out.failedImages[req.url()] = 'failed';
+  });
   try {
     const res = await page.goto(url, { waitUntil: 'load', timeout: 60000 });
     out.status = res ? res.status() : 'ERR';
@@ -1010,6 +1029,7 @@ async function audit(opts) {
     routes.push({ id: `r:${route}`, path: route, status: reading.status, declared: declared.includes(route), pattern, notFound: Boolean(reading.notFound), ...(reading.error ? { invalid: reading.error } : {}) });
     if (!reading.tree || reading.notFound || (typeof reading.status === 'number' && reading.status >= 400)) continue;
     const a = analyse(reading.tree, origin);
+    for (const img of a.media.broken) if (reading.failedImages && reading.failedImages[img.src] !== undefined) img.status = reading.failedImages[img.src];
     const id = `p:${route}`;
     const page = {
       id,
@@ -1092,10 +1112,11 @@ function markdown(a) {
     for (const r of p.repeats) {
       lines.push(`- \`${r.id}\` ${r.kind}, ${r.count} in ${r.inside}${r.seenOn.length ? `, also ${r.seenOn.join(', ')}` : ''}`);
       if (r.data) lines.push(`  - renders \`${r.data.id}\` (${r.data.records.length} of its records)`);
-      for (const s of r.slots) lines.push(`  - ${s.n}. ${s.role}${s.varies ? '' : ' (the same in every item)'}${s.pattern ? ` [${s.pattern}]` : ''}${r.data && r.data.fields[s.n] ? ` = ${r.data.fields[s.n]}` : ''}: ${[...new Set(s.values)].slice(0, 4).map((e) => JSON.stringify(e.slice(0, 60))).join(', ')}${s.targets ? ` → ${[...new Set(s.targets)].slice(0, 6).join(', ')}` : ''}`);
+      for (const s of r.slots) lines.push(`  - ${s.n}. ${s.role}${s.broken ? ` **(${s.broken} of ${r.count} BROKEN: what they show is unknown)**` : ''}${s.varies ? '' : ' (the same in every item)'}${s.pattern ? ` [${s.pattern}]` : ''}${r.data && r.data.fields[s.n] ? ` = ${r.data.fields[s.n]}` : ''}: ${[...new Set(s.values)].slice(0, 4).map((e) => JSON.stringify(e.slice(0, 60))).join(', ')}${s.targets ? ` → ${[...new Set(s.targets)].slice(0, 6).join(', ')}` : ''}`);
     }
     for (const f of p.forms) lines.push(`- \`${f.id}\` form (${f.submit || 'no submit'}): ${f.fields.map((x) => `${x.label || x.name || x.type} [${x.type}${x.required ? ', required' : ''}${x.options ? `: ${x.options.join('/')}` : ''}]`).join('; ')}`);
     if (p.media.embeds.length) lines.push(`- embeds: ${p.media.embeds.join(', ')}`);
+    if (p.media.broken.length) lines.push(`- **broken images** (their content is unknown; ask what they held): ${p.media.broken.map((b) => `${b.alt ? JSON.stringify(b.alt) + ' ' : ''}${b.src.split('/').pop()}${b.status !== undefined ? ` (${b.status})` : ''}`).join(', ')}`);
   }
   lines.push('', '## Data the files declare', '');
   if (!a.data.length) lines.push('None.');

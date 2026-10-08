@@ -149,6 +149,17 @@ test('cards of one template are one structure, lists of other lengths included, 
   assert.equal(nav.inside, 'nav');
 });
 
+test('an image that never drew is broken, and its slot says how many of its items are', () => {
+  const item = (alt, broken) => ({ t: 'div', k: [{ t: 'img', s: `http://s.test/${alt}.png`, a: alt, ...(broken ? { b: 1 } : {}) }, { t: 'h3', x: alt }, { t: 'p', x: alt + ' text' }] });
+  const tree = { t: 'body', k: [{ t: 'main', k: [{ t: 'div', k: [item('One', true), item('Two', true), item('Three', false)] }] }] };
+  const [cards] = src.repeatsOf(tree, 'http://s.test');
+  const image = cards.slots.find((s) => s.role === 'image');
+  assert.equal(image.broken, 2, 'two of the three images never drew');
+  assert.deepEqual(src.analyse(tree, 'http://s.test').media.broken.map((b) => b.alt), ['One', 'Two']);
+  const whole = { t: 'body', k: [{ t: 'main', k: [{ t: 'div', k: [item('A', false), item('B', false), item('C', false)] }] }] };
+  assert.equal(src.repeatsOf(whole, 'http://s.test')[0].slots.find((s) => s.role === 'image').broken, undefined, 'none broken, none said');
+});
+
 test('a structure is matched to the records it renders, each slot to its field, each item to its one record', () => {
   const data = src.scriptData('data/events.ts', fs.readFileSync(path.join(FIXTURE, 'data', 'events.ts'), 'utf8'));
   const cards = src.repeatsOf(page(), 'http://s.test').find((r) => r.kind === 'cards');
@@ -217,6 +228,8 @@ test('the fixture site, served and audited', { skip: !PW_CWD && 'no DROOST_SOURC
     const cards = home.repeats.find((r) => r.kind === 'cards');
     assert.equal(cards.data.id, 'd:data/events.ts#EVENTS');
     assert.ok(home.sections.some((s) => s.start.includes('Yes, on Saturdays.')), 'the disclosure was opened and its answer read');
+    assert.deepEqual(home.media.broken.map((b) => [b.alt, b.status]), [['Our shop front, prices in the window', 404]], 'a broken image is named, with its status');
+    assert.ok(fs.readFileSync(path.join(out, 'audit.md'), 'utf8').includes('broken images'), 'and audit.md says so');
     assert.ok(home.sections.length >= 2);
     const contact = audit.pages.find((p) => p.route === '/contact');
     assert.deepEqual(contact.forms[0].fields.map((f) => f.label), ['Name', 'Email', 'Topic', 'Message']);
