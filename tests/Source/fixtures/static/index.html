@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Harbor Books</title><meta name="description" content="A small bookshop."></head>
+<body>
+<header><a href="/">Harbor Books</a><nav><a href="/">Home</a> <a href="/events">Events</a> <a href="/contact">Contact</a></nav></header>
+<main>
+  <section><h1>Books by the water</h1><p>Open every day but Monday.</p></section>
+  <section>
+    <h2>Upcoming events</h2>
+    <div class="grid">
+      <article><h3>Poetry night</h3><p>Mar 4</p><span>Price</span><p>$5</p><ul><li>Readings</li><li>Tea</li><li>Open mic</li></ul><a href="/events/poetry-night">More</a></article>
+      <article><h3>Author talk</h3><p>Mar 11</p><span>Price</span><p>$10</p><ul><li>Q&amp;A</li><li>Signing</li><li>Tea</li><li>Books</li></ul><a href="/events/author-talk">More</a></article>
+      <article><h3>Kids story hour</h3><p>Mar 18</p><span>Price</span><p>$0</p><ul><li>Stories</li><li>Crafts</li><li>Snacks</li></ul><a href="/events/story-hour">More</a></article>
+    </div>
+  </section>
+  <section><h2>Questions</h2>
+    <h3><button type="button" aria-expanded="false" aria-controls="a1">Do you buy used books?</button></h3>
+    <div id="a1" hidden><p>Yes, on Saturdays.</p></div>
+    <script>
+      for (const b of document.querySelectorAll('[aria-controls]')) b.addEventListener('click', () => {
+        const open = b.getAttribute('aria-expanded') === 'true';
+        b.setAttribute('aria-expanded', String(!open));
+        document.getElementById(b.getAttribute('aria-controls')).hidden = open;
+      });
+    </script>
+  </section>
+</main>
+<footer><a href="/contact">Contact</a> <a href="mailto:hello@harbor.test">hello@harbor.test</a></footer>
+</body></html>

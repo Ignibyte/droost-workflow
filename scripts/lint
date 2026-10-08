@@ -79,11 +79,15 @@ fi
 # JavaScript. A machine with no node skips this leg and says so.
 LEGS=3
 if command -v node >/dev/null 2>&1; then
-  LEGS=4
+  LEGS=5
   run_leg "droost-guard mod (node --test)" \
     node --test claude-plugins/droost-guard/tests/notes.node.test.mjs
+  # The intake's reader. Its browser case runs only where a Playwright is
+  # named (DROOST_SOURCE_PLAYWRIGHT_CWD) and says it was skipped otherwise.
+  run_leg "droost-source (node --test)" \
+    node --test tests/Source/source.node.test.cjs
 else
-  printf '  \033[33mSKIP\033[0m  droost-guard mod: no node on this machine\n'
+  printf '  \033[33mSKIP\033[0m  droost-guard mod and droost-source: no node on this machine\n'
 fi
 
 if [ "$FAIL" -eq 0 ]; then

@@ -1,0 +1,1156 @@
+#!/usr/bin/env node
+/**
+ * @file
+ * The intake's reader: what a design source holds, written down once.
+ *
+ * A source arrives as a served site (a Replit or Vite app the agent started,
+ * a static folder this serves) and, beside it, its files. The audit reads all
+ * of it the same way every time, so the intake's assessment argues from a
+ * record a tool wrote, never from what an agent remembers seeing:
+ *
+ *   routes      the router's own table when the files carry one (wouter,
+ *               React Router), every same-origin link a crawl reaches from /,
+ *               and the routes given; a route with a parameter is a pattern
+ *               its crawled instances fill
+ *   pages       per route: status, title, description, landmarks, the
+ *               heading outline, the sections of its main content, its
+ *               repeated structures, its forms, its media and links; a page
+ *               that reads as the source's own not-found page says so
+ *   repeats     sibling elements of one shape, three or more: their slots in
+ *               order, each with a role (heading, text, image, link, list
+ *               …), whether its value varies across the items (a value
+ *               every item shares is a label, not a field), the values it
+ *               holds and a pattern they share (price, date, phone …); the
+ *               route their links lead to; every page they occur on
+ *   forms       each field's label, type, name, required flag and options
+ *   frame       the header's and footer's links, as menus
+ *   tokens      the typefaces, the colours most used, the root's custom
+ *               properties
+ *   data        what the files declare: exported arrays and the interfaces
+ *               that type them, JSON arrays of records, database tables
+ *               (Drizzle, Prisma), API paths (OpenAPI); a schema with no
+ *               table and an API with only a health check say so
+ *
+ * Every element carries an id (`r:/camps`, `p:/camps#r1`, `d:<path>#CAMPS`)
+ * that the intake's decisions cite and its evidence check resolves.
+ *
+ *   droost-source audit --url <served> [--files <dir>] [--out droost/intake]
+ *                       [--routes /,/x] [--max-pages 60] [--width 1280]
+ *   droost-source serve <dir> [--port 4321]
+ *
+ * Playwright is the project's own (node_modules/playwright), as for
+ * droost-parity. `audit` writes <out>/audit.json and <out>/audit.md.
+ *
+ * Exit: 0 audited; 2 audited, but a page could not be read (it is in the
+ * audit as INVALID); 3 nothing could be read; 64 usage; 127 no Playwright.
+ * The last line of stdout is always one JSON object, {"source": {...}}.
+ */
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const http = require('http');
+
+const EXIT = { ok: 0, partial: 2, nothing: 3, usage: 64, noBrowser: 127 };
+const SCHEMA = 'droost-source/audit@1';
+
+function args(argv) {
+  const out = { _: [] };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith('--')) {
+      const key = a.slice(2);
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith('--')) out[key] = true;
+      else { out[key] = next; i++; }
+    } else out._.push(a);
+  }
+  return out;
+}
+
+function finish(summary, code) {
+  process.stdout.write(JSON.stringify({ source: summary }) + '\n');
+  process.exit(code);
+}
+
+function playwright() {
+  const where = path.join(process.cwd(), 'node_modules', 'playwright');
+  try {
+    return require(where);
+  } catch (e) {
+    finish({ status: 'no-browser', summary: `no Playwright at ${where}: install it (npm i -D playwright) and its Chromium` }, EXIT.noBrowser);
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Routes.
+// ---------------------------------------------------------------------------
+
+// A path as the audit keys it: no query, no hash, no trailing slash but /.
+function normalPath(p) {
+  let out = String(p || '/').split('#')[0].split('?')[0];
+  if (!out.startsWith('/')) out = '/' + out;
+  out = out.replace(/\/{2,}/g, '/');
+  if (out.length > 1) out = out.replace(/\/+$/, '');
+  return out || '/';
+}
+
+// Whether a route is a pattern (`/camps/:id`, `/camps/[id]`, `*`).
+const isPattern = (route) => /(^|\/)(:|\[|\*)/.test(route);
+
+// A pattern as a regular expression over a path.
+function patternRegex(route) {
+  const body = normalPath(route).split('/').map((part) => {
+    if (part.startsWith(':') || /^\[.+\]$/.test(part)) return '[^/]+';
+    if (part === '*' || part.startsWith('*')) return '.*';
+    return part.replace(/[.+?^${}()|\\]/g, '\\$&');
+  }).join('/');
+  return new RegExp('^' + (body || '/') + '$');
+}
+
+// The route a path is an instance of, among the declared patterns.
+function matchPattern(p, patterns) {
+  for (const route of patterns) {
+    if (patternRegex(route).test(p)) return route;
+  }
+  return null;
+}
+
+/**
+ * The routes a router declares in a file's text.
+ *
+ * wouter and React Router alike: `<Route path="/x" …>` and a route object's
+ * `path: "/x"` in a file that imports either. A `<Route>` with no path is the
+ * not-found catch-all and names nothing.
+ */
+function routerRoutes(text) {
+  if (!/from\s+['"](wouter|react-router|react-router-dom|@tanstack\/react-router)['"]/.test(text)) return [];
+  const found = new Set();
+  for (const m of text.matchAll(/<Route\b[^>]*?\bpath\s*=\s*\{?\s*["'`]([^"'`]+)["'`]/g)) found.add(m[1]);
+  for (const m of text.matchAll(/\bpath\s*:\s*["'`]([^"'`]+)["'`]/g)) found.add(m[1]);
+  return [...found].filter((r) => r.startsWith('/') || r === '*').map((r) => (r === '*' ? r : normalPath(r)));
+}
+
+// ---------------------------------------------------------------------------
+// Files: what the source declares.
+// ---------------------------------------------------------------------------
+
+const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.cache', 'coverage', '.next', '.turbo', '.vite', 'out', '.local', '.pnpm-store', 'tmp']);
+const SKIP_JSON = /(^|\/)(package(-lock)?|tsconfig[\w.-]*|components|composer|\.?eslintrc|jsconfig|manifest|vercel|turbo|lerna|renovate|app)\.json$/;
+
+function walk(root, limit = 20000) {
+  const out = [];
+  const stack = [''];
+  while (stack.length && out.length < limit) {
+    const rel = stack.pop();
+    let entries = [];
+    try {
+      entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true });
+    } catch (e) {
+      continue;
+    }
+    for (const e of entries) {
+      const next = rel ? rel + '/' + e.name : e.name;
+      if (e.isDirectory()) {
+        if (!SKIP_DIRS.has(e.name) && !e.name.startsWith('.')) stack.push(next);
+      } else if (e.isFile()) out.push(next);
+    }
+  }
+  return out.sort();
+}
+
+// Text with comments taken out, strings kept: a commented-out example table
+// is not a table.
+function stripComments(text) {
+  let out = '';
+  let i = 0;
+  let quote = null;
+  while (i < text.length) {
+    const c = text[i];
+    const n = text[i + 1];
+    if (quote) {
+      out += c;
+      if (c === '\\') { out += n || ''; i += 2; continue; }
+      if (c === quote) quote = null;
+      i++;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') { quote = c; out += c; i++; continue; }
+    if (c === '/' && n === '/') { while (i < text.length && text[i] !== '\n') i++; continue; }
+    if (c === '/' && n === '*') { i += 2; while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) i++; i += 2; continue; }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+// From an opening bracket at `start`, the index of its closing bracket.
+function closing(text, start) {
+  const open = text[start];
+  const close = { '[': ']', '{': '}', '(': ')' }[open];
+  let depth = 0;
+  let quote = null;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (quote) {
+      if (c === '\\') { i++; continue; }
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') { quote = c; continue; }
+    if (c === open) depth++;
+    else if (c === close && --depth === 0) return i;
+  }
+  return -1;
+}
+
+// The top-level members of an array or object literal's body, as text.
+function members(body) {
+  const out = [];
+  let depth = 0;
+  let quote = null;
+  let from = 0;
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i];
+    if (quote) {
+      if (c === '\\') { i++; continue; }
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') { quote = c; continue; }
+    if ('[{('.includes(c)) depth++;
+    else if (']})'.includes(c)) depth--;
+    else if (c === ',' && depth === 0) { out.push(body.slice(from, i).trim()); from = i + 1; }
+  }
+  const last = body.slice(from).trim();
+  if (last) out.push(last);
+  return out.filter(Boolean);
+}
+
+// A literal's value: a string, a number, a boolean, a list of them; an
+// expression is kept as its text.
+function literalValue(raw) {
+  const v = raw.trim();
+  const q = v.match(/^(["'`])([\s\S]*)\1$/);
+  if (q && !(q[1] === '`' && q[2].includes('${'))) return q[2];
+  if (/^-?\d+(\.\d+)?$/.test(v)) return Number(v);
+  if (v === 'true' || v === 'false') return v === 'true';
+  if (v.startsWith('[')) {
+    const end = closing(v, 0);
+    return end > 0 ? members(v.slice(1, end)).map(literalValue) : v;
+  }
+  if (v.startsWith('{')) return '{…}';
+  return v.length > 120 ? v.slice(0, 120) + '…' : v;
+}
+
+// An object literal's members as key and value.
+function objectValues(literal) {
+  const inner = literal.trim().replace(/^\{/, '').replace(/\}$/, '');
+  const out = {};
+  for (const m of members(inner)) {
+    const k = m.match(/^["']?([A-Za-z_$][\w$-]*)["']?\s*:\s*([\s\S]*)$/);
+    if (k) out[k[1]] = literalValue(k[2]);
+  }
+  return out;
+}
+
+// The keys of an object literal's text, in order.
+function objectKeys(literal) {
+  const inner = literal.trim().replace(/^\{/, '').replace(/\}$/, '');
+  return members(inner).map((m) => {
+    const k = m.match(/^["']?([A-Za-z_$][\w$-]*)["']?\s*:/);
+    return k ? k[1] : null;
+  }).filter(Boolean);
+}
+
+/**
+ * What a TypeScript or JavaScript file declares as content.
+ *
+ * Interfaces and object type aliases (each field's type and whether it is
+ * optional), and exported arrays: how many records, the keys the records
+ * carry, and the interface that types them.
+ */
+const CONTENT_DIR = /(^|\/)(data|content|models?|types|schema|entities|fixtures|seed)\//;
+const LIBRARY_DIR = /(^|\/)(components\/ui|generated)\//;
+
+function scriptData(rel, raw) {
+  if (LIBRARY_DIR.test(rel)) return [];
+  const text = stripComments(raw);
+  const out = [];
+  const interfaces = {};
+  const declared = [];
+  for (const m of text.matchAll(/export\s+(?:interface\s+(\w+)(?:\s+extends\s+[\w,\s]+)?\s*|type\s+(\w+)\s*=\s*)\{/g)) {
+    const name = m[1] || m[2];
+    const start = m.index + m[0].length - 1;
+    const end = closing(text, start);
+    if (end < 0) continue;
+    const fields = [];
+    for (const line of text.slice(start + 1, end).split(/[;\n]/)) {
+      const f = line.trim().match(/^["']?([A-Za-z_$][\w$]*)["']?(\?)?\s*:\s*(.+?)\s*,?$/);
+      if (f) fields.push({ name: f[1], type: f[3], optional: Boolean(f[2]) });
+    }
+    if (fields.length) {
+      interfaces[name] = fields;
+      declared.push({ id: `d:${rel}#${name}`, path: rel, kind: 'interface', name, fields });
+    }
+  }
+  const typing = new Set();
+  // Arrays at the top of a file, exported or not: a page that keeps its own
+  // FAQ in a const holds content as surely as a data file does.
+  for (const m of text.matchAll(/^(?:export\s+)?const\s+(\w+)\s*(?::\s*([\w<>[\]\s.|]+?))?\s*=\s*\[/gm)) {
+    const start = m.index + m[0].length - 1;
+    const end = closing(text, start);
+    if (end < 0) continue;
+    const items = members(text.slice(start + 1, end));
+    const records = items.filter((i) => i.startsWith('{'));
+    const keys = [];
+    for (const r of records) for (const k of objectKeys(r)) if (!keys.includes(k)) keys.push(k);
+    const typed = (m[2] || '').replace(/\s/g, '').match(/^(?:Array<(\w+)>|(\w+)\[\])$/);
+    const type = typed ? (typed[1] || typed[2]) : null;
+    if (type) typing.add(type);
+    if (!records.length && !/^export/.test(m[0])) continue;
+    out.push({
+      id: `d:${rel}#${m[1]}`,
+      path: rel,
+      ...(/^export/.test(m[0]) ? {} : { exported: false }),
+      kind: records.length ? 'records' : 'list',
+      name: m[1],
+      count: items.length,
+      type,
+      fields: type && interfaces[type] ? interfaces[type] : keys.map((k) => ({ name: k })),
+      values: (records.length ? records.map(objectValues) : items.map(literalValue)).slice(0, 200),
+    });
+  }
+  // An interface is content when a list of records it types is, or when it
+  // sits where a project keeps its models; a component's props are not.
+  out.unshift(...declared.filter((d) => typing.has(d.name) || CONTENT_DIR.test(rel)));
+  // Drizzle tables, outside comments only.
+  for (const m of text.matchAll(/\b(pg|mysql|sqlite)Table\s*\(\s*["'`](\w+)["'`]\s*,\s*\{/g)) {
+    const start = m.index + m[0].length - 1;
+    const end = closing(text, start);
+    if (end < 0) continue;
+    const fields = members(text.slice(start + 1, end)).map((c) => {
+      const f = c.match(/^["']?(\w+)["']?\s*:\s*(\w+)\s*\(/);
+      return f ? { name: f[1], type: f[2] } : null;
+    }).filter(Boolean);
+    out.push({ id: `d:${rel}#${m[2]}`, path: rel, kind: 'table', name: m[2], fields });
+  }
+  return out;
+}
+
+// Prisma models.
+function prismaData(rel, text) {
+  const out = [];
+  for (const m of stripComments(text).matchAll(/\bmodel\s+(\w+)\s*\{([^}]*)\}/g)) {
+    const fields = m[2].split('\n').map((l) => l.trim().match(/^(\w+)\s+(\w+)(\?|\[\])?/)).filter(Boolean)
+      .map((f) => ({ name: f[1], type: f[2] + (f[3] || ''), optional: f[3] === '?' }));
+    out.push({ id: `d:${rel}#${m[1]}`, path: rel, kind: 'table', name: m[1], fields });
+  }
+  return out;
+}
+
+// An OpenAPI document's paths and schemas, read by indentation (YAML).
+function openapiData(rel, text) {
+  if (!/^openapi\s*:/m.test(text) && !/^swagger\s*:/m.test(text)) return [];
+  const paths = [];
+  const schemas = [];
+  let section = null;
+  for (const line of text.split('\n')) {
+    if (/^paths\s*:/.test(line)) { section = 'paths'; continue; }
+    if (/^components\s*:/.test(line)) { section = 'components'; continue; }
+    if (/^\S/.test(line)) { if (!/^(paths|components)\s*:/.test(line)) section = null; continue; }
+    if (section === 'paths') {
+      const p = line.match(/^ {2}["']?(\/[^"':]*)["']?\s*:/);
+      if (p) paths.push(p[1]);
+    }
+    if (section === 'components') {
+      const s = line.match(/^ {4}(\w+)\s*:\s*$/);
+      if (s && s[1] !== 'schemas') schemas.push(s[1]);
+    }
+  }
+  const health = paths.every((p) => /^\/(healthz?|status|ping)$/.test(p));
+  return [{
+    id: `d:${rel}#api`, path: rel, kind: 'api', name: 'api', paths, schemas,
+    note: paths.length === 0 ? 'no paths' : (health ? 'a health check only: no content in this API' : null),
+  }];
+}
+
+// A JSON file that is an array of records, or holds one under a key.
+function jsonData(rel, text) {
+  if (SKIP_JSON.test(rel)) return [];
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch (e) {
+    return [];
+  }
+  const out = [];
+  const consider = (name, v) => {
+    if (!Array.isArray(v) || v.length === 0 || !v.every((x) => x && typeof x === 'object' && !Array.isArray(x))) return;
+    const keys = [];
+    for (const r of v) for (const k of Object.keys(r)) if (!keys.includes(k)) keys.push(k);
+    out.push({ id: `d:${rel}#${name}`, path: rel, kind: 'records', name, count: v.length, fields: keys.map((k) => ({ name: k })), values: v.slice(0, 200) });
+  };
+  if (Array.isArray(value)) consider(path.basename(rel, '.json'), value);
+  else if (value && typeof value === 'object') for (const [k, v] of Object.entries(value)) consider(k, v);
+  return out;
+}
+
+/**
+ * Everything the files declare: routes, data, documents, and what was left.
+ */
+function readFiles(root) {
+  const files = walk(root);
+  const data = [];
+  const routes = new Set();
+  const documents = [];
+  const html = [];
+  const notes = [];
+  let schemaFiles = 0;
+  for (const rel of files) {
+    const full = path.join(root, rel);
+    let size = 0;
+    try {
+      size = fs.statSync(full).size;
+    } catch (e) {
+      continue;
+    }
+    if (size > 1024 * 1024) continue;
+    const ext = path.extname(rel).toLowerCase();
+    if (/(^|\/)(readme|replit|agents|claude)\.md$/i.test(rel)) documents.push(rel);
+    if (ext === '.html') html.push(rel);
+    if (!['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json', '.prisma', '.yaml', '.yml'].includes(ext)) continue;
+    if (/\.d\.ts$|\.config\.|\.test\.|\.spec\./.test(rel)) continue;
+    const text = fs.readFileSync(full, 'utf8');
+    if (['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'].includes(ext)) {
+      for (const r of routerRoutes(text)) routes.add(r);
+      if (/\/schema\//.test(rel) || /\b(pg|mysql|sqlite)Table\b/.test(text)) schemaFiles++;
+      data.push(...scriptData(rel, text));
+    } else if (ext === '.json') data.push(...jsonData(rel, text));
+    else if (ext === '.prisma') { schemaFiles++; data.push(...prismaData(rel, text)); }
+    else data.push(...openapiData(rel, text));
+  }
+  if (schemaFiles && !data.some((d) => d.kind === 'table')) notes.push(`${schemaFiles} database schema file(s) and no table: a template's empty schema`);
+  return { data, routes: [...routes], documents, html, notes, files: files.length };
+}
+
+// ---------------------------------------------------------------------------
+// A page, as a tree (read in the browser) and what the tree holds (here).
+// ---------------------------------------------------------------------------
+
+/**
+ * Runs in the page: the visible document as a compact tree.
+ *
+ * {t: tag, c: class, r: role, x: the element's own text, h: a link's target,
+ * s: an image's source, a: its alt, f: a field, k: children}. Hidden elements
+ * and the inside of an SVG are left out; text is the element's own text
+ * nodes, joined by spaces.
+ */
+/* istanbul ignore next */
+function serializeInPage() {
+  const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'LINK', 'META']);
+  const hidden = (el) => {
+    const cs = getComputedStyle(el);
+    return cs.display === 'none' || cs.visibility === 'hidden';
+  };
+  const own = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' ');
+  const labelOf = (el) => {
+    if (el.id) {
+      const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      if (l) return l.textContent.replace(/\s+/g, ' ').trim();
+    }
+    const wrap = el.closest('label');
+    if (wrap) return wrap.textContent.replace(/\s+/g, ' ').trim();
+    return el.getAttribute('aria-label') || el.getAttribute('placeholder') || '';
+  };
+  const visit = (el) => {
+    if (SKIP.has(el.tagName) || hidden(el)) return null;
+    const node = { t: el.tagName.toLowerCase() };
+    const cls = typeof el.className === 'string' ? el.className.trim() : '';
+    if (cls) node.c = cls;
+    const role = el.getAttribute('role');
+    if (role) node.r = role;
+    if (el.tagName === 'svg') { node.t = 'svg'; return node; }
+    const x = own(el);
+    if (x) node.x = x;
+    if (el.tagName === 'A' && el.getAttribute('href')) node.h = el.href;
+    if (el.tagName === 'A' || el.tagName === 'BUTTON') {
+      const l = el.getAttribute('aria-label') || el.getAttribute('title');
+      if (l) node.l = l;
+    }
+    if (el.tagName === 'IMG') { node.s = el.currentSrc || el.src; node.a = el.alt || ''; }
+    if (el.tagName === 'IFRAME') node.s = el.src;
+    if (['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(el.tagName)) {
+      const f = { type: el.tagName === 'INPUT' ? (el.getAttribute('type') || 'text') : el.tagName.toLowerCase(), name: el.getAttribute('name') || '', label: labelOf(el), required: el.required || el.getAttribute('aria-required') === 'true' };
+      if (el.tagName === 'SELECT') f.options = [...el.options].map((o) => o.textContent.trim()).filter(Boolean);
+      if (el.tagName === 'BUTTON') { f.type = 'button'; f.submit = (el.getAttribute('type') || 'submit') === 'submit' && Boolean(el.closest('form')); }
+      node.f = f;
+    }
+    const kids = [];
+    for (const child of el.children) {
+      const k = visit(child);
+      if (k) kids.push(k);
+      // A disclosed panel's text follows its heading (or its trigger, when no
+      // heading holds it), as the panel does when open.
+      const trigger = child.hasAttribute('data-droost-disclosed') && !child.closest('h1,h2,h3,h4,h5,h6') ? child
+        : (/^H[1-6]$/.test(child.tagName) ? child.querySelector('[data-droost-disclosed]') : null);
+      if (trigger) kids.push({ t: 'div', r: 'region', x: trigger.getAttribute('data-droost-disclosed') });
+    }
+    if (kids.length) node.k = kids;
+    return node;
+  };
+  return visit(document.body);
+}
+
+/* istanbul ignore next */
+function tokensInPage() {
+  const count = (map, key) => { if (key) map.set(key, (map.get(key) || 0) + 1); };
+  const colours = new Map();
+  const backgrounds = new Map();
+  const fonts = new Map();
+  for (const el of document.body.querySelectorAll('*')) {
+    const cs = getComputedStyle(el);
+    if (cs.display === 'none') continue;
+    const hasText = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+    if (hasText) { count(colours, cs.color); count(fonts, cs.fontFamily); }
+    if (cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent') count(backgrounds, cs.backgroundColor);
+  }
+  const top = (map, n) => [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([value, uses]) => ({ value, uses }));
+  const variables = {};
+  for (const sheet of document.styleSheets) {
+    let rules = [];
+    try { rules = [...sheet.cssRules]; } catch (e) { continue; }
+    for (const rule of rules) {
+      if (rule.selectorText && /(^|,)\s*:root\s*(,|$)/.test(rule.selectorText)) {
+        for (const name of rule.style) if (name.startsWith('--') && Object.keys(variables).length < 80) variables[name] = rule.style.getPropertyValue(name).trim();
+      }
+    }
+  }
+  const heading = document.querySelector('h1, h2');
+  return {
+    fonts: top(fonts, 6),
+    colours: top(colours, 8),
+    backgrounds: top(backgrounds, 8),
+    headingFont: heading ? getComputedStyle(heading).fontFamily : null,
+    bodyFont: getComputedStyle(document.body).fontFamily,
+    variables,
+  };
+}
+
+const HEADING = /^h[1-6]$/;
+const LANDMARKS = { header: 'banner', nav: 'navigation', main: 'main', footer: 'contentinfo', aside: 'complementary' };
+
+// Every text of a subtree, joined by spaces.
+function textOf(node) {
+  const parts = [];
+  const go = (n) => {
+    if (n.x) parts.push(n.x);
+    if (n.f && n.f.type === 'button' && !n.x) parts.push(n.f.label || '');
+    for (const k of n.k || []) go(k);
+  };
+  go(node);
+  return parts.join(' ').replace(/\s+/g, ' ').trim();
+}
+
+function* each(node, ancestors = []) {
+  yield [node, ancestors];
+  for (const k of node.k || []) yield* each(k, ancestors.concat([node]));
+}
+
+// An element's shape: its tag and its children's shapes, three levels down.
+// Items a list renders from one template share it; their text does not
+// enter it, nor do the classes a template varies per item.
+function shape(node, depth = 3) {
+  if (depth === 0 || !node.k) return node.t;
+  const parts = [];
+  for (const k of node.k) {
+    const s = shape(k, depth - 1);
+    if (parts.length && (parts[parts.length - 1] === s || parts[parts.length - 1] === s + '+')) parts[parts.length - 1] = s + '+';
+    else parts.push(s);
+  }
+  return node.t + '(' + parts.join(',') + ')';
+}
+
+// Whether a node is one piece of text: no heading, link, image, field or
+// embed, and a single text in it. A row of a label and its value is two,
+// and is two slots, not a list's item.
+function textOnly(node) {
+  let texts = 0;
+  for (const [n] of each(node)) {
+    if (HEADING.test(n.t) || n.t === 'a' || n.t === 'img' || n.f || n.t === 'iframe') return false;
+    if (n.x) texts++;
+  }
+  return texts === 1;
+}
+
+const PATTERNS = [
+  ['price', /^(from\s+)?[$£€]\s?\d[\d,]*(\.\d{2})?(\s*(\/|per)\s*\w+)?$/i],
+  ['email', /^[\w.+-]+@[\w-]+(\.[\w-]+)+$/],
+  ['phone', /^(\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}$/],
+  ['url', /^(https?:\/\/|www\.)\S+$/i],
+  ['date', /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b|\b\d{1,2}\/\d{1,2}(\/\d{2,4})?\b|\b\d{4}-\d{2}-\d{2}\b|\b(mon|tue|wed|thu|fri|sat|sun)[a-z]*\b/i],
+  ['time', /\b\d{1,2}(:\d{2})?\s?(am|pm)\b/i],
+  ['range', /^\d+\s?[–-]\s?\d+(\+)?$|^\d+\+$/],
+  ['number', /^\d[\d,.]*$/],
+];
+
+// The pattern every value of a slot shares, if one does.
+function valuePattern(values) {
+  const vs = values.filter(Boolean);
+  if (!vs.length) return null;
+  for (const [name, re] of PATTERNS) if (vs.every((v) => re.test(v))) return name;
+  return null;
+}
+
+/**
+ * The slots of an item: each leaf that carries content, in document order,
+ * keyed by its position, so the same slot of every item lines up.
+ */
+function slotsOf(item) {
+  const out = [];
+  const go = (n, at) => {
+    const key = at;
+    if (HEADING.test(n.t)) { out.push({ key, role: 'heading', value: textOf(n) }); return; }
+    if (n.t === 'img') { out.push({ key, role: 'image', value: n.a || '', src: n.s || '' }); return; }
+    if (n.t === 'iframe') { out.push({ key, role: 'embed', value: n.s || '' }); return; }
+    if (n.t === 'svg') return;
+    const kids = n.k || [];
+    const list = (n.t === 'ul' || n.t === 'ol') && kids.length
+      || (kids.length >= 3 && kids.every((k) => shape(k) === shape(kids[0]) && textOnly(k)));
+    if (list) {
+      out.push({ key, role: 'list', value: kids.map(textOf).filter(Boolean).join(' | '), items: kids.length });
+      return;
+    }
+    if (n.t === 'a' && n.h) { out.push({ key, role: 'link', value: textOf(n) || n.l || '', href: n.h }); return; }
+    if (n.f) { out.push({ key, role: n.f.type === 'button' ? 'button' : 'field', value: textOf(n) || n.f.label || '' }); return; }
+    if (n.x) out.push({ key, role: 'text', value: n.x });
+    (n.k || []).forEach((k, i) => go(k, `${at}/${i}${k.t}`));
+  };
+  go(item, item.t);
+  return out;
+}
+
+/**
+ * The repeated structures of a page: three or more siblings of one shape.
+ *
+ * A structure nested in an item of another is that item's list slot, not a
+ * structure of its own. Each slot says whether its value varies across the
+ * items; a constant one ("Register", "Ages:") is a label, not a field.
+ */
+function repeatsOf(tree, origin) {
+  const groups = [];
+  for (const [node, ancestors] of each(tree)) {
+    const kids = node.k || [];
+    if (kids.length < 3) continue;
+    const byShape = new Map();
+    for (const k of kids) {
+      if (k.t === 'svg' || k.t === 'br') continue;
+      const s = shape(k);
+      if (!byShape.has(s)) byShape.set(s, []);
+      byShape.get(s).push(k);
+    }
+    for (const [s, items] of byShape) {
+      if (items.length < 3) continue;
+      if (!items.some((i) => textOf(i))) continue;
+      groups.push({ parent: node, ancestors, items, shape: s });
+    }
+  }
+  // Drop a group whose parent sits inside an item of another group.
+  const itemNodes = new Set(groups.flatMap((g) => g.items));
+  const top = groups.filter((g) => !g.ancestors.some((a) => itemNodes.has(a)) && !itemNodes.has(g.parent));
+  return top.map((g) => {
+    const per = g.items.map(slotsOf);
+    const keys = per[0].map((s) => s.key);
+    const slots = keys.map((key, n) => {
+      const values = per.map((p) => (p.find((s) => s.key === key) || {}).value || '');
+      const first = per[0][n];
+      const slot = { n: n + 1, role: first.role, varies: new Set(values).size > 1, values };
+      const pattern = valuePattern(values);
+      if (pattern) slot.pattern = pattern;
+      if (first.role === 'link') {
+        const hrefs = per.map((p) => linkPath((p.find((s) => s.key === key) || {}).href || '', origin));
+        slot.targets = hrefs;
+        if (new Set(hrefs).size > 1) slot.varies = true;
+      }
+      if (first.role === 'list') slot.items = per.map((p) => (p.find((s) => s.key === key) || {}).items || 0);
+      return slot;
+    });
+    const roles = slots.map((s) => s.role);
+    const varying = slots.filter((s) => s.varies);
+    let kind = 'items';
+    if (slots.length === 1 && roles[0] === 'link') kind = 'links';
+    else if (roles.every((r) => r === 'button')) kind = 'buttons';
+    else if (slots.every((s) => s.role === 'text') && varying.length <= 1) kind = 'chips';
+    else if (roles.includes('heading') && varying.length >= 2) kind = 'cards';
+    else if (roles.filter((r) => r === 'field').length >= 1) kind = 'fields';
+    return { count: g.items.length, kind, container: g.parent.t + (g.parent.c ? '.' + g.parent.c.split(/\s+/).slice(0, 3).join('.') : ''), shape: g.shape, slots, inside: insideOf(g.ancestors.concat([g.parent])) };
+  }).sort((a, b) => b.count - a.count);
+}
+
+// The landmark a node sits in.
+function insideOf(ancestors) {
+  for (let i = ancestors.length - 1; i >= 0; i--) {
+    const a = ancestors[i];
+    if (LANDMARKS[a.t]) return a.t;
+    if (a.r && Object.values(LANDMARKS).includes(a.r)) return a.r;
+  }
+  return 'body';
+}
+
+// A link's path when it stays on the source, else its URL.
+function linkPath(href, origin) {
+  try {
+    const u = new URL(href, origin);
+    if (u.origin === origin) return normalPath(u.pathname);
+    return u.href;
+  } catch (e) {
+    return href;
+  }
+}
+
+// The forms of a page, and the fields no form holds.
+function formsOf(tree) {
+  const forms = [];
+  const loose = [];
+  const fieldsIn = (node) => {
+    const out = [];
+    for (const [n] of each(node)) if (n.f && n.f.type !== 'button' && n.f.type !== 'hidden') out.push({ label: n.f.label, type: n.f.type, name: n.f.name, required: n.f.required, ...(n.f.options ? { options: n.f.options } : {}) });
+    return out;
+  };
+  const submitIn = (node) => {
+    for (const [n] of each(node)) if (n.f && n.f.type === 'button' && (n.f.submit || n.t === 'button')) return textOf(n) || n.f.label;
+    return null;
+  };
+  for (const [n, ancestors] of each(tree)) {
+    if (n.t === 'form') forms.push({ fields: fieldsIn(n), submit: submitIn(n), inside: insideOf(ancestors) });
+    else if (n.f && n.f.type !== 'button' && n.f.type !== 'hidden' && !ancestors.some((a) => a.t === 'form')) loose.push({ label: n.f.label, type: n.f.type, name: n.f.name });
+  }
+  return { forms: forms.filter((f) => f.fields.length), loose };
+}
+
+// The sections of the page's main content: main's children, through
+// wrappers with one child.
+function sectionsOf(tree) {
+  let main = null;
+  for (const [n] of each(tree)) if (n.t === 'main' || n.r === 'main') { main = n; break; }
+  let root = main || tree;
+  while ((root.k || []).length === 1 && !HEADING.test(root.k[0].t)) root = root.k[0];
+  return (root.k || []).filter((k) => !['header', 'footer', 'nav'].includes(k.t)).map((k) => {
+    let heading = null;
+    for (const [n] of each(k)) if (HEADING.test(n.t)) { heading = { level: Number(n.t[1]), text: textOf(n) }; break; }
+    const text = textOf(k);
+    return { heading, words: text ? text.split(' ').length : 0, start: text.slice(0, 80), text };
+  }).filter((s) => s.words > 0);
+}
+
+// The page's own reading: outline, landmarks, sections, repeats, forms,
+// media and links.
+function analyse(tree, origin) {
+  const outline = [];
+  const landmarks = new Set();
+  const internal = new Set();
+  const external = new Set();
+  const media = { images: 0, embeds: [], videos: 0 };
+  for (const [n] of each(tree)) {
+    if (HEADING.test(n.t)) outline.push({ level: Number(n.t[1]), text: textOf(n) });
+    if (LANDMARKS[n.t]) landmarks.add(n.t);
+    if (n.r && Object.values(LANDMARKS).includes(n.r)) landmarks.add(Object.keys(LANDMARKS).find((k) => LANDMARKS[k] === n.r));
+    if (n.t === 'img') media.images++;
+    if (n.t === 'video') media.videos++;
+    if (n.t === 'iframe' && n.s) { try { media.embeds.push(new URL(n.s).host); } catch (e) { media.embeds.push(n.s); } }
+    if (n.t === 'a' && n.h) {
+      if (/^(mailto|tel):/i.test(n.h)) external.add(n.h.split('?')[0]);
+      else {
+        const p = linkPath(n.h, origin);
+        (p.startsWith('/') ? internal : external).add(p);
+      }
+    }
+  }
+  const { forms, loose } = formsOf(tree);
+  return { outline, landmarks: [...landmarks], sections: sectionsOf(tree), repeats: repeatsOf(tree, origin), forms, looseFields: loose, media, links: { internal: [...internal].sort(), external: [...external].sort() } };
+}
+
+// The header's and footer's links, from a page's tree.
+function frameOf(tree, origin) {
+  const pick = (test) => {
+    for (const [n] of each(tree)) if (test(n)) return n;
+    return null;
+  };
+  const header = pick((n) => n.t === 'header' || n.r === 'banner') || pick((n) => n.t === 'nav');
+  const footer = pick((n) => n.t === 'footer' || n.r === 'contentinfo');
+  const links = (node) => {
+    if (!node) return [];
+    const out = [];
+    for (const [n] of each(node)) if (n.t === 'a' && n.h) out.push({ label: textOf(n) || n.l || '', href: linkPath(n.h, origin) });
+    return out;
+  };
+  return { header: { links: links(header) }, footer: { links: links(footer), text: footer ? textOf(footer).slice(0, 300) : '' } };
+}
+
+// ---------------------------------------------------------------------------
+// Which records a page shows.
+// ---------------------------------------------------------------------------
+
+const norm = (v) => String(v).toLowerCase().replace(/[$£€,]/g, '').replace(/\s+/g, ' ').trim();
+
+// Whether a value the page shows is a record's value, as the page formats
+// it: "$95" is 95, "Overland Park , KS" holds "Overland Park".
+function showsValue(shown, value) {
+  if (shown === undefined || shown === null || value === undefined || value === null || value === '') return false;
+  if (Array.isArray(value)) {
+    const parts = String(shown).split(' | ').map(norm);
+    const hits = value.filter((x) => parts.some((p) => p === norm(x) || p.includes(norm(x))));
+    return value.length > 0 && hits.length >= Math.ceil(value.length / 2);
+  }
+  if (typeof value === 'number') {
+    const text = norm(shown);
+    // A short value is the number as formatted ("$ 75"); in running text the
+    // number must stand as a token of its own.
+    if (text.length <= 12) {
+      const digits = text.replace(/[^\d.]/g, '');
+      return digits !== '' && Number(digits) === value;
+    }
+    return new RegExp(`(^|[^\\d.])${String(value).replace('.', '\\.')}(\\.0+)?([^\\d]|$)`).test(text);
+  }
+  if (typeof value !== 'string') return false;
+  const a = norm(shown);
+  const b = norm(value);
+  return a === b || (b.length >= 4 && a.includes(b));
+}
+
+/**
+ * The records a repeated structure renders, and the field each slot shows.
+ *
+ * A slot is a field's when most of its items show that field's value of some
+ * record; a structure is a list's when two of its slots are. The records it
+ * shows are the ones its items matched.
+ */
+function matchRecords(repeat, data) {
+  let best = null;
+  for (const d of data) {
+    if (d.kind !== 'records' || !Array.isArray(d.values) || !d.values.length) continue;
+    const fields = {};
+    for (const slot of repeat.slots) {
+      if (!slot.varies || !['text', 'heading', 'list', 'link', 'image'].includes(slot.role)) continue;
+      let top = null;
+      for (const f of d.fields) {
+        const hits = [];
+        // A link that reads the same in every item and goes somewhere else
+        // from each shows its target: "Visit Website" is the website field.
+        const shown = slot.role === 'link' && new Set(slot.values).size <= 1 && slot.targets ? slot.targets : slot.values;
+        shown.forEach((v, i) => {
+          const r = d.values.findIndex((rec) => rec && showsValue(v, rec[f.name]));
+          if (r >= 0) hits.push([i, r]);
+        });
+        if (hits.length >= Math.max(2, Math.ceil(repeat.count / 2)) && (!top || hits.length > top.hits.length)) top = { field: f.name, hits };
+      }
+      if (top) fields[slot.n] = top.field;
+    }
+    if (Object.keys(fields).length >= 2 && (!best || Object.keys(fields).length > Object.keys(best.fields).length)) {
+      // Each item shows the one record most of its mapped slots agree on:
+      // two camps at one rink share a location, never a title and a date.
+      const records = [];
+      for (let i = 0; i < repeat.count; i++) {
+        let top = null;
+        d.values.forEach((rec, r) => {
+          const agree = Object.entries(fields).filter(([n, f]) => {
+            const slot = repeat.slots[n - 1];
+            const v = slot.role === 'link' && new Set(slot.values).size <= 1 && slot.targets ? slot.targets[i] : slot.values[i];
+            return rec && showsValue(v, rec[f]);
+          }).length;
+          if (agree >= 2 && (!top || agree > top.agree)) top = { r, agree };
+        });
+        if (top && !records.includes(top.r)) records.push(top.r);
+      }
+      best = { id: d.id, fields, records: records.sort((a, b) => a - b).map((r) => recordKey(d, r)) };
+    }
+  }
+  return best;
+}
+
+const recordKey = (d, r) => `${d.id}@${d.values[r] && d.values[r].id !== undefined ? d.values[r].id : r}`;
+
+// The records a section shows whole: three of a record's own values, at
+// least half of them, in the section's text.
+function sectionRecords(text, data) {
+  const out = [];
+  for (const d of data) {
+    if (d.kind !== 'records' || !Array.isArray(d.values)) continue;
+    d.values.forEach((rec, r) => {
+      if (!rec || typeof rec !== 'object') return;
+      const own = Object.values(rec).filter((v) => (typeof v === 'string' && v.length >= 4) || typeof v === 'number');
+      const hits = own.filter((v) => showsValue(text, v));
+      if (hits.length >= 3 && hits.length >= own.length / 2) out.push(recordKey(d, r));
+    });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// The audit.
+// ---------------------------------------------------------------------------
+
+async function readPage(browser, url, width) {
+  const ctx = await browser.newContext({ viewport: { width, height: 900 }, ignoreHTTPSErrors: true });
+  // As droost-parity: no AVIF, which the container's Chromium crashed on.
+  await ctx.route('**/*', (route) => {
+    const req = route.request();
+    if (req.resourceType() !== 'image') return route.continue();
+    return route.continue({ headers: { ...req.headers(), accept: 'image/webp,image/apng,image/svg+xml,image/*;q=0.8,*/*;q=0.5' } });
+  });
+  const page = await ctx.newPage();
+  let crashed = false;
+  page.on('crash', () => { crashed = true; });
+  const out = { status: 'ERR' };
+  try {
+    const res = await page.goto(url, { waitUntil: 'load', timeout: 60000 });
+    out.status = res ? res.status() : 'ERR';
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    // Sections that appear in view (framer-motion's whileInView) are blank
+    // until scrolled to: scroll through before reading.
+    await page.evaluate(async () => {
+      const step = Math.max(300, Math.floor(window.innerHeight * 0.8));
+      for (let y = 0; y < document.body.scrollHeight; y += step) {
+        window.scrollTo(0, y);
+        await new Promise((r) => setTimeout(r, 120));
+      }
+      window.scrollTo(0, 0);
+    });
+    // A disclosure's content (an FAQ's answers, an accordion) is content:
+    // open each in the main content before reading. Only a collapsed button
+    // is pressed, never a link, a submit or a menu's opener. An accordion that keeps one panel open closes the last as it opens
+    // the next, so each is opened, its text kept on its trigger, and closed.
+    out.opened = await page.evaluate(async () => {
+      let opened = 0;
+      for (const d of document.querySelectorAll('details:not([open])')) { d.open = true; opened++; }
+      const scope = document.querySelector('main, [role="main"]') || document.body;
+      const pause = () => new Promise((r) => setTimeout(r, 80));
+      // Radix names the panel (aria-controls) only once it is open, so a
+      // collapsed trigger is any collapsed button; one that opens a menu or a
+      // dialog (aria-haspopup) is not a disclosure.
+      for (const b of scope.querySelectorAll('button[aria-expanded="false"], [role="button"][aria-expanded="false"]')) {
+        if (b.closest('nav, header, form') || b.getAttribute('type') === 'submit' || b.hasAttribute('aria-haspopup')) continue;
+        b.click();
+        await pause();
+        const panel = document.getElementById(b.getAttribute('aria-controls'));
+        const text = panel ? panel.innerText.replace(/\s+/g, ' ').trim() : '';
+        if (text) { b.setAttribute('data-droost-disclosed', text); opened++; }
+        if (b.getAttribute('aria-expanded') === 'true') { b.click(); await pause(); }
+      }
+      return opened;
+    }).catch(() => 0);
+    await page.waitForTimeout(400);
+    out.title = await page.title();
+    out.description = await page.evaluate(() => (document.querySelector('meta[name="description"]') || {}).content || '');
+    out.tree = await page.evaluate(serializeInPage);
+    out.final = page.url();
+    out.tokens = await page.evaluate(tokensInPage);
+  } catch (e) {
+    out.error = crashed ? 'the browser crashed reading the page' : String(e.message || e).split('\n')[0];
+  } finally {
+    await ctx.close().catch(() => {});
+  }
+  return out;
+}
+
+// What makes two pages the same page: the not-found page's signature.
+const signature = (reading) => (reading && reading.tree ? (reading.title || '') + '|' + textOf(reading.tree).slice(0, 400) : null);
+
+async function audit(opts) {
+  const base = new URL(opts.url);
+  const origin = base.origin;
+  const filesRead = opts.files ? readFiles(opts.files) : { data: [], routes: [], documents: [], html: [], notes: [], files: 0 };
+  const declared = filesRead.routes;
+  const patterns = declared.filter(isPattern);
+  const given = (opts.routes || []).map(normalPath);
+  const queue = ['/', ...given, ...declared.filter((r) => !isPattern(r))];
+  for (const h of filesRead.html) {
+    const p = '/' + h.replace(/(^|\/)index\.html$/, '$1').replace(/\/$/, '');
+    if (opts.static) queue.push(normalPath(p));
+  }
+  const pw = playwright();
+  const browser = await pw.chromium.launch();
+  const seen = new Map();
+  const notes = [...filesRead.notes];
+  try {
+    const missing = await readPage(browser, new URL(`/__droost-source-${Date.now()}-not-a-page`, origin).href, opts.width);
+    const notFound = missing.status === 404 ? null : signature(missing);
+    while (queue.length && seen.size < opts.maxPages) {
+      const route = normalPath(queue.shift());
+      if (seen.has(route)) continue;
+      const reading = await readPage(browser, new URL(route, origin).href, opts.width);
+      seen.set(route, reading);
+      if (!reading.tree) continue;
+      if (notFound && signature(reading) === notFound) { reading.notFound = true; continue; }
+      for (const [n] of each(reading.tree)) {
+        if (n.t !== 'a' || !n.h) continue;
+        const p = linkPath(n.h, origin);
+        if (!p.startsWith('/') || /\.(pdf|jpe?g|png|gif|webp|svg|zip|docx?|xlsx?|ics|xml|txt)$/i.test(p)) continue;
+        if (!seen.has(p) && !queue.includes(p)) queue.push(p);
+      }
+    }
+    if (queue.length) notes.push(`stopped at ${opts.maxPages} pages; ${queue.length} more linked: ${queue.slice(0, 10).join(', ')}`);
+  } finally {
+    await browser.close().catch(() => {});
+  }
+
+  const pages = [];
+  const routes = [];
+  const shapes = new Map();
+  let home = null;
+  for (const [route, reading] of seen) {
+    const pattern = matchPattern(route, patterns);
+    routes.push({ id: `r:${route}`, path: route, status: reading.status, declared: declared.includes(route), pattern, notFound: Boolean(reading.notFound), ...(reading.error ? { invalid: reading.error } : {}) });
+    if (!reading.tree || reading.notFound) continue;
+    const a = analyse(reading.tree, origin);
+    const id = `p:${route}`;
+    const page = {
+      id,
+      route,
+      status: reading.status,
+      title: reading.title,
+      description: reading.description,
+      ...(reading.final && normalPath(new URL(reading.final).pathname) !== route ? { redirectsTo: normalPath(new URL(reading.final).pathname) } : {}),
+      landmarks: a.landmarks,
+      outline: a.outline,
+      sections: a.sections.map((s, i) => {
+        const { text, ...rest } = s;
+        const shows = sectionRecords(text, filesRead.data);
+        return { id: `${id}#s${i + 1}`, ...rest, ...(shows.length ? { records: shows.slice(0, 12) } : {}) };
+      }),
+      repeats: a.repeats.map((r, i) => {
+        const data = matchRecords(r, filesRead.data);
+        return { id: `${id}#r${i + 1}`, ...r, ...(data ? { data } : {}) };
+      }),
+      forms: a.forms.map((f, i) => ({ id: `${id}#f${i + 1}`, ...f })),
+      looseFields: a.looseFields,
+      media: a.media,
+      links: a.links,
+    };
+    for (const r of page.repeats) {
+      if (r.kind === 'links' || r.inside === 'header' || r.inside === 'footer' || r.inside === 'nav') continue;
+      if (!shapes.has(r.shape)) shapes.set(r.shape, []);
+      shapes.get(r.shape).push(r.id);
+    }
+    pages.push(page);
+    if (route === '/') home = reading;
+  }
+  const byData = new Map();
+  for (const page of pages) for (const r of page.repeats) if (r.data) { if (!byData.has(r.data.id)) byData.set(r.data.id, []); byData.get(r.data.id).push(r.id); }
+  for (const page of pages) {
+    for (const r of page.repeats) {
+      const same = new Set([...(shapes.get(r.shape) || []), ...(r.data ? byData.get(r.data.id) : [])]);
+      same.delete(r.id);
+      r.seenOn = [...same];
+    }
+  }
+  for (const r of declared) {
+    if (isPattern(r)) {
+      const instances = routes.filter((x) => x.pattern === r).map((x) => x.path);
+      routes.push({ id: `r:${r}`, path: r, declared: true, pattern: r, instances, ...(instances.length ? {} : { unreached: true }) });
+    } else if (!seen.has(r)) routes.push({ id: `r:${r}`, path: r, declared: true, unreached: true });
+  }
+  const frame = home && home.tree ? frameOf(home.tree, origin) : { header: { links: [] }, footer: { links: [], text: '' } };
+  const invalid = routes.filter((r) => r.invalid).length;
+  return {
+    schema: SCHEMA,
+    at: new Date().toISOString(),
+    source: { url: origin + normalPath(base.pathname), files: opts.files || null, width: opts.width, documents: filesRead.documents, html: filesRead.html, filesRead: filesRead.files },
+    routes,
+    pages,
+    frame: { id: 'frame', ...frame },
+    tokens: home && home.tokens ? home.tokens : null,
+    data: filesRead.data,
+    notes,
+    summary: {
+      routes: routes.filter((r) => !r.notFound && !r.pattern).length,
+      pages: pages.length,
+      repeats: pages.reduce((n, p) => n + p.repeats.length, 0),
+      forms: pages.reduce((n, p) => n + p.forms.length, 0),
+      data: filesRead.data.length,
+      invalid,
+    },
+  };
+}
+
+// The audit as a person reads it.
+function markdown(a) {
+  const lines = [`# Source audit`, '', `${a.source.url}${a.source.files ? ` and the files in \`${a.source.files}\`` : ''}, read ${a.at}.`, ''];
+  lines.push('## Routes', '', '| Id | Status | Declared | Note |', '|---|---|---|---|');
+  for (const r of a.routes) lines.push(`| \`${r.id}\` | ${r.status || ''} | ${r.declared ? 'yes' : ''} | ${[r.notFound ? 'reads as not found' : '', r.unreached ? 'not reached' : '', r.invalid ? `INVALID: ${r.invalid}` : '', r.pattern && r.pattern !== r.path ? `instance of ${r.pattern}` : '', r.instances ? `instances: ${r.instances.join(', ')}` : ''].filter(Boolean).join('; ')} |`);
+  lines.push('', '## Frame', '', `Header: ${a.frame.header.links.map((l) => `${l.label || '(icon)'} → ${l.href}`).join(' · ') || 'none'}`, '', `Footer: ${a.frame.footer.links.map((l) => `${l.label || '(icon)'} → ${l.href}`).join(' · ') || 'none'}`);
+  for (const p of a.pages) {
+    lines.push('', `## \`${p.id}\` — ${p.title || ''}`, '');
+    if (p.sections.length) lines.push(`Sections: ${p.sections.map((s) => `\`${s.id}\` ${s.heading ? s.heading.text : `(${s.start.slice(0, 40)}…)`}${s.records && s.records.length <= 2 ? ` [shows ${s.records.join(', ')}]` : ''}`).join(' · ')}`, '');
+    for (const r of p.repeats) {
+      lines.push(`- \`${r.id}\` ${r.kind}, ${r.count} in ${r.inside}${r.seenOn.length ? `, also ${r.seenOn.join(', ')}` : ''}`);
+      if (r.data) lines.push(`  - renders \`${r.data.id}\` (${r.data.records.length} of its records)`);
+      for (const s of r.slots) lines.push(`  - ${s.n}. ${s.role}${s.varies ? '' : ' (the same in every item)'}${s.pattern ? ` [${s.pattern}]` : ''}${r.data && r.data.fields[s.n] ? ` = ${r.data.fields[s.n]}` : ''}: ${[...new Set(s.values)].slice(0, 4).map((e) => JSON.stringify(e.slice(0, 60))).join(', ')}${s.targets ? ` → ${[...new Set(s.targets)].slice(0, 6).join(', ')}` : ''}`);
+    }
+    for (const f of p.forms) lines.push(`- \`${f.id}\` form (${f.submit || 'no submit'}): ${f.fields.map((x) => `${x.label || x.name || x.type} [${x.type}${x.required ? ', required' : ''}${x.options ? `: ${x.options.join('/')}` : ''}]`).join('; ')}`);
+    if (p.media.embeds.length) lines.push(`- embeds: ${p.media.embeds.join(', ')}`);
+  }
+  lines.push('', '## Data the files declare', '');
+  if (!a.data.length) lines.push('None.');
+  for (const d of a.data) lines.push(`- \`${d.id}\` ${d.kind}${d.count !== undefined ? `, ${d.count}` : ''}${d.type ? ` of ${d.type}` : ''}: ${(d.fields || []).map((f) => f.name + (f.type ? `: ${f.type}` : '') + (f.optional ? '?' : '')).join(', ')}${d.paths ? `paths ${d.paths.join(', ') || 'none'}` : ''}${d.note ? ` — ${d.note}` : ''}`);
+  if (a.notes.length) lines.push('', '## Notes', '', ...a.notes.map((n) => `- ${n}`));
+  return lines.join('\n') + '\n';
+}
+
+// ---------------------------------------------------------------------------
+// Serving a static folder.
+// ---------------------------------------------------------------------------
+
+const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.txt': 'text/plain' };
+
+function serve(dir, port) {
+  const root = path.resolve(dir);
+  const server = http.createServer((req, res) => {
+    let rel = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    let full = path.join(root, rel);
+    if (!full.startsWith(root)) { res.writeHead(403); res.end(); return; }
+    if (fs.existsSync(full) && fs.statSync(full).isDirectory()) full = path.join(full, 'index.html');
+    else if (!fs.existsSync(full) && fs.existsSync(full + '.html')) full += '.html';
+    if (!fs.existsSync(full)) { res.writeHead(404, { 'content-type': 'text/html' }); res.end('<h1>Not found</h1>'); return; }
+    res.writeHead(200, { 'content-type': TYPES[path.extname(full).toLowerCase()] || 'application/octet-stream' });
+    fs.createReadStream(full).pipe(res);
+  });
+  server.listen(port, '127.0.0.1', () => {
+    process.stdout.write(JSON.stringify({ source: { status: 'serving', url: `http://127.0.0.1:${server.address().port}/`, root } }) + '\n');
+  });
+}
+
+async function main() {
+  const a = args(process.argv.slice(2));
+  const verb = a._[0];
+  if (verb === 'serve') {
+    if (!a._[1] || !fs.existsSync(a._[1])) finish({ status: 'usage', summary: 'serve <dir>: a folder of HTML to serve' }, EXIT.usage);
+    serve(a._[1], Number(a.port || 0));
+    return;
+  }
+  if (verb !== 'audit' || !a.url || a.url === true) finish({ status: 'usage', summary: 'droost-source audit --url <served> [--files <dir>] [--out droost/intake] [--routes /,/x] [--max-pages 60] [--width 1280] | serve <dir> [--port n]' }, EXIT.usage);
+  if (a.files && !fs.existsSync(a.files)) finish({ status: 'usage', summary: `no folder at ${a.files}` }, EXIT.usage);
+  const out = path.resolve(a.out && a.out !== true ? a.out : 'droost/intake');
+  const result = await audit({
+    url: a.url,
+    files: a.files && a.files !== true ? path.resolve(a.files) : null,
+    routes: a.routes && a.routes !== true ? String(a.routes).split(',') : [],
+    maxPages: Number(a['max-pages'] || 60),
+    width: Number(a.width || 1280),
+    static: Boolean(a.static),
+  });
+  fs.mkdirSync(out, { recursive: true });
+  fs.writeFileSync(path.join(out, 'audit.json'), JSON.stringify(result, null, 2) + '\n');
+  fs.writeFileSync(path.join(out, 'audit.md'), markdown(result));
+  const s = result.summary;
+  const summary = `${s.pages} page(s) of ${s.routes} route(s), ${s.repeats} repeated structure(s), ${s.forms} form(s), ${s.data} data declaration(s)${s.invalid ? `, ${s.invalid} INVALID` : ''}`;
+  if (!s.pages) finish({ status: 'nothing', summary: 'no page could be read', out }, EXIT.nothing);
+  finish({ status: s.invalid ? 'partial' : 'ok', summary, out, ...s }, s.invalid ? EXIT.partial : EXIT.ok);
+}
+
+if (require.main === module) {
+  main().catch((e) => finish({ status: 'error', summary: String(e && e.message ? e.message : e).split('\n')[0] }, EXIT.nothing));
+}
+
+module.exports = { literalValue, objectValues, showsValue, matchRecords, sectionRecords, normalPath, isPattern, matchPattern, routerRoutes, stripComments, scriptData, prismaData, openapiData, jsonData, readFiles, shape, slotsOf, repeatsOf, formsOf, sectionsOf, analyse, frameOf, valuePattern, textOf, markdown };
