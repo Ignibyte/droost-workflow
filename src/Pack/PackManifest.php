@@ -71,8 +71,8 @@ final class PackManifest {
     => '.claude/commands/droost/workflow/continue.md',
     'commands/droost/workflow/status.md'
     => '.claude/commands/droost/workflow/status.md',
-    'commands/droost/intake.md'
-    => '.claude/commands/droost/intake.md',
+    'commands/droost/workflow/intake.md'
+    => '.claude/commands/droost/workflow/intake.md',
     'partials/droost-usage.md' => '.claude/partials/droost-usage.md',
     'hooks/droost-workflow-guard.php'
     => '.claude/hooks/droost-workflow-guard.php',

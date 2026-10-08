@@ -654,7 +654,7 @@ retry above. Every return, its reason and each follow-up are in the envelope's
 A run builds one ticket. When the human hands over a whole design ("build me
 a site off this html": a Replit or Vite app, a folder of HTML) the work
 before the first ticket is deciding what the source becomes, and that is the
-intake: the `intake` skill (`/droost:intake`), with the human, and nothing
+intake: the `intake` skill (`/droost:workflow:intake`), with the human, and nothing
 built until they approve.
 
 ```
@@ -780,7 +780,7 @@ The phases ship as a `.claude/` pack — eight skills (the three entry verbs
 `workflow-start`, `workflow-continue` and `workflow-status`, one skill per
 phase, and `intake`), four slash commands that are one-paragraph pointers to
 the verb skills (`/droost:workflow:start`, `/droost:workflow:continue`,
-`/droost:workflow:status`, `/droost:intake` — Claude Code's way in; every other host reads the
+`/droost:workflow:status`, `/droost:workflow:intake` — Claude Code's way in; every other host reads the
 skill itself, which is why the procedure lives there and not in the
 command), five agents (the plan researcher and spec-writer, the adversarial
 `workflow-seeker`, the one-finding-at-a-time `workflow-bug-fixer`, and
@@ -792,8 +792,7 @@ writes:
 .claude/skills/workflow-{start,continue,status}/SKILL.md
 .claude/skills/workflow-{plan,code,test,complete}/SKILL.md
 .claude/skills/intake/SKILL.md
-.claude/commands/droost/workflow/{start,continue,status}.md
-.claude/commands/droost/intake.md
+.claude/commands/droost/workflow/{start,continue,status,intake}.md
 .claude/agents/workflow-{researcher,spec-writer,seeker,bug-fixer}.md
 .claude/agents/droost-debugger.md
 .claude/hooks/droost-workflow-guard.php

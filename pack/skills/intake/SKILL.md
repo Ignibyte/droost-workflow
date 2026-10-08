@@ -1,6 +1,6 @@
 ---
 name: intake
-description: Plan a WHOLE site from a design source with the human, before anything is built — a Replit or Vite app, a static HTML folder, a zip of either. Read the source with droost-source, propose the Drupal content model (content types, fields, vocabularies, Views, landing pages, Webforms, menus, components, custom code), put it to droost, ask the human what the source cannot say, write the roadmap of rungs, and hand it to the operator to approve. Use when the human says "build me a site off this …". Claude Code also offers it as /droost:intake.
+description: Plan a WHOLE site from a design source with the human, before anything is built — a Replit or Vite app, a static HTML folder, a zip of either. Read the source with droost-source, propose the Drupal content model (content types, fields, vocabularies, Views, landing pages, Webforms, menus, components, custom code), put it to droost, ask the human what the source cannot say, write the roadmap of rungs, and hand it to the operator to approve. Use when the human says "build me a site off this …". Claude Code also offers it as /droost:workflow:intake.
 ---
 
 The human has handed you a design and asked for a site ("build me a site,
