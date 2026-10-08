@@ -322,17 +322,19 @@ final class IntakeCheck {
       }
       $path = $r['path'];
       $pattern = is_string($r['pattern'] ?? NULL) ? $r['pattern'] : NULL;
-      $names = array_values(array_filter([$path, $pattern]));
-      if (is_array($r['instances'] ?? NULL)) {
-        $names = array_merge($names, array_filter($r['instances'], 'is_string'));
+      $names = $pattern === NULL ? [$path] : [$path, $pattern];
+      foreach (is_array($r['instances'] ?? NULL) ? $r['instances'] : [] as $instance) {
+        if (is_string($instance)) {
+          $names[] = $instance;
+        }
       }
       if (isset($setAside['r:' . $path])) {
         continue;
       }
-      if (array_intersect($names, $modelRoutes) === []) {
-        $findings[] = new IntakeFinding('coverage', sprintf('route %s is not decided: name it under model.md\'s `## Routes`, or set it aside under `## Not built` (cite `r:%s`) with a reason.', $path, $path));
+      if (!self::named($names, $modelRoutes)) {
+        $findings[] = new IntakeFinding('coverage', sprintf('route %s is not decided: name it under model.md\'s `## Routes` (a pattern, `/events/:id`, names its instances), or set it aside under `## Not built` (cite `r:%s`) with a reason.', $path, $path));
       }
-      elseif ($rungs !== [] && array_intersect($names, array_keys($built)) === []) {
+      elseif ($rungs !== [] && !self::named($names, array_keys($built))) {
         $findings[] = new IntakeFinding('coverage', sprintf('route %s is in the model and in no rung\'s Pages: say which rung builds it.', $path));
       }
     }
@@ -374,6 +376,42 @@ final class IntakeCheck {
     elseif ($links > 0 && $rungs !== [] && !isset($built['frame']) && !isset($setAside['frame'])) {
       $findings[] = new IntakeFinding('coverage', 'no rung builds the frame: put `frame` in the Pages of the rung that does.');
     }
+  }
+
+  /**
+   * Whether any of a route's names is among the routes a file names.
+   *
+   * A named pattern (`/events/:id`, `/events/{id}`, `/events/[id]`) names
+   * every path it matches.
+   *
+   * @param list<string> $names
+   *   The route's path, its pattern and its instances.
+   * @param list<string> $named
+   *   The routes the file names.
+   *
+   * @return bool
+   *   TRUE when one is named.
+   */
+  private static function named(array $names, array $named): bool {
+    if (array_intersect($names, $named) !== []) {
+      return TRUE;
+    }
+    foreach ($named as $route) {
+      if (preg_match('~(^|/)(:[^/]+|\{[^/]+\}|\[[^/]+\])~', $route) !== 1) {
+        continue;
+      }
+      $parts = array_map(
+        static fn (string $part): string => preg_match('~^(:.+|\{.+\}|\[.+\])$~', $part) === 1 ? '[^/]+' : preg_quote($part, '~'),
+        explode('/', $route),
+      );
+      $regex = '~^' . implode('/', $parts) . '$~';
+      foreach ($names as $name) {
+        if (preg_match($regex, $name) === 1) {
+          return TRUE;
+        }
+      }
+    }
+    return FALSE;
   }
 
   /**

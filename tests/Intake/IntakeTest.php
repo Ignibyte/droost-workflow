@@ -133,6 +133,35 @@ MD;
   }
 
   /**
+   * A pattern in the model and in a rung names the paths it matches.
+   */
+  public function testPatternRouteCoversItsInstances(): void {
+    [$root, $service] = $this->complete();
+    $audit = json_decode((string) file_get_contents($root . '/droost/intake/audit.json'), TRUE);
+    $this->assertIsArray($audit);
+    $this->assertIsArray($audit['routes']);
+    $audit['routes'][] = [
+      'id' => 'r:/events/poetry-night',
+      'path' => '/events/poetry-night',
+      'status' => 404,
+      'declared' => FALSE,
+      'pattern' => NULL,
+      'notFound' => FALSE,
+    ];
+    file_put_contents($root . '/droost/intake/audit.json', (string) json_encode($audit, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    $state = $service->store()->load();
+    $this->assertNotNull($state);
+    $service->store()->save($state->withAudit((string) hash_file('sha256', $root . '/droost/intake/audit.json'), '2026-10-08T00:04:00+00:00'));
+    $this->assertFinding($service, 'coverage', 'route /events/poetry-night is not decided');
+
+    $this->rewrite($root, 'model.md', "- /events — the events listing\n", "- /events — the events listing\n- /events/:id — an event's page\n");
+    $this->assertFinding($service, 'coverage', 'route /events/poetry-night is in the model and in no rung\'s Pages');
+
+    $this->rewrite($root, 'roadmap.md', '| 2 | tickets/R2.md | the events | 1 | /events, / |', '| 2 | tickets/R2.md | the events | 1 | /events, /events/{id}, / |');
+    $this->assertNotContains('coverage', array_map(static fn (IntakeFinding $f): string => $f->check, $service->check()));
+  }
+
+  /**
    * A route in the model and in no rung fails.
    */
   public function testRouteInNoRungFails(): void {
