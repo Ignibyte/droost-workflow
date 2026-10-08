@@ -324,14 +324,44 @@ MD;
   }
 
   /**
-   * Approve, abandon and answer are the operator's: refused with no terminal.
+   * The agent approves on the human's yes, from a shell with no terminal.
+   *
+   * Owner, 2026-10-08: approval is not a human-only command. The approval
+   * records how it was run and the human's yes the guard recorded.
+   */
+  public function testTheAgentApprovesOnTheHumansYes(): void {
+    [$root, $service] = $this->complete();
+    $state = $service->store()->load();
+    $this->assertNotNull($state);
+    $service->store()->appendAnswer($state->id, 'Approve this roadmap?', 'Approve', 'AskUserQuestion', '2026-10-08T00:05:00+00:00');
+    $lines = [];
+    $sink = function (string $line) use (&$lines): void {
+      $lines[] = $line;
+    };
+    $clock = static fn (): string => '2026-10-08T00:00:00+00:00';
+    $code = (new ArgvDispatcher($sink, $sink, $clock, static fn (): string => 'run-x'))->dispatch(['intake', 'approve'], $root);
+    $this->assertSame(ArgvDispatcher::EXIT_OK, $code, implode("\n", $lines));
+    $this->assertSame(IntakeState::APPROVED, $service->store()->load()?->status);
+    $approved = NULL;
+    foreach ((new RunEventLog($service->store()->stateDir()))->read() as $event) {
+      if ($event->type === 'intake.approved') {
+        $approved = $event->payload;
+      }
+    }
+    $this->assertIsArray($approved);
+    $this->assertContains($approved['via'], ['agent', 'terminal']);
+    $this->assertSame(['question' => 'Approve this roadmap?', 'answer' => 'Approve'], $approved['human'], 'the approval names the human\'s yes');
+  }
+
+  /**
+   * Abandon and answer are the operator's: refused with no terminal.
    */
   public function testOperatorVerbsNeedTheirTerminal(): void {
     if (defined('STDIN') && stream_isatty(STDIN)) {
       $this->markTestSkipped('the suite has a terminal on STDIN; the refusal is for a shell without one');
     }
     [$root] = $this->complete();
-    foreach ([['intake', 'approve'], ['intake', 'abandon', 'why'], ['intake', 'answer', 'q', 'a']] as $argv) {
+    foreach ([['intake', 'abandon', 'why'], ['intake', 'answer', 'q', 'a']] as $argv) {
       $lines = [];
       $sink = function (string $line) use (&$lines): void {
         $lines[] = $line;

@@ -1422,7 +1422,10 @@ final class ArgvDispatcher {
       }
     }
     $intake = new IntakeService($projectRoot, fn (): string => date('c'));
-    if (in_array($sub, ['approve', 'abandon', 'answer'], TRUE) && !$this->operatorTerminal()) {
+    // Approval is the agent's to run once the human has said yes (owner,
+    // 2026-10-08): the skill asks through AskUserQuestion, whose answer the
+    // guard records. Abandoning and recording an answer stay the operator's.
+    if (in_array($sub, ['abandon', 'answer'], TRUE) && !$this->operatorTerminal()) {
       $this->fail($this->noTerminalRefusal('intake ' . $sub));
       return self::EXIT_USAGE;
     }
@@ -1454,7 +1457,7 @@ final class ArgvDispatcher {
         return self::EXIT_OK;
 
       case 'approve':
-        $state = $intake->approve();
+        $state = $intake->approve($this->operatorTerminal() ? 'terminal' : 'agent');
         $this->say(sprintf('Intake %s APPROVED: its rungs may run, each from its ticket in %s/tickets/. Its ledgers are in history, so no run inherits its consults.', $state->id, IntakeStore::DIR));
         return self::EXIT_OK;
 
@@ -1717,8 +1720,10 @@ final class ArgvDispatcher {
                        --request="<the human's words>" --source=<path|URL>`,
                        `intake audit --url=<served source> --files=<dir>`
                        (droost-source, its sha recorded), `intake check`
-                       (what approval still needs), `intake status`.
-                       `approve`, `abandon` and `answer` are the operator's
+                       (what approval still needs), `intake status`,
+                       `intake approve` (once the human has said yes, and
+                       `check` finds nothing; its rungs may then run).
+                       `abandon` and `answer` are the operator's
 
     The OPERATOR's commands. Each one loosens what a run is held to, or
     decides what only a person decides, so each refuses to run without an
@@ -1740,8 +1745,6 @@ final class ArgvDispatcher {
                        move a ticket to another state; `done` only ever by a
                        person. The engine moves a bound ticket to in_progress
                        and review, never further
-      intake approve   approve the intake's roadmap, once `intake check`
-                       finds nothing; its rungs may then run
       intake abandon "<why>"
                        close the intake unapproved
       intake answer "<question>" "<answer>"

@@ -203,12 +203,20 @@ final class IntakeService {
   }
 
   /**
-   * Approves the roadmap: the operator's act.
+   * Approves the roadmap, once the human has said yes.
+   *
+   * The agent runs it (owner, 2026-10-08): the skill asks the human through
+   * AskUserQuestion, and the guard records the answer. The approval records
+   * how it was run and the human's latest answer to a question about
+   * approving, or that there was none, so the record shows whose yes it was.
+   *
+   * @param string $via
+   *   How it was run: `terminal`, or `agent` (no terminal).
    *
    * @return \Droost\Workflow\Intake\IntakeState
    *   The approved intake.
    */
-  public function approve(): IntakeState {
+  public function approve(string $via = 'agent'): IntakeState {
     $state = $this->requireOpen();
     $findings = $this->check();
     if ($findings !== []) {
@@ -227,10 +235,22 @@ final class IntakeService {
       ],
       IntakeTables::rows($roadmap),
     );
+    $yes = NULL;
+    foreach ($this->store->answers($state->id) as $answer) {
+      if (preg_match('/\bapprov/i', $answer['question']) === 1) {
+        $yes = $answer;
+      }
+    }
     $archived = $this->store->archiveLedgers($state->id);
     $approved = $state->approved($digest, ($this->clock)());
     $this->store->save($approved);
-    $this->event($approved, 'intake.approved', ['digest' => $digest, 'rungs' => $rungs, 'archived' => $archived]);
+    $this->event($approved, 'intake.approved', [
+      'digest' => $digest,
+      'rungs' => $rungs,
+      'archived' => $archived,
+      'via' => $via,
+      'human' => $yes,
+    ]);
     return $approved;
   }
 

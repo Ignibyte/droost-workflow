@@ -121,12 +121,10 @@ final class GuardIntakeTest extends WorkflowTestCase {
   public function testTheOperatorsIntakeVerbsAreRefusedFromTheAgentsShell(): void {
     [$root] = $this->intake();
     foreach ([
-      'vendor/bin/droost-workflow intake approve',
       'droost-workflow intake abandon "changed my mind"',
       'vendor/bin/droost-workflow intake answer "Who edits?" "Me"',
-      'ddev drush droost:workflow:intake approve',
       'drush droost:workflow:intake answer "Who edits?" "Me"',
-      'ddev drush dwfin approve',
+      'ddev drush dwfin abandon "no"',
     ] as $command) {
       [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
       $this->assertSame(2, $exit, $command . ' must be refused');
@@ -136,6 +134,10 @@ final class GuardIntakeTest extends WorkflowTestCase {
     }
     foreach ([
       'vendor/bin/droost-workflow intake check',
+      // Approval is the agent's on the human's yes (owner, 2026-10-08).
+      'vendor/bin/droost-workflow intake approve',
+      'ddev drush droost:workflow:intake approve',
+      'ddev drush dwfin approve',
       'vendor/bin/droost-workflow intake status',
       'ddev drush droost:workflow:intake audit --url=http://localhost:5173 --files=src',
       'cat droost/droost-workflow/intake-answers.jsonl',

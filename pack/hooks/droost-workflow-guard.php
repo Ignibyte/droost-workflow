@@ -1546,13 +1546,12 @@ function operator_commands_guard(string $stdin): void {
       // operator's.
       $which = 'ticket move';
     }
-    // The intake's approval, its abandonment and the answers given outside
-    // AskUserQuestion are the human's: an agent proposes the roadmap and
-    // asks, and never approves its own plan or answers its own question.
-    // `dwfin` is the drush alias. Checking and reading stay the agent's.
-    elseif (preg_match('/(?:droost-workflow\s+|droost:workflow:|(?<![\w-])dwfin\s+)intake\s+approve\b|(?<![\w-])dwfin\s+approve\b/', $line) === 1) {
-      $which = 'intake approve';
-    }
+    // The intake's abandonment and the answers given outside AskUserQuestion
+    // are the human's: an agent never answers its own question. Approval is
+    // the agent's to run once the human has said yes in the session (owner,
+    // 2026-10-08), so it is not refused here; the guard records that yes
+    // from AskUserQuestion like every other answer. `dwfin` is the drush
+    // alias. Checking and reading stay the agent's.
     elseif (preg_match('/(?:droost-workflow\s+|droost:workflow:)intake\s+abandon\b|(?<![\w-])dwfin\s+abandon\b/', $line) === 1) {
       $which = 'intake abandon';
     }

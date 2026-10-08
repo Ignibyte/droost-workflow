@@ -68,7 +68,6 @@ final class OperatorCommandContractTest extends TestCase {
       'effort' => 'effort',
       'gate (arming a write gate)' => 'allow_',
       'ticket move' => 'ticket move',
-      'intake approve' => 'intake approve',
       'intake abandon' => 'intake abandon',
       'intake answer' => 'intake answer',
     ];
@@ -107,13 +106,12 @@ final class OperatorCommandContractTest extends TestCase {
     $this->assertContains('effort', $refused);
     $this->assertContains('gate (arming a write gate)', $refused);
     $this->assertContains('ticket move', $refused);
-    $this->assertContains('intake approve', $refused);
     $this->assertContains('intake abandon', $refused);
     $this->assertContains('intake answer', $refused);
     $this->assertCount(
-      9,
+      8,
       $refused,
-      'the README table names nine refusals; the guard must have nine branches',
+      'the README table names eight refusals; the guard must have eight branches',
     );
   }
 

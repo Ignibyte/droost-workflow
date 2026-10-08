@@ -105,8 +105,8 @@ final class AgentsBlock {
       . "starts with an intake, not a run: follow `.claude/skills/intake/SKILL.md`.\n"
       . "It reads the source (`vendor/bin/droost-workflow intake audit`),\n"
       . "proposes the content model, asks the human what the source cannot say,\n"
-      . "and writes the roadmap; no run opens until the OPERATOR approves it\n"
-      . "(`droost-workflow intake approve`, in their own terminal).",
+      . "and writes the roadmap; no run opens until the human approves it (ask\n"
+      . "them; on their yes, run `droost-workflow intake approve`).",
     ];
   }
 

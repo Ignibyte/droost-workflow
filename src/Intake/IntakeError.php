@@ -60,9 +60,9 @@ final class IntakeError extends \RuntimeException {
   public static function buildBeforeApproval(string $id): self {
     return new self(sprintf(
       'intake %s is open and not approved, and nothing builds until the human approves the roadmap: '
-      . 'finish the intake (`droost-workflow intake check` says what is left), then ask the operator '
-      . 'to approve it in their terminal (`droost-workflow intake approve`). To build without it, the '
-      . 'operator abandons it (`intake abandon "<reason>"`).',
+      . 'finish the intake (`droost-workflow intake check` says what is left), ask the human to '
+      . 'approve the roadmap, and on their yes run `droost-workflow intake approve`. To build '
+      . 'without it, the operator abandons it (`intake abandon "<reason>"`).',
       $id,
     ));
   }

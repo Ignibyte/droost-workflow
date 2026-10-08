@@ -661,7 +661,7 @@ built until they approve.
 droost-workflow intake start --request="<the human's words>" --source=<path|URL>
 droost-workflow intake audit --url=<where the source is served> --files=<its folder>
 droost-workflow intake check
-droost-workflow intake approve          # the operator's, in their terminal
+droost-workflow intake approve          # once the human has said yes
 ```
 
 - **`droost-source`** (`vendor/bin/droost-source`, Node, the project's own
@@ -689,8 +689,10 @@ droost-workflow intake approve          # the operator's, in their terminal
   answer is on record (the guard writes it from AskUserQuestion; the operator
   from a terminal with `intake answer`) and the file agrees; the ladder is in
   order and shows nothing before the rung that builds it.
-- **While an intake is open, no run opens.** `approve` and `abandon` are the
-  operator's, and archive the intake's ledgers, since a row written outside a
+- **While an intake is open, no run opens.** The agent asks the human whether
+  to approve the roadmap (AskUserQuestion, recorded by the guard) and runs
+  `approve` on their yes; the approval records how it was run and whose yes
+  it was. `abandon` stays the operator's. Both archive the intake's ledgers, since a row written outside a
   run is the next run's and the intake's consult would otherwise satisfy the
   first rung's `plan_consulted`. Each rung then runs from its ticket, as any
   ticket does.
@@ -827,7 +829,7 @@ command it hands the operator is one they can actually run.
 | `droost:workflow:effort <level>`, `droost-workflow effort <level>` | bare `effort` (reports) and `effort <level> --preview` (prices it) |
 | arming a write gate — `droost:gate allow_* on`, or the `config:set droost.settings allow_* true` form | disarming the same gate, which tightens |
 | `droost-workflow ticket move <id> <state>` | `ticket list`, `ticket show` and `ticket new` (a follow-up, filed in backlog) |
-| `droost:workflow:intake approve`, `intake abandon`, `intake answer` (and `droost-workflow intake …`) | `intake start`, `intake audit`, `intake check` and `intake status`; asking the human through AskUserQuestion, whose answers the guard records |
+| `droost:workflow:intake abandon`, `intake answer` (and `droost-workflow intake …`) | `intake start`, `intake audit`, `intake check`, `intake status`, and `intake approve` once the human has said yes; asking the human through AskUserQuestion, whose answers the guard records |
 
 The pattern is the same in each row: the reading and the tightening are the
 agent's, the loosening is not. An agent that needs one proposes it — the
