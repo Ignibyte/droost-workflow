@@ -148,9 +148,16 @@ async function read(browser, url, width) {
   if (crashed) { await ctx.close().catch(() => {}); return unread('the page crashed the browser while loading'); }
   await page.evaluate(async () => {
     await document.fonts.ready;
+    // Scroll instantly, whatever the page asks. A page with `scroll-behavior:
+    // smooth` animates every scrollTo, and the reading below began while the
+    // way back to the top was still running: a tall page's sticky header read
+    // 54px down (F-264).
+    for (const el of [document.documentElement, document.body]) if (el) el.style.setProperty('scroll-behavior', 'auto', 'important');
     // In-view animations run only once their section has been in the viewport.
     for (let y = 0; y < document.documentElement.scrollHeight; y += 300) { window.scrollTo(0, y); await new Promise((r) => setTimeout(r, 100)); }
     window.scrollTo(0, 0);
+    // And read only once the page is at its top.
+    for (let i = 0; i < 50 && window.scrollY !== 0; i++) { window.scrollTo(0, 0); await new Promise((r) => setTimeout(r, 100)); }
   }).catch(() => {});
   await page.waitForTimeout(1200).catch(() => {});
   if (crashed) { await ctx.close().catch(() => {}); return unread('the page crashed the browser as it scrolled'); }

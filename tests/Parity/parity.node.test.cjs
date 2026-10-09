@@ -129,3 +129,17 @@ test('the frame of a page whose utility bar is a nav above its header', { skip: 
     await browser.close();
   }
 });
+
+// F-264, read in a browser: a tall page that scrolls smoothly is read once it
+// is back at its top. United's 390 reading began 54px down, and its sticky
+// header read at y=90 for 36.
+test('a smooth-scrolling page is read at its top', { skip: !PW && 'no DROOST_SOURCE_PLAYWRIGHT_CWD: the browser half was not run' }, async () => {
+  const { chromium } = require(path.join(PW, 'node_modules', 'playwright'));
+  const browser = await chromium.launch();
+  try {
+    const r = await parity.read(browser, 'file://' + path.join(__dirname, 'fixtures', 'smooth.html'), 390);
+    assert.equal(r.header.y, 36, 'the sticky header where it sits at the top, below the 36px bar');
+  } finally {
+    await browser.close();
+  }
+});
