@@ -109,3 +109,23 @@ test('decided.json is read only as recorded decisions about texts the reference 
   assert.equal(parity.readDecided(dir, views, path.join(dir, 'none.md')).error, 'decided.json is not JSON: ' + read().error.split('is not JSON: ')[1], 'with no intake, the JSON is still read');
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+// F-262, read in a browser: the header is the page's <header>, not the
+// utility bar's <nav> above it, and the header's links are every link the top
+// of the frame shows, never the footer's, the page's own or a hidden drawer's.
+// United's redesign has exactly this frame. Only with a Playwright to read it
+// (DROOST_SOURCE_PLAYWRIGHT_CWD, as the source tests take it).
+const PW = process.env.DROOST_SOURCE_PLAYWRIGHT_CWD;
+test('the frame of a page whose utility bar is a nav above its header', { skip: !PW && 'no DROOST_SOURCE_PLAYWRIGHT_CWD: the browser half was not run' }, async () => {
+  const { chromium } = require(path.join(PW, 'node_modules', 'playwright'));
+  const browser = await chromium.launch();
+  try {
+    const url = 'file://' + path.join(__dirname, 'fixtures', 'frame.html');
+    const r = await parity.read(browser, url, 1280);
+    assert.equal(r.header.position, 'sticky', 'the header is the sticky <header>, not the bar');
+    assert.equal(r.header.h, 80);
+    assert.deepEqual(r.navLinks.map((a) => a.text), ['My Account', '800-779-2227', 'United', 'Internet', 'Business', 'Check availability']);
+  } finally {
+    await browser.close();
+  }
+});

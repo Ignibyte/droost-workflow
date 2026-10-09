@@ -208,9 +208,16 @@ async function read(browser, url, width) {
     }
     const box = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
       return { y: Math.round(r.top + scrollY), h: Math.round(r.height), bg: s.backgroundColor, bgImage: s.backgroundImage !== 'none', borderTop: s.borderTopWidth + ' ' + s.borderTopColor, position: s.position }; };
-    const header = document.querySelector('body header, body nav');
+    // The header is the page's banner, its <header> (or role=banner), and its
+    // first <nav> only when it has neither. F-262: a utility bar's <nav> above
+    // the sticky <header> was taken for the header, so D7 measured the bar and
+    // D6 held its four links and none of the main menu's.
+    const header = document.querySelector('body header, body [role=banner]') || document.querySelector('body nav');
     const footer = [...document.querySelectorAll('footer')].pop() || null;
-    const navLinks = header ? [...header.querySelectorAll('a')].filter(visible).map((a) => ({ text: a.textContent.replace(/\s+/g, ' ').trim(), href: a.getAttribute('href') })) : [];
+    // The header's links: every link the top of the frame shows, in a header,
+    // a banner or a nav (as a text's inHeader reads it), and neither in the
+    // footer nor in the page's main content.
+    const navLinks = [...document.querySelectorAll('body a')].filter((a) => a.closest('header, nav, [role=banner]') && !a.closest('footer, [role=contentinfo], main, [role=main]')).filter(visible).map((a) => ({ text: a.textContent.replace(/\s+/g, ' ').trim(), href: a.getAttribute('href') }));
     return {
       height: document.documentElement.scrollHeight,
       hscroll: document.documentElement.scrollWidth > document.documentElement.clientWidth,
@@ -569,4 +576,4 @@ if (require.main === module) {
     .catch((e) => finish({ status: 'invalid', summary: 'the runner failed: ' + String(e && e.message || e).slice(0, 300) }, EXIT.invalid));
 }
 
-module.exports = { linkTarget, judge, readDecided, asideFor };
+module.exports = { linkTarget, judge, readDecided, asideFor, read };
