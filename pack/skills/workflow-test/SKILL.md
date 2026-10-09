@@ -209,7 +209,12 @@ captured from the source before the run, and it is frozen with the run: the
 gate fails a reference that has changed since the run began, so match the
 site to it and never the other way round. A reference captured at more than
 one width is judged at each (`/@390` is the home page at 390 pixels), which
-is how a menu that folds is held to the source's. A view fails on the first
+is how a menu that folds is held to the source's. A text the client decided
+the site will not show is named, with its decision, in
+`droost/parity/decided.json`; the gate leaves it out and says so. That file is
+part of the reference, frozen with it: a text you find set aside wrongly, or
+one that should be, is the operator's to change before a run, never yours
+during one. A view fails on the first
 of D1 to D7 it misses, and the finding says which elements; run it as the
 gate does, where the phase runs (on DDEV, `ddev exec vendor/bin/droost-parity
 judge`).

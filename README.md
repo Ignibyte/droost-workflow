@@ -247,6 +247,18 @@ with the run: its digest is taken when the run begins, and the gate fails a
 reference that has changed since, whatever changed it. Capturing is the
 operator's, before a run.
 
+A source shows things the client decided the site will not (a link hidden
+until an editor sets it, a language switch on a site in one language), and a
+page held whole would fail on each. `decided.json` beside the readings names
+them, `{"set_aside": [{"route": "/about", "text": "Learn More", "decided":
+"Q6", "why": "…"}]}` (`"route": "*"` for every page): the judge leaves each
+text, and a header link with that label, out of the route's reference, and its
+verdict lists every one with its decision. An entry with no decision, one
+citing no question of the intake (`droost/intake/questions.md`), or one
+naming a text the captured page does not show is INVALID, so the file can
+record decisions and nothing else. It is part of the reference, so its digest
+is frozen with the run.
+
 **Why a spec and not an MCP call.** The browser check used to be "the agent
 called a Playwright MCP tool", counted from the guard's ledger. That forced
 looking and left nothing behind: one `browser_navigate` satisfied it, and the

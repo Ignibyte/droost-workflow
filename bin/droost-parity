@@ -42,6 +42,23 @@
  * collapsed menu is judged: what shows in the header there must be what the
  * source shows.
  *
+ * A reference text the client decided the site will not show (a link hidden
+ * until an editor sets it, a language switch for a site in one language) is
+ * named in `decided.json` beside the readings, with the decision that set it
+ * aside (F-260):
+ *
+ *   {"set_aside": [{"route": "/business", "text": "Learn More", "decided": "Q6",
+ *                   "why": "hidden until an editor sets its address"}]}
+ *
+ * The judge leaves each such text (and a header link with that label) out of
+ * the route's reference, `"route": "*"` on every route, and says so in its
+ * verdict. An entry with no route, text or decision, a decision that names no
+ * question of the project's intake (`droost/intake/questions.md`, when there
+ * is one), or a text the route's reference does not hold (once the route is
+ * captured: the intake may name a later rung's page) is INVALID: what is
+ * set aside is a recorded decision about the reference, never a way round it.
+ * The file is part of the reference, so it is frozen with the run.
+ *
  * The site's base URL: --base, else DROOST_PARITY_BASE_URL, PLAYWRIGHT_BASE_URL
  * or DDEV_PRIMARY_URL (the address the site's own browser suite uses).
  * Playwright is the project's own (node_modules/playwright).
@@ -320,8 +337,9 @@ function matchingBlocks(a, b) {
   return blocks.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
 }
 
-function judge(reference, site, scope) {
-  let D = reference.texts || []; let S = site.texts || [];
+function judge(reference, site, scope, aside = new Set()) {
+  let D = (reference.texts || []).filter((e) => !aside.has(norm(e.text))); let S = site.texts || [];
+  if (aside.size) reference = { ...reference, navLinks: (reference.navLinks || []).filter((a) => !aside.has(norm(a.text || ''))) };
   if (['frame', 'header', 'footer'].includes(scope)) {
     const keep = { frame: (e) => e.inHeader || e.inFooter, header: (e) => e.inHeader, footer: (e) => e.inFooter }[scope];
     D = D.filter(keep); S = S.filter(keep);
@@ -406,6 +424,41 @@ function judge(reference, site, scope) {
   return rows;
 }
 
+// What the client decided the site will not show (F-260): `decided.json` in
+// the reference, checked against the readings and the intake's questions.
+// Returns the entries, or the reason they cannot be used.
+function readDecided(dir, views, questionsFile) {
+  const file = path.join(dir, 'decided.json');
+  if (!fs.existsSync(file)) return { entries: [] };
+  let doc;
+  try { doc = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return { error: `decided.json is not JSON: ${String(e.message).slice(0, 120)}` }; }
+  const entries = Array.isArray(doc && doc.set_aside) ? doc.set_aside : null;
+  if (!entries) return { error: 'decided.json holds no "set_aside" list' };
+  let ids = null;
+  if (questionsFile && fs.existsSync(questionsFile)) {
+    ids = new Set();
+    for (const line of fs.readFileSync(questionsFile, 'utf8').split('\n')) {
+      const m = /^\|\s*([A-Za-z]+-?\d+)\s*\|/.exec(line);
+      if (m) ids.add(m[1]);
+    }
+  }
+  const held = (route, text) => views.some((v) => (route === '*' || v.route === route) && v.texts.concat(v.links).some((t) => norm(t) === norm(text)));
+  for (const [i, e] of entries.entries()) {
+    const at = `decided.json's entry ${i + 1}`;
+    if (!e || typeof e.route !== 'string' || typeof e.text !== 'string' || typeof e.decided !== 'string' || !e.route || !e.text.trim() || !e.decided.trim()) return { error: `${at} needs a route, a text and the decision that set it aside` };
+    if (ids && !ids.has(e.decided.trim())) return { error: `${at} ("${e.text.slice(0, 40)}") cites ${e.decided}, which is no question of the intake (${path.relative(process.cwd(), questionsFile)})` };
+    // A route with no reading yet (a later rung's page) is checked once it
+    // is captured; "*" must be held on some route now.
+    const read = e.route === '*' || views.some((v) => v.route === e.route);
+    if (read && !held(e.route, e.text)) return { error: `${at} sets aside "${e.text.slice(0, 40)}" on ${e.route}, which the reference does not hold there` };
+  }
+  return { entries };
+}
+
+const asideFor = (entries, route) => new Set(entries.filter((e) => e.route === '*' || e.route === route).map((e) => norm(e.text)));
+
+const asideSaid = (entries) => (entries.length ? '; set aside by decision: ' + entries.map((e) => `"${e.text.slice(0, 40)}" on ${e.route} (${e.decided})`).join(', ') : '');
+
 // ---------------------------------------------------------------------------
 // The two commands.
 // ---------------------------------------------------------------------------
@@ -473,6 +526,13 @@ async function judgeCommand(opt) {
   if (manifest.source && origin(manifest.source) === origin(base)) {
     finish({ status: 'invalid', summary: `the reference was captured from ${manifest.source}, the site it would judge: capture it from the source the site rebuilds` }, EXIT.invalid);
   }
+  const readings = views.map((v) => {
+    const r = JSON.parse(fs.readFileSync(path.join(dir, v.file), 'utf8'));
+    return { route: v.route, texts: (r.texts || []).map((t) => t.text), links: (r.navLinks || []).map((a) => a.text || '') };
+  });
+  const decided = readDecided(dir, readings, path.resolve(process.cwd(), 'droost/intake/questions.md'));
+  if (decided.error) finish({ status: 'invalid', summary: decided.error }, EXIT.invalid);
+  const aside = decided.entries;
   const against = manifest.source ? ` against ${manifest.source}` + (manifest.captured_at ? ` (captured ${manifest.captured_at})` : '') : '';
   const { chromium } = playwright();
   const browser = await chromium.launch({ args: ['--disable-blink-features=AutomationControlled'] });
@@ -480,7 +540,7 @@ async function judgeCommand(opt) {
   for (const view of views) {
     const reference = JSON.parse(fs.readFileSync(path.join(dir, view.file), 'utf8'));
     const site = await read(browser, base.replace(/\/$/, '') + view.route, reference.viewport || view.width);
-    const rows = judge(reference, site, view.scope);
+    const rows = judge(reference, site, view.scope, asideFor(aside, view.route));
     const failed = rows.filter((r) => r.verdict === 'FAIL');
     const invalid = rows.filter((r) => r.verdict === 'INVALID');
     results.push({ ...view, verdict: failed.length ? 'FAIL' : invalid.length ? 'INVALID' : 'PASS', rows });
@@ -494,12 +554,12 @@ async function judgeCommand(opt) {
   const counted = widths.length > 1 ? `${results.length} view(s) (${routes.length} route(s) at ${widths.join(' and ')}px)` : `${results.length} route(s)`;
   const held = `${scope} scope` + (pages.length ? `; page scope for ${pages.join(', ')} at ${primary}px` : '');
   if (failedRoutes.length) {
-    finish({ status: 'fail', scope, source: manifest.source || null, summary: `${failedRoutes.length} of ${counted} differ from the reference${against}: ` + failedRoutes.map((r) => `${r.name} ${r.rows.filter((x) => x.verdict === 'FAIL').map((x) => x.id).join('+')}`).join(', '), routes: detail, skipped }, EXIT.fail);
+    finish({ status: 'fail', scope, source: manifest.source || null, summary: `${failedRoutes.length} of ${counted} differ from the reference${against}: ` + failedRoutes.map((r) => `${r.name} ${r.rows.filter((x) => x.verdict === 'FAIL').map((x) => x.id).join('+')}`).join(', ') + asideSaid(aside), routes: detail, skipped, set_aside: aside }, EXIT.fail);
   }
   if (invalidRoutes.length) {
-    finish({ status: 'invalid', scope, summary: `${invalidRoutes.length} of ${counted} could not be judged: ` + invalidRoutes.map((r) => r.name).join(', '), routes: detail, skipped }, EXIT.invalid);
+    finish({ status: 'invalid', scope, summary: `${invalidRoutes.length} of ${counted} could not be judged: ` + invalidRoutes.map((r) => r.name).join(', ') + asideSaid(aside), routes: detail, skipped, set_aside: aside }, EXIT.invalid);
   }
-  finish({ status: 'pass', scope, source: manifest.source || null, summary: `${counted} as the reference${against} (D1–D7, ${held})` + (skipped.length ? `; no reference for ${skipped.join(', ')}` : ''), routes: detail, skipped }, EXIT.pass);
+  finish({ status: 'pass', scope, source: manifest.source || null, summary: `${counted} as the reference${against} (D1–D7, ${held})` + (skipped.length ? `; no reference for ${skipped.join(', ')}` : '') + asideSaid(aside), routes: detail, skipped, set_aside: aside }, EXIT.pass);
 }
 
 if (require.main === module) {
@@ -509,4 +569,4 @@ if (require.main === module) {
     .catch((e) => finish({ status: 'invalid', summary: 'the runner failed: ' + String(e && e.message || e).slice(0, 300) }, EXIT.invalid));
 }
 
-module.exports = { linkTarget, judge };
+module.exports = { linkTarget, judge, readDecided, asideFor };

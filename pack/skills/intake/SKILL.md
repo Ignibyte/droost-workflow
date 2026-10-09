@@ -198,6 +198,25 @@ AskUserQuestion, the operator records each answer in their terminal
 
 Revise the model with the answers, and consult again.
 
+**When an answer means the site will not show something the source shows**
+(a link hidden until an editor sets it, a language switch on a site in one
+language), the parity gate would hold every page to it. Name each such text
+in `droost/parity/decided.json`, with the question that decided it, and the
+gate leaves it out of that page's reference and says so in its verdict:
+
+```json
+{"set_aside": [
+  {"route": "/", "text": "Spanish", "decided": "Q7", "why": "the site is in English only"},
+  {"route": "/about", "text": "Learn More", "decided": "Q6", "why": "hidden until an editor sets its address"}
+]}
+```
+
+`"route": "*"` sets a text aside on every page (the frame's). Only a
+question in `questions.md` can set a text aside, and only a text the source
+shows on that page: a later rung's page is checked once its reference is
+captured. Never set aside what the build has not managed: that is a gate to
+pass, not a decision.
+
 ## 6. The roadmap: `droost/intake/roadmap.md`
 
 ```markdown

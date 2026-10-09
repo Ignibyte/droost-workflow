@@ -46,3 +46,66 @@ test('D6 passes a site whose links go where the source\'s go, and fails one whos
   assert.equal(d6(parity.judge(ref, good, 'frame')).verdict, 'PASS', JSON.stringify(d6(parity.judge(ref, good, 'frame'))));
   assert.equal(d6(parity.judge(ref, bad, 'frame')).verdict, 'FAIL');
 });
+
+// F-260: what the client decided the site will not show is set aside by
+// decision, named in decided.json, and never a way round the reference. P9 ·
+// run 3 met it: the client hid every `#` link until an editor sets it (Q6),
+// and a whole page failed D2 on each one the source shows.
+const page = (url, texts, links = []) => ({
+  ...reading(url, links),
+  texts: texts.map(([text, tag, y, inHeader]) => ({ text, tag, x: 40, y, w: 200, h: 20, font: 'Arial', size: 14, weight: 400, transform: 'none', color: 'rgb(31, 41, 55)', ground: 'rgb(255, 255, 255)', inHeader: !!inHeader, inFooter: false })),
+});
+
+test('a text set aside by decision is left out of the reference, and only that text', () => {
+  const ref = page('http://localhost:4323/business', [['Business Internet', 'h1', 120], ['Learn More', 'a', 400], ['Dark Fiber', 'h4', 460]]);
+  const hid = page('https://united.ddev.site/business', [['Business Internet', 'h1', 120], ['Dark Fiber', 'h4', 460]]);
+  const lost = page('https://united.ddev.site/business', [['Business Internet', 'h1', 120]]);
+  const d2 = (rows) => rows.find((r) => r.id === 'D2');
+  assert.equal(d2(parity.judge(ref, hid, 'page')).verdict, 'FAIL', 'without the decision the hidden link is missing');
+  assert.equal(d2(parity.judge(ref, hid, 'page', new Set(['learn more']))).verdict, 'PASS');
+  assert.equal(d2(parity.judge(ref, lost, 'page', new Set(['learn more']))).verdict, 'FAIL', 'a text no decision names is still held');
+});
+
+test('a header link set aside by decision leaves D6 too', () => {
+  const ref = reading('http://localhost:4323/', [['Internet', '/internet.html'], ['Spanish', '#']]);
+  const site = reading('https://united.ddev.site/', [['Internet', '/internet']]);
+  const d6 = (rows) => rows.find((r) => r.id === 'D6');
+  assert.equal(d6(parity.judge(ref, site, 'frame')).verdict, 'FAIL');
+  assert.equal(d6(parity.judge(ref, site, 'frame', new Set(['spanish']))).verdict, 'PASS');
+});
+
+test('decided.json is read only as recorded decisions about texts the reference holds', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'parity-decided-'));
+  const questions = path.join(dir, 'questions.md');
+  fs.writeFileSync(questions, '| Id | Question |\n|---|---|\n| Q6 | What should the # links do? |\n| Q7 | Spanish? |\n');
+  const views = [{ route: '/business', texts: ['Business Internet', 'Learn More'], links: ['Internet', 'Spanish'] }, { route: '/', texts: ['Home'], links: ['Spanish'] }];
+  const write = (doc) => fs.writeFileSync(path.join(dir, 'decided.json'), JSON.stringify(doc));
+  const read = () => parity.readDecided(dir, views, questions);
+
+  assert.deepEqual(read(), { entries: [] }, 'no file, nothing set aside');
+  write({ set_aside: [{ route: '/business', text: 'Learn More', decided: 'Q6' }, { route: '*', text: 'Spanish', decided: 'Q7' }] });
+  assert.equal(read().entries.length, 2);
+  assert.deepEqual([...parity.asideFor(read().entries, '/')], ['spanish']);
+  assert.deepEqual([...parity.asideFor(read().entries, '/business')].sort(), ['learn more', 'spanish']);
+
+  write({ set_aside: [{ route: '/business', text: 'Learn More' }] });
+  assert.match(read().error, /needs a route, a text and the decision/);
+  write({ set_aside: [{ route: '/business', text: 'Learn More', decided: 'Q9' }] });
+  assert.match(read().error, /cites Q9, which is no question of the intake/);
+  write({ set_aside: [{ route: '/business', text: 'Dark Fiber', decided: 'Q6' }] });
+  assert.match(read().error, /which the reference does not hold there/);
+  write({ set_aside: [{ route: '/', text: 'Learn More', decided: 'Q6' }] });
+  assert.match(read().error, /does not hold there/, 'a text held on another route is not held on this one');
+  write({ set_aside: [{ route: '/about', text: 'Learn More About Us', decided: 'Q6' }] });
+  assert.equal(read().entries.length, 1, 'a page not captured yet is checked once it is');
+  write({ set_aside: [{ route: '*', text: 'Nowhere', decided: 'Q6' }] });
+  assert.match(read().error, /does not hold there/, 'a text set aside everywhere must be held somewhere');
+  write({ set_aside: 'Learn More' });
+  assert.match(read().error, /no "set_aside" list/);
+  fs.writeFileSync(path.join(dir, 'decided.json'), '{');
+  assert.match(read().error, /is not JSON/);
+  assert.equal(parity.readDecided(dir, views, path.join(dir, 'none.md')).error, 'decided.json is not JSON: ' + read().error.split('is not JSON: ')[1], 'with no intake, the JSON is still read');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
