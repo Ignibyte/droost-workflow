@@ -19,7 +19,9 @@
  *   D4  each pair: text colour and the colour it sits on within 12 (CIE76)
  *   D5  each pair: x within 16px, width within 15% (or 24px), and y within
  *       24px of where it sits below its section's heading
- *   D6  the header's links: the same labels and targets, in order
+ *   D6  the header's links: the same labels and targets, in order; a target
+ *       is where the link goes, not how it is spelled (F-258): a page of the
+ *       source's own `/internet.html` is the site's `/internet`
  *   D7  the header's height and stickiness, the footer's colour and border
  *
  * D2 and D6 pass at 100%, D3 to D5 at 95% of pairs. The site may carry more
@@ -256,6 +258,33 @@ function dist(c1, c2) {
   return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
 }
 
+// Where a link goes, read against the page it was found on (F-258). A path
+// on the page's own origin is the page it names: `/internet.html`,
+// `/internet/` and `/internet` are one page, `/index.html` is `/`, so a
+// static source's links compare with the clean paths a CMS serves. Another
+// host's link keeps its host and path; `tel:` keeps its digits; `#` stays.
+function linkTarget(href, pageUrl) {
+  if (href === null || href === undefined) return '';
+  const raw = String(href).trim();
+  if (raw === '' || raw.startsWith('#')) return raw;
+  if (/^tel:/i.test(raw)) return 'tel:' + raw.replace(/\D/g, '');
+  if (/^mailto:/i.test(raw)) return raw.toLowerCase();
+  let u;
+  try {
+    u = new URL(raw, pageUrl || 'http://x.invalid/');
+  } catch (e) {
+    return raw;
+  }
+  let own = false;
+  try {
+    own = !/^[a-z][a-z0-9+.-]*:/i.test(raw) || (pageUrl && u.origin === new URL(pageUrl).origin);
+  } catch (e) {
+    own = !/^[a-z][a-z0-9+.-]*:/i.test(raw);
+  }
+  const path = u.pathname.replace(/\/index\.html?$/i, '/').replace(/\.html?$/i, '').replace(/\/+$/, '') || '/';
+  return own ? path + u.search : u.origin + (path === '/' ? '' : path) + u.search;
+}
+
 const norm = (t) => t.normalize('NFKC').replace(/–|—/g, '-').replace(/’/g, "'").replace(/\s+/g, ' ').trim().toLowerCase();
 const caseOf = (e) => (e.transform === 'uppercase' || (e.text.toUpperCase() === e.text && e.text.toLowerCase() !== e.text) ? 'upper' : 'as-written');
 
@@ -350,7 +379,7 @@ function judge(reference, site, scope) {
   }
   [ok, said] = share(bad5, pairs.length, 0.95);
   row('D5', ok && pairs.length > 0, said + (bad5.length ? '; ' + bad5.slice(0, 8).join('; ') : ''));
-  const links = (r) => (r.navLinks || []).map((a) => [norm(a.text), a.href]);
+  const links = (r) => (r.navLinks || []).map((a) => [norm(a.text), linkTarget(a.href, r.url)]);
   const dn = links(reference); const sn = links(site);
   if (scope !== 'footer') row('D6', JSON.stringify(dn) === JSON.stringify(sn) && dn.length > 0, `reference ${dn.length} links, site ${sn.length}` + (JSON.stringify(dn) === JSON.stringify(sn) ? '' : `; reference ${JSON.stringify(dn)}; site ${JSON.stringify(sn)}`));
   const dh = reference.header; const sh = site.header; const df = reference.footer; const sf = site.footer;
@@ -473,7 +502,11 @@ async function judgeCommand(opt) {
   finish({ status: 'pass', scope, source: manifest.source || null, summary: `${counted} as the reference${against} (D1–D7, ${held})` + (skipped.length ? `; no reference for ${skipped.join(', ')}` : ''), routes: detail, skipped }, EXIT.pass);
 }
 
-const opt = args(process.argv.slice(2));
-const command = opt._[0] || 'judge';
-(command === 'capture' ? capture(opt) : command === 'judge' ? judgeCommand(opt) : Promise.resolve(finish({ status: 'error', summary: `unknown command ${command}: capture or judge` }, EXIT.invalid)))
-  .catch((e) => finish({ status: 'invalid', summary: 'the runner failed: ' + String(e && e.message || e).slice(0, 300) }, EXIT.invalid));
+if (require.main === module) {
+  const opt = args(process.argv.slice(2));
+  const command = opt._[0] || 'judge';
+  (command === 'capture' ? capture(opt) : command === 'judge' ? judgeCommand(opt) : Promise.resolve(finish({ status: 'error', summary: `unknown command ${command}: capture or judge` }, EXIT.invalid)))
+    .catch((e) => finish({ status: 'invalid', summary: 'the runner failed: ' + String(e && e.message || e).slice(0, 300) }, EXIT.invalid));
+}
+
+module.exports = { linkTarget, judge };
