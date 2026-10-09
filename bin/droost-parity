@@ -189,13 +189,33 @@ async function read(browser, url, width) {
     // together, as the browser draws them (React writes "{city}, {state}" as
     // three, and "$" and "{price}" as two), and a child element between two
     // keeps a word boundary ("Ages 8-12" before a <span>Youth</span>).
+    // CSS-generated text, as it draws (F-265): a ::before or ::after with a
+    // string, or with a counter, numbered as the browser numbers it. A list
+    // the source types "01" into and a site numbers by a counter draw the
+    // same thing; read as text nodes alone, the site's had no number at all.
+    const generated = (el, which) => {
+      const c = getComputedStyle(el, which).content;
+      if (!c || c === 'none' || c === 'normal') return '';
+      const lit = /^"(.*)"$/.exec(c);
+      if (lit) return lit[1];
+      const m = /^counter\(([\w-]+)(?:,\s*([\w-]+))?\)$/.exec(c);
+      if (!m) return '';
+      const incs = (e) => (getComputedStyle(e).counterIncrement || '').split(/\s+/).includes(m[1]);
+      let item = el;
+      while (item && !incs(item)) item = item.parentElement;
+      if (!item || !item.parentElement) return '';
+      const n = [...item.parentElement.children].filter(incs).indexOf(item) + 1;
+      return m[2] === 'decimal-leading-zero' ? String(n).padStart(2, '0') : String(n);
+    };
     const ownText = (el) => {
-      let s = '';
+      let s = generated(el, '::before');
       let run = false;
       for (const n of el.childNodes) {
         if (n.nodeType === 3) { s += (run || !s ? '' : ' ') + n.textContent; run = true; }
         else if (n.nodeType === 1) run = false;
       }
+      const after = generated(el, '::after');
+      if (after) s += (s ? ' ' : '') + after;
       return s.replace(/\s+/g, ' ').trim();
     };
     const texts = [];

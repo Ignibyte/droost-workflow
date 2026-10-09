@@ -143,3 +143,19 @@ test('a smooth-scrolling page is read at its top', { skip: !PW && 'no DROOST_SOU
     await browser.close();
   }
 });
+
+// F-265, read in a browser: CSS-generated text is read as it draws. United's
+// build numbers its steps with a counter where the source types "01".
+test('generated text is read: a counter as numbered, a string as written', { skip: !PW && 'no DROOST_SOURCE_PLAYWRIGHT_CWD: the browser half was not run' }, async () => {
+  const { chromium } = require(path.join(PW, 'node_modules', 'playwright'));
+  const browser = await chromium.launch();
+  try {
+    const r = await parity.read(browser, 'file://' + path.join(__dirname, 'fixtures', 'generated.html'), 1280);
+    const texts = r.texts.map((t) => t.text);
+    assert.ok(texts.includes('01') && texts.includes('02'), 'the counter numbers: ' + JSON.stringify(texts));
+    assert.ok(texts.includes('New'), 'a ::before string');
+    assert.ok(texts.includes('Plain') && !texts.includes(''), 'an empty ::before adds nothing');
+  } finally {
+    await browser.close();
+  }
+});
