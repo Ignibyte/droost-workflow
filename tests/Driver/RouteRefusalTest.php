@@ -196,6 +196,37 @@ final class RouteRefusalTest extends WorkflowTestCase {
   }
 
   /**
+   * A redirect the site makes only through index.php is judged as made.
+   *
+   * The Redirect module redirects no request whose script is not index.php
+   * (RedirectChecker::canRedirect). The gate's request had no script at all,
+   * so P9 run 3's `/internet.html@301`, which every visitor got, read 404
+   * (F-261). This kernel does what the module does, and asks that the
+   * request is otherwise the visitor's: the path, and no base URL.
+   */
+  public function testRedirectMadeOnlyThroughIndexPhpIsJudgedAsMade(): void {
+    $redirects = new class() implements HttpKernelInterface {
+
+      /**
+       * {@inheritdoc}
+       */
+      public function handle(Request $request, int $type = self::MAIN_REQUEST, bool $catch = TRUE): Response {
+        if ($request->getPathInfo() !== '/internet.html' || $request->getBaseUrl() !== '') {
+          return new Response('', 500);
+        }
+        return preg_match('/index\.php$/', $request->getScriptName())
+          ? new RedirectResponse('/internet', 301)
+          : new Response('', 404);
+      }
+
+    };
+
+    $result = (new BootedSiteDriver($redirects, static fn (): int => 0))->run(new GateSettings('rendered_check', TRUE, ['routes' => '/internet.html@301']), '/tmp');
+    $this->assertSame(GateStatus::Passed, $result->status, 'the 301 a visitor gets');
+    $this->assertSame([], $result->findings);
+  }
+
+  /**
    * A refusal the site's exception listeners answer is judged as answered.
    *
    * P8 run 20's agent sent an anonymous visitor of /my-registrations to log

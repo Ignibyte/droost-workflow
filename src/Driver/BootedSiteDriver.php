@@ -156,6 +156,28 @@ final class BootedSiteDriver implements SiteDriverInterface {
   }
 
   /**
+   * The request a visitor's browser makes for a path, through index.php.
+   *
+   * Request::create() leaves SCRIPT_NAME empty, as no web server does, and
+   * a site may answer that request differently: the Redirect module makes
+   * no redirect unless the script is index.php (RedirectChecker), so a
+   * declared 301 every visitor got read as a 404 (F-261, P9 run 3).
+   *
+   * @param string $path
+   *   The internal path.
+   *
+   * @return \Symfony\Component\HttpFoundation\Request
+   *   The request.
+   */
+  private static function visit(string $path): Request {
+    return Request::create($path, 'GET', [], [], [], [
+      'SCRIPT_NAME' => '/index.php',
+      'SCRIPT_FILENAME' => 'index.php',
+      'PHP_SELF' => '/index.php',
+    ]);
+  }
+
+  /**
    * What the site answers a visitor for a path, its exception listeners run.
    *
    * @param string $path
@@ -166,7 +188,7 @@ final class BootedSiteDriver implements SiteDriverInterface {
    */
   private function answered(string $path): ?Response {
     try {
-      return $this->kernel->handle(Request::create($path), HttpKernelInterface::SUB_REQUEST, TRUE);
+      return $this->kernel->handle(self::visit($path), HttpKernelInterface::SUB_REQUEST, TRUE);
     }
     catch (\Throwable) {
       return NULL;
@@ -187,7 +209,7 @@ final class BootedSiteDriver implements SiteDriverInterface {
     ['path' => $path, 'status' => $expected] = RenderedRoutes::expectation($route);
     try {
       $response = $this->kernel->handle(
-        Request::create($path),
+        self::visit($path),
         HttpKernelInterface::SUB_REQUEST,
         FALSE,
       );
