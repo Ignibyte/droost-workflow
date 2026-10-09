@@ -571,6 +571,32 @@ final class ShellSurfaceTest extends WorkflowTestCase {
   }
 
   /**
+   * A file a command writes is not a script it runs (F-266).
+   *
+   * Only `>` marks a redirect's target, and the read tier skipped a marked
+   * token only for "written here", then read it as a script all the same:
+   * P10 run 4's `ddev exec 'cat /tmp/site.png' > shot.png` was refused as
+   * running a script this guard cannot read, because a screenshot from an
+   * earlier call already lay there past 64KB. A script run from a redirect
+   * the other way, `bash < big.sh`, is still the shell's to read.
+   */
+  public function testRedirectTargetIsNotScriptTheCommandRuns(): void {
+    $root = $this->lab();
+    file_put_contents($root . '/shot.png', str_repeat("\x89PNG", 20000));
+    foreach ([
+      "ddev exec 'cat /tmp/site.png' > shot.png",
+      "bash -c 'cat /tmp/site.png' > shot.png",
+      "ddev exec 'node /tmp/shot.js' >> shot.png",
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' writes shot.png and runs nothing in it: ' . $stderr);
+    }
+    file_put_contents($root . '/big.sh', "#!/bin/sh\n" . str_repeat("# pad\n", 12000) . "echo hi\n");
+    [$exit] = $this->shell($root, 'bash big.sh > out.txt');
+    $this->assertSame(2, $exit, 'the script it does run is still read');
+  }
+
+  /**
    * A link to a script is read THROUGH, and its target is judged.
    *
    * The symlink refusal closed `link.sh -> do.sh` by refusing every link —

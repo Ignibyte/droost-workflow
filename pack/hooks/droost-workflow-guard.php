@@ -2956,6 +2956,13 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
       // The HEAD too, for `./do.sh` — there the script is the program, not an
       // argument to one.
       foreach ($selfExecuting ? $bare : array_slice($bare, 1) as $argument) {
+        // A REDIRECT'S TARGET IS WRITTEN, NOT RUN (F-266). Only `>` marks a
+        // token, so a marked one is a file this command's output goes to:
+        // `ddev exec 'cat /tmp/site.png' > shot.png` was refused as running
+        // a script this guard cannot read, once shot.png existed past 64KB.
+        if (str_starts_with($argument, "\x01")) {
+          continue;
+        }
         $file = ltrim($argument, "\x01");
         // A LONE `-` IS THE PROGRAM, ON STDIN (F-180). `python3 - FILE <<'PY'`
         // runs the heredoc, and FILE is its argv, data. It was read as the
