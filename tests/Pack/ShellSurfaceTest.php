@@ -597,6 +597,35 @@ final class ShellSurfaceTest extends WorkflowTestCase {
   }
 
   /**
+   * A heredoc's body is judged by what it feeds, not by its line (F-267).
+   *
+   * P10 run 4's agent wrote a Playwright probe with `cat > p.js <<'EOF'`
+   * after a `ddev exec '…'` on the same line. The line opened with an
+   * interpreter, so the body was kept as shell, and a JavaScript template
+   * string around `drush uli --uri=${base}` read as a backtick substitution
+   * building a drush command. A heredoc that does feed a shell, on its own
+   * pipeline, is still read.
+   */
+  public function testHeredocBodyIsJudgedByThePipelineItFeeds(): void {
+    $root = $this->lab();
+    $js = "cat > p.js <<'EOF'\nconst login = execSync(`vendor/bin/drush uli --uri=\${base}`);\nEOF";
+    foreach (["ddev exec 'ls | head -3'; " . $js, "ddev exec 'echo \"a\"' && " . $js] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, 'the body is a file\'s text: ' . $stderr);
+    }
+    $verb = "\ndrush droost:workflow:bypass x\nEOF";
+    foreach ([
+      "ddev exec 'ls'; bash <<'EOF'" . $verb,
+      "cat <<'EOF' | bash" . $verb,
+      "ddev exec bash <<'EOF'" . $verb,
+      "ls; ddev exec bash <<'EOF'" . $verb,
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, 'a body fed to a shell is still read: ' . strtok($command, "\n"));
+    }
+  }
+
+  /**
    * A link to a script is read THROUGH, and its target is judged.
    *
    * The symlink refusal closed `link.sh -> do.sh` by refusing every link —

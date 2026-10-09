@@ -886,8 +886,13 @@ function operator_commands_scan_text(string $command): string {
       }
     }
     $kept[] = $line;
+    // The interpreter that matters is the one the heredoc FEEDS: the
+    // pipeline its `<<` stands in, not anything else on the line (F-267).
+    // `ddev exec 'ls | head'; cat > p.js <<'EOF'` kept p.js's body as code,
+    // because `ddev exec` opened the line, and a JavaScript template string
+    // in it read as a backtick substitution around drush.
     if (preg_match('/<<-?\s*([\'"]?)([A-Za-z_][A-Za-z0-9_]*)\1/', $line, $m) !== 1
-      || (preg_match($interpreter, $line) === 1 && !operator_commands_feeds_code($line))) {
+      || (preg_match($interpreter, operator_commands_heredoc_pipeline($line)) === 1 && !operator_commands_feeds_code($line))) {
       continue;
     }
     // A data heredoc, or one fed to php, python, perl, node or ruby: skip to
@@ -906,6 +911,64 @@ function operator_commands_scan_text(string $command): string {
     }
   }
   return operator_commands_without_case_patterns(implode("\n", $kept));
+}
+
+/**
+ * The pipeline a heredoc line's first `<<` stands in (F-267).
+ *
+ * Commands joined by `;`, `&&`, `||` or a lone `&` are separate; a `|` joins
+ * one pipeline, so `cat <<EOF | bash` feeds bash. Separators inside quotes
+ * are text, and `2>&1` or `&>` is a redirection, not a separator.
+ *
+ * @param string $line
+ *   A command line holding a heredoc operator.
+ *
+ * @return string
+ *   The pipeline around the operator, or the whole line when it has none.
+ */
+function operator_commands_heredoc_pipeline(string $line): string {
+  $at = NULL;
+  $quote = '';
+  $start = 0;
+  $length = strlen($line);
+  for ($i = 0; $i < $length; $i++) {
+    $char = $line[$i];
+    $next = $line[$i + 1] ?? '';
+    if ($quote !== '') {
+      if ($char === '\\' && $quote === '"') {
+        $i++;
+      }
+      elseif ($char === $quote) {
+        $quote = '';
+      }
+      continue;
+    }
+    if ($char === "'" || $char === '"') {
+      $quote = $char;
+      continue;
+    }
+    if ($char === '\\') {
+      $i++;
+      continue;
+    }
+    if ($char === '<' && $next === '<') {
+      $at ??= $i;
+      $i++;
+      continue;
+    }
+    $double = ($char === '&' && $next === '&') || ($char === '|' && $next === '|');
+    $lone = $char === ';' || ($char === '&' && !$double && $next !== '>' && ($line[$i - 1] ?? '') !== '>');
+    if ($double || $lone) {
+      if ($at !== NULL) {
+        return substr($line, $start, $i - $start);
+      }
+      $start = $i + ($double ? 2 : 1);
+      if ($double) {
+        $i++;
+      }
+    }
+  }
+  return substr($line, $start);
 }
 
 /**
