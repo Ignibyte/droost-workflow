@@ -237,3 +237,18 @@ test('a set-aside names its page in the source\'s spelling or the site\'s, and m
   write({ set_aside: [{ route: '/location.html', text: 'Not on the page', decided: 'Q5' }] });
   assert.match(parity.readDecided(dir, views, null).error, /does not hold there/, 'a captured page is checked, whatever its spelling');
 });
+
+// F-269: a page whose words follow the clock is read twice more at capture
+// with the clock moved ahead, and a text not there at every reading is live:
+// left out of the reference, listed, and named as not judged. P11 met it on
+// Wild Bill's /location, read on a Saturday while open.
+test('a text that changes with the clock is live, and only that text', () => {
+  const at = (...texts) => ({ texts: texts.map((text) => ({ text })) });
+  const saturday = at('Hours', 'Open now · closes 6:00pm', 'Saturday · today', 'Sunday');
+  const tuesday = at('Hours', 'Closed · opens Wednesday at 8:00am', 'Saturday', 'Sunday');
+  const thursday = at('Hours', 'Open now · closes 7:00pm', 'Saturday', 'Sunday');
+  assert.deepEqual(parity.liveTexts(saturday, [tuesday, thursday]), ['Open now · closes 6:00pm', 'Saturday · today']);
+  assert.deepEqual(parity.liveTexts(saturday, [saturday]), [], 'a page that does not follow the clock has none');
+  assert.deepEqual(parity.liveTexts(saturday, []), [], 'and with no other reading nothing is called live');
+  assert.deepEqual(parity.liveTexts(at('Open now  ·  closes 6:00pm'), [at('open now · closes 6:00pm')]), [], 'compared as the judge compares');
+});

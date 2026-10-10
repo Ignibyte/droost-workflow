@@ -34,6 +34,9 @@
  *     from the source at /internet.html; `/internet.html` alone is the same)
  *     [--accept-unloaded "Family,…"]  (a face the source declares and never
  *     draws refuses the capture unless named here; the manifest records it)
+ *     (each page is read twice more with the clock moved ahead; a text that
+ *     follows the clock is live, kept out of the reference and listed there,
+ *     and the judge names it as not judged: F-269)
  *   droost-parity judge [--reference droost/parity] [--routes …] [--scope page|frame|header|footer]
  *                       [--pages /,…] [--base <url>] [--json]
  *
@@ -161,7 +164,21 @@ async function facesInPage() {
   return out;
 }
 
-async function read(browser, url, width) {
+// A page whose words follow the clock ("Open now · closes 6:00pm",
+// "Saturday · today") is read twice more at capture, with the browser's clock
+// days and hours ahead. A text that is not there at every reading is live: it
+// stays out of the reference, which is listed in the reading, and the judge
+// says it did not judge it. A reference read once kept what the clock said at
+// capture, and held the site to it (F-269: Wild Bill's /location, read on a
+// Saturday while open, matched the site only until 6pm).
+const LIVE_SHIFTS = [(3 * 24 + 13) * 3600e3, (5 * 24 + 6) * 3600e3];
+const liveTexts = (reading, others) => {
+  const sets = others.map((o) => new Set((o.texts || []).map((t) => norm(t.text))));
+  if (!sets.length) return [];
+  return [...new Set((reading.texts || []).map((t) => t.text).filter((t) => sets.some((set) => !set.has(norm(t)))))];
+};
+
+async function read(browser, url, width, clock = null) {
   // A fresh context per page (no cache to serve from) and no extra request
   // header: on a cross-origin font request one forces a CORS preflight a font
   // host may fail, and the page falls back to another typeface.
@@ -176,6 +193,7 @@ async function read(browser, url, width) {
     return route.continue({ headers: { ...req.headers(), accept: 'image/webp,image/apng,image/svg+xml,image/*;q=0.8,*/*;q=0.5' } });
   });
   const page = await ctx.newPage();
+  if (clock) await page.clock.setFixedTime(clock);
   // A page that crashes the browser is a page not read: INVALID for that
   // route, never the end of every other route's reading.
   let crashed = false;
@@ -572,11 +590,22 @@ async function capture(opt) {
   const readings = [];
   for (const { route, from } of specs) {
     for (const w of widths) {
-      const reading = await read(browser, source.replace(/\/$/, '') + from, w);
+      const url = source.replace(/\/$/, '') + from;
+      const reading = await read(browser, url, w);
+      const others = [];
+      for (const shift of LIVE_SHIFTS) {
+        const other = await read(browser, url, w, new Date(Date.now() + shift));
+        if (other.status === reading.status && (other.texts || []).length) others.push(other);
+      }
+      const live = liveTexts(reading, others);
+      if (live.length) {
+        reading.texts = reading.texts.filter((t) => !live.includes(t.text));
+        reading.live = live;
+      }
       reading.route = route;
       if (from !== route) reading.from = from;
       readings.push({ file: viewFile(route, w, width), reading });
-      captured.push({ route, ...(from !== route ? { from } : {}), width: w, status: reading.status, texts: (reading.texts || []).length });
+      captured.push({ route, ...(from !== route ? { from } : {}), width: w, status: reading.status, texts: (reading.texts || []).length, ...(live.length ? { live } : {}) });
     }
   }
   await browser.close();
@@ -646,8 +675,10 @@ async function judgeCommand(opt) {
   const { chromium } = playwright();
   const browser = await chromium.launch({ args: ['--disable-blink-features=AutomationControlled'] });
   const results = [];
+  const liveBy = [];
   for (const view of views) {
     const reference = JSON.parse(fs.readFileSync(path.join(dir, view.file), 'utf8'));
+    if ((reference.live || []).length && view.width === primary) liveBy.push(`${reference.live.length} on ${view.route}`);
     const site = await read(browser, base.replace(/\/$/, '') + view.route, reference.viewport || view.width);
     const rows = judge(reference, site, view.scope, asideFor(aside, view.route));
     const failed = rows.filter((r) => r.verdict === 'FAIL');
@@ -661,7 +692,7 @@ async function judgeCommand(opt) {
   const detail = results.map((r) => ({ route: r.route, view: r.name, width: r.width, scope: r.scope, verdict: r.verdict, failing: r.rows.filter((x) => x.verdict !== 'PASS').map((x) => ({ id: x.id, verdict: x.verdict, said: String(x.said).slice(0, 400) })) }));
   // One width and one scope reads as it always has; more says what was held.
   const counted = widths.length > 1 ? `${results.length} view(s) (${routes.length} route(s) at ${widths.join(' and ')}px)` : `${results.length} route(s)`;
-  const held = `${scope} scope` + (pages.length ? `; page scope for ${pages.join(', ')} at ${primary}px` : '');
+  const held = `${scope} scope` + (pages.length ? `; page scope for ${pages.join(', ')} at ${primary}px` : '') + (liveBy.length ? `; live texts not judged (they follow the clock): ${liveBy.join(', ')}` : '');
   if (failedRoutes.length) {
     finish({ status: 'fail', scope, source: manifest.source || null, summary: `${failedRoutes.length} of ${counted} differ from the reference${against}: ` + failedRoutes.map((r) => `${r.name} ${r.rows.filter((x) => x.verdict === 'FAIL').map((x) => x.id).join('+')}`).join(', ') + asideSaid(aside), routes: detail, skipped, set_aside: aside }, EXIT.fail);
   }
@@ -678,4 +709,4 @@ if (require.main === module) {
     .catch((e) => finish({ status: 'invalid', summary: 'the runner failed: ' + String(e && e.message || e).slice(0, 300) }, EXIT.invalid));
 }
 
-module.exports = { linkTarget, judge, readDecided, asideFor, read, routeSpec, facesInPage };
+module.exports = { linkTarget, judge, readDecided, asideFor, read, routeSpec, facesInPage, liveTexts };
