@@ -201,16 +201,17 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
       'moved, not truncated',
     );
 
-    // And the next bare `run` does NOT quietly inherit this ticket's spec.
-    //
-    // This assertion used to say the opposite — that a bare run after a reset
-    // "starts fresh" — and it was codifying a bug. The reset archives the
-    // record and leaves the spec file where it is, so the state directory
-    // holds exactly one candidate and the resolver adopted it: the FINISHED
-    // ticket's acceptance criteria, governing a new ticket, with nothing said.
-    // A reviewer drove three tickets through one repository and watched the
-    // second inherit the first's contract. At two leftover specs the resolver
-    // already refused and asked; at one there was nothing to ask about.
+    // And the spec that governed the run goes with it (F-41). Left behind, it
+    // was the next run's candidate: refused as already governed when alone,
+    // and with the next ticket's spec beside it, an unresolvable pair. An
+    // observer moved it by hand after each of five rungs (P11).
+    $this->assertFileDoesNotExist($state . '/spec-test-run.md', 'the spec does not outlive the run in the state directory');
+    $this->assertFileExists($base . '.spec.md', 'it is archived beside the record, same base name');
+    $this->assertStringContainsString('##', (string) file_get_contents($base . '.spec.md'), 'moved whole');
+
+    // Re-running that same ticket starts from the archived copy, put back and
+    // named; a bare run still never adopts a finished ticket's spec in silence.
+    copy($base . '.spec.md', $state . '/spec-test-run.md');
     try {
       $this->facade($executor)->run($root);
       $this->fail('a finished ticket\'s spec is not adopted in silence');
@@ -219,8 +220,6 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
       $this->assertStringContainsString('already finished', $error->getMessage());
       $this->assertStringContainsString('--spec=', $error->getMessage());
     }
-
-    // Re-running that same ticket is one flag away, and still works.
     $again = $this->facade($executor)->run($root, spec: 'droost/droost-workflow/spec-test-run.md');
     $this->assertSame(Outcome::Advanced, $again->outcome);
     $this->assertSame(Phase::Code, $again->state->currentPhase);

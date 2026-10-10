@@ -1133,6 +1133,10 @@ final class WorkflowFacade {
   /**
    * Clears a finished run: archives its record and removes run.json.
    *
+   * The run's ledgers and the spec it was governed by (when the pack wrote it
+   * into the state directory) go into history beside the record (F-6, F-65,
+   * F-41).
+   *
    * A completed (or failed) run.json persists — deliberately, it is the
    * record — and start refuses to clobber it, so multi-ticket work needs a
    * sanctioned way to finish one run and begin the next. The record is
@@ -1223,6 +1227,28 @@ final class WorkflowFacade {
       }
       if (@rename($source, $archived) === FALSE) {
         throw StateError::archiveFailed($archived, 'the ' . $ledger . ' ledger could not be moved');
+      }
+    }
+    // The spec that governed the run goes with it (F-41). Left in the state
+    // directory it was the next run's candidate: one leftover is refused as
+    // already governed, several make the next bare run unresolvable, and an
+    // observer moved it by hand after every one of five rungs (P11). Only a
+    // spec the pack wrote into the state directory moves; one kept elsewhere
+    // (a docs/ spec the team owns) is the team's and stays. Re-running the
+    // same ticket starts from the archived copy, put back and named with
+    // --spec.
+    $spec = $state?->specPath;
+    if (is_string($spec) && $spec !== '') {
+      $specFile = str_starts_with($spec, '/') ? $spec : rtrim($projectRoot, '/') . '/' . $spec;
+      $realSpec = is_file($specFile) ? realpath($specFile) : FALSE;
+      if ($realSpec !== FALSE && dirname($realSpec) === realpath($stateDir)) {
+        $archived = $history . '/' . $base . '.spec.md';
+        for ($n = 2; is_file($archived); $n++) {
+          $archived = $history . '/' . $base . '-' . $n . '.spec.md';
+        }
+        if (@rename($realSpec, $archived) === FALSE) {
+          throw StateError::archiveFailed($archived, 'the spec could not be moved');
+        }
       }
     }
     foreach (glob($stateDir . '/.guard-warned-*') ?: [] as $marker) {
