@@ -146,6 +146,13 @@ Write it in the shape droost's consult reads:
 - **Confidence** says how sure the source makes you; a low one is usually a
   question.
 - **Every page** under `## Routes`, as `- /path — what it is`.
+- **A page the site answers at another address than the source** (a static
+  source's `/vehicles.html`, built at `/vehicles`) keeps the source's address
+  answering: a redirect from it (Drupal CMS ships the Redirect module), as a
+  construct citing the route, built and named in a criterion by the rung that
+  builds the page, with its query string carried (`?type=Truck`). Or ask the
+  human whether the old addresses matter: a source never deployed has no
+  visitor holding them. Leaving them to answer 404 unsaid is neither.
 
 ## 4. Put it to droost
 
@@ -165,7 +172,12 @@ already says how many records there are). What a source cannot say:
 - **who edits what**: which content an editor changes, and which is fixed
   copy;
 - **what is real**: whether the source's records are the site's content or
-  placeholders;
+  placeholders. When the source says they are samples (a handoff, a README,
+  a "sample" tag), whether to import them is only half of it: ask for the
+  real ones too (the business's name, address, phone, email and hours; where
+  real records will come from and who keeps them current; which facts a
+  record carries that the sample does not). Never ask the human to confirm a
+  sample value;
 - **where things go**: a form's submissions, a booking, a payment;
 - **what is out of scope**: a backend the source sketches, accounts, a
   second language;
@@ -197,6 +209,15 @@ AskUserQuestion, the operator records each answer in their terminal
 (`drush droost:workflow:intake answer "<question>" "<answer>"`).
 
 Revise the model with the answers, and consult again.
+
+**The source's words about its own behaviour** ("nothing is sent", "your
+message has not left this page", "status uses your device's clock", "not a
+real map") are claims a construct can make false. When one you choose
+behaves otherwise (a server-side form for a page that drafts in the
+browser), either build it so the claim stays true, or change the words and
+say so: a question when the human must decide, and a set-aside in
+`droost/parity/decided.json` when the parity gate would hold the site to the
+old words.
 
 **A typeface the audit calls NEVER DRAWN** is one the source declares and
 the browser cannot draw, so every visitor of the source sees a fallback face.
