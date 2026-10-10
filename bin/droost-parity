@@ -527,20 +527,28 @@ function readDecided(dir, views, questionsFile) {
       if (m) ids.add(m[1]);
     }
   }
-  const held = (route, text) => views.some((v) => (route === '*' || v.route === route) && v.texts.concat(v.links).some((t) => norm(t) === norm(text)));
+  const held = (route, text) => views.some((v) => (route === '*' || sameRoute(v.route, route)) && v.texts.concat(v.links).some((t) => norm(t) === norm(text)));
   for (const [i, e] of entries.entries()) {
     const at = `decided.json's entry ${i + 1}`;
     if (!e || typeof e.route !== 'string' || typeof e.text !== 'string' || typeof e.decided !== 'string' || !e.route || !e.text.trim() || !e.decided.trim()) return { error: `${at} needs a route, a text and the decision that set it aside` };
     if (ids && !ids.has(e.decided.trim())) return { error: `${at} ("${e.text.slice(0, 40)}") cites ${e.decided}, which is no question of the intake (${path.relative(process.cwd(), questionsFile)})` };
     // A route with no reading yet (a later rung's page) is checked once it
     // is captured; "*" must be held on some route now.
-    const read = e.route === '*' || views.some((v) => v.route === e.route);
+    const read = e.route === '*' || views.some((v) => sameRoute(v.route, e.route));
     if (read && !held(e.route, e.text)) return { error: `${at} sets aside "${e.text.slice(0, 40)}" on ${e.route}, which the reference does not hold there` };
   }
   return { entries };
 }
 
-const asideFor = (entries, route) => new Set(entries.filter((e) => e.route === '*' || e.route === route).map((e) => norm(e.text)));
+// A set-aside names its page as the intake wrote it, and an intake that read a
+// static source writes the source's spelling (`/location.html`), where capture
+// keys the page by the path the site answers (`/location`, F-259). Both sides
+// are compared as capture cleans a route, or the decision is accepted and
+// never applied, and the gate holds the site to a text the client set aside
+// (F-268, P11 · run 5, met before its run).
+const sameRoute = (a, b) => cleanRoute(String(a).trim()) === cleanRoute(String(b).trim());
+
+const asideFor = (entries, route) => new Set(entries.filter((e) => e.route === '*' || sameRoute(e.route, route)).map((e) => norm(e.text)));
 
 const asideSaid = (entries) => (entries.length ? '; set aside by decision: ' + entries.map((e) => `"${e.text.slice(0, 40)}" on ${e.route} (${e.decided})`).join(', ') : '');
 

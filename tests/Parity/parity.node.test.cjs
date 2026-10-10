@@ -211,3 +211,29 @@ test('a face declared and never drawn is read as such, and refuses a capture', {
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8')).acceptedUnloaded), ['Nowhere Sans Observer']);
   fs.rmSync(out, { recursive: true, force: true });
 });
+
+// F-268: an intake that read a static source names the page as the source
+// spells it (`/location.html`), and capture keys it by the site's path
+// (`/location`). P11 · run 5 met it before its run: the decision read as a
+// later rung's page and was never applied, so parity would have held the site
+// to "Status uses your device's clock.", the line the client's Q5 removed.
+test('a set-aside names its page in the source\'s spelling or the site\'s, and means the same page', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'parity-decided-route-'));
+  const views = [
+    { route: '/location', texts: ["Status uses your device's clock.", 'Come see it in person.'], links: [] },
+    { route: '/about', texts: ['Our story'], links: [] },
+  ];
+  const write = (doc) => fs.writeFileSync(path.join(dir, 'decided.json'), JSON.stringify(doc));
+  write({ set_aside: [{ route: '/location.html', text: "Status uses your device's clock.", decided: 'Q5' }] });
+  const read = parity.readDecided(dir, views, null);
+  assert.equal(read.error, undefined);
+  assert.deepEqual([...parity.asideFor(read.entries, '/location')], ["status uses your device's clock."]);
+  assert.deepEqual([...parity.asideFor(read.entries, '/location.html')], ["status uses your device's clock."], 'and the other way round');
+  assert.deepEqual([...parity.asideFor(read.entries, '/')], [], 'no other page');
+  write({ set_aside: [{ route: '/about/index.html', text: 'Our story', decided: 'Q1' }] });
+  assert.deepEqual([...parity.asideFor(parity.readDecided(dir, views, null).entries, '/about')], ['our story']);
+  write({ set_aside: [{ route: '/location.html', text: 'Not on the page', decided: 'Q5' }] });
+  assert.match(parity.readDecided(dir, views, null).error, /does not hold there/, 'a captured page is checked, whatever its spelling');
+});
