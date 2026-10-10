@@ -27,9 +27,22 @@ final class ClaudeMod {
   public const DIRECTORY = '.claude/droost-plugins';
 
   /**
-   * The plugin's install id: the mod's name, `@`, the marketplace's.
+   * The marketplace name the pack ships, and an organization's.
+   *
+   * One name for every project was F-255: Claude Code keeps marketplaces by
+   * name for the whole user, so the last project to add its copy re-pointed
+   * every other project's mod at its own. A project's copy is named for the
+   * project (`marketplace()`); this name stays for managed settings, where an
+   * organization keeps one marketplace for everyone.
    */
-  public const PLUGIN = 'droost-guard@droost';
+  public const SHARED = 'droost';
+
+  /**
+   * The plugin's install id under the shared name.
+   *
+   * The mod's name, `@`, the marketplace's. A project's own is `plugin()`.
+   */
+  public const PLUGIN = 'droost-guard@' . self::SHARED;
 
   /**
    * The pack's copy of the marketplace.
@@ -44,6 +57,58 @@ final class ClaudeMod {
     // Beside the pack, not in it: pack/ is what init materializes into every
     // project, and the mod reaches a project only on a yes.
     return ($packageRoot ?? dirname(__DIR__, 2)) . '/claude-plugins';
+  }
+
+  /**
+   * The marketplace name a project's copy carries (F-255).
+   *
+   * The name its copy already has, when it has one of its own; otherwise one
+   * made for it (`nameFor()`).
+   *
+   * @param string $projectRoot
+   *   The project root.
+   *
+   * @return string
+   *   `droost-<project>`.
+   */
+  public static function marketplace(string $projectRoot): string {
+    $raw = @file_get_contents(rtrim($projectRoot, '/') . '/' . self::DIRECTORY . '/.claude-plugin/marketplace.json');
+    $doc = is_string($raw) ? json_decode($raw, TRUE) : NULL;
+    $name = is_array($doc) && is_string($doc['name'] ?? NULL) ? $doc['name'] : '';
+    return $name !== '' && $name !== self::SHARED ? $name : self::nameFor($projectRoot);
+  }
+
+  /**
+   * The marketplace name made for a project.
+   *
+   * By the ddev project's name when there is one: on ddev the install runs
+   * in the container, where every project's root is `/var/www/html`, and
+   * ddev keeps project names unique. Off ddev, by the project's directory.
+   *
+   * @param string $projectRoot
+   *   The project root.
+   *
+   * @return string
+   *   `droost-` and a slug of lowercase letters, digits and hyphens.
+   */
+  public static function nameFor(string $projectRoot): string {
+    $ddev = getenv('DDEV_PROJECT');
+    $base = is_string($ddev) && $ddev !== '' ? $ddev : basename((string) (realpath($projectRoot) ?: $projectRoot));
+    $slug = trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower($base)), '-');
+    return self::SHARED . '-' . ($slug !== '' ? $slug : 'project');
+  }
+
+  /**
+   * A project's install id for the mod.
+   *
+   * @param string $projectRoot
+   *   The project root.
+   *
+   * @return string
+   *   `droost-guard@droost-<project>`.
+   */
+  public static function plugin(string $projectRoot): string {
+    return 'droost-guard@' . self::marketplace($projectRoot);
   }
 
   /**
@@ -79,6 +144,8 @@ final class ClaudeMod {
       throw new \RuntimeException(sprintf('This droost/workflow carries no Claude Code mod at %s', $from));
     }
     $was = self::present($projectRoot);
+    // Read before the copy overwrites it with the pack's shared name.
+    $name = self::marketplace($projectRoot);
     $to = rtrim($projectRoot, '/') . '/' . self::DIRECTORY;
     $files = new \RecursiveIteratorIterator(
       new \RecursiveDirectoryIterator($from, \FilesystemIterator::SKIP_DOTS),
@@ -96,19 +163,32 @@ final class ClaudeMod {
         throw new \RuntimeException(sprintf('Could not write %s', $target));
       }
     }
+    $file = $to . '/.claude-plugin/marketplace.json';
+    $doc = json_decode((string) file_get_contents($file), TRUE);
+    if (!is_array($doc)) {
+      throw new \RuntimeException(sprintf('The mod\'s marketplace file %s is not JSON', $file));
+    }
+    $doc['name'] = $name;
+    if (file_put_contents($file, json_encode($doc, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n") === FALSE) {
+      throw new \RuntimeException(sprintf('Could not write %s', $file));
+    }
     return $was ? 'updated' : 'written';
   }
 
   /**
    * The commands the operator runs, on the host, to turn the mod on.
    *
+   * @param string|null $projectRoot
+   *   The project, whose own marketplace name the install names; NULL names
+   *   the shared one, as before F-255.
+   *
    * @return list<string>
    *   Add the project's marketplace, then install the mod into the project.
    */
-  public static function hostCommands(): array {
+  public static function hostCommands(?string $projectRoot = NULL): array {
     return [
       'claude plugin marketplace add ./' . self::DIRECTORY . ' --scope project',
-      'claude plugin install ' . self::PLUGIN . ' --scope project',
+      'claude plugin install ' . ($projectRoot === NULL ? self::PLUGIN : self::plugin($projectRoot)) . ' --scope project',
     ];
   }
 
@@ -127,7 +207,7 @@ final class ClaudeMod {
   public static function managedSettings(string $absoluteDirectory): string {
     return (string) json_encode([
       'extraKnownMarketplaces' => [
-        'droost' => ['source' => ['source' => 'directory', 'path' => $absoluteDirectory]],
+        self::SHARED => ['source' => ['source' => 'directory', 'path' => $absoluteDirectory]],
       ],
       'enabledPlugins' => [self::PLUGIN => TRUE],
       'prependPlugins' => [self::PLUGIN, 'sec-default@builtin'],

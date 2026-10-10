@@ -30,13 +30,58 @@ final class ClaudeModTest extends WorkflowTestCase {
     $this->assertFileExists($base . '/droost-guard/hooks/register.js');
     $market = json_decode((string) file_get_contents($base . '/.claude-plugin/marketplace.json'), TRUE);
     $this->assertIsArray($market);
-    $this->assertSame('droost', $market['name']);
+    $this->assertSame(ClaudeMod::nameFor($root), $market['name'], 'named for the project (F-255)');
     $this->assertIsArray($market['plugins']);
     $this->assertIsArray($market['plugins'][0]);
     $this->assertSame('droost-guard', $market['plugins'][0]['name']);
     $this->assertFileDoesNotExist($root . '/.claude/settings.json', 'nothing enables it');
 
     $this->assertSame('updated', ClaudeMod::install($root));
+  }
+
+  /**
+   * Each project's copy is a marketplace of its own name (F-255).
+   *
+   * Claude Code keeps marketplaces by name for the whole user, so one name
+   * for every project let the last project to add its copy re-point every
+   * other project's mod at its own. On ddev the install runs where every
+   * root is /var/www/html, so the name comes from the ddev project.
+   */
+  public function testEachProjectNamesItsOwnMarketplace(): void {
+    $was = getenv('DDEV_PROJECT');
+    try {
+      putenv('DDEV_PROJECT=Corner Shop');
+      $a = $this->makeRoot();
+      ClaudeMod::install($a);
+      $this->assertSame('droost-corner-shop', ClaudeMod::marketplace($a));
+      $this->assertSame('droost-guard@droost-corner-shop', ClaudeMod::plugin($a));
+      $this->assertSame([
+        'claude plugin marketplace add ./.claude/droost-plugins --scope project',
+        'claude plugin install droost-guard@droost-corner-shop --scope project',
+      ], ClaudeMod::hostCommands($a));
+
+      putenv('DDEV_PROJECT=bookshop');
+      $b = $this->makeRoot();
+      ClaudeMod::install($b);
+      $this->assertSame('droost-bookshop', ClaudeMod::marketplace($b), 'another project, another name');
+      ClaudeMod::install($a);
+      $this->assertSame('droost-corner-shop', ClaudeMod::marketplace($a), 'a copy keeps the name it was given');
+
+      // A copy made before F-255 carries the shared name, and is renamed.
+      $file = $b . '/' . ClaudeMod::DIRECTORY . '/.claude-plugin/marketplace.json';
+      $doc = json_decode((string) file_get_contents($file), TRUE);
+      $this->assertIsArray($doc);
+      $doc['name'] = ClaudeMod::SHARED;
+      file_put_contents($file, json_encode($doc));
+      ClaudeMod::install($b);
+      $this->assertSame('droost-bookshop', ClaudeMod::marketplace($b));
+
+      putenv('DDEV_PROJECT');
+      $this->assertSame('droost-' . strtolower((string) preg_replace('/[^a-z0-9]+/i', '-', basename((string) realpath($a)))), ClaudeMod::nameFor($a), 'off ddev, the directory');
+    }
+    finally {
+      putenv($was === FALSE ? 'DDEV_PROJECT' : 'DDEV_PROJECT=' . $was);
+    }
   }
 
   /**
