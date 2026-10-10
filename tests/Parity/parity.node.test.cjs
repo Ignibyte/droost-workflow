@@ -159,3 +159,55 @@ test('generated text is read: a counter as numbered, a string as written', { ski
     await browser.close();
   }
 });
+
+// F-259: a static source's page is captured by the path the site answers.
+// P9 · run 3 met it: `--routes /internet.html` was keyed `/internet.html`,
+// and the judge read that path on a site that serves `/internet`.
+test('a captured route is the site\'s clean path, or the one it names', () => {
+  assert.deepEqual(parity.routeSpec('/internet.html'), { route: '/internet', from: '/internet.html' });
+  assert.deepEqual(parity.routeSpec('/index.html'), { route: '/', from: '/index.html' });
+  assert.deepEqual(parity.routeSpec('/about/index.html'), { route: '/about', from: '/about/index.html' });
+  assert.deepEqual(parity.routeSpec('/camps'), { route: '/camps', from: '/camps' });
+  assert.deepEqual(parity.routeSpec('/'), { route: '/', from: '/' });
+  assert.deepEqual(parity.routeSpec('/internet=/internet.html'), { route: '/internet', from: '/internet.html' });
+  assert.deepEqual(parity.routeSpec('/legacy.html=/legacy.html'), { route: '/legacy.html', from: '/legacy.html' }, 'a site that serves .html says so');
+});
+
+// F-263: a face declared and never drawn. United's redesign declared General
+// Sans on 120 texts and never loaded it, and nothing in droost said so.
+test('D3 fails a site whose face is declared and never drawn', () => {
+  const ref = page('http://a/', [['Hello', 'p', 100]]);
+  const ok = page('http://b/', [['Hello', 'p', 100]]);
+  const d3 = (rows) => rows.find((r) => r.id === 'D3');
+  ref.texts[0].font = 'General Sans'; ok.texts[0].font = 'General Sans';
+  assert.equal(d3(parity.judge(ref, { ...ok, unloaded: [] }, 'page')).verdict, 'PASS');
+  const bad = d3(parity.judge(ref, { ...ok, unloaded: ['General Sans'] }, 'page'));
+  assert.equal(bad.verdict, 'FAIL');
+  assert.match(bad.said, /declared and never drawn/);
+  assert.equal(d3(parity.judge({ ...ref, unloaded: ['General Sans'] }, { ...ok, unloaded: ['General Sans'] }, 'page')).verdict, 'PASS', 'a reference read in the same fallback is the same');
+});
+
+test('a face declared and never drawn is read as such, and refuses a capture', { skip: !PW && 'no DROOST_SOURCE_PLAYWRIGHT_CWD: the browser half was not run' }, async () => {
+  const { chromium } = require(path.join(PW, 'node_modules', 'playwright'));
+  const browser = await chromium.launch();
+  try {
+    const r = await parity.read(browser, 'file://' + path.join(__dirname, 'fixtures', 'fonts.html'), 1280);
+    assert.deepEqual(r.unloaded, ['Nowhere Sans Observer']);
+    assert.ok(!r.faces.some((f) => /sans-serif/.test(f.family)), 'a generic family is no face to load');
+  } finally {
+    await browser.close();
+  }
+  const { spawnSync } = require('child_process');
+  const fs = require('fs'); const os = require('os');
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'parity-faces-'));
+  const bin = path.join(__dirname, '..', '..', 'bin', 'droost-parity');
+  const run = (extra) => spawnSync(process.execPath, [bin, 'capture', '--source', 'file://' + path.join(__dirname, 'fixtures'), '--routes', '/fonts.html', '--width', '1280', '--out', out, ...extra], { cwd: PW, encoding: 'utf8' });
+  const refused = run([]);
+  assert.equal(refused.status, 2, refused.stdout.slice(-400));
+  assert.match(refused.stdout, /never draws it/);
+  assert.ok(!fs.existsSync(path.join(out, 'manifest.json')), 'nothing written');
+  const accepted = run(['--accept-unloaded', 'Nowhere Sans Observer']);
+  assert.equal(accepted.status, 0, accepted.stdout.slice(-400));
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8')).acceptedUnloaded), ['Nowhere Sans Observer']);
+  fs.rmSync(out, { recursive: true, force: true });
+});

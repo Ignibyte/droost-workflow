@@ -30,6 +30,10 @@
  * never a pass.
  *
  *   droost-parity capture --source <url> --routes /,/camps [--out droost/parity] [--width 1280[,390]]
+ *     (a route `/internet=/internet.html` is judged at /internet and read
+ *     from the source at /internet.html; `/internet.html` alone is the same)
+ *     [--accept-unloaded "Family,…"]  (a face the source declares and never
+ *     draws refuses the capture unless named here; the manifest records it)
  *   droost-parity judge [--reference droost/parity] [--routes …] [--scope page|frame|header|footer]
  *                       [--pages /,…] [--base <url>] [--json]
  *
@@ -107,6 +111,17 @@ function playwright() {
 const slug = (route) => (route === '/' ? 'home' : route.replace(/^\/+|\/+$/g, '').replace(/[^A-Za-z0-9_-]+/g, '_')) + '.json';
 // A route's reading at a width: the primary width keeps the plain name, so a
 // reference captured at one width reads as it always has.
+// A route to capture: the path the site answers, and the path the source
+// answers it at (F-259). `/internet=/internet.html` names both; a lone
+// `/internet.html`, or a page's `/index.html`, is the site's clean path, as a
+// CMS serves a static source's pages (F-258's rule for links). Captured as
+// written, `/internet.html` was judged at `/internet.html` on a site that
+// serves `/internet`.
+const cleanRoute = (r) => r.replace(/\/index\.html?$/, '/').replace(/\.html?$/, '').replace(/(.)\/$/, '$1') || '/';
+const routeSpec = (spec) => {
+  const at = spec.indexOf('=');
+  return at > 0 ? { route: spec.slice(0, at), from: spec.slice(at + 1) } : { route: cleanRoute(spec), from: spec };
+};
 const viewFile = (route, width, primary) => (width === primary ? slug(route) : slug(route).replace(/\.json$/, `@${width}.json`));
 // The widths a comma list names, in its order.
 const widthsOf = (value) => String(value).split(',').map((w) => Number(w.trim())).filter((w) => Number.isInteger(w) && w > 0);
@@ -114,6 +129,37 @@ const widthsOf = (value) => String(value).split(',').map((w) => Number(w.trim())
 // ---------------------------------------------------------------------------
 // Reading a page.
 // ---------------------------------------------------------------------------
+
+// The typefaces a page's visible text declares, and whether the browser
+// draws each (F-263). A family with no face to load and none installed falls
+// back without a word: United's redesign declared General Sans on 120 texts,
+// Fontshare's reply left it out, and every reading measured a system sans.
+// document.fonts.check() calls such a family loaded (it has nothing to
+// load), so a text in it is drawn and measured beside the generic fallbacks:
+// a family the browser has draws wider or narrower than at least one.
+async function facesInPage() {
+  const generic = /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-[a-z-]+|-apple-system|blinkmacsystemfont|emoji|math|fangsong|inherit|initial)$/i;
+  const counts = new Map();
+  for (const el of document.body.querySelectorAll('*')) {
+    if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'TEMPLATE'].includes(el.tagName)) continue;
+    if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
+    const s = getComputedStyle(el);
+    if (s.display === 'none' || s.visibility === 'hidden') continue;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    const family = s.fontFamily.split(',')[0].replace(/["']/g, '').trim();
+    if (family && !generic.test(family)) counts.set(family, (counts.get(family) || 0) + 1);
+  }
+  const ctx = document.createElement('canvas').getContext('2d');
+  const probe = 'mmmmmmmmmmlli1WQ@#&';
+  const width = (font) => { ctx.font = `72px ${font}`; return ctx.measureText(probe).width; };
+  const out = [];
+  for (const [family, texts] of counts) {
+    await document.fonts.load(`72px "${family}"`).catch(() => {});
+    out.push({ family, texts, drawn: ['monospace', 'serif', 'sans-serif'].some((b) => width(`"${family}", ${b}`) !== width(b)) });
+  }
+  return out;
+}
 
 async function read(browser, url, width) {
   // A fresh context per page (no cache to serve from) and no extra request
@@ -161,6 +207,7 @@ async function read(browser, url, width) {
   }).catch(() => {});
   await page.waitForTimeout(1200).catch(() => {});
   if (crashed) { await ctx.close().catch(() => {}); return unread('the page crashed the browser as it scrolled'); }
+  const faces = await page.evaluate(facesInPage).catch(() => []);
   const data = await page.evaluate(() => {
     const px = (v) => Math.round(parseFloat(v) || 0);
     const ground = (el) => {
@@ -253,7 +300,7 @@ async function read(browser, url, width) {
   }).catch((e) => ({ error: String(e.message || e).slice(0, 200), texts: [] }));
   await ctx.close().catch(() => {});
   if (crashed) return unread('the page crashed the browser as it was read');
-  return { url, status, viewport: width, ...data };
+  return { url, status, viewport: width, ...data, faces, unloaded: faces.filter((f) => !f.drawn).map((f) => f.family) };
 }
 
 // ---------------------------------------------------------------------------
@@ -396,9 +443,13 @@ function judge(reference, site, scope, aside = new Set()) {
   // Every heading, and 95% of the rest (F-148): a page has few headings and
   // they carry its type, so a share over every text let all of them differ.
   const bad3 = []; const badHeads = [];
+  // A face the site declares and never draws is not the face (F-263): the
+  // names match while the glyphs are a fallback's.
+  const siteUnloaded = new Set(site.unloaded || []); const refUnloaded = new Set(reference.unloaded || []);
   for (const [d, s] of pairs) {
     const why = [];
     if (d.font !== s.font) why.push(`face ${s.font} for ${d.font}`);
+    else if (siteUnloaded.has(s.font) && !refUnloaded.has(d.font)) why.push(`face ${s.font} declared and never drawn`);
     if (Math.abs(d.size - s.size) > 2) why.push(`size ${s.size} for ${d.size}`);
     if (Math.abs(d.weight - s.weight) > 100) why.push(`weight ${s.weight} for ${d.weight}`);
     if (caseOf(d) !== caseOf(s)) why.push(`case ${caseOf(s)} for ${caseOf(d)}`);
@@ -509,16 +560,32 @@ async function capture(opt) {
   fs.mkdirSync(out, { recursive: true });
   const browser = await chromium.launch({ args: ['--disable-blink-features=AutomationControlled'] });
   const captured = [];
-  for (const route of routes) {
+  const specs = routes.map(routeSpec);
+  const readings = [];
+  for (const { route, from } of specs) {
     for (const w of widths) {
-      const reading = await read(browser, source.replace(/\/$/, '') + route, w);
+      const reading = await read(browser, source.replace(/\/$/, '') + from, w);
       reading.route = route;
-      fs.writeFileSync(path.join(out, viewFile(route, w, width)), JSON.stringify(reading, null, 1));
-      captured.push({ route, width: w, status: reading.status, texts: (reading.texts || []).length });
+      if (from !== route) reading.from = from;
+      readings.push({ file: viewFile(route, w, width), reading });
+      captured.push({ route, ...(from !== route ? { from } : {}), width: w, status: reading.status, texts: (reading.texts || []).length });
     }
   }
   await browser.close();
-  const manifest = { source, width, routes, captured_at: new Date().toISOString() };
+  // A reference measured in a fallback face measures the wrong face (F-263):
+  // refused, unless the operator names the face, and the manifest says so.
+  const accepted = opt['accept-unloaded'] && opt['accept-unloaded'] !== true ? String(opt['accept-unloaded']).split(',').map((f) => f.trim().toLowerCase()).filter(Boolean) : [];
+  const undrawn = new Map();
+  for (const { reading } of readings) for (const f of reading.faces || []) if (!f.drawn) undrawn.set(f.family, (undrawn.get(f.family) || 0) + f.texts);
+  const refused = [...undrawn].filter(([family]) => !accepted.includes(family.toLowerCase()));
+  if (refused.length) {
+    finish({ status: 'invalid', summary: `the source declares ${refused.map(([f, n]) => `${f} (on ${n} texts)`).join(', ')} and never draws ${refused.length === 1 ? 'it' : 'them'}: a reference read now measures a fallback face. Make the source load ${refused.length === 1 ? 'it' : 'them'} (a decided copy, if the client chose ${refused.length === 1 ? 'the face' : 'the faces'}), or capture as it is with --accept-unloaded "${refused.map(([f]) => f).join(',')}", which the manifest records. Nothing was written.`, routes: captured, unloaded: Object.fromEntries(refused) }, EXIT.invalid);
+  }
+  for (const { file, reading } of readings) fs.writeFileSync(path.join(out, file), JSON.stringify(reading, null, 1));
+  const manifest = { source, width, routes: specs.map((x) => x.route), captured_at: new Date().toISOString() };
+  if (undrawn.size) manifest.acceptedUnloaded = Object.fromEntries(undrawn);
+  const moved = specs.filter((x) => x.from !== x.route);
+  if (moved.length) manifest.from = Object.fromEntries(moved.map((x) => [x.route, x.from]));
   if (widths.length > 1) manifest.widths = widths;
   fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 1));
   const bad = captured.filter((c) => c.status !== 200 || !c.texts);
@@ -603,4 +670,4 @@ if (require.main === module) {
     .catch((e) => finish({ status: 'invalid', summary: 'the runner failed: ' + String(e && e.message || e).slice(0, 300) }, EXIT.invalid));
 }
 
-module.exports = { linkTarget, judge, readDecided, asideFor, read };
+module.exports = { linkTarget, judge, readDecided, asideFor, read, routeSpec, facesInPage };
