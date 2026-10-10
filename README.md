@@ -247,6 +247,14 @@ with the run: its digest is taken when the run begins, and the gate fails a
 reference that has changed since, whatever changed it. Capturing is the
 operator's, before a run.
 
+A static source's page is captured by the path the site answers: `--routes
+/internet.html` is the site's `/internet` (`/internet=/internet.html` names
+both, and `/legacy.html=/legacy.html` keeps a `.html` route). A typeface the
+source declares and never draws (no face loaded, none installed) makes every
+reading a fallback's, so capture refuses it, unless `--accept-unloaded
+"Family"` names it, which the manifest records; and the judge's D3 fails a
+site text whose face is declared and never drawn.
+
 A source shows things the client decided the site will not (a link hidden
 until an editor sets it, a language switch on a site in one language), and a
 page held whole would fail on each. `decided.json` beside the readings names

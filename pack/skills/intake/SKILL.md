@@ -198,6 +198,12 @@ AskUserQuestion, the operator records each answer in their terminal
 
 Revise the model with the answers, and consult again.
 
+**A typeface the audit calls NEVER DRAWN** is one the source declares and
+the browser cannot draw, so every visitor of the source sees a fallback face.
+Ask whether the site should load it (the source's intent) or match what the
+source shows; until the source loads it, a parity reference cannot be
+captured from it.
+
 **When an answer means the site will not show something the source shows**
 (a link hidden until an editor sets it, a language switch on a site in one
 language), the parity gate would hold every page to it. Name each such text

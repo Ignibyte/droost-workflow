@@ -214,7 +214,8 @@ the site will not show is named, with its decision, in
 `droost/parity/decided.json`; the gate leaves it out and says so. That file is
 part of the reference, frozen with it: a text you find set aside wrongly, or
 one that should be, is the operator's to change before a run, never yours
-during one. A view fails on the first
+during one. A capture refuses a source whose declared typeface is
+never drawn; a reference is only ever read in the faces the source shows. A view fails on the first
 of D1 to D7 it misses, and the finding says which elements; run it as the
 gate does, where the phase runs (on DDEV, `ddev exec vendor/bin/droost-parity
 judge`).

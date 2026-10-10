@@ -455,6 +455,37 @@ function readFiles(root) {
  * nodes, joined by spaces.
  */
 /* istanbul ignore next */
+// The typefaces a page's visible text declares, and whether the browser
+// draws each (F-263). A family with no face to load and none installed falls
+// back without a word: United's redesign declared General Sans on 120 texts,
+// Fontshare's reply left it out, and the intake never asked about it.
+// document.fonts.check() calls such a family loaded (it has nothing to
+// load), so a text in it is drawn and measured beside the generic fallbacks:
+// a family the browser has draws wider or narrower than at least one.
+async function facesInPage() {
+  const generic = /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-[a-z-]+|-apple-system|blinkmacsystemfont|emoji|math|fangsong|inherit|initial)$/i;
+  const counts = new Map();
+  for (const el of document.body.querySelectorAll('*')) {
+    if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'TEMPLATE'].includes(el.tagName)) continue;
+    if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
+    const s = getComputedStyle(el);
+    if (s.display === 'none' || s.visibility === 'hidden') continue;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    const family = s.fontFamily.split(',')[0].replace(/["']/g, '').trim();
+    if (family && !generic.test(family)) counts.set(family, (counts.get(family) || 0) + 1);
+  }
+  const ctx = document.createElement('canvas').getContext('2d');
+  const probe = 'mmmmmmmmmmlli1WQ@#&';
+  const width = (font) => { ctx.font = `72px ${font}`; return ctx.measureText(probe).width; };
+  const out = [];
+  for (const [family, texts] of counts) {
+    await document.fonts.load(`72px "${family}"`).catch(() => {});
+    out.push({ family, texts, drawn: ['monospace', 'serif', 'sans-serif'].some((b) => width(`"${family}", ${b}`) !== width(b)) });
+  }
+  return out;
+}
+
 function serializeInPage() {
   const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'LINK', 'META']);
   const hidden = (el) => {
@@ -943,6 +974,7 @@ async function readPage(browser, url, width) {
       }
       window.scrollTo(0, 0);
     });
+    out.faces = await page.evaluate(facesInPage).catch(() => []);
     // A disclosure's content (an FAQ's answers, an accordion) is content:
     // open each in the main content before reading. Only a collapsed button
     // is pressed, never a link, a submit or a menu's opener. An accordion that keeps one panel open closes the last as it opens
@@ -1024,6 +1056,17 @@ async function audit(opts) {
   const routes = [];
   const shapes = new Map();
   let home = null;
+  // Every typeface the pages' text declares, and whether any page drew it.
+  const faces = new Map();
+  for (const [, reading] of seen) {
+    for (const f of reading.faces || []) {
+      const was = faces.get(f.family) || { family: f.family, texts: 0, drawn: false };
+      faces.set(f.family, { family: f.family, texts: was.texts + f.texts, drawn: was.drawn || f.drawn });
+    }
+  }
+  for (const f of faces.values()) {
+    if (!f.drawn) notes.push(`the source declares the typeface ${f.family} on ${f.texts} text(s) and never draws it: every page shows a fallback face in its place. Ask whether the site should load it, and capture no reference until the source does (F-263).`);
+  }
   for (const [route, reading] of seen) {
     const pattern = matchPattern(route, patterns);
     routes.push({ id: `r:${route}`, path: route, status: reading.status, declared: declared.includes(route), pattern, notFound: Boolean(reading.notFound), ...(reading.error ? { invalid: reading.error } : {}) });
@@ -1087,6 +1130,7 @@ async function audit(opts) {
     pages,
     frame: { id: 'frame', ...frame },
     tokens: home && home.tokens ? home.tokens : null,
+    typefaces: [...faces.values()].sort((a, b) => b.texts - a.texts),
     data: filesRead.data,
     notes,
     summary: {
@@ -1106,6 +1150,9 @@ function markdown(a) {
   lines.push('## Routes', '', '| Id | Status | Declared | Note |', '|---|---|---|---|');
   for (const r of a.routes) lines.push(`| \`${r.id}\` | ${r.status || ''} | ${r.declared ? 'yes' : ''} | ${[r.notFound ? 'reads as not found' : '', r.unreached ? 'not reached' : '', r.invalid ? `INVALID: ${r.invalid}` : '', r.pattern && r.pattern !== r.path ? `instance of ${r.pattern}` : '', r.instances ? `instances: ${r.instances.join(', ')}` : ''].filter(Boolean).join('; ')} |`);
   lines.push('', '## Frame', '', `Header: ${a.frame.header.links.map((l) => `${l.label || '(icon)'} → ${l.href}`).join(' · ') || 'none'}`, '', `Footer: ${a.frame.footer.links.map((l) => `${l.label || '(icon)'} → ${l.href}`).join(' · ') || 'none'}`);
+  if (a.typefaces && a.typefaces.length) {
+    lines.push('', '## Typefaces', '', ...a.typefaces.map((f) => `- ${f.family}, on ${f.texts} text(s): ${f.drawn ? 'drawn' : '**NEVER DRAWN: the source declares it and the browser shows a fallback face; ask whether the site should load it**'}`));
+  }
   for (const p of a.pages) {
     lines.push('', `## \`${p.id}\` — ${p.title || ''}`, '');
     if (p.sections.length) lines.push(`Sections: ${p.sections.map((s) => `\`${s.id}\` ${s.heading ? s.heading.text : `(${s.start.slice(0, 40)}…)`}${s.records && s.records.length <= 2 ? ` [shows ${s.records.join(', ')}]` : ''}`).join(' · ')}`, '');

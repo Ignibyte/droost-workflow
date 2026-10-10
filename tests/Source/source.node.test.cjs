@@ -239,3 +239,13 @@ test('the fixture site, served and audited', { skip: !PW_CWD && 'no DROOST_SOURC
     server.kill();
   }
 });
+
+// F-263: the audit names a typeface the source declares and never draws, so
+// the intake asks. United's redesign declared General Sans and never loaded it.
+test('a typeface never drawn is named in the audit', () => {
+  const a = { source: { url: 'http://a/' }, at: 'now', routes: [], frame: { header: { links: [] }, footer: { links: [] } }, pages: [], data: [], notes: [], typefaces: [{ family: 'General Sans', texts: 120, drawn: false }, { family: 'Chillax', texts: 53, drawn: true }] };
+  const md = src.markdown(a);
+  assert.match(md, /## Typefaces/);
+  assert.match(md, /General Sans, on 120 text\(s\): \*\*NEVER DRAWN/);
+  assert.match(md, /Chillax, on 53 text\(s\): drawn/);
+});
