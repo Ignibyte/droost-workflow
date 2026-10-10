@@ -965,13 +965,19 @@ async function readPage(browser, url, width) {
     out.status = res ? res.status() : 'ERR';
     await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     // Sections that appear in view (framer-motion's whileInView) are blank
-    // until scrolled to: scroll through before reading.
+    // until scrolled to: scroll through before reading. Instantly, whatever
+    // the page asks: under `scroll-behavior: smooth` each scrollTo animates,
+    // the loop outran the scroll, and the last sections were never in view
+    // (F-264, as parity's reader met it).
     await page.evaluate(async () => {
+      for (const el of [document.documentElement, document.body]) if (el) el.style.setProperty('scroll-behavior', 'auto', 'important');
       const step = Math.max(300, Math.floor(window.innerHeight * 0.8));
-      for (let y = 0; y < document.body.scrollHeight; y += step) {
+      for (let y = 0; y < document.documentElement.scrollHeight; y += step) {
         window.scrollTo(0, y);
         await new Promise((r) => setTimeout(r, 120));
       }
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      await new Promise((r) => setTimeout(r, 120));
       window.scrollTo(0, 0);
     });
     out.faces = await page.evaluate(facesInPage).catch(() => []);

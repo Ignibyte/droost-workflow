@@ -240,6 +240,27 @@ test('the fixture site, served and audited', { skip: !PW_CWD && 'no DROOST_SOURC
   }
 });
 
+// F-264, met by the audit: a tall page that scrolls smoothly, whose last
+// section shows its text only once in view, is read to its end.
+test('a smooth-scrolling page is read to its last section', { skip: !PW_CWD && 'no DROOST_SOURCE_PLAYWRIGHT_CWD: the browser half was not run' }, async () => {
+  const root = path.join(__dirname, 'fixtures', 'smooth');
+  const server = spawn(process.execPath, [BIN, 'serve', root, '--port', '0'], { stdio: ['ignore', 'pipe', 'inherit'] });
+  try {
+    const url = await new Promise((resolve, reject) => {
+      server.stdout.once('data', (b) => resolve(JSON.parse(String(b).trim()).source.url));
+      server.once('exit', () => reject(new Error('the server exited')));
+    });
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'droost-source-'));
+    const run = spawnSync(process.execPath, [BIN, 'audit', '--url', url, '--files', root, '--out', out, '--static'], { cwd: PW_CWD, encoding: 'utf8', timeout: 180000 });
+    assert.ok([0, 2].includes(run.status), `exit ${run.status}: ${run.stderr}`);
+    const audit = fs.readFileSync(path.join(out, 'audit.json'), 'utf8');
+    assert.ok(audit.includes('Last but one'), 'the page was read');
+    assert.ok(audit.includes('Read at the bottom'), 'and its last section was in view before it was read');
+  } finally {
+    server.kill();
+  }
+});
+
 // F-263: the audit names a typeface the source declares and never draws, so
 // the intake asks. United's redesign declared General Sans and never loaded it.
 test('a typeface never drawn is named in the audit', () => {
