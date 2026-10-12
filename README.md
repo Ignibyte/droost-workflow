@@ -68,10 +68,10 @@ gates:
   parity:         { on: true }                 # the site against its source's captured pages
   coverage:       { on: false, min: 0 }
   rendered_check: { on: true }                 # artifacts are truth
-  config_clean:   { on: true }                 # a fresh cex produces zero diff
+  config_clean:   { on: true }                 # a fresh cex produces zero diff (mode: report = advisory)
   wiki_fresh:     { on: true }                 # the project's own docs still match the code
   # every gate also takes mode: block | report — report records a failure and
-  # advances (never on the mandatory trio)
+  # advances (on the mandatory trio, only at preset: custom)
   # custom:                                    # your own commands as gates
   #   semgrep: { on: true, phase: code, cmd: "semgrep scan --error --quiet" }
   #   suite:   { on: true, phase: test, cmd: "bin/gate.sh FULL", timeout: 900 }
