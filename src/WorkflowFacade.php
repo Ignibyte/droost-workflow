@@ -2106,8 +2106,8 @@ final class WorkflowFacade {
    *   The run, with the waiver recorded and persisted.
    *
    * @throws \InvalidArgumentException
-   *   When the gate is unknown, is one of the mandatory trio, or the reason
-   *   is empty.
+   *   When the gate is unknown, is one of the mandatory trio on a run whose
+   *   preset is not custom, or the reason is empty.
    * @throws \Droost\Workflow\State\StateError
    *   When there is no run to waive against.
    */
@@ -2121,12 +2121,6 @@ final class WorkflowFacade {
         'a gate waiver requires a reason — an unexplained waiver is indistinguishable from tampering',
       );
     }
-    if (in_array($gate, ['phpcs', 'phpstan', 'phpunit'], TRUE)) {
-      throw new \InvalidArgumentException(sprintf(
-        'the mandatory trio carries no switch and no waiver — "%s" failures are fixed at the source',
-        $gate,
-      ));
-    }
     if (!in_array($gate, GateSettings::KNOWN_GATES, TRUE)) {
       throw new \InvalidArgumentException(sprintf(
         'unknown gate "%s" (known: %s)',
@@ -2135,8 +2129,18 @@ final class WorkflowFacade {
       ));
     }
     $store = new RunStateStore($projectRoot);
-    $waived = $this->requireRun($store)
-      ->withGateWaiver($gate, trim($reason), $this->now());
+    $run = $this->requireRun($store);
+    // The trio takes a waiver only on a run that froze `preset: custom`, the
+    // level whose file owns every lever (owner, 2026-10-12). Everywhere else
+    // its failures are fixed at the source, or the level is changed.
+    if (in_array($gate, GateSettings::MANDATORY, TRUE) && $run->preset !== 'custom') {
+      throw new \InvalidArgumentException(sprintf(
+        'the mandatory trio carries no waiver at preset %s — "%s" failures are fixed at the source, or the operator sets preset: custom, where the lever file owns every gate',
+        $run->preset,
+        $gate,
+      ));
+    }
+    $waived = $run->withGateWaiver($gate, trim($reason), $this->now());
     $store->save($waived);
     return $waived;
   }
@@ -2349,7 +2353,7 @@ final class WorkflowFacade {
       . 'from a terminal, with `droost-workflow gate-waive <gate> "<reason>"` '
       . 'or `drush droost:workflow:gate-waive <gate> "<reason>"`, and the '
       . 'phase reopens. Both refuse without a terminal, so an agent cannot '
-      . 'grant one, and the mandatory trio takes none.',
+      . 'grant one, and the mandatory trio takes one only at preset custom.',
       'guidance' => '',
     ];
 

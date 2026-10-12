@@ -44,7 +44,11 @@ mode: agentic
 #   max    — everything strict AND tests required to exist (phpunit and
 #            playwright carry required: true — a missing suite FAILS). The
 #            default when no preset is named. (Formerly `factory` + required.)
-#   custom — not a point on the dial: the values spelled out below.
+#   custom — not a point on the dial: the values spelled out below, and
+#            nothing else. The one level where this file owns the mandatory
+#            trio too: phpcs, phpstan and phpunit may be turned off or put in
+#            report mode here, and the operator may waive them (recorded
+#            off, reported or waived, never passed).
 # `factory`/`light` still load as aliases of max/medium (recorded under the
 # canonical name, with a notice). `fast` was retired in 0.3 and is refused.
 #

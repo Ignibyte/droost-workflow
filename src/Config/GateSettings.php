@@ -73,6 +73,11 @@ final class GateSettings {
    * retired phases key. A repo that cannot run one of them yet still gets an
    * honest answer — tool-missing, or the labeled nothing-to-analyse pass —
    * because honesty is the gate's job, not the switch's.
+   *
+   * `preset: custom` is exempt (owner, 2026-10-12: "custom should be able to
+   * change anything and everything"): there the file's word on the trio
+   * stands, and the operator may waive them, recorded as waived, never
+   * passed.
    */
   public const MANDATORY = [
     'phpcs',

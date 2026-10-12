@@ -83,10 +83,14 @@ final class WorkflowFacadeGateWaiverTest extends WorkflowTestCase {
   }
 
   /**
-   * The mandatory trio carries no switch and no waiver.
+   * The mandatory trio carries no waiver, except at preset custom.
+   *
+   * Owner, 2026-10-12: "custom should be able to change anything and
+   * everything". A run that froze custom may waive the trio, recorded as
+   * waived; a run on any other level is refused and told the way out.
    */
-  public function testTheMandatoryTrioCannotBeWaived(): void {
-    $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\n");
+  public function testTheMandatoryTrioIsWaivedOnlyAtCustom(): void {
+    $root = $this->makeRootWithConfig("preset: max\nmode: agentic\n");
     $this->writeSpec($root);
     $this->facade($this->allPass())->run($root);
 
@@ -96,8 +100,17 @@ final class WorkflowFacadeGateWaiverTest extends WorkflowTestCase {
         $this->fail('Expected a refusal for ' . $gate);
       }
       catch (\InvalidArgumentException $e) {
-        $this->assertStringContainsString('mandatory trio', $e->getMessage());
+        $this->assertStringContainsString('mandatory trio carries no waiver at preset max', $e->getMessage());
+        $this->assertStringContainsString('preset: custom', $e->getMessage());
       }
+    }
+
+    $custom = $this->makeRootWithConfig("preset: custom\nmode: agentic\n");
+    $this->writeSpec($custom);
+    $this->facade($this->allPass())->run($custom);
+    foreach (['phpcs', 'phpstan', 'phpunit'] as $gate) {
+      $waived = $this->facade($this->allPass())->waiveGate($custom, $gate, 'the operator owns this gate at custom');
+      $this->assertArrayHasKey($gate, $waived->gateWaivers);
     }
   }
 

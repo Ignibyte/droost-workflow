@@ -160,7 +160,7 @@ retry budget, `run` refuses and the record says why; recovery used to be
 reopens the phase when it covers every gate that killed it: the phase runs
 again with those gates recorded as **waived**, never passed, and the reason
 rides in the report. A waiver on some other gate changes nothing, and the
-mandatory trio still cannot be waived at all.
+mandatory trio can be waived only on a run at `preset: custom`.
 
 **The phases are not levers.** Since 0.3 every run walks the canonical
 order, minor changes included — `plan → code → test → complete` since 0.4
@@ -168,11 +168,15 @@ folded document into complete — and the `phases:` key is deprecated and
 ignored (with a notice). What varies between heavy and light is the weight
 each phase carries, never the path.
 
-**The mandatory trio is not a lever either.** Since 0.4, `phpcs`, `phpstan`
-and `phpunit` cannot be turned off from the `gates:` block (the one exception
-is the `low` preset's *base*, which drops `phpunit` — one loud reviewable
-line, recorded `off`, never `passed`) — they are the toolchain Drupal core
-itself develops with (exactly what `drupal/core-dev` ships). Their tuning
+**The mandatory trio is not a lever either, except at `custom`.** Since 0.4,
+`phpcs`, `phpstan` and `phpunit` cannot be turned off from the `gates:` block
+(the `low` preset's *base* drops `phpunit` — one loud reviewable line, recorded
+`off`, never `passed`). `preset: custom` is the whole exception (0.14.15): a
+file that names it owns every lever, so its `on: false`, `mode: report` or
+phpstan `level: off` on the trio stands, recorded `off` or `reported`, never
+`passed`, and the operator may waive them. Everywhere else they hold, as the
+toolchain Drupal core itself develops with (exactly what `drupal/core-dev`
+ships). Their tuning
 levers (standard, level, paths) still apply; an `on: false`, or phpstan's
 `level: off`, is recorded as a deprecation notice and superseded. A repo
 that cannot run one of them yet gets an honest answer instead of a pass:
@@ -332,8 +336,9 @@ result. `report` runs the gate exactly as before but records the failure as
 `REPORTED` — the findings ride the report, the seeker reads them, the phase
 advances — and nothing reads as a pass. It is frozen into the run like `on`:
 whether a gate may block is not something a mid-run edit changes. The
-mandatory trio can never be put in report mode; that would be a disarm by
-another name, and the attempt is noticed and superseded like `on: false`.
+mandatory trio can never be put in report mode, except at `preset: custom`;
+that would be a disarm by another name, and the attempt is noticed and
+superseded like `on: false`.
 
 ### Inherited debt — the adoption baseline
 

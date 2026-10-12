@@ -749,7 +749,8 @@ final class ConfigError extends \RuntimeException {
   ): string {
     return sprintf(
       '%s: %s is mandatory since 0.4.0 — "%s" is ignored and the gate stays '
-      . 'on; tune it (standard, level, paths) instead of disarming it',
+      . 'on; tune it (standard, level, paths) instead of disarming it, or set '
+      . 'preset: custom, where this file owns every gate',
       $source,
       $gate,
       $attempted,

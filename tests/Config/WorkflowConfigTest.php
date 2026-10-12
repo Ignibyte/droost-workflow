@@ -69,6 +69,32 @@ class WorkflowConfigTest extends WorkflowTestCase {
   }
 
   /**
+   * At preset custom the file owns the trio too (owner, 2026-10-12).
+   *
+   * "custom should be able to change anything and everything": off is off,
+   * report mode reports and phpstan's level may be off, with no notice that
+   * the gate "stays on". Every other level still supersedes the attempt.
+   */
+  public function testCustomOwnsTheMandatoryTrio(): void {
+    $config = WorkflowConfig::fromArray([
+      'preset' => 'custom',
+      'gates' => [
+        'phpcs' => ['on' => TRUE, 'mode' => 'report'],
+        'phpstan' => ['level' => 'off'],
+        'phpunit' => ['on' => FALSE],
+      ],
+    ], 'test');
+
+    $this->assertFalse($config->gate('phpunit')->on);
+    $this->assertSame('report', $config->gate('phpcs')->mode());
+    $this->assertFalse($config->gate('phpstan')->on, 'level: off is phpstan off');
+    $this->assertSame([], array_values(array_filter(
+      $config->deprecations,
+      static fn (string $notice): bool => str_contains($notice, 'mandatory since 0.4.0'),
+    )), 'custom earns no notice that the gate stays on');
+  }
+
+  /**
    * Nor from underneath, by turning one back on in report mode.
    *
    * The strip-and-notice block was gated on the gate ALREADY BEING ON, for a

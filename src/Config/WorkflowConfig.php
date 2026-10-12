@@ -365,7 +365,7 @@ final class WorkflowConfig {
 
       $mode = self::readMode($root, $source, $base->mode);
       $gates = self::scopeTrioLikeThePair(
-        self::readGates($root, $source, $baseGates, $deprecations, $contributed),
+        self::readGates($root, $source, $baseGates, $deprecations, $contributed, $base->name === 'custom'),
       );
       // A STANDARD THE PROJECT CAN RUN. The preset bases ask for Drupal's
       // sniffs, and `init` alone knew to write PSR-12 instead on a project
@@ -1256,6 +1256,9 @@ final class WorkflowConfig {
    * @param list<\Droost\Workflow\Config\ContributedGate>|null $contributed
    *   The declared contributed gates, or NULL when the caller has no catalog
    *   — a gates.contributed block is then left unresolved, not refused.
+   * @param bool $custom
+   *   Whether the file names `preset: custom`, where its word on the
+   *   mandatory trio stands like its word on any other gate.
    *
    * @return array<string, \Droost\Workflow\Config\GateSettings>
    *   Every known gate, resolved.
@@ -1271,6 +1274,7 @@ final class WorkflowConfig {
     array $base,
     array &$deprecations = [],
     ?array $contributed = NULL,
+    bool $custom = FALSE,
   ): array {
     $node = $root->optionalChild('gates');
     if ($node === NULL) {
@@ -1328,7 +1332,13 @@ final class WorkflowConfig {
       // the base is allowed what an override is not. When the base already
       // has the gate off, `on: false` here is redundant, not an attempt, and
       // earns no notice claiming the gate "stays on".
-      if (in_array($name, GateSettings::MANDATORY, TRUE)) {
+      //
+      // `preset: custom` is the other exception, and a whole one (owner,
+      // 2026-10-12: "custom should be able to change anything and
+      // everything"). A file that names custom has chosen to own every lever
+      // in one reviewable line, so its word on the trio stands: off is
+      // recorded off and report mode reports, as at any other gate.
+      if (!$custom && in_array($name, GateSettings::MANDATORY, TRUE)) {
         $raw = $entry->toArray();
         $attempted = [];
         // Whether this overlay leaves the gate ON, which is a different

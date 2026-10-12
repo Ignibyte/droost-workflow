@@ -1737,7 +1737,7 @@ final class ArgvDispatcher {
       gate-waive <gate> "<why>"
                        waive ONE gate for the rest of this run; it renders as
                        "waived", never as a pass, and dies with the run. The
-                       mandatory trio carries no waiver
+                       mandatory trio takes one only at preset custom
       effort [<level>] report the level, or write it: low | medium | high |
                        xhigh | max | custom. --preview prices the move without
                        writing. A run in progress keeps the level it froze at

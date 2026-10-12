@@ -88,8 +88,11 @@ realized plan against it.
 `phpcs` and `phpstan` run on every run at every level — they are the toolchain
 Drupal core itself develops with, and the LEVER FILE tunes HOW they run
 (standard, level, paths), never whether. `phpunit` joins them everywhere except
-`low`, which turns it off as that level's declared trade; moving the dial is the
-operator's act, not the agent's, and nothing a run does can turn a gate back on. A repo that
+`low`, which turns it off as that level's declared trade. At `preset: custom` the
+lever file owns the trio as it owns every other gate: the operator may turn one
+off, put it in report mode, or waive it, and the record says so (off, reported,
+waived), never passed. Moving the dial or editing the file is the operator's
+act, not the agent's, and nothing a run does can turn a gate back on. A repo that
 cannot run one of them yet gets an honest answer instead of a pass: tool
 missing, config missing, or a labeled "nothing to analyse / no tests yet".
 
