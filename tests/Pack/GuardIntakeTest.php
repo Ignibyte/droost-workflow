@@ -125,6 +125,12 @@ final class GuardIntakeTest extends WorkflowTestCase {
       'vendor/bin/droost-workflow intake answer "Who edits?" "Me"',
       'drush droost:workflow:intake answer "Who edits?" "Me"',
       'ddev drush dwfin abandon "no"',
+      'vendor/bin/droost-workflow intake answer --via=cockpit "Who edits?" "Me"',
+      // Options before the verb are drush's to take, and no way around it.
+      'drush dwfin --via=cockpit answer "Approve this roadmap?" "Approve"',
+      'drush droost:workflow:intake --via cockpit answer "Approve this roadmap?" "Approve"',
+      'vendor/bin/droost-workflow --project=. intake --via=cockpit answer "Q" "A"',
+      'script -q /dev/null drush dwfin -y abandon "no"',
     ] as $command) {
       [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
       $this->assertSame(2, $exit, $command . ' must be refused');
@@ -139,6 +145,12 @@ final class GuardIntakeTest extends WorkflowTestCase {
       'ddev drush droost:workflow:intake approve',
       'ddev drush dwfin approve',
       'vendor/bin/droost-workflow intake status',
+      // Asking is the agent's on a host with no AskUserQuestion: it records
+      // questions, never an answer.
+      'vendor/bin/droost-workflow intake ask --file=droost/intake/ask.json',
+      'drush droost:workflow:intake ask --file=droost/intake/ask.json',
+      'drush dwfin ask --file=droost/intake/ask.json',
+      'drush dwfin --file=droost/intake/ask.json ask',
       'ddev drush droost:workflow:intake audit --url=http://localhost:5173 --files=src',
       'cat droost/droost-workflow/intake-answers.jsonl',
     ] as $command) {

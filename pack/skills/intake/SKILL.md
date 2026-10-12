@@ -204,9 +204,35 @@ answer, or say they do not know. Then:
   model follows it.
 
 The guard records each answer as the human gave it, in a file you cannot
-write; `intake check` holds `questions.md` to that record. On a host with no
-AskUserQuestion, the operator records each answer in their terminal
-(`drush droost:workflow:intake answer "<question>" "<answer>"`).
+write; `intake check` holds `questions.md` to that record.
+
+**On a host with no AskUserQuestion** (a Droost Cockpit seat denies it, since
+nobody sits at your terminal), put the same questions on record instead.
+Write the batch, up to four questions, to `droost/intake/ask.json`, each in
+the words `questions.md` carries, your recommendation first:
+
+```json
+{"questions": [
+  {"question": "Who edits the events?",
+   "options": ["Staff editors, in the admin", "Each venue, through an account", "Defer to your recommendation"],
+   "recommended": 0}
+]}
+```
+
+then run:
+
+```
+drush droost:workflow:intake ask --file=droost/intake/ask.json
+```
+
+and **stop your turn**. The host shows the questions to the human and records
+each answer through `intake answer` (never run it yourself: it is the
+operator's, and refused). When you are resumed, `drush
+droost:workflow:intake status` lists what is still `pending` and what is
+`recorded`; copy each recorded answer into `questions.md` as above, and ask
+again only what is still unanswered. Without a host either, the operator
+records each answer in their terminal (`drush droost:workflow:intake answer
+"<question>" "<answer>"`).
 
 Revise the model with the answers, and consult again.
 
@@ -275,15 +301,18 @@ drush droost:workflow:intake check
 Repeat until it reads `ready: true`. Then show the human the roadmap in a
 few lines (the rungs and what each builds, the decisions you made for them),
 and **ask them through AskUserQuestion whether to approve it** ("Approve this
-roadmap?", with Approve and Not yet). The guard records their answer. Only on
-their yes, approve it yourself:
+roadmap?", with Approve and Not yet). The guard records their answer. On a
+host with no AskUserQuestion, ask it the same way as the questions: a batch
+of that one question with the options `Approve` and `Not yet`, `intake ask`,
+and stop your turn. Only on their yes, approve it yourself:
 
 ```
 drush droost:workflow:intake approve
 ```
 
-Never approve without that yes: the approval records whose yes it was, and
-an approval with none on record says so. Abandoning the intake and recording
+Never approve without that yes: `approve` is refused until the human's
+latest answer to "Approve this roadmap?" (in those words) is Approve, and the
+approval records whose yes it was. Abandoning the intake and recording
 an answer outside AskUserQuestion stay the operator's; the guard refuses them
 from your shell. Do not start a run before approval: it is refused, and the
 refusal says why. After approval, each rung runs through

@@ -1465,6 +1465,8 @@ function operator_commands_guard(string $stdin): void {
   }
   guard_raw_command($command);
   $command = operator_commands_scan_text($command);
+  // Options, each with an optional value, as they may stand before a verb.
+  $options = '(?:-{1,2}[^\s-]\S*\s+(?:[^-\s]\S*\s+)?)*';
   // A droost command must NAME its verb. `drush $(echo droost:workflow:byp)ass`
   // ran the bypass and matched nothing here, because `(` and `)` end a token
   // and the verb arrived in three pieces — the shell joins them back together
@@ -1614,11 +1616,14 @@ function operator_commands_guard(string $stdin): void {
     // the agent's to run once the human has said yes in the session (owner,
     // 2026-10-08), so it is not refused here; the guard records that yes
     // from AskUserQuestion like every other answer. `dwfin` is the drush
-    // alias. Checking and reading stay the agent's.
-    elseif (preg_match('/(?:droost-workflow\s+|droost:workflow:)intake\s+abandon\b|(?<![\w-])dwfin\s+abandon\b/', $line) === 1) {
+    // alias. Checking, reading and asking (`intake ask`) stay the agent's.
+    // Options may stand between the command and its verb (drush takes
+    // `dwfin --via=cockpit answer …`), so they are skipped, not required
+    // absent: a verb found only when it comes first is a bypass.
+    elseif (preg_match('/(?:droost-workflow\s+' . $options . '|droost:workflow:)intake\s+' . $options . 'abandon\b|(?<![\w-])dwfin\s+' . $options . 'abandon\b/', $line) === 1) {
       $which = 'intake abandon';
     }
-    elseif (preg_match('/(?:droost-workflow\s+|droost:workflow:)intake\s+answer\b|(?<![\w-])dwfin\s+answer\b/', $line) === 1) {
+    elseif (preg_match('/(?:droost-workflow\s+' . $options . '|droost:workflow:)intake\s+' . $options . 'answer\b|(?<![\w-])dwfin\s+' . $options . 'answer\b/', $line) === 1) {
       $which = 'intake answer';
     }
     elseif (operator_commands_arms_write_gate($tokens)
@@ -1635,7 +1640,8 @@ function operator_commands_guard(string $stdin): void {
     // Name it back in the spelling that was USED. Every one of these verbs
     // now exists on two surfaces, and telling an operator to run the drush
     // command on a project with no Drupal is advice they cannot take.
-    $cli = !$gate && preg_match('/droost-workflow\s+' . preg_quote($which, '/') . '\b/', $line) === 1;
+    $words = array_map(static fn (string $w): string => preg_quote($w, '/'), explode(' ', $which));
+    $cli = !$gate && preg_match('/droost-workflow\s+' . $options . implode('\s+' . $options, $words) . '\b/', $line) === 1;
     $name = match (TRUE) {
       $gate => 'droost:gate',
       $cli => 'droost-workflow ' . $which,
@@ -5030,8 +5036,9 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
         . 'operator from a terminal. A line written by hand is an answer the '
         . 'human never gave, or an approval they never made, whether the file '
         . 'exists yet or not. Ask the question through AskUserQuestion, with the '
-        . 'words questions.md carries; `intake check` and `intake status` read '
-        . 'the record, and so do `cat` and the Read tool.';
+        . 'words questions.md carries (on a host with none, `intake ask`, which '
+        . 'puts it on record for the host to show the human); `intake check` and '
+        . '`intake status` read the record, and so do `cat` and the Read tool.';
     }
     if (preg_match('#^(events\.jsonl|host\.json|host-mods\.json|\.?work-item-[A-Za-z0-9._-]*|\.guard-warned-[A-Za-z0-9._-]+)$#', $inState[3]) === 1) {
       return 'That file is one the pipeline writes beside the run\'s record: the '

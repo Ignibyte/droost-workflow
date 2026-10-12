@@ -282,11 +282,8 @@ final class IntakeCheck {
           $findings[] = new IntakeFinding('ladder', sprintf('rung %d consumes rung %d, which is not below it.', $number, $below));
         }
       }
-      $ticket = trim(str_replace('`', '', $row['ticket']));
-      $ticket = (string) preg_replace('/^\[[^\]]*\]\(([^)]*)\)$/', '$1', $ticket);
-      $found = $ticket !== '' && (is_file($dir . '/' . $ticket) || is_file(rtrim($projectRoot, '/') . '/' . $ticket));
-      if (!$found) {
-        $findings[] = new IntakeFinding('ladder', sprintf('rung %d\'s ticket "%s" is not a file in %s/ (tickets/<id>.md).', $number, $ticket, IntakeStore::DIR));
+      if (self::ticketFile($row['ticket'], $dir, $projectRoot) === NULL) {
+        $findings[] = new IntakeFinding('ladder', sprintf('rung %d\'s ticket "%s" is not a file in %s/ (tickets/<id>.md).', $number, self::ticketName($row['ticket']), IntakeStore::DIR));
       }
       $rungs[$number] = IntakeTables::pages($row['pages']);
     }
@@ -441,7 +438,7 @@ final class IntakeCheck {
       $id = trim($row['id'] ?? '') !== '' ? trim($row['id']) : 'Q' . ($i + 1);
       $recorded = $onRecord[IntakeTables::normal($row['question'])] ?? NULL;
       if ($recorded === NULL) {
-        $findings[] = new IntakeFinding('answered', sprintf('%s has no answer on record: ask it through AskUserQuestion with these exact words, or have the operator record the answer (`droost-workflow intake answer "<question>" "<answer>"`).', $id));
+        $findings[] = new IntakeFinding('answered', sprintf('%s has no answer on record: ask it through AskUserQuestion with these exact words (on a host with none, `intake ask`), or have the operator record the answer (`droost-workflow intake answer "<question>" "<answer>"`).', $id));
         continue;
       }
       if (!str_contains(IntakeTables::normal($row['answer']), IntakeTables::normal($recorded))) {
@@ -481,6 +478,47 @@ final class IntakeCheck {
         }
       }
     }
+  }
+
+  /**
+   * A rung's ticket file, as its Ticket cell names it.
+   *
+   * @param string $cell
+   *   The cell: `tickets/R01.md`, in backticks or as a markdown link.
+   * @param string $dir
+   *   The intake's directory, absolute.
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return string|null
+   *   The file's absolute path, from the intake's directory first, then the
+   *   repository; NULL when it is neither.
+   */
+  public static function ticketFile(string $cell, string $dir, string $projectRoot): ?string {
+    $ticket = self::ticketName($cell);
+    if ($ticket === '') {
+      return NULL;
+    }
+    foreach ([$dir . '/' . $ticket, rtrim($projectRoot, '/') . '/' . $ticket] as $path) {
+      if (is_file($path)) {
+        return $path;
+      }
+    }
+    return NULL;
+  }
+
+  /**
+   * A Ticket cell's path, without backticks or a markdown link around it.
+   *
+   * @param string $cell
+   *   The cell.
+   *
+   * @return string
+   *   The path as written.
+   */
+  private static function ticketName(string $cell): string {
+    $ticket = trim(str_replace('`', '', $cell));
+    return (string) preg_replace('/^\[[^\]]*\]\(([^)]*)\)$/', '$1', $ticket);
   }
 
 }

@@ -686,6 +686,7 @@ built until they approve.
 droost-workflow intake start --request="<the human's words>" --source=<path|URL>
 droost-workflow intake audit --url=<where the source is served> --files=<its folder>
 droost-workflow intake check
+droost-workflow intake ask --file=<the batch, in droost/intake/>   # a host with no AskUserQuestion
 droost-workflow intake approve          # once the human has said yes
 ```
 
@@ -703,7 +704,10 @@ droost-workflow intake approve          # once the human has said yes
   droost's consult reads (each construct, what it is, the audit ids that are
   its evidence, the rung that builds it) with its `## Routes` and a
   `## Not built` for what it sets aside; `questions.md`, what only the human
-  can say, each with a recommendation, asked through AskUserQuestion;
+  can say, each with a recommendation, asked through AskUserQuestion, or,
+  on a host with none (a Droost Cockpit seat), put on record with `intake
+  ask` for the host to show the human and answer through `intake answer
+  --via=cockpit`;
   `roadmap.md`, the rungs in order, each consuming one below, each with its
   ticket in `tickets/`.
 - **`intake check`** judges no decision (that is the human's), and closes
@@ -715,9 +719,12 @@ droost-workflow intake approve          # once the human has said yes
   from a terminal with `intake answer`) and the file agrees; the ladder is in
   order and shows nothing before the rung that builds it.
 - **While an intake is open, no run opens.** The agent asks the human whether
-  to approve the roadmap (AskUserQuestion, recorded by the guard) and runs
-  `approve` on their yes; the approval records how it was run and whose yes
-  it was. `abandon` stays the operator's. Both archive the intake's ledgers, since a row written outside a
+  to approve the roadmap (AskUserQuestion, recorded by the guard, or `intake
+  ask` on a host) and runs `approve` on their yes; `approve` is refused
+  unless the human's latest answer to "Approve this roadmap?" is a yes, whoever
+  runs it (an operator records their own with `intake answer`). The approval
+  records how it was run and whose yes it was, and the sha256 of the four
+  files and of each rung's ticket. `abandon` stays the operator's. Both archive the intake's ledgers, since a row written outside a
   run is the next run's and the intake's consult would otherwise satisfy the
   first rung's `plan_consulted`. Each rung then runs from its ticket, as any
   ticket does.
@@ -782,8 +789,9 @@ is the record a relay or a dashboard reads (`droost-workflow events
 | `follow_up.filed` | a deferred phase's failure was written up | `phase`, `gate`, `why` (`spent` or `outside`), `summary`, `title`, `id`, `source`, `path`, `at`, `note` |
 | `intake.opened` | an intake opened, before any run (`run_id` is the intake's id) | `intake_id`, `request` (the human's words), `source` |
 | `intake.audited` | droost-source read the source | `intake_id`, `sha` (audit.json's sha256), `summary` |
-| `intake.answered` | the operator typed an answer to an intake question | `intake_id`, `question`, `answer`, `via` |
-| `intake.approved` | the operator approved the roadmap | `intake_id`, `digest`, `rungs`, `archived` |
+| `intake.asked` | the agent put questions to the human on a host with no AskUserQuestion (`intake ask`) | `intake_id`, `asked_at`, `questions` (each `id`, `question`, `options`, `recommended`) |
+| `intake.answered` | the operator recorded an answer to an intake question (`via`: `terminal`, or `cockpit` when a host relayed it) | `intake_id`, `question`, `answer`, `via` |
+| `intake.approved` | the roadmap was approved on the human's recorded yes | `intake_id`, `digest` (the four files' and each rung ticket's sha256), `rungs`, `archived`, `via`, `human` (that yes) |
 | `intake.abandoned` | the operator abandoned the intake | `intake_id`, `reason`, `archived` |
 
 Every event has `schema`, `event_id` (`evt-` and 16 hex digits, the consumer's
@@ -854,7 +862,7 @@ command it hands the operator is one they can actually run.
 | `droost:workflow:effort <level>`, `droost-workflow effort <level>` | bare `effort` (reports) and `effort <level> --preview` (prices it) |
 | arming a write gate — `droost:gate allow_* on`, or the `config:set droost.settings allow_* true` form | disarming the same gate, which tightens |
 | `droost-workflow ticket move <id> <state>` | `ticket list`, `ticket show` and `ticket new` (a follow-up, filed in backlog) |
-| `droost:workflow:intake abandon`, `intake answer` (and `droost-workflow intake …`) | `intake start`, `intake audit`, `intake check`, `intake status`, and `intake approve` once the human has said yes; asking the human through AskUserQuestion, whose answers the guard records |
+| `droost:workflow:intake abandon`, `intake answer` (and `droost-workflow intake …`) | `intake start`, `intake audit`, `intake check`, `intake status`, `intake ask`, and `intake approve` once the human has said yes; asking the human through AskUserQuestion, whose answers the guard records |
 
 The pattern is the same in each row: the reading and the tightening are the
 agent's, the loosening is not. An agent that needs one proposes it — the

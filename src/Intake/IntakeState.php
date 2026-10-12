@@ -56,6 +56,9 @@ final class IntakeState {
    *   At approval, each file's sha256 by its name.
    * @param string|null $reason
    *   Why it was abandoned.
+   * @param list<array{id: string, question: string, options: list<string>, recommended: int, asked_at: string}> $pending
+   *   The questions `intake ask` put to the human that have no answer on
+   *   record yet, for a host with no AskUserQuestion to show them.
    */
   public function __construct(
     public readonly string $id,
@@ -68,6 +71,7 @@ final class IntakeState {
     public readonly ?string $closedAt = NULL,
     public readonly array $digest = [],
     public readonly ?string $reason = NULL,
+    public readonly array $pending = [],
   ) {}
 
   /**
@@ -92,7 +96,20 @@ final class IntakeState {
    *   The new state.
    */
   public function withAudit(string $sha, string $at): self {
-    return new self($this->id, $this->status, $this->request, $this->source, $this->openedAt, $sha, $at, $this->closedAt, $this->digest, $this->reason);
+    return new self($this->id, $this->status, $this->request, $this->source, $this->openedAt, $sha, $at, $this->closedAt, $this->digest, $this->reason, $this->pending);
+  }
+
+  /**
+   * The state with these questions pending.
+   *
+   * @param list<array{id: string, question: string, options: list<string>, recommended: int, asked_at: string}> $pending
+   *   The questions awaiting the human.
+   *
+   * @return self
+   *   The new state.
+   */
+  public function withPending(array $pending): self {
+    return new self($this->id, $this->status, $this->request, $this->source, $this->openedAt, $this->auditSha, $this->auditedAt, $this->closedAt, $this->digest, $this->reason, $pending);
   }
 
   /**
@@ -144,6 +161,7 @@ final class IntakeState {
       'closed_at' => $this->closedAt,
       'digest' => $this->digest,
       'reason' => $this->reason,
+      'pending' => $this->pending,
     ];
   }
 
@@ -186,7 +204,39 @@ final class IntakeState {
       $text('closed_at'),
       $digest,
       $text('reason'),
+      self::pendingFrom($data['pending'] ?? NULL),
     );
+  }
+
+  /**
+   * The pending questions a file holds, each well formed, or none.
+   *
+   * @param mixed $data
+   *   The file's `pending`.
+   *
+   * @return list<array{id: string, question: string, options: list<string>, recommended: int, asked_at: string}>
+   *   The well-formed entries; a malformed one is dropped.
+   */
+  private static function pendingFrom(mixed $data): array {
+    $out = [];
+    foreach (is_array($data) ? $data : [] as $entry) {
+      if (!is_array($entry) || !is_string($entry['id'] ?? NULL) || !is_string($entry['question'] ?? NULL)
+        || !is_string($entry['asked_at'] ?? NULL) || !is_int($entry['recommended'] ?? NULL) || !is_array($entry['options'] ?? NULL)) {
+        continue;
+      }
+      $options = array_values(array_filter($entry['options'], 'is_string'));
+      if ($options === [] || count($options) !== count($entry['options'])) {
+        continue;
+      }
+      $out[] = [
+        'id' => $entry['id'],
+        'question' => $entry['question'],
+        'options' => $options,
+        'recommended' => $entry['recommended'],
+        'asked_at' => $entry['asked_at'],
+      ];
+    }
+    return $out;
   }
 
 }

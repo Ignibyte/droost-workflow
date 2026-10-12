@@ -1425,6 +1425,15 @@ final class ArgvDispatcher {
     // Approval is the agent's to run once the human has said yes (owner,
     // 2026-10-08): the skill asks through AskUserQuestion, whose answer the
     // guard records. Abandoning and recording an answer stay the operator's.
+    // An option given to `answer` without `=` (`--via cockpit`) would leave
+    // its value as the question: refuse it rather than record the wrong
+    // answer, terminal or not.
+    foreach ($sub === 'answer' ? $rest : [] as $arg) {
+      if (str_starts_with($arg, '-') && preg_match('/^--via=/', $arg) !== 1) {
+        $this->fail(sprintf('intake answer takes only --via=terminal|cockpit, with its "=": "%s" is not one.', $arg));
+        return self::EXIT_USAGE;
+      }
+    }
     if (in_array($sub, ['abandon', 'answer'], TRUE) && !$this->operatorTerminal()) {
       $this->fail($this->noTerminalRefusal('intake ' . $sub));
       return self::EXIT_USAGE;
@@ -1451,8 +1460,12 @@ final class ArgvDispatcher {
         $this->say($this->encode($intake->status()));
         return self::EXIT_OK;
 
+      case 'ask':
+        $this->say($this->encode(['pending' => $intake->ask($options['file'] ?? '')]));
+        return self::EXIT_OK;
+
       case 'answer':
-        $intake->answer($positional[0] ?? '', $positional[1] ?? '');
+        $intake->answer($positional[0] ?? '', $positional[1] ?? '', $options['via'] ?? 'terminal');
         $this->say('Answer recorded.');
         return self::EXIT_OK;
 
@@ -1467,7 +1480,7 @@ final class ArgvDispatcher {
         return self::EXIT_OK;
 
       default:
-        $this->fail('intake needs one of: start --request="…" --source=<path|URL>, audit --url=<served> [--files=<dir>], check, status, and the operator\'s approve, abandon "<why>", answer "<question>" "<answer>".');
+        $this->fail('intake needs one of: start --request="…" --source=<path|URL>, audit --url=<served> [--files=<dir>], check, status, ask --file=<batch.json> (a host with no AskUserQuestion), approve (on the human\'s yes), and the operator\'s abandon "<why>", answer [--via=terminal|cockpit] "<question>" "<answer>".');
         return self::EXIT_USAGE;
     }
   }
@@ -1720,9 +1733,14 @@ final class ArgvDispatcher {
                        --request="<the human's words>" --source=<path|URL>`,
                        `intake audit --url=<served source> --files=<dir>`
                        (droost-source, its sha recorded), `intake check`
-                       (what approval still needs), `intake status`,
-                       `intake approve` (once the human has said yes, and
-                       `check` finds nothing; its rungs may then run).
+                       (what approval still needs), `intake status`
+                       (with the questions pending and the answers on
+                       record), `intake ask --file=<batch.json>` (on a host
+                       with no AskUserQuestion: puts up to 4 questions,
+                       with their options, on record for the host to show
+                       the human), `intake approve` (once the human's yes is
+                       on record and `check` finds nothing; its rungs may
+                       then run).
                        `abandon` and `answer` are the operator's
 
     The OPERATOR's commands. Each one loosens what a run is held to, or
@@ -1747,9 +1765,10 @@ final class ArgvDispatcher {
                        and review, never further
       intake abandon "<why>"
                        close the intake unapproved
-      intake answer "<question>" "<answer>"
+      intake answer [--via=terminal|cockpit] "<question>" "<answer>"
                        record a human's answer to an intake question asked
-                       outside AskUserQuestion
+                       outside AskUserQuestion; --via=cockpit when a host
+                       relays the human's answer (through a terminal)
       baseline         write the adoption baseline (droost/baseline/): the
                        debt the tree carries today, inherited from then on.
                        --measure shows the bill without writing; --status

@@ -28,6 +28,7 @@
     { "if": { "properties": { "type": { "const": "follow_up.filed" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/follow_up.filed" } } } },
     { "if": { "properties": { "type": { "const": "intake.opened" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/intake.opened" } } } },
     { "if": { "properties": { "type": { "const": "intake.audited" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/intake.audited" } } } },
+    { "if": { "properties": { "type": { "const": "intake.asked" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/intake.asked" } } } },
     { "if": { "properties": { "type": { "const": "intake.answered" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/intake.answered" } } } },
     { "if": { "properties": { "type": { "const": "intake.approved" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/intake.approved" } } } },
     { "if": { "properties": { "type": { "const": "intake.abandoned" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/intake.abandoned" } } } }
@@ -148,8 +149,30 @@
         "summary": { "type": "string" }
       }
     },
+    "intake.asked": {
+      "description": "The agent put questions to the human on a host with no AskUserQuestion (intake ask). questions replace any still pending; each has its questions.md id (or approval), its words, its options and the recommended option's index. The host shows them; each answer arrives as intake.answered.",
+      "type": "object",
+      "required": ["intake_id", "asked_at", "questions"],
+      "properties": {
+        "intake_id": { "type": "string" },
+        "asked_at": { "type": "string" },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "question", "options", "recommended"],
+            "properties": {
+              "id": { "type": "string" },
+              "question": { "type": "string" },
+              "options": { "type": "array", "items": { "type": "string" } },
+              "recommended": { "type": "integer" }
+            }
+          }
+        }
+      }
+    },
     "intake.answered": {
-      "description": "The operator typed an answer to one of the intake's questions (via terminal). Answers given through AskUserQuestion are recorded by the guard in the state directory's intake-answers.jsonl.",
+      "description": "The operator recorded an answer to one of the intake's questions from a terminal: via is terminal, or cockpit when a host relayed the human's answer. Answers given through AskUserQuestion are recorded by the guard in the state directory's intake-answers.jsonl.",
       "type": "object",
       "required": ["intake_id", "question", "answer"],
       "properties": {
@@ -160,7 +183,7 @@
       }
     },
     "intake.approved": {
-      "description": "The operator approved the roadmap. digest is each intake file's sha256 at approval; rungs are the roadmap's rows; archived names the ledgers moved into history so no run inherits the intake's rows.",
+      "description": "The roadmap was approved on the human's recorded yes to \"Approve this roadmap?\". digest is the sha256 at approval of each intake file and of each rung's ticket (keyed under droost/intake/, else the project); rungs are the roadmap's rows; archived names the ledgers moved into history so no run inherits the intake's rows; via is how approve was run; human is the yes.",
       "type": "object",
       "required": ["intake_id", "digest", "rungs"],
       "properties": {

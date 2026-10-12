@@ -36,6 +36,7 @@ final class RunEvent {
     'follow_up.filed',
     'intake.opened',
     'intake.audited',
+    'intake.asked',
     'intake.answered',
     'intake.approved',
     'intake.abandoned',

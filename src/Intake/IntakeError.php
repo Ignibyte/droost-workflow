@@ -68,6 +68,31 @@ final class IntakeError extends \RuntimeException {
   }
 
   /**
+   * The agent asked to approve with no yes from the human on record.
+   *
+   * @param string|null $answer
+   *   The human's latest answer to the approval question, or NULL for none.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function noYes(?string $answer): self {
+    return new self($answer === NULL
+      ? 'no yes is on record: ask the human "Approve this roadmap?" (Approve, Not yet) through AskUserQuestion or `intake ask`, and approve only on their yes. An operator at a terminal records their own: `intake answer "Approve this roadmap?" "Approve"`.'
+      : sprintf('the human answered "%s" to "Approve this roadmap?", which is not a yes: change what they asked for, ask again, and approve only on their yes.', $answer));
+  }
+
+  /**
+   * The approval question was asked again and is not answered yet.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function approvalPending(): self {
+    return new self('"Approve this roadmap?" is pending: the human has not answered it since it was last asked. Wait for their answer.');
+  }
+
+  /**
    * A verb was given what it cannot use.
    *
    * @param string $usage

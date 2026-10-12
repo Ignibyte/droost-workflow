@@ -123,18 +123,36 @@ final class IntakeStore {
    *   Each answer.
    */
   public function answers(string $intakeId): array {
+    return array_map(static fn (array $row): array => ['question' => $row['question'], 'answer' => $row['answer']], $this->records($intakeId));
+  }
+
+  /**
+   * The answer rows on record for an intake, as written, oldest first.
+   *
+   * @param string $intakeId
+   *   The intake.
+   *
+   * @return list<array{question: string, answer: string, via: string, at: string}>
+   *   Each row; a row with no `via` or `at` reads them as empty.
+   */
+  public function records(string $intakeId): array {
     $out = [];
     foreach (@file($this->stateDir . '/' . self::ANSWERS_FILE, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
       $row = json_decode($line, TRUE);
       if (is_array($row) && ($row['intake'] ?? NULL) === $intakeId && is_string($row['question'] ?? NULL) && is_string($row['answer'] ?? NULL)) {
-        $out[] = ['question' => $row['question'], 'answer' => $row['answer']];
+        $out[] = [
+          'question' => $row['question'],
+          'answer' => $row['answer'],
+          'via' => is_string($row['via'] ?? NULL) ? $row['via'] : '',
+          'at' => is_string($row['at'] ?? NULL) ? $row['at'] : '',
+        ];
       }
     }
     return $out;
   }
 
   /**
-   * Records an answer the operator typed.
+   * Records an answer the operator gave.
    *
    * @param string $intakeId
    *   The intake.
@@ -143,7 +161,8 @@ final class IntakeStore {
    * @param string $answer
    *   The answer.
    * @param string $via
-   *   How it was given: `terminal`.
+   *   How it was given: `terminal`, or `cockpit` (a host relaying the
+   *   human's answer through a terminal).
    * @param string $at
    *   When.
    */

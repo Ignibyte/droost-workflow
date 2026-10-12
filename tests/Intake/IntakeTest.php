@@ -24,6 +24,7 @@ use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\Vcs\VcsInterface;
 use Droost\Workflow\WorkflowFacade;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * The intake: opened, checked, approved or abandoned, and nothing built first.
@@ -34,6 +35,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
  */
 #[CoversClass(IntakeCheck::class)]
 #[CoversClass(IntakeService::class)]
+#[CoversClass(IntakeState::class)]
 #[CoversClass(IntakeStore::class)]
 #[CoversClass(IntakeTables::class)]
 final class IntakeTest extends WorkflowTestCase {
@@ -260,7 +262,8 @@ MD;
     }
     $this->assertFileDoesNotExist((new RunStateStore($root))->path());
 
-    $approved = $service->approve();
+    $this->yes($service);
+    $approved = $service->approve('terminal');
     $this->assertSame(IntakeState::APPROVED, $approved->status);
     $this->assertArrayHasKey('model.md', $approved->digest);
     $this->assertFileDoesNotExist($service->store()->stateDir() . '/tool-calls.jsonl', 'the intake\'s consults are not the first run\'s');
@@ -371,6 +374,455 @@ MD;
       $this->assertStringContainsString('is the operator\'s command', implode("\n", $lines));
     }
     $this->assertTrue((new IntakeStore($root))->load()?->isOpen(), 'nothing was approved or abandoned');
+  }
+
+  /**
+   * Ask puts a batch on record as pending, and says so in the log.
+   */
+  public function testAskRecordsPendingAndEmits(): void {
+    [$root, $service] = $this->complete();
+    $this->batch($root, [$this->question('who edits the events')]);
+    $pending = $service->ask('droost/intake/ask.json');
+    $options = ['Staff editors', 'Each venue', 'Defer to your recommendation'];
+    $expected = [
+      [
+        'id' => 'Q1',
+        'question' => 'who edits the events',
+        'options' => $options,
+        'recommended' => 0,
+        'asked_at' => '2026-10-08T00:00:00+00:00',
+      ],
+    ];
+    $this->assertSame($expected, $pending);
+    $this->assertSame($expected, $this->loaded($service)->pending, 'intake.json holds the batch');
+    $asked = $this->payloads($service, 'intake.asked');
+    $this->assertCount(1, $asked);
+    $this->assertSame('2026-10-08T00:00:00+00:00', $asked[0]['asked_at'] ?? NULL);
+    $this->assertSame([
+      [
+        'id' => 'Q1',
+        'question' => 'who edits the events',
+        'options' => $options,
+        'recommended' => 0,
+      ],
+    ], $asked[0]['questions'] ?? NULL);
+
+    // A second batch replaces the first; the approval question needs no row.
+    $this->batch($root, [$this->question('Approve this roadmap?', ['Approve', 'Not yet'])]);
+    $pending = $service->ask((string) realpath($root . '/droost/intake/ask.json'));
+    $this->assertSame(['approval'], array_column($pending, 'id'));
+    $this->assertSame(['approval'], array_column($this->loaded($service)->pending, 'id'));
+  }
+
+  /**
+   * Ask refuses a batch it cannot put to the human, and changes nothing.
+   *
+   * @param string $file
+   *   Where the batch is, project-relative.
+   * @param mixed $body
+   *   What it holds: a value to encode, a string written as it is, or NULL
+   *   for no file at all.
+   * @param string $message
+   *   What the refusal says.
+   */
+  #[DataProvider('refusedBatches')]
+  public function testAskRefuses(string $file, mixed $body, string $message): void {
+    [$root, $service] = $this->complete();
+    if ($body !== NULL) {
+      @mkdir(dirname($root . '/' . $file), 0777, TRUE);
+      file_put_contents($root . '/' . $file, is_string($body) ? $body : (string) json_encode($body));
+    }
+    try {
+      $service->ask($file);
+      $this->fail('the batch was accepted');
+    }
+    catch (IntakeError $e) {
+      $this->assertStringContainsString($message, $e->getMessage());
+    }
+    $this->assertSame([], $this->loaded($service)->pending);
+    $this->assertSame([], $this->payloads($service, 'intake.asked'));
+  }
+
+  /**
+   * Batches ask refuses, each with what its refusal says.
+   *
+   * @return array<string, array{string, mixed, string}>
+   *   The cases.
+   */
+  public static function refusedBatches(): array {
+    $q = [
+      'question' => 'Who edits the events?',
+      'options' => ['Staff editors', 'Each venue'],
+      'recommended' => 0,
+    ];
+    $one = static fn (array $change): array => ['questions' => [$change + $q]];
+    $batch = 'droost/intake/ask.json';
+    return [
+      'outside the intake' => ['droost/ask.json', $one([]), 'is not a file in droost/intake/'],
+      'missing' => ['droost/intake/none.json', NULL, 'is not a file in droost/intake/'],
+      'not JSON' => [$batch, '{not json', 'is not JSON with a "questions" list'],
+      'no questions' => [$batch, ['questions' => []], 'ask 1 to 4 questions at a time'],
+      'five questions' => [$batch, ['questions' => array_fill(0, 5, $q)], 'ask 1 to 4 questions at a time'],
+      'not in questions.md' => [$batch, $one(['question' => 'Is the shop real?']), 'is no row of questions.md'],
+      'one option' => [$batch, $one(['options' => ['Staff editors']]), 'needs 2 to 6 "options"'],
+      'seven options' => [$batch, $one(['options' => array_map('strval', range(1, 7))]), 'needs 2 to 6 "options"'],
+      'a long option' => [$batch, $one(['options' => ['Staff', str_repeat('x', 201)]]), 'not text of 1 to 200 bytes'],
+      'a bad recommendation' => [$batch, $one(['recommended' => 2]), '"recommended" is not the index'],
+      'a repeat' => [$batch, ['questions' => [$q, $q]], 'question 2 repeats question 1'],
+      'a long question' => [
+        $batch,
+        $one(['question' => str_repeat('q', 1001)]),
+        'needs "question" text of 1 to 1000 bytes',
+      ],
+      'an option twice' => [
+        $batch,
+        $one(['options' => ['Staff editors', 'staff editors']]),
+        'offers "staff editors" twice',
+      ],
+      'approval with other options' => [
+        $batch,
+        $one(['question' => 'Approve this roadmap?', 'options' => ['Yes', 'No']]),
+        'offers exactly Approve and Not yet',
+      ],
+    ];
+  }
+
+  /**
+   * Ask needs an open intake.
+   */
+  public function testAskNeedsAnOpenIntake(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: interactive\nseekers:\n  on: false\n");
+    $this->expectException(IntakeError::class);
+    $this->expectExceptionMessage('no intake is open');
+    (new IntakeService($root))->ask('droost/intake/ask.json');
+  }
+
+  /**
+   * Status reports the pending questions and every answer on record.
+   */
+  public function testStatusReportsPendingAndRecorded(): void {
+    [$root, $service] = $this->complete();
+    $this->batch($root, [$this->question('Who edits the events?')]);
+    $service->ask('droost/intake/ask.json');
+    $status = $service->status();
+    $this->assertSame($this->loaded($service)->pending, $status['pending'] ?? NULL);
+    $this->assertSame([
+      [
+        'question' => 'Who edits the events?',
+        'answer' => 'Staff editors',
+        'via' => 'AskUserQuestion',
+        'at' => '2026-10-08T00:02:00+00:00',
+      ],
+    ], $status['recorded'] ?? NULL);
+    $this->assertSame(1, $status['answers'] ?? NULL);
+  }
+
+  /**
+   * Answer clears the question it answers, and records how it came.
+   */
+  public function testAnswerClearsPendingAndRecordsVia(): void {
+    [$root, $service] = $this->complete();
+    $this->batch($root, [
+      $this->question('Who edits the events?'),
+      $this->question('Approve this roadmap?', ['Approve', 'Not yet']),
+    ]);
+    $service->ask('droost/intake/ask.json');
+    $service->answer('who edits the events', 'Staff editors', 'cockpit');
+    $this->assertSame(['approval'], array_column($this->loaded($service)->pending, 'id'), 'only the unanswered question is left');
+    $this->assertSame('cockpit', $this->lastRecord($service)['via']);
+    $answered = $this->payloads($service, 'intake.answered');
+    $this->assertSame('cockpit', $answered[count($answered) - 1]['via'] ?? NULL);
+
+    $service->answer('Approve this roadmap?', 'Not yet');
+    $this->assertSame([], $this->loaded($service)->pending);
+    $this->assertSame('terminal', $this->lastRecord($service)['via'], 'terminal by default');
+  }
+
+  /**
+   * Answer knows two ways an answer comes, and refuses any other.
+   */
+  public function testAnswerRefusesAnUnknownVia(): void {
+    [, $service] = $this->complete();
+    try {
+      $service->answer('Who edits the events?', 'Staff editors', 'agent');
+      $this->fail('an answer via the agent was recorded');
+    }
+    catch (IntakeError $e) {
+      $this->assertStringContainsString('--via is terminal or cockpit, not "agent"', $e->getMessage());
+    }
+    $this->assertCount(1, $service->store()->records($this->loaded($service)->id), 'nothing was recorded');
+  }
+
+  /**
+   * Approval needs the human's yes on record, and only a yes.
+   */
+  public function testApprovalNeedsTheHumansYes(): void {
+    [$root, $service] = $this->complete();
+    $id = $this->loaded($service)->id;
+    $this->assertApprovalRefused($service, 'no yes is on record');
+    foreach (['Not yet', 'Approve? No.', 'Yes, but change rung 3', 'Approve with changes'] as $n => $answer) {
+      $service->store()->appendAnswer($id, 'Approve this roadmap?', $answer, 'cockpit', '2026-10-08T00:0' . $n . ':00+00:00');
+      $this->assertApprovalRefused($service, 'answered "' . $answer . '" to "Approve this roadmap?", which is not a yes');
+    }
+
+    // A question that only mentions approval is not the roadmap's approval.
+    $this->rewrite($root, 'questions.md', '| Q1 | Who edits the events? | Staff editors | Staff editors | human |', "| Q1 | Who edits the events? | Staff editors | Staff editors | human |\n| Q2 | Do posts need approval before publishing? | No | Yes | human |");
+    $service->store()->appendAnswer($id, 'Do posts need approval before publishing?', 'Yes', 'cockpit', '2026-10-08T00:05:00+00:00');
+    $this->assertApprovalRefused($service, 'answered "Approve with changes"');
+
+    $service->store()->appendAnswer($id, 'approve this roadmap', 'Approve (Recommended)', 'cockpit', '2026-10-08T00:06:00+00:00');
+    $this->assertSame(IntakeState::APPROVED, $service->approve('agent')->status, 'the latest answer is a yes');
+    $this->assertSame([], $this->loaded($service)->pending);
+  }
+
+  /**
+   * A terminal proves nothing: the operator records their yes too.
+   */
+  public function testTheOperatorsApprovalNeedsTheirYesOnRecord(): void {
+    [, $service] = $this->complete();
+    $this->assertApprovalRefused($service, 'intake answer "Approve this roadmap?" "Approve"', 'terminal');
+    $this->yes($service);
+    $this->assertSame(IntakeState::APPROVED, $service->approve('terminal')->status);
+  }
+
+  /**
+   * An approval question asked again waits for its answer.
+   */
+  public function testApprovalWaitsWhileItsQuestionIsPending(): void {
+    [$root, $service] = $this->complete();
+    $this->yes($service);
+    $this->batch($root, [$this->question('Approve this roadmap?', ['Approve', 'Not yet'])]);
+    $service->ask('droost/intake/ask.json');
+    $this->assertApprovalRefused($service, '"Approve this roadmap?" is pending');
+  }
+
+  /**
+   * The approval's digest holds each rung's ticket.
+   *
+   * A host that imports the tickets can then tell they are the ones the
+   * human approved. A ticket kept outside droost/intake is keyed under the
+   * project, never by a path that differs between machines.
+   */
+  public function testApprovalDigestsTheRungTickets(): void {
+    [$root, $service] = $this->complete();
+    @mkdir($root . '/design', 0777, TRUE);
+    file_put_contents($root . '/design/R3.md', "# R3, kept with the design\n");
+    $this->rewrite($root, 'roadmap.md', '| 3 | tickets/R3.md |', '| 3 | design/R3.md |');
+    $this->yes($service);
+    $digest = $service->approve('terminal')->digest;
+    foreach (['tickets/R1.md', 'tickets/R2.md'] as $ticket) {
+      $this->assertSame(hash_file('sha256', $root . '/droost/intake/' . $ticket), $digest[$ticket] ?? NULL, $ticket);
+    }
+    $this->assertSame(hash_file('sha256', $root . '/design/R3.md'), $digest['design/R3.md'] ?? NULL, 'keyed under the project');
+    $this->assertSame(hash_file('sha256', $root . '/droost/intake/roadmap.md'), $digest['roadmap.md'] ?? NULL);
+    foreach (array_keys($digest) as $key) {
+      $this->assertStringStartsNotWith('/', (string) $key, 'no absolute key');
+    }
+  }
+
+  /**
+   * Ask jails its batch to the intake's directory, links resolved.
+   */
+  public function testAskRefusesLinksOutOfTheIntake(): void {
+    [$root, $service] = $this->complete();
+    file_put_contents($root . '/outside.json', (string) json_encode(['questions' => [$this->question('Who edits the events?')]]));
+    symlink($root . '/outside.json', $root . '/droost/intake/linked.json');
+    foreach (['droost/intake/linked.json', 'droost/intake/../../outside.json'] as $file) {
+      try {
+        $service->ask($file);
+        $this->fail($file . ' was read');
+      }
+      catch (IntakeError $e) {
+        $this->assertStringContainsString('is not a file in droost/intake/', $e->getMessage(), $file);
+      }
+    }
+    $this->assertSame([], $this->loaded($service)->pending);
+  }
+
+  /**
+   * The asked event carries what its schema requires.
+   */
+  public function testTheAskedEventIsShapedAsItsSchemaSays(): void {
+    [$root, $service] = $this->complete();
+    $this->batch($root, [$this->question('Who edits the events?')]);
+    $service->ask('droost/intake/ask.json');
+    $schema = json_decode((string) file_get_contents(dirname(__DIR__, 2) . '/schema/run-event.v1.json'), TRUE);
+    $def = is_array($schema) && is_array($schema['$defs'] ?? NULL) ? ($schema['$defs']['intake.asked'] ?? NULL) : NULL;
+    $this->assertIsArray($def, 'the schema defines intake.asked');
+    $items = is_array($def['properties'] ?? NULL) && is_array($def['properties']['questions'] ?? NULL) ? ($def['properties']['questions']['items'] ?? NULL) : NULL;
+    $this->assertIsArray($items);
+    $payload = $this->payloads($service, 'intake.asked')[0] ?? [];
+    foreach (is_array($def['required'] ?? NULL) ? $def['required'] : [] as $key) {
+      $this->assertArrayHasKey(is_string($key) ? $key : '', $payload);
+    }
+    $questions = $payload['questions'] ?? NULL;
+    $this->assertIsArray($questions);
+    foreach ($questions as $question) {
+      $this->assertIsArray($question);
+      foreach (is_array($items['required'] ?? NULL) ? $items['required'] : [] as $key) {
+        $this->assertArrayHasKey(is_string($key) ? $key : '', $question);
+      }
+      $this->assertIsInt($question['recommended'] ?? NULL);
+    }
+  }
+
+  /**
+   * An intake.json written before pending existed still loads.
+   */
+  public function testAnOlderStateFileLoads(): void {
+    [, $service] = $this->complete();
+    $path = $service->store()->stateDir() . '/intake.json';
+    $data = json_decode((string) file_get_contents($path), TRUE);
+    $this->assertIsArray($data);
+    unset($data['pending']);
+    file_put_contents($path, (string) json_encode($data));
+    $this->assertSame([], $this->loaded($service)->pending);
+  }
+
+  /**
+   * The CLI refuses an answer option it would misread, terminal or not.
+   */
+  public function testTheCliRefusesAnOptionWithoutItsValue(): void {
+    [$root, $service] = $this->complete();
+    $lines = [];
+    $sink = function (string $line) use (&$lines): void {
+      $lines[] = $line;
+    };
+    $cli = new ArgvDispatcher($sink, $sink, static fn (): string => '2026-10-08T00:00:00+00:00', static fn (): string => 'run-x');
+    $code = $cli->dispatch(['intake', 'answer', '--via', 'cockpit', 'Who edits the events?', 'Me'], $root);
+    $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code);
+    $this->assertStringContainsString('with its "=": "--via" is not one', implode("\n", $lines));
+    $this->assertCount(1, $service->store()->records($this->loaded($service)->id), 'nothing was recorded');
+  }
+
+  /**
+   * The CLI's ask prints the pending batch.
+   */
+  public function testTheCliAsks(): void {
+    [$root, $service] = $this->complete();
+    $this->batch($root, [$this->question('Who edits the events?')]);
+    $lines = [];
+    $sink = function (string $line) use (&$lines): void {
+      $lines[] = $line;
+    };
+    $cli = new ArgvDispatcher($sink, $sink, static fn (): string => '2026-10-08T00:00:00+00:00', static fn (): string => 'run-x');
+    $code = $cli->dispatch(['intake', 'ask', '--file=droost/intake/ask.json'], $root);
+    $this->assertSame(ArgvDispatcher::EXIT_OK, $code, implode("\n", $lines));
+    $this->assertStringContainsString('"id": "Q1"', implode("\n", $lines));
+    $this->assertSame(['Q1'], array_column($this->loaded($service)->pending, 'id'));
+  }
+
+  /**
+   * Writes an ask batch to droost/intake/ask.json.
+   *
+   * @param string $root
+   *   The project.
+   * @param list<array<string, mixed>> $questions
+   *   The questions.
+   */
+  private function batch(string $root, array $questions): void {
+    file_put_contents($root . '/droost/intake/ask.json', (string) json_encode(['questions' => $questions]));
+  }
+
+  /**
+   * One batch entry.
+   *
+   * @param string $question
+   *   Its words.
+   * @param list<string>|null $options
+   *   Its options; three by default.
+   *
+   * @return array<string, mixed>
+   *   The entry.
+   */
+  private function question(string $question, ?array $options = NULL): array {
+    return [
+      'question' => $question,
+      'options' => $options ?? ['Staff editors', 'Each venue', 'Defer to your recommendation'],
+      'recommended' => 0,
+    ];
+  }
+
+  /**
+   * Records the human's yes to the approval question.
+   *
+   * @param \Droost\Workflow\Intake\IntakeService $service
+   *   The service.
+   */
+  private function yes(IntakeService $service): void {
+    $service->store()->appendAnswer($this->loaded($service)->id, 'Approve this roadmap?', 'Approve', 'terminal', '2026-10-08T00:09:00+00:00');
+  }
+
+  /**
+   * Asserts approval is refused, saying why, and the intake stays open.
+   *
+   * @param \Droost\Workflow\Intake\IntakeService $service
+   *   The service.
+   * @param string $message
+   *   What the refusal says.
+   * @param string $via
+   *   How approve is run.
+   */
+  private function assertApprovalRefused(IntakeService $service, string $message, string $via = 'agent'): void {
+    try {
+      $service->approve($via);
+      $this->fail('approved: ' . $message);
+    }
+    catch (IntakeError $e) {
+      $this->assertStringContainsString($message, $e->getMessage());
+    }
+    $this->assertTrue($this->loaded($service)->isOpen());
+  }
+
+  /**
+   * The intake as the store holds it now.
+   *
+   * @param \Droost\Workflow\Intake\IntakeService $service
+   *   The service.
+   *
+   * @return \Droost\Workflow\Intake\IntakeState
+   *   The state.
+   */
+  private function loaded(IntakeService $service): IntakeState {
+    $state = $service->store()->load();
+    $this->assertNotNull($state);
+    return $state;
+  }
+
+  /**
+   * The latest answer row on record.
+   *
+   * @param \Droost\Workflow\Intake\IntakeService $service
+   *   The service.
+   *
+   * @return array{question: string, answer: string, via: string, at: string}
+   *   The row.
+   */
+  private function lastRecord(IntakeService $service): array {
+    $records = $service->store()->records($this->loaded($service)->id);
+    $this->assertNotSame([], $records);
+    return $records[count($records) - 1];
+  }
+
+  /**
+   * The payloads of one event type in the intake's log, oldest first.
+   *
+   * @param \Droost\Workflow\Intake\IntakeService $service
+   *   The service.
+   * @param string $type
+   *   The event type.
+   *
+   * @return list<array<string, mixed>>
+   *   The payloads.
+   */
+  private function payloads(IntakeService $service, string $type): array {
+    $out = [];
+    foreach ((new RunEventLog($service->store()->stateDir()))->read() as $event) {
+      if ($event->type === $type) {
+        $out[] = $event->payload;
+      }
+    }
+    return $out;
   }
 
   /**
