@@ -48,13 +48,14 @@ class PresetResolverTest extends TestCase {
     // Custom and high share the shipped baseline, except that from medium up
     // phpunit demands a test for the classes a run writes (`in_diff`, F-61)
     // and the wiki a page for the extensions it changes (`cover_diff`, F-60);
-    // max adds `required`. Only low and xhigh are new points.
+    // max adds `required`. Only low and xhigh are new points. Every level
+    // scopes the analysers to the files a run changed (0.14.14).
     $baseline = [
-      'phpcs' => ['on' => TRUE, 'standard' => $standard],
-      'phpstan' => ['on' => TRUE, 'level' => 6],
-      'eslint' => ['on' => FALSE],
-      'stylelint' => ['on' => FALSE],
-      'prettier' => ['on' => FALSE],
+      'phpcs' => ['on' => TRUE, 'standard' => $standard, 'scope' => 'ticket'],
+      'phpstan' => ['on' => TRUE, 'level' => 6, 'scope' => 'ticket'],
+      'eslint' => ['on' => FALSE, 'scope' => 'ticket'],
+      'stylelint' => ['on' => FALSE, 'scope' => 'ticket'],
+      'prettier' => ['on' => FALSE, 'scope' => 'ticket'],
       'phpunit' => ['on' => TRUE],
       'mutation' => ['on' => FALSE, 'msi_min' => 0],
       'playwright' => ['on' => TRUE, 'required' => TRUE],
@@ -72,9 +73,9 @@ class PresetResolverTest extends TestCase {
     $low = [
       'phpcs' => ['on' => TRUE, 'standard' => 'Drupal', 'scope' => 'ticket'],
       'phpstan' => ['on' => TRUE, 'level' => 1, 'scope' => 'ticket'],
-      'eslint' => ['on' => FALSE],
-      'stylelint' => ['on' => FALSE],
-      'prettier' => ['on' => FALSE],
+      'eslint' => ['on' => FALSE, 'scope' => 'ticket'],
+      'stylelint' => ['on' => FALSE, 'scope' => 'ticket'],
+      'prettier' => ['on' => FALSE, 'scope' => 'ticket'],
       'phpunit' => ['on' => FALSE, 'scope' => 'ticket'],
       'mutation' => ['on' => FALSE, 'msi_min' => 0],
       'playwright' => ['on' => TRUE, 'required' => TRUE, 'scope' => 'ticket', 'reuse' => 'recorded'],
@@ -89,9 +90,9 @@ class PresetResolverTest extends TestCase {
     $medium = [
       'phpcs' => ['on' => TRUE, 'standard' => $standard, 'scope' => 'ticket'],
       'phpstan' => ['on' => TRUE, 'level' => 2, 'scope' => 'ticket'],
-      'eslint' => ['on' => FALSE],
-      'stylelint' => ['on' => FALSE],
-      'prettier' => ['on' => FALSE],
+      'eslint' => ['on' => FALSE, 'scope' => 'ticket'],
+      'stylelint' => ['on' => FALSE, 'scope' => 'ticket'],
+      'prettier' => ['on' => FALSE, 'scope' => 'ticket'],
       'phpunit' => ['on' => TRUE, 'in_diff' => TRUE, 'scope' => 'ticket'],
       'mutation' => ['on' => FALSE, 'msi_min' => 0],
       'playwright' => ['on' => TRUE, 'required' => TRUE, 'scope' => 'ticket'],
@@ -104,11 +105,11 @@ class PresetResolverTest extends TestCase {
       'wiki_fresh' => ['on' => TRUE, 'cover_diff' => TRUE],
     ];
     $xhigh = [
-      'phpcs' => ['on' => TRUE, 'standard' => $standard],
-      'phpstan' => ['on' => TRUE, 'level' => 8],
-      'eslint' => ['on' => TRUE],
-      'stylelint' => ['on' => TRUE],
-      'prettier' => ['on' => TRUE],
+      'phpcs' => ['on' => TRUE, 'standard' => $standard, 'scope' => 'ticket'],
+      'phpstan' => ['on' => TRUE, 'level' => 8, 'scope' => 'ticket'],
+      'eslint' => ['on' => TRUE, 'scope' => 'ticket'],
+      'stylelint' => ['on' => TRUE, 'scope' => 'ticket'],
+      'prettier' => ['on' => TRUE, 'scope' => 'ticket'],
       'phpunit' => ['on' => TRUE, 'in_diff' => TRUE],
       'mutation' => ['on' => TRUE, 'msi_min' => 60, 'timeout' => 1800],
       'playwright' => ['on' => TRUE, 'required' => TRUE],
@@ -121,11 +122,11 @@ class PresetResolverTest extends TestCase {
       'wiki_fresh' => ['on' => TRUE, 'cover_diff' => TRUE],
     ];
     $max = [
-      'phpcs' => ['on' => TRUE, 'standard' => $standard],
-      'phpstan' => ['on' => TRUE, 'level' => 'max'],
-      'eslint' => ['on' => TRUE],
-      'stylelint' => ['on' => TRUE],
-      'prettier' => ['on' => TRUE],
+      'phpcs' => ['on' => TRUE, 'standard' => $standard, 'scope' => 'ticket'],
+      'phpstan' => ['on' => TRUE, 'level' => 'max', 'scope' => 'ticket'],
+      'eslint' => ['on' => TRUE, 'scope' => 'ticket'],
+      'stylelint' => ['on' => TRUE, 'scope' => 'ticket'],
+      'prettier' => ['on' => TRUE, 'scope' => 'ticket'],
       'phpunit' => ['on' => TRUE, 'required' => TRUE, 'in_diff' => TRUE],
       'mutation' => ['on' => TRUE, 'msi_min' => 80, 'timeout' => 1800],
       'playwright' => ['on' => TRUE, 'required' => TRUE],

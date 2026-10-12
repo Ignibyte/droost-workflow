@@ -143,7 +143,10 @@ class EffortSwitchTest extends WorkflowTestCase {
     $this->assertContains('mutation: off → on (msi ≥ 80, timeout 1800s)', $delta);
     $this->assertContains('coverage: off → on (min 80, timeout 900s)', $delta);
     $this->assertContains('wiki_fresh: off → on (a page for every custom extension a run changes)', $delta);
-    $this->assertContains('phpstan: level 1 → max, scope ticket → full', $delta);
+    // Every level scopes the analysers to the run's files (0.14.14), so the
+    // move raises phpstan's level and leaves its scope.
+    $this->assertContains('phpstan: level 1 → max', $delta);
+    $this->assertContains('eslint: off → on (scope ticket)', $delta);
     $this->assertContains('seekers: off → on', $delta);
     $this->assertContains('enforcement: soft → hard', $delta);
     $this->assertContains('gate retries: 1 → 3', $delta);
@@ -169,7 +172,7 @@ class EffortSwitchTest extends WorkflowTestCase {
     $this->assertNotContains('mutation: off → on (msi ≥ 80, timeout 1800s)', $delta, 'the file kept mutation off');
     $this->assertNotContains('playwright: off → on (required to exist)', $delta);
     $this->assertContains('phpunit: required (unset) → yes', $delta, 'phpunit is not spelled out, so max still requires it');
-    $this->assertContains('eslint: off → on', $delta, 'the trio is not spelled out either');
+    $this->assertContains('eslint: off → on (scope ticket)', $delta, 'the trio is not spelled out either');
   }
 
   /**

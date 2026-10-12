@@ -189,6 +189,50 @@ class TicketScopeTest extends WorkflowTestCase {
   }
 
   /**
+   * The front-end trio read the changed files they own, and nothing else.
+   *
+   * Before 0.14.14 the trio ignored `scope`, so from xhigh up eslint,
+   * stylelint and prettier walked every custom module and theme on every run.
+   */
+  public function testTheFrontEndTrioReadTheChangedFilesOnly(): void {
+    $root = $this->project();
+    mkdir($root . '/web/themes/custom/t/css', 0755, TRUE);
+    file_put_contents($root . '/web/modules/custom/x/x.js', "\n");
+    file_put_contents($root . '/web/modules/custom/x/other.js', "\n");
+    file_put_contents($root . '/web/themes/custom/t/css/base.css', "\n");
+    file_put_contents($root . '/web/themes/custom/t/css/other.css', "\n");
+    foreach (['eslint', 'stylelint', 'prettier'] as $tool) {
+      file_put_contents($root . '/node_modules/.bin/' . $tool, "#!/bin/sh\n");
+      chmod($root . '/node_modules/.bin/' . $tool, 0755);
+    }
+    $changed = "web/modules/custom/x/x.js\nweb/themes/custom/t/css/base.css\nweb/modules/custom/x/src/Thing.php\nREADME.md";
+    $calls = [];
+
+    $scoped = ['scope' => 'ticket', 'ticket_files' => $changed];
+    $eslint = $this->recording($calls)->execute(new GateSettings('eslint', TRUE, $scoped), $root);
+    $this->recording($calls)->execute(new GateSettings('stylelint', TRUE, $scoped), $root);
+    $this->recording($calls)->execute(new GateSettings('prettier', TRUE, $scoped), $root);
+
+    $this->assertContains('web/modules/custom/x/x.js', $calls[0]);
+    $this->assertNotContains('web/modules/custom/x/other.js', $calls[0], 'an unchanged script is not linted');
+    $this->assertNotContains('web/themes/custom/t/css/base.css', $calls[0], 'eslint reads no CSS');
+    $this->assertStringContainsString('ticket scope: 1 file(s) this run changed, not the whole configured set', $eslint->summary);
+    $this->assertContains('web/themes/custom/t/css/base.css', $calls[1]);
+    $this->assertNotContains('web/themes/custom/t/css/other.css', $calls[1]);
+    $this->assertNotContains('web/modules/custom/x/x.js', $calls[1], 'stylelint reads no JavaScript');
+    $this->assertContains('web/modules/custom/x/x.js', $calls[2]);
+    $this->assertContains('web/themes/custom/t/css/base.css', $calls[2]);
+    $this->assertNotContains('web/modules/custom/x/other.js', $calls[2]);
+    $this->assertNotContains('web/modules/custom/x/src/Thing.php', $calls[2], 'prettier is held to the JS/CSS family');
+
+    $onlyPhp = ['scope' => 'ticket', 'ticket_files' => 'web/modules/custom/x/src/Thing.php'];
+    $php = $this->recording($calls)->execute(new GateSettings('stylelint', TRUE, $onlyPhp), $root);
+    $this->assertTrue($php->labelledPass);
+    $this->assertStringContainsString('changed no file stylelint reads', $php->summary);
+    $this->assertCount(3, $calls, 'nothing ran for a run that changed no CSS');
+  }
+
+  /**
    * A repo's own ruleset decides the standard, and the ticket still the files.
    *
    * With a phpcs.xml.dist the gate passes no --standard, so the ruleset's

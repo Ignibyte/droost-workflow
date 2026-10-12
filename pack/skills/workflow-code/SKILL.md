@@ -219,8 +219,9 @@ on the run's flow**, and `droost-workflow status` lists it under `phase_gates`:
 - **fast** (`flow: fast`, the default at `low` and `medium`): code runs every analyser the level turns on
   AND the unit tests: phpunit, mutation and coverage, where on. So write the
   ticket's unit tests in this phase, run them, fix what they and the
-  analysers find, and repeat. At `scope: ticket` (the default at `low` and
-  `medium`) the analysers read the files this run changed, and phpunit runs
+  analysers find, and repeat. At `scope: ticket` the analysers (phpcs,
+  phpstan and, where on, eslint, stylelint and prettier) read only the files
+  this run changed, at every level, and at `low` and `medium` phpunit runs
   the test files this run added or changed; `scope: full` on a gate runs its
   whole configured set. The test phase that follows runs only the
   browser suite, parity and the rendered check; nothing re-runs your

@@ -72,10 +72,12 @@ preset: custom
 #   strict, the default from high up: every gate at every phase that writes
 #   source, and complete re-runs the whole set as the terminal safety net.
 #
-# Each of phpcs, phpstan, phpunit and playwright also takes scope:
-#   ticket | full. ticket (the default at low and medium): the files this run
-#   changed, and for the suites the test files it added or changed. full: the
-#   whole configured set, a full regression for the suites.
+# Each of phpcs, phpstan, eslint, stylelint, prettier, phpunit and playwright
+#   also takes scope: ticket | full. ticket: the files this run changed, and
+#   for the suites the test files it added or changed. full: the whole
+#   configured set, a full regression for the suites. The analysers (phpcs,
+#   phpstan and the front-end trio) default to ticket at every level; the
+#   suites at low and medium.
 #     gates:
 #       playwright: { scope: full }
 #   playwright also takes reuse: recorded | never. recorded (the default at

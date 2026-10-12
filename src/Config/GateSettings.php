@@ -173,10 +173,12 @@ final class GateSettings {
   // its phpcs.xml or phpstan.neon is the one discovered. Druplit keeps its
   // site in site/, beside two other Composer projects, and has no vendor/ at
   // the repository root.
-  // `scope` (0.11) on phpcs, phpstan, phpunit and playwright is `ticket` or
-  // `full`: the files this run changed (and, for the suites, the test files
-  // it changed), or the whole configured set. `low` and `medium` default to
-  // ticket. parity's `scope` is its own: `frame` or `page`.
+  // `scope` (0.11) on phpcs, phpstan, the front-end trio, phpunit and
+  // playwright is `ticket` or `full`: the files this run changed (and, for
+  // the suites, the test files it changed), or the whole configured set.
+  // Every level defaults the analysers to ticket (0.14.14; `low` and `medium`
+  // only before), and `low` and `medium` the suites too. parity's `scope` is
+  // its own: `frame` or `page`.
   private const GATE_OPTIONS = [
     'phpcs' => [
       'standard' => 'string',
@@ -229,9 +231,9 @@ final class GateSettings {
     // scaffolded .eslintrc.json, which extends plugins only core's own yarn
     // install provides, and eslint crashes before it reads a file (F-ADOPT-9).
     // A project's package.json lint script names the file to point at.
-    'eslint' => ['paths' => 'paths', 'config' => 'string', 'timeout' => 'seconds'],
-    'stylelint' => ['paths' => 'paths', 'config' => 'string', 'timeout' => 'seconds'],
-    'prettier' => ['paths' => 'paths', 'config' => 'string', 'timeout' => 'seconds'],
+    'eslint' => ['paths' => 'paths', 'config' => 'string', 'scope' => 'string', 'timeout' => 'seconds'],
+    'stylelint' => ['paths' => 'paths', 'config' => 'string', 'scope' => 'string', 'timeout' => 'seconds'],
+    'prettier' => ['paths' => 'paths', 'config' => 'string', 'scope' => 'string', 'timeout' => 'seconds'],
     // `cover_diff` (a flag, set from `medium` up) holds the custom modules and
     // themes a run changed to having a wiki page: one the run touched with no
     // page fails the gate, while a gap an earlier run left stays a note and

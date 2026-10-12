@@ -178,8 +178,11 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
 
   /**
    * The gates `scope: ticket` narrows to what the run changed (0.11).
+   *
+   * The front-end trio joined the analysers in 0.14.14: each is handed the
+   * changed files it reads, as phpcs and phpstan are.
    */
-  public const TICKET_SCOPED = ['phpcs', 'phpstan', 'phpunit', 'playwright'];
+  public const TICKET_SCOPED = ['phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier', 'phpunit', 'playwright'];
 
   /**
    * A browser spec file, by the names Playwright discovers.
@@ -394,8 +397,9 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    * A gate narrowed to what this run changed, or the verdict that ends it.
    *
    * `scope: ticket` (0.11), with the files the runner read from the
-   * repository in `ticket_files`. The analysers are handed the changed files
-   * they read, as a `paths` list, so every rule `paths` already obeys holds
+   * repository in `ticket_files`. The analysers (phpcs, phpstan and the
+   * front-end trio) are handed the changed files they read, as a `paths`
+   * list, so every rule `paths` already obeys holds
    * (a file must exist, core and contrib are never the project's, a tool's
    * own config is still read). The suites are handed the test files the run
    * changed. A scope with nothing in it says so: a labelled pass for an
@@ -443,7 +447,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $files[] = $file;
     }
     $options = $gate->options;
-    if (in_array($gate->name, ['phpcs', 'phpstan'], TRUE)) {
+    if (isset(self::ANALYSABLE[$gate->name])) {
       $extensions = self::ANALYSABLE[$gate->name];
       $mine = array_values(array_filter($files, static fn (string $f): bool => in_array(strtolower(pathinfo($f, PATHINFO_EXTENSION)), $extensions, TRUE)));
       $lever = trim((string) ($options['paths'] ?? ''));
