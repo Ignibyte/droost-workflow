@@ -7,6 +7,7 @@ namespace Droost\Workflow\Cli;
 use Droost\Workflow\Evidence\UnreachableChecks;
 use Droost\Workflow\Baseline\BaselineError;
 use Droost\Workflow\Config\ConfigError;
+use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\DrushCatalogResolver;
 use Droost\Workflow\Config\EffortSwitch;
 use Droost\Workflow\Config\WorkflowConfig;
@@ -247,6 +248,7 @@ final class ArgvDispatcher {
         'intake' => $this->intake($projectRoot, $argv),
         'events' => $this->events($projectRoot, $argv),
         'specs' => $this->specs($projectRoot),
+        'gate' => $this->gate($projectRoot, $argv),
         'relay' => $this->relay($projectRoot),
         default => $this->unknown($verb),
       };
@@ -928,6 +930,57 @@ final class ArgvDispatcher {
     $this->facade($projectRoot)->declareBrowser($projectRoot, $word);
     $this->say('browser: ' . $word);
     return self::EXIT_OK;
+  }
+
+  /**
+   * Runs one phase's gates outside any run, and keeps nothing.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The arguments: --json for the machine-readable result, --phase=<phase>
+   *   for a phase other than test.
+   *
+   * @return int
+   *   The exit code: 0 when no gate blocks, 1 when one does.
+   */
+  private function gate(string $projectRoot, array $argv): int {
+    $json = FALSE;
+    $phase = Phase::Test;
+    foreach (array_slice($argv, 1) as $argument) {
+      if ($argument === '--json') {
+        $json = TRUE;
+      }
+      elseif (str_starts_with($argument, '--phase=')) {
+        $phase = Phase::tryFrom(substr($argument, 8));
+        // Plan runs no gates by design, so asking for it would pass on nothing.
+        if ($phase === NULL || $phase === Phase::Plan) {
+          $this->fail(sprintf('gate: unknown phase "%s" (code, test or complete).', substr($argument, 8)));
+          return self::EXIT_USAGE;
+        }
+      }
+      else {
+        $this->fail(sprintf('gate: unknown argument "%s" (accepted: --json, --phase=<phase>).', $argument));
+        return self::EXIT_USAGE;
+      }
+    }
+    $result = $this->facade($projectRoot)->gates($projectRoot, $phase);
+    if ($json) {
+      $this->say($this->encode($result));
+    }
+    else {
+      foreach ($result['gates'] as $gate) {
+        $this->say(sprintf('%-8s %s: %s', $gate['outcome'], $gate['gate'], $gate['summary']));
+      }
+      $this->say(sprintf(
+        '%s: %s gates at preset %s, outside any run',
+        $result['passed'] ? 'PASSED' : 'FAILED',
+        $result['phase'],
+        $result['preset'],
+      ));
+    }
+
+    return $result['passed'] ? self::EXIT_OK : self::EXIT_RUN_FAILED;
   }
 
   /**
@@ -1709,6 +1762,14 @@ final class ArgvDispatcher {
                        takes reuse: recorded (low), the test phase takes that
                        record instead of running them again, while the tree
                        is unchanged
+      gate [--json] [--phase=code|test|complete]
+                       run one phase's gates (test by default) outside any
+                       run, from the lever file as a run would freeze it, and
+                       keep nothing: no run is opened or advanced, no evidence
+                       written, no retry spent. With no run there is no base
+                       commit, so ticket-scoped gates read their full set.
+                       Refused while this project's run is at test. Exit 0
+                       when no gate blocks, 1 when one does
       reset [--force]  clear a finished run (archives its record to
                        the state dir's history/); --force abandons a live one
       events [--after=<seq>]

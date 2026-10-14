@@ -130,6 +130,26 @@ final class StateError extends \RuntimeException {
   }
 
   /**
+   * Gates were asked for outside a run while the run's test phase is open.
+   *
+   * @param string $path
+   *   The state file's path.
+   * @param string $runId
+   *   The open run.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function gatesDuringRunTests(string $path, string $runId): self {
+    return new self($path, sprintf(
+      'run %s is at its test phase, whose gates may be running now; '
+      . 'droost-workflow gate does not run the suites beside them. Run it '
+      . 'once that run has moved past test or ended',
+      $runId,
+    ));
+  }
+
+  /**
    * The finished record could not be archived.
    *
    * Raised instead of pretending: a reset that says "cleared" while run.json

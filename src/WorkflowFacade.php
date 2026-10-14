@@ -1576,6 +1576,77 @@ final class WorkflowFacade {
   }
 
   /**
+   * Runs one phase's gates outside any run, and keeps nothing (0.14.17).
+   *
+   * For a caller with no run to put them in: druplit's landing merges an
+   * agent's worktree into the main site and must hold the result to the same
+   * gates a run's test phase runs. The levers are frozen from the lever file
+   * the way a run's begin freezes them, into a state that is never saved:
+   * no run is opened, advanced or archived, nothing is written to the
+   * evidence store, and no retry is spent. With no run there is no base
+   * commit, so a gate scoped to the ticket reads its full set and says so.
+   * A recorded browser run is never taken in place of the suite.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase whose gates run.
+   *
+   * @return array{phase: string, preset: string, passed: bool, gates: list<array{gate: string, status: string, outcome: string, summary: string, exit_code: int|null, duration_ms: int|null}>}
+   *   Each gate's result, and whether none of them blocks.
+   *
+   * @throws \Droost\Workflow\State\StateError
+   *   When this project's run is at its test phase, whose gates may be
+   *   running now.
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When the lever file cannot be read.
+   */
+  public function gates(string $projectRoot, Phase $phase = Phase::Test): array {
+    $store = new RunStateStore($projectRoot);
+    $open = $store->load();
+    if ($open !== NULL && $open->currentPhase === Phase::Test) {
+      throw StateError::gatesDuringRunTests($store->path(), $open->runId);
+    }
+    $config = WorkflowConfig::load($projectRoot, $this->contributed);
+    $parity = $config->resolvedGates()['parity'] ?? NULL;
+    $state = RunState::begin(
+      'gate-' . $this->newId(),
+      $this->now(),
+      $config,
+      NULL,
+      $config->baseline ? BaselineStore::hash($projectRoot) : NULL,
+      $this->contributedSource(),
+      is_array($parity) && ($parity['on'] ?? FALSE) === TRUE
+        ? ParityReference::digest($projectRoot, ParityReference::directory($parity['reference'] ?? NULL))
+        : NULL,
+    );
+    $report = (new GateRunner($this->executor, $this->driver, $this->vcs, $this->contributed ?? []))
+      ->run($state, $phase, $projectRoot, NULL, NULL, FALSE);
+
+    $gates = [];
+    $passed = TRUE;
+    foreach ($report->results as $result) {
+      $blocks = $result->status->blocksAdvance();
+      $passed = $passed && !$blocks;
+      $gates[] = [
+        'gate' => $result->gate,
+        'status' => $result->status->value,
+        'outcome' => match (TRUE) {
+          $blocks => 'fail',
+          $result->status->isPass() => 'pass',
+          $result->status === GateStatus::Reported => 'reported',
+          default => 'skipped',
+        },
+        'summary' => $result->summary,
+        'exit_code' => $result->exitCode,
+        'duration_ms' => $result->durationMs,
+      ];
+    }
+
+    return ['phase' => $phase->value, 'preset' => $state->preset, 'passed' => $passed, 'gates' => $gates];
+  }
+
+  /**
    * Runs the ticket's browser specs now, and records the run (0.11).
    *
    * The Playwright CLI run an agent makes at test, made by droost instead, so
