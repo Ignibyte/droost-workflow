@@ -12,7 +12,7 @@ namespace Droost\Workflow\Vcs;
  * this without a repository and the one place this package spawns git is
  * visible.
  */
-final class CliVcs implements VcsInterface {
+final class CliVcs implements VcsInterface, RefResolverInterface {
 
   /**
    * Constructs a CliVcs.
@@ -35,6 +35,23 @@ final class CliVcs implements VcsInterface {
     [$exit, $stdout] = $this->git($projectRoot, ['rev-parse', 'HEAD']);
     $hash = trim($stdout);
     return $exit === 0 && preg_match('/^[0-9a-f]{7,64}$/', $hash) === 1 ? $hash : NULL;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function resolveCommit(string $projectRoot, string $ref): ?string {
+    // A ref that starts with a dash would be read as an option; git's own
+    // --end-of-options says so as well, for the versions that know it.
+    if ($ref === '' || str_starts_with($ref, '-')) {
+      return NULL;
+    }
+    [$exit, $stdout] = $this->git(
+      $projectRoot,
+      ['rev-parse', '--verify', '--quiet', '--end-of-options', $ref . '^{commit}'],
+    );
+    $hash = trim($stdout);
+    return $exit === 0 && preg_match('/^[0-9a-f]{40,64}$/', $hash) === 1 ? $hash : NULL;
   }
 
   /**

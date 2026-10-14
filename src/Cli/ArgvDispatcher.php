@@ -939,7 +939,8 @@ final class ArgvDispatcher {
    *   The repository.
    * @param list<string> $argv
    *   The arguments: --json for the machine-readable result, --phase=<phase>
-   *   for a phase other than test.
+   *   for a phase other than test, --base=<ref> to read what changed since a
+   *   commit.
    *
    * @return int
    *   The exit code: 0 when no gate blocks, 1 when one does.
@@ -947,9 +948,13 @@ final class ArgvDispatcher {
   private function gate(string $projectRoot, array $argv): int {
     $json = FALSE;
     $phase = Phase::Test;
+    $base = NULL;
     foreach (array_slice($argv, 1) as $argument) {
       if ($argument === '--json') {
         $json = TRUE;
+      }
+      elseif (str_starts_with($argument, '--base=')) {
+        $base = substr($argument, 7);
       }
       elseif (str_starts_with($argument, '--phase=')) {
         $phase = Phase::tryFrom(substr($argument, 8));
@@ -960,11 +965,11 @@ final class ArgvDispatcher {
         }
       }
       else {
-        $this->fail(sprintf('gate: unknown argument "%s" (accepted: --json, --phase=<phase>).', $argument));
+        $this->fail(sprintf('gate: unknown argument "%s" (accepted: --json, --phase=<phase>, --base=<ref>).', $argument));
         return self::EXIT_USAGE;
       }
     }
-    $result = $this->facade($projectRoot)->gates($projectRoot, $phase);
+    $result = $this->facade($projectRoot)->gates($projectRoot, $phase, $base);
     if ($json) {
       $this->say($this->encode($result));
     }
@@ -1762,12 +1767,12 @@ final class ArgvDispatcher {
                        takes reuse: recorded (low), the test phase takes that
                        record instead of running them again, while the tree
                        is unchanged
-      gate [--json] [--phase=code|test|complete]
+      gate [--json] [--phase=code|test|complete] [--base=<ref>]
                        run one phase's gates (test by default) outside any
                        run, from the lever file as a run would freeze it, and
                        keep nothing: no run is opened or advanced, no evidence
-                       written, no retry spent. With no run there is no base
-                       commit, so ticket-scoped gates read their full set.
+                       written, no retry spent. Ticket-scoped gates read what
+                       changed since --base, or their full set without it.
                        Refused while this project's run is at test. Exit 0
                        when no gate blocks, 1 when one does
       reset [--force]  clear a finished run (archives its record to

@@ -98,6 +98,45 @@ class StandaloneGatesTest extends WorkflowTestCase {
   }
 
   /**
+   * With a base, a ticket-scoped gate reads only what changed since it.
+   */
+  public function testBaseNarrowsTheGatesToWhatChangedSinceIt(): void {
+    $root = $this->project("preset: low\n");
+    $before = trim((string) shell_exec(sprintf('git -C %s rev-parse HEAD', escapeshellarg($root))));
+    file_put_contents($root . '/tests/e2e/merged.spec.ts', "test('merged', () => {});\n");
+    exec(sprintf(
+      'cd %s && git add -A && git -c user.name=droost-test -c user.email=test@example.invalid commit -q -m merge 2>&1',
+      escapeshellarg($root),
+    ), $output, $exit);
+    $this->assertSame(0, $exit, implode("\n", $output));
+    $gates = $this->gates([]);
+
+    $result = $this->facade($gates)->gates($root, Phase::Test, $before);
+
+    $this->assertSame($before, $result['base']);
+    $this->assertSame('tests/e2e/merged.spec.ts', $gates->ticketFiles['playwright'] ?? NULL, 'only the merge\'s spec');
+
+    $this->facade($gates)->gates($root);
+    $this->assertNull($gates->ticketFiles['playwright'] ?? NULL, 'with no base, no list: the full set');
+  }
+
+  /**
+   * A base that names no commit is refused, and an option-shaped one too.
+   */
+  public function testBaseThatNamesNoCommitIsRefused(): void {
+    $root = $this->project("preset: low\n");
+    foreach (['no-such-ref', '--output=/tmp/x'] as $base) {
+      try {
+        $this->facade($this->gates([]))->gates($root, Phase::Test, $base);
+        $this->fail('refused: ' . $base);
+      }
+      catch (\InvalidArgumentException $e) {
+        $this->assertStringContainsString('names no commit in this repository', $e->getMessage());
+      }
+    }
+  }
+
+  /**
    * The CLI: --json, the exit codes, and a phase it refuses.
    */
   public function testTheVerb(): void {
@@ -120,6 +159,17 @@ class StandaloneGatesTest extends WorkflowTestCase {
     [$code, $out] = $this->cli(['gate'], $failing);
     $this->assertSame(ArgvDispatcher::EXIT_RUN_FAILED, $code, $out);
     $this->assertStringContainsString('FAILED: test gates at preset custom, outside any run', $out);
+
+    [$code, $out] = $this->cli(['gate', '--json', '--base=HEAD'], $passing);
+    $this->assertSame(ArgvDispatcher::EXIT_OK, $code, $out);
+    $document = json_decode($out, TRUE);
+    $this->assertIsArray($document);
+    $this->assertIsString($document['base']);
+    $this->assertMatchesRegularExpression('/^[0-9a-f]{40}$/', $document['base']);
+
+    [$code, $out] = $this->cli(['gate', '--base=nowhere'], $passing);
+    $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code);
+    $this->assertStringContainsString('names no commit', $out);
 
     [$code, $out] = $this->cli(['gate', '--phase=plan'], $passing);
     $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code);
@@ -182,7 +232,7 @@ class StandaloneGatesTest extends WorkflowTestCase {
    * @param array<string, list<\Droost\Workflow\Gate\GateResult>> $queued
    *   Results each gate returns, in order, before it starts passing.
    *
-   * @return object{executions: array<string, int>}&\Droost\Workflow\Gate\GateExecutorInterface
+   * @return object{executions: array<string, int>, ticketFiles: array<string, string|null>}&\Droost\Workflow\Gate\GateExecutorInterface
    *   The double.
    */
   private function gates(array $queued): object {
@@ -194,6 +244,13 @@ class StandaloneGatesTest extends WorkflowTestCase {
        * @var array<string, int>
        */
       public array $executions = [];
+
+      /**
+       * The ticket files each gate was handed, NULL when none.
+       *
+       * @var array<string, string|null>
+       */
+      public array $ticketFiles = [];
 
       /**
        * Constructs the double.
@@ -208,6 +265,8 @@ class StandaloneGatesTest extends WorkflowTestCase {
        */
       public function execute(GateSettings $gate, string $projectRoot): GateResult {
         $this->executions[$gate->name] = ($this->executions[$gate->name] ?? 0) + 1;
+        $files = $gate->option('ticket_files');
+        $this->ticketFiles[$gate->name] = is_string($files) ? $files : NULL;
         if (($this->queued[$gate->name] ?? []) !== []) {
           return array_shift($this->queued[$gate->name]);
         }

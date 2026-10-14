@@ -605,14 +605,16 @@ time. The row says so ("recorded at …, on this tree: not run again"). An edit
 after the recording, a tool that could not run, or a level at `reuse: never`
 (every level above low) runs the suite. What is taken is always droost's own
 run of the tool, never an account of one. `droost-workflow gate [--json]
-[--phase=code|test|complete]` (0.14.17) runs one phase's gates, test by
-default, with no run at all: the lever file frozen as a run would freeze it,
-nothing kept (no run opened, no evidence written, no retry spent), a
-ticket-scoped gate reading its full set because there is no base commit, and a
-site gate with no site skipped. It exits 0 when no gate blocks and 1 when one
-does, and is refused while the project's run is at test. `--json` prints
-`{phase, preset, passed, gates: [{gate, status, outcome, summary, exit_code,
-duration_ms}]}`, `outcome` one of pass, fail, skipped or reported. P6 run 23 measured
+[--phase=code|test|complete] [--base=<ref>]` (0.14.17) runs one phase's
+gates, test by default, with no run at all: the lever file frozen as a run
+would freeze it, nothing kept (no run opened, no evidence written, no retry
+spent), and a site gate with no site skipped. A ticket-scoped gate reads what
+changed since `--base` (a landing's pre-merge commit), or its full set without
+one. It exits 0 when no gate blocks, 1 when one does, and 2 when refused: while
+the project's run is at test, or for a base that names no commit. `--json`
+prints `{phase, preset, base, passed, gates: [{gate, status, outcome, summary,
+exit_code, duration_ms}]}`, `outcome` one of pass, fail, skipped or
+reported. P6 run 23 measured
 what the strict flow costs at the bottom of the dial: its 279-test browser
 suite ran three times in 86 minutes, for a ticket whose own tests were two
 files. `wiki_fresh` is due only here, and only here

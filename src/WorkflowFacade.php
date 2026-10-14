@@ -11,6 +11,7 @@ use Droost\Workflow\Baseline\BaselineWriter;
 use Droost\Workflow\Cli\CliProcess;
 use Droost\Workflow\State\StateError;
 use Droost\Workflow\Vcs\CliVcs;
+use Droost\Workflow\Vcs\RefResolverInterface;
 use Droost\Workflow\Vcs\VcsInterface;
 use Droost\Workflow\Config\BuildRules;
 use Droost\Workflow\Config\ContributedGate;
@@ -1584,15 +1585,19 @@ final class WorkflowFacade {
    * the way a run's begin freezes them, into a state that is never saved:
    * no run is opened, advanced or archived, nothing is written to the
    * evidence store, and no retry is spent. With no run there is no base
-   * commit, so a gate scoped to the ticket reads its full set and says so.
-   * A recorded browser run is never taken in place of the suite.
+   * commit, so a gate scoped to the ticket reads its full set and says so,
+   * unless the caller names one: the landing's pre-merge commit, so that the
+   * gates read only what the merge changed. A recorded browser run is never
+   * taken in place of the suite.
    *
    * @param string $projectRoot
    *   The repository.
    * @param \Droost\Workflow\Config\Phase $phase
    *   The phase whose gates run.
+   * @param string|null $base
+   *   A ref to read "what changed" from, as a run's base commit; NULL for none.
    *
-   * @return array{phase: string, preset: string, passed: bool, gates: list<array{gate: string, status: string, outcome: string, summary: string, exit_code: int|null, duration_ms: int|null}>}
+   * @return array{phase: string, preset: string, base: string|null, passed: bool, gates: list<array{gate: string, status: string, outcome: string, summary: string, exit_code: int|null, duration_ms: int|null}>}
    *   Each gate's result, and whether none of them blocks.
    *
    * @throws \Droost\Workflow\State\StateError
@@ -1600,12 +1605,26 @@ final class WorkflowFacade {
    *   running now.
    * @throws \Droost\Workflow\Config\ConfigError
    *   When the lever file cannot be read.
+   * @throws \InvalidArgumentException
+   *   When the base names no commit in this repository.
    */
-  public function gates(string $projectRoot, Phase $phase = Phase::Test): array {
+  public function gates(string $projectRoot, Phase $phase = Phase::Test, ?string $base = NULL): array {
     $store = new RunStateStore($projectRoot);
     $open = $store->load();
     if ($open !== NULL && $open->currentPhase === Phase::Test) {
       throw StateError::gatesDuringRunTests($store->path(), $open->runId);
+    }
+    $commit = NULL;
+    if ($base !== NULL) {
+      $commit = $this->vcs instanceof RefResolverInterface && $this->vcs->isRepository($projectRoot)
+        ? $this->vcs->resolveCommit($projectRoot, $base)
+        : NULL;
+      if ($commit === NULL) {
+        throw new \InvalidArgumentException(sprintf(
+          'gate --base=%s names no commit in this repository, so what changed since it cannot be read. Name a commit, branch or tag, or leave --base off to run every gate on its full set.',
+          $base,
+        ));
+      }
     }
     $config = WorkflowConfig::load($projectRoot, $this->contributed);
     $parity = $config->resolvedGates()['parity'] ?? NULL;
@@ -1613,7 +1632,7 @@ final class WorkflowFacade {
       'gate-' . $this->newId(),
       $this->now(),
       $config,
-      NULL,
+      $commit,
       $config->baseline ? BaselineStore::hash($projectRoot) : NULL,
       $this->contributedSource(),
       is_array($parity) && ($parity['on'] ?? FALSE) === TRUE
@@ -1643,7 +1662,13 @@ final class WorkflowFacade {
       ];
     }
 
-    return ['phase' => $phase->value, 'preset' => $state->preset, 'passed' => $passed, 'gates' => $gates];
+    return [
+      'phase' => $phase->value,
+      'preset' => $state->preset,
+      'base' => $commit,
+      'passed' => $passed,
+      'gates' => $gates,
+    ];
   }
 
   /**
