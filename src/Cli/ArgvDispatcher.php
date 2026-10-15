@@ -247,6 +247,7 @@ final class ArgvDispatcher {
         'ticket' => $this->ticket($projectRoot, $argv),
         'intake' => $this->intake($projectRoot, $argv),
         'events' => $this->events($projectRoot, $argv),
+        'rules' => $this->rules($projectRoot, $argv),
         'specs' => $this->specs($projectRoot),
         'gate' => $this->gate($projectRoot, $argv),
         'relay' => $this->relay($projectRoot),
@@ -1378,6 +1379,54 @@ final class ArgvDispatcher {
   }
 
   /**
+   * Prints the site's rules: the house rules and the page rules written.
+   *
+   * What the open run is held to (frozen when it began), or the lever
+   * file's when no run is open. The seeker reads it: a house rule judged by
+   * the seeker is checked against the diff, and a finding cites its id.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The verb, then `--json` for the document.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function rules(string $projectRoot, array $argv): int {
+    $state = (new RunStateStore($projectRoot))->load();
+    $open = $state !== NULL && $state->currentPhase !== NULL;
+    $rules = $open ? $state->rules : WorkflowConfig::load($projectRoot)->rules()->toArray();
+    $house = is_array($rules['house'] ?? NULL) ? array_values(array_filter($rules['house'], 'is_array')) : [];
+    $written = array_diff_key($rules, ['house' => TRUE]);
+    $source = $open ? sprintf('as run %s holds them (frozen when it began)', $state->runId) : 'as droost.workflow.yml writes them';
+    if (in_array('--json', $argv, TRUE)) {
+      $this->say((string) json_encode(['source' => $source, 'house' => $house, 'pages' => $written], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+      return self::EXIT_OK;
+    }
+    $this->say('House rules, ' . $source . ':');
+    if ($house === []) {
+      $this->say('  none (rules.house names no rule)');
+    }
+    $text = static fn (mixed $value, string $default): string => is_scalar($value) ? (string) $value : $default;
+    foreach ($house as $rule) {
+      $judge = ($rule['judge'] ?? '') === 'gate'
+        ? sprintf('gate %s, %s', $text($rule['check'] ?? NULL, '?'), $text($rule['mode'] ?? NULL, 'report'))
+        : 'seeker';
+      $this->say(sprintf('  %s [%s] %s', $text($rule['id'] ?? NULL, '?'), $judge, $text($rule['rule'] ?? NULL, '')));
+    }
+    $this->say('');
+    $this->say('Page rules written (every kind not named keeps the site\'s case default; droost:workflow:status resolves them):');
+    if ($written === []) {
+      $this->say('  none');
+    }
+    foreach ($written as $kind => $rule) {
+      $this->say(sprintf('  %s: %s', $kind, (string) json_encode($rule, JSON_UNESCAPED_SLASHES)));
+    }
+    return self::EXIT_OK;
+  }
+
+  /**
    * Lists, shows, files and moves this project's tickets.
    *
    * `list`, `show` and `new` are anyone's: an agent files a follow-up in
@@ -1781,6 +1830,11 @@ final class ArgvDispatcher {
                        when no gate blocks, 1 when one does
       reset [--force]  clear a finished run (archives its record to
                        the state dir's history/); --force abandons a live one
+      rules [--json]   the site's rules: each house rule (rules.house) with its
+                       id and judge (gate, checked on the diff; seeker, read
+                       by the seeker, whose finding cites the id) and the page
+                       rules written; the open run's, frozen, or the lever
+                       file's
       events [--after=<seq>]
                        the run-event log (the state dir's events.jsonl), one
                        JSON event per line: every run start, phase begun,

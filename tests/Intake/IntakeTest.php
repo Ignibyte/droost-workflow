@@ -43,7 +43,7 @@ final class IntakeTest extends WorkflowTestCase {
   private const MODEL = <<<'MD'
 # Harbor Books — content model
 
-## Tooling plan
+## Constructs
 
 | Construct | What it is | Evidence | Rung | Why |
 |---|---|---|---|---|
@@ -199,15 +199,6 @@ MD;
   }
 
   /**
-   * The model as it stands must have been put to droost.
-   */
-  public function testModelChangedAfterTheConsultFails(): void {
-    [$root, $service] = $this->complete();
-    $this->rewrite($root, 'model.md', 'three records the cards render', 'the records the cards render');
-    $this->assertFinding($service, 'consulted', 'never put to droost');
-  }
-
-  /**
    * A question must have an answer on record, and the file must agree.
    */
   public function testAnswersMustBeOnRecordAndAgree(): void {
@@ -266,7 +257,7 @@ MD;
     $approved = $service->approve('terminal');
     $this->assertSame(IntakeState::APPROVED, $approved->status);
     $this->assertArrayHasKey('model.md', $approved->digest);
-    $this->assertFileDoesNotExist($service->store()->stateDir() . '/tool-calls.jsonl', 'the intake\'s consults are not the first run\'s');
+    $this->assertFileDoesNotExist($service->store()->stateDir() . '/tool-calls.jsonl', 'the intake\'s knowledge calls are not the first run\'s');
     $this->assertFileExists($service->store()->stateDir() . '/history/' . $approved->id . '.tool-calls.jsonl');
 
     $this->facade()->run($root);
@@ -826,7 +817,7 @@ MD;
   }
 
   /**
-   * A complete intake: the four files, the audit, the consult, the answer.
+   * A complete intake: the four files, the audit, a look, the answer.
    *
    * @return array{string, \Droost\Workflow\Intake\IntakeService}
    *   The project and the service.
@@ -845,21 +836,20 @@ MD;
       file_put_contents($dir . '/tickets/' . $ticket . '.md', "# {$ticket}\n");
     }
     $service->store()->appendAnswer($state->id, 'Who edits the events?', 'Staff editors', 'AskUserQuestion', '2026-10-08T00:02:00+00:00');
-    $this->consult($root);
+    $this->looked($root);
     return [$root, $service];
   }
 
   /**
-   * Writes the consult row droost writes for the model as it stands.
+   * Writes the row droost writes when the intake reads the site.
    */
-  private function consult(string $root): void {
+  private function looked(string $root): void {
     $row = [
-      'tool' => 'droost_consult',
+      'tool' => 'droost_search',
       'outcome' => 'ok',
       'at' => '2026-10-08T00:03:00+00:00',
       'run' => NULL,
       'phase' => NULL,
-      'detail' => ['spec' => 'model.md', 'sha' => hash_file('sha256', $root . '/droost/intake/model.md'), 'items' => []],
     ];
     file_put_contents((new RunStateStore($root))->directory() . '/tool-calls.jsonl', json_encode($row) . "\n", FILE_APPEND);
   }

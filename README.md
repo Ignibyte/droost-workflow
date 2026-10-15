@@ -33,7 +33,7 @@ Built ticket by ticket, and past its skeleton:
 | P6.3 | Gate runner + honest degradation | **shipped** |
 | P6.4 | Agentic / interactive modes and the mid-run swap | **shipped** |
 | P6.5 | The drush live-site surface and the standalone CLI | **shipped** |
-| P6.6 | The MCP surface (optional submodule) | **shipped** |
+| P6.6 | The MCP surface (optional submodule) | **retired 0.15**: droost is reached through drush |
 | — | Hardening: the phase→gate map, engine-counted retries, a coverage gate that can pass | **shipped** |
 | — | `droost/workflow` published on Packagist | **this release** |
 
@@ -336,8 +336,8 @@ checks that it refuses, and a declared refusal that renders fails as public.
 On a Drupal site the render happens in a **fresh drush process**
 (`droost:workflow:render-probe`, answering in the gate result's own JSON),
 never inside the process running the gates: round 30 watched an in-process
-sub-request throw three times from an MCP server alive for hours while every
-fresh process rendered the same route fine, so the render leaves the process
+sub-request throw three times from a long-lived process while every fresh
+process rendered the same route fine, so the render leaves the process
 the way `wiki_fresh` always has. The option vocabulary is closed per gate —
 anything else is refused by name.
 
@@ -406,8 +406,8 @@ command, phases and verdict are the module's contract, a different scan is a
 `gates.custom` entry. The dial never moves a contributed gate. Design:
 `docs/design-contributed-gates.md`.
 
-Every door sees the same set. The drush commands and the MCP tools read the
-site's catalog directly; the standalone `droost-workflow` binary boots no
+Every door sees the same set. The drush commands read the site's catalog
+directly; the standalone `droost-workflow` binary boots no
 Drupal, so it asks `vendor/bin/drush droost:workflow:catalog` before it
 resolves a lever. Status says which it was — `levers.contributed_source` —
 and when there is no drush, or the site cannot answer, it says the set was
@@ -446,6 +446,31 @@ run is recorded complete. A failing contributed gate's output reaches the
 record as findings, a row per line of plain output or per object in a JSON
 report's lists, and `evidence --full` prints each gate's output whole (up to
 the 16 KB kept) where the report otherwise cuts it at 2,000 characters.
+
+### House rules — the site's own, held by a gate or the seeker
+
+droost tells the agent no way to build. A site writes the rules its work is
+held to, each with an id and a judge:
+
+```yaml
+rules:
+  house:
+    - { id: HR1, rule: 'New markup lives in single-directory components.', judge: gate, check: sdc_markup, mode: block }
+    - { id: HR2, rule: 'Pages are composed in Canvas, never as a View page.', judge: seeker }
+seekers: { holds: high, at_complete: true }
+```
+
+A rule a machine can check names a `check` and is judged by the
+`house_rules` gate on what the run added: `sdc_markup` fails a Twig template
+outside a single-directory component's directory and a Canvas code
+component (`mode: block`), or records it beside a passing phase (`report`,
+the default). A rule only judgment can read is the seeker's: it runs
+`droost-workflow rules`, checks the diff against each, cites the id in every
+finding, and grades a break HIGH unless the spec records an exception the
+operator approved; `seekers.holds: high` makes that hold the run. The page
+rules (`rules.<kind>`: which owner builds each kind of page) are held the
+same way by the composition gate, with `mode: block` to fail on a break.
+`droost-workflow rules` prints what the open run is held to.
 
 ### Work-item project config
 
@@ -582,7 +607,7 @@ setting, gate, option, phase, mode and preset is refused by name:
 ```
 droost.workflow.yml: unknown gate "phpstain" (known: phpcs, phpstan, eslint,
 stylelint, prettier, phpunit, mutation, playwright, parity, coverage,
-rendered_check, config_clean, grounding_check, composition_check, wiki_fresh)
+rendered_check, config_clean, grounding_check, composition_check, house_rules, wiki_fresh)
 ```
 
 ## Which gates run when
@@ -592,20 +617,23 @@ engine's phase map, frozen into each run when it begins:
 
 ```text
 plan: none
-code: phpcs, phpstan, eslint, stylelint, prettier, config_clean, grounding_check, composition_check
+code: phpcs, phpstan, eslint, stylelint, prettier, config_clean, grounding_check, composition_check, house_rules
 test: phpcs, phpstan, eslint, prettier, phpunit, mutation, playwright, parity, coverage, rendered_check, config_clean
-complete: phpcs, phpstan, eslint, stylelint, prettier, phpunit, mutation, playwright, parity, coverage, rendered_check, config_clean, grounding_check, composition_check, wiki_fresh
+complete: phpcs, phpstan, eslint, stylelint, prettier, phpunit, mutation, playwright, parity, coverage, rendered_check, config_clean, grounding_check, composition_check, house_rules, wiki_fresh
 ```
 
 Plan runs no gate — there is no code yet to measure. droost's Drupal half
-adds one check there, `plan_consulted`: plan waits until the spec as it
-stands was put to droost (`droost_consult`). That is the one thing about how
-a site is built that the workflow forces (owner, 2026-10-02: "we force the
-workflow … but droost is the question and answer"). What is built after it
-is the agent's choice: `grounding_check` and `composition_check` record it
-beside droost's advice, a build rule in `rules:` is advice (`block` is read
-as `report`), and only a record that is false fails, such as a page declared
-as one owner and served by another. Code gates the diff with
+adds one check there, `plan_grounded`: plan waits until the spec's
+`## Grounding` cites what the site and its code really hold, and droost's
+knowledge (the brief, the codegraph, search, the wiki, introspection) was
+asked during plan. droost forces the agent to LOOK; it never says how to
+build (owner, 2026-10-15: "as models get better they dont need to ask they
+need you to build rules around your code"). The site's own rules are what
+the work is held to: a page rule in `rules:` is reported by default and
+fails `composition_check` at `mode: block`, a house rule (`rules.house`) is
+checked on the diff by `house_rules` when a gate judges it and by the seeker
+when judgment does, and a record that is false always fails, such as a page
+declared as one owner and served by another. Code gates the diff with
 static analysis, and `config_clean` asks the booted site whether a fresh
 `drush config:export` would change the tracked tree: Drupal compares
 configuration as data, so a hand-written file that imports fine can still
@@ -745,9 +773,9 @@ droost-workflow intake approve          # once the human has said yes
   API paths; a template's empty schema says so). `intake audit` runs it and
   records `audit.json`'s sha256 where the agent cannot write. `serve <dir>`
   serves a static source.
-- **The agent** writes, in `droost/intake/`: `model.md`, a Tooling plan
-  droost's consult reads (each construct, what it is, the audit ids that are
-  its evidence, the rung that builds it) with its `## Routes` and a
+- **The agent** writes, in `droost/intake/`: `model.md`, a `## Constructs`
+  table (each construct, what it is, the audit ids that are its evidence, the
+  rung that builds it) with its `## Routes` and a
   `## Not built` for what it sets aside; `questions.md`, what only the human
   can say, each with a recommendation, asked through AskUserQuestion, or,
   on a host with none (a Droost Cockpit seat), put on record with `intake
@@ -758,8 +786,7 @@ droost-workflow intake approve          # once the human has said yes
 - **`intake check`** judges no decision (that is the human's), and closes
   the ways the human's part or droost's could be skipped or forged: the audit
   is the one the tool wrote; every cited id is in it; every route, structure,
-  form, set of records and the frame is decided or set aside; the model as it
-  stands was put to droost (a consult row holds its sha256); every question's
+  form, set of records and the frame is decided or set aside; every question's
   answer is on record (the guard writes it from AskUserQuestion; the operator
   from a terminal with `intake answer`) and the file agrees; the ladder is in
   order and shows nothing before the rung that builds it.
@@ -770,8 +797,8 @@ droost-workflow intake approve          # once the human has said yes
   runs it (an operator records their own with `intake answer`). The approval
   records how it was run and whose yes it was, and the sha256 of the four
   files and of each rung's ticket. `abandon` stays the operator's. Both archive the intake's ledgers, since a row written outside a
-  run is the next run's and the intake's consult would otherwise satisfy the
-  first rung's `plan_consulted`. Each rung then runs from its ticket, as any
+  run is the next run's and the intake's own reading of the site would
+  otherwise satisfy the first rung's `plan_grounded`. Each rung then runs from its ticket, as any
   ticket does.
 
 ## Run state
@@ -974,9 +1001,9 @@ something a reader discovers by reading `PackManifest`.
 
 **The Drupal surface ships with droost, not here.** `drupal/droost`'s
 `droost_workflow` submodule supplies the two things that genuinely need a
-booted site — the `drush droost:workflow:*` commands and the
-`droost_workflow_status` / `droost_workflow_run` MCP tools. Enable it and you
-get both; the pipeline underneath is this library either way.
+booted site — the `drush droost:workflow:*` commands and the checks that read
+the site (`plan_grounded`, the rendered check, the composition gate). Enable
+it and you get both; the pipeline underneath is this library either way.
 
 That split is P6.7 in droost's roadmap, and the reason is delivery rather than
 capability: a Drupal site builder does not install contrib from a git remote,
@@ -1023,38 +1050,16 @@ could not perform. Everything else — which gates ran, their verdicts, the
 phase, the advance decision — is identical, because both surfaces call one
 facade and differ only in which site driver they inject.
 
-## The MCP surface (ships with droost)
+## Reaching droost: commands, not MCP (0.15)
 
-`drupal/droost`'s `droost_workflow` submodule exposes the same engine over MCP,
-as a third and fourth front onto the one `WorkflowFacade`:
-
-- **`droost_workflow_status`** — read-only. The resolved levers (which preset,
-  which gates, and where that came from), the phase order with each phase's
-  status, the latest tally, and whether the run is awaiting an answer.
-- **`droost_workflow_run`** — drives the run: gates the current phase and
-  advances when they pass. `answer` and `swap` are ARGUMENTS of this one tool
-  rather than separate tools, because they are sub-operations of driving a run
-  and every extra destructive tool is another separately allow-listed surface.
-
-Both take an optional `project` (absolute path to the repository); omit it for
-the site's own root. A root that is not a directory comes back as a failure
-envelope naming the path — never an exception, which over JSON-RPC would tell the
-caller nothing it could act on.
-
-It is a SUBMODULE so a plain consumer of this package never pulls the alpha
-`mcp_server`: enable it only if you want the MCP surface. It depends on
-`droost:droost`, `mcp_server:mcp_server` and this module.
-
-`droost_workflow_run` is **STDIO/Drush-only** — gated on the transport alone, no
-`allow_*` flag, the same posture `droost_verify` has for the same risk class (it
-spawns the project's own analysis binaries). Its whole body runs inside droost's
-Fiber shield, because a run can reach the rendered check and Drupal's renderer
-suspends the fiber in a way the MCP SDK misreads as a dropped response.
-
-**Analysing it.** The submodule lives in the drupal/droost repository, not
-here, and is type-checked there by that module's own gates (drupal.org GitLab
-CI at PHPStan level max). This package's ./scripts/lint covers the engine and
-the pack only.
+droost is reached by command. `drush droost:tool` lists droost's tools,
+`drush droost:tool <id> '<json>'` runs one (the same ids, write gates and
+ledger row the MCP tools had), `drush droost:brief` prints the site's facts,
+and `drush droost:workflow:*` drives a run; `vendor/bin/droost-workflow`
+does the same with no site. A command boots the code on disk every time,
+which ended a family of findings that came from one long-lived process
+(classes loaded once, config written from stale classes, a server that died
+mid-run). Playwright's own MCP server is the browser tier and stays.
 
 ## Requirements
 

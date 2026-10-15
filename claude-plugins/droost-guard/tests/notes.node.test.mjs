@@ -3,7 +3,7 @@
 // Anthropic's side; these functions are plain JavaScript and need no host.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { NOTES, consulted, generatorShape, isSpec, noteFor, refusal, traverses } from '../hooks/register.js'
+import { NOTES, grounded, isSpec, noteFor, refusal, traverses } from '../hooks/register.js'
 
 test('a search of core, contrib or vendor is a traversal', () => {
   for (const e of [
@@ -32,30 +32,21 @@ test('the project\'s own code, and reading one file, are not', () => {
   ]) assert.equal(traverses(e), false, JSON.stringify(e))
 })
 
-test('a generator\'s file in custom code has a shape, elsewhere none', () => {
-  assert.equal(generatorShape('web/modules/custom/kc/src/Plugin/Block/LeagueBlock.php'), 'a block plugin')
-  assert.equal(generatorShape('/var/www/html/web/modules/custom/kc/kc.routing.yml'), 'routes')
-  assert.equal(generatorShape('web/themes/custom/kc/components/card/card.component.yml'), 'a single-directory component')
-  assert.equal(generatorShape('web/modules/custom/kc/src/CampAudience.php'), null)
-  assert.equal(generatorShape('web/modules/contrib/x/src/Plugin/Block/A.php'), null)
-  assert.equal(generatorShape('tests/e2e/rinks.spec.ts'), null)
-})
-
 test('the spec is recognised by its place', () => {
   assert.equal(isSpec('/var/www/html/droost/droost-workflow/tmp-spec-t1.md'), true)
   assert.equal(isSpec('droost/droost-workflow/history/run-1.spec.md'), false)
 })
 
-test('a consult counts for its run, and for no run', () => {
+test('a knowledge call grounds its run, and one made under no run counts', () => {
   const ledger = [
-    { tool: 'droost_decide', outcome: 'ok', run: 'run-a' },
-    { tool: 'droost_consult', outcome: 'fail', run: 'run-a' },
-    { tool: 'droost_consult', outcome: 'ok', run: 'run-b' },
+    { tool: 'droost_scaffold', outcome: 'ok', run: 'run-a' },
+    { tool: 'droost_search', outcome: 'fail', run: 'run-a' },
+    { tool: 'droost_symbol', outcome: 'ok', run: 'run-b' },
   ].map((r) => JSON.stringify(r)).join('\n')
-  assert.equal(consulted(ledger, 'run-a'), false)
-  assert.equal(consulted(ledger, 'run-b'), true)
-  assert.equal(consulted(ledger + '\n' + JSON.stringify({ tool: 'droost_consult', outcome: 'ok', run: null }), 'run-a'), true)
-  assert.equal(consulted('not json\n', 'run-a'), false)
+  assert.equal(grounded(ledger, 'run-a'), false, 'a write tool, and a failed search, ground nothing')
+  assert.equal(grounded(ledger, 'run-b'), true)
+  assert.equal(grounded(ledger + '\n' + JSON.stringify({ tool: 'droost_brief', outcome: 'ok', run: null }), 'run-a'), true)
+  assert.equal(grounded('not json\n', 'run-a'), false)
 })
 
 test('a search earns a note the first time in a phase and every tenth', () => {
@@ -66,22 +57,16 @@ test('a search earns a note the first time in a phase and every tenth', () => {
   assert.equal(noteFor(e, 'test', seen, true), NOTES.traverse, 'a new phase starts again')
 })
 
-test('the spec earns the consult note until it is consulted', () => {
+test('the spec earns the ground note until droost was asked', () => {
   const seen = {}
   const e = { tool: 'Write', file_path: 'droost/droost-workflow/tmp-spec-t1.md' }
-  assert.equal(noteFor(e, 'plan', seen, false), NOTES.consult)
+  assert.equal(noteFor(e, 'plan', seen, false), NOTES.ground)
   assert.equal(noteFor(e, 'plan', seen, false), null)
   assert.equal(noteFor(e, 'plan', {}, true), null)
 })
 
-test('a hand-written generator file earns one note per kind per phase', () => {
-  const seen = {}
-  const a = { tool: 'Write', file_path: 'web/modules/custom/kc/src/Form/AForm.php' }
-  const b = { tool: 'Write', file_path: 'web/modules/custom/kc/src/Form/BForm.php' }
-  assert.match(noteFor(a, 'code', seen, true), /\(a form\)/)
-  assert.equal(noteFor(b, 'code', seen, true), null)
-  assert.equal(noteFor({ tool: 'Edit', file_path: a.file_path }, 'code', {}, true), null, 'an edit is not a new file')
-  assert.equal(noteFor({ tool: 'Write', file_path: 'web/themes/custom/kc/kc.info.yml' }, 'code', {}, true, true), null, 'a rewrite of a file that existed is not a new one')
+test('a new file of any shape earns no note: how to build is the agent\'s', () => {
+  assert.equal(noteFor({ tool: 'Write', file_path: 'web/modules/custom/kc/src/Form/AForm.php' }, 'code', {}, true), null)
 })
 
 test('notes never refuse, and refusals are unchanged', () => {

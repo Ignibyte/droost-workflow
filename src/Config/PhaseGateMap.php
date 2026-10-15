@@ -76,6 +76,7 @@ final class PhaseGateMap {
       'grounding_check',
       // What builds each page is decided in code, so it is judged there.
       'composition_check',
+      'house_rules',
     ],
     'test' => [
       'playwright',
@@ -111,6 +112,7 @@ final class PhaseGateMap {
       // exist fails while the phase that invented it is still open.
       'grounding_check',
       'composition_check',
+      'house_rules',
     ],
     'test' => [
       // The test phase writes source, so the gates that read source are due
@@ -153,6 +155,7 @@ final class PhaseGateMap {
       'config_clean',
       'grounding_check',
       'composition_check',
+      'house_rules',
       'wiki_fresh',
     ],
   ];

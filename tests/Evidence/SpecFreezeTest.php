@@ -35,12 +35,6 @@ final class SpecFreezeTest extends TestCase {
     return <<<'MD'
     # HH-3 — rink detail
 
-    ## Tooling plan
-
-    | # | Construct | Surface |
-    |---|---|---|
-    | 1 | rink bundle | `droost_structure_create` |
-
     ## Routes
 
     none — fixture
@@ -215,15 +209,6 @@ none — fixture
   }
 
   /**
-   * The tooling plan is frozen whole, because no phase is told to edit it.
-   */
-  public function testRewritingTheToolingPlanIsCaught(): void {
-    $tampered = str_replace('`droost_structure_create`', 'hand-written', $this->spec());
-
-    $this->assertSame(['## Tooling plan'], SpecFreeze::breaches($tampered, $this->spec()));
-  }
-
-  /**
    * Reordering rows is not tampering: a row that moved has not changed.
    */
   public function testReorderingRowsIsNoBreach(): void {
@@ -251,24 +236,17 @@ none — fixture
   }
 
   /**
-   * The fingerprint tracks the tooling plan, and only that.
+   * The fingerprint is a handle for the frozen sections as the plan ended.
    *
-   * The other two sections may legitimately grow, and a digest of something
-   * that may grow answers no question anybody asked.
+   * A section outside the freeze changes nothing; a frozen one does.
    */
-  public function testTheFingerprintTracksTheToolingPlanOnly(): void {
+  public function testTheFingerprintCoversTheFrozenSections(): void {
     $before = SpecFreeze::fingerprint($this->spec());
-    $moreGrounding = str_replace(
-      '| plan | core | how is a bundle made? | NodeType | `Drupal\node\Entity\NodeType` |',
-      "| plan | core | how is a bundle made? | NodeType | `Drupal\\node\\Entity\\NodeType` |\n"
-      . '| code | custom | anything? | nothing | `none: rink` |',
-      $this->spec(),
-    );
 
-    $this->assertSame($before, SpecFreeze::fingerprint($moreGrounding));
+    $this->assertSame($before, SpecFreeze::fingerprint($this->spec() . "\n## Realized\n\nbuilt\n"));
     $this->assertNotSame(
       $before,
-      SpecFreeze::fingerprint(str_replace('`droost_structure_create`', 'hand-written', $this->spec())),
+      SpecFreeze::fingerprint(str_replace('how is a bundle made?', 'what is a bundle?', $this->spec())),
     );
   }
 
@@ -279,7 +257,7 @@ none — fixture
    * line at code. Adding a page code discovered is legal; losing one is not.
    */
   public function testRoutesAreAppendOnly(): void {
-    $frozen = "# S\n\n## Tooling plan\n\n- x\n\n## Routes\n\n- /camps — listing\n- /camps/summer — detail\n";
+    $frozen = "# S\n\n## Routes\n\n- /camps — listing\n- /camps/summer — detail\n";
     $added = str_replace("- /camps/summer — detail\n", "- /camps/summer — detail\n- /camps/winter — found at code\n", $frozen);
     $this->assertSame([], SpecFreeze::breaches($added, $frozen), 'a route added at code is not a breach');
 

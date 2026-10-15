@@ -32,9 +32,6 @@ namespace Droost\Workflow\Evidence;
  *
  *   | Section              | Rule                                            |
  *   |----------------------|-------------------------------------------------|
- *   | `## Tooling plan`    | whole — no phase is told to edit it, and the     |
- *   |                      | seeker grades the diff against it, so it has to  |
- *   |                      | be the fixed reference                           |
  *   | `## Grounding`       | append-only — every row present at plan must     |
  *   |                      | still be there, unchanged; code may add its own  |
  *   | `## Acceptance…`     | append-only, and each row compared WITHOUT its   |
@@ -51,11 +48,6 @@ namespace Droost\Workflow\Evidence;
  * workflow itself demands stays legal.
  */
 final class SpecFreeze {
-
-  /**
-   * The tooling plan: frozen whole.
-   */
-  public const string TOOLING = '## Tooling plan';
 
   /**
    * Grounding: append-only, because the code phase must add rows.
@@ -106,25 +98,27 @@ final class SpecFreeze {
   /**
    * Every section this class has an opinion about.
    */
-  public const array FROZEN_SECTIONS = [self::TOOLING, self::GROUNDING, self::CRITERIA, self::ROUTES];
+  public const array FROZEN_SECTIONS = [self::GROUNDING, self::CRITERIA, self::ROUTES];
 
   /**
-   * A fingerprint of the parts that may never change at all.
+   * A short handle for the spec as the plan froze it.
    *
-   * Only the tooling plan contributes: the other two are append-only, and a
-   * hash of something that may legitimately grow answers no question. Stored so
-   * a reader has a short handle for the frozen contract, and so a run whose
-   * recorded text is somehow lost can still detect the flat case.
+   * Every frozen section is append-only, so this answers "which text was
+   * frozen", never "did it change": breaches() reads the recorded text for
+   * that.
    *
    * @param string $text
    *   The whole spec.
    *
    * @return string
-   *   A hex digest, always — "this spec had no tooling plan" is a fact worth
-   *   pinning, and an empty digest would make it look like a spec nobody froze.
+   *   A hex digest, always.
    */
   public static function fingerprint(string $text): string {
-    return hash('xxh128', self::TOOLING . "\n" . self::body($text, self::TOOLING));
+    $parts = [];
+    foreach (self::FROZEN_SECTIONS as $heading) {
+      $parts[] = $heading . "\n" . self::body($text, $heading);
+    }
+    return hash('xxh128', implode("\n", $parts));
   }
 
   /**
@@ -144,9 +138,6 @@ final class SpecFreeze {
    */
   public static function breaches(string $text, string $frozenText): array {
     $breaches = [];
-    if (self::body($text, self::TOOLING) !== self::body($frozenText, self::TOOLING)) {
-      $breaches[] = self::TOOLING;
-    }
     foreach ([self::GROUNDING, self::CRITERIA] as $heading) {
       $lost = self::lostRows($text, $frozenText, $heading);
       if ($lost !== []) {

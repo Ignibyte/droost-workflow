@@ -131,51 +131,41 @@ final class GuardNudgeTest extends WorkflowTestCase {
   }
 
   /**
-   * A hand-written file of a generator's shape is noted once per kind.
+   * A new file of any shape earns no note: how to build is the agent's.
    */
-  public function testHandWrittenGeneratorFileIsNotedOncePerKind(): void {
+  public function testNoNoteForHowFilesAreBuilt(): void {
     $root = $this->project();
-    $first = $this->nudge($root, 'Write', ['file_path' => $root . '/web/modules/custom/kc/src/Form/AForm.php']);
-    $this->assertNotNull($first);
-    $this->assertStringContainsString('(a form)', $first);
-    $this->assertStringContainsString('droost_decide', $first);
-    $this->assertNull($this->nudge($root, 'Write', ['file_path' => $root . '/web/modules/custom/kc/src/Form/BForm.php']));
-    $this->assertNotNull($this->nudge($root, 'Write', ['file_path' => $root . '/web/modules/custom/kc/kc.routing.yml']));
-    $this->assertNull($this->nudge($root, 'Write', ['file_path' => $root . '/web/modules/contrib/x/src/Form/A.php']));
-    $this->assertNull($this->nudge($root, 'Edit', ['file_path' => $root . '/web/modules/custom/kc/src/Plugin/Block/A.php']));
-    // P8 run 1: the .info.yml `drush generate theme` had made, rewritten.
-    $this->assertNull($this->nudge($root, 'Write', ['file_path' => $root . '/web/themes/custom/kc/kc.info.yml'], ['type' => 'update']));
-    $this->assertNull($this->nudge($root, 'Write', ['file_path' => $root . '/web/themes/custom/kc/kc.libraries.yml'], []), 'a host that says neither');
+    $this->assertNull($this->nudge($root, 'Write', ['file_path' => $root . '/web/modules/custom/kc/src/Form/AForm.php'], ['type' => 'create']));
   }
 
   /**
-   * The spec is noted until the plan is consulted.
+   * The spec is noted until droost's knowledge has been asked.
    */
-  public function testTheSpecIsNotedUntilThePlanIsConsulted(): void {
+  public function testTheSpecIsNotedUntilThePlanHasLooked(): void {
     $root = $this->project('plan');
     $spec = ['file_path' => $root . '/droost/droost-workflow/tmp-spec-t1.md'];
     $note = $this->nudge($root, 'Write', $spec);
     $this->assertNotNull($note);
-    $this->assertStringContainsString('droost_consult', $note);
+    $this->assertStringContainsString('drush droost:brief', $note);
     $this->assertNull($this->nudge($root, 'Edit', $spec), 'not every edit');
 
+    $looked = $this->project('plan');
     file_put_contents(
-      $root . '/droost/droost-workflow/tool-calls.jsonl',
-      (string) json_encode(['tool' => 'droost_consult', 'outcome' => 'ok', 'run' => 'run-n', 'phase' => 'plan']) . "\n",
+      $looked . '/droost/droost-workflow/tool-calls.jsonl',
+      (string) json_encode(['tool' => 'droost_symbol', 'outcome' => 'ok', 'run' => 'run-n', 'phase' => 'plan']) . "\n",
     );
-    $consulted = $this->project('plan');
-    copy($root . '/droost/droost-workflow/tool-calls.jsonl', $consulted . '/droost/droost-workflow/tool-calls.jsonl');
-    $this->assertNull($this->nudge($consulted, 'Write', ['file_path' => $consulted . '/droost/droost-workflow/tmp-spec-t1.md']));
+    $this->assertNull($this->nudge($looked, 'Write', ['file_path' => $looked . '/droost/droost-workflow/tmp-spec-t1.md']));
   }
 
   /**
-   * A failed consult, or another run's, is not a consult.
+   * A failed call, another run's, or a write tool is not looking.
    */
-  public function testOnlyThisRunsSuccessfulConsultCounts(): void {
+  public function testOnlyThisRunsSuccessfulKnowledgeCallCounts(): void {
     $root = $this->project('plan');
     file_put_contents($root . '/droost/droost-workflow/tool-calls.jsonl', implode("\n", [
-      json_encode(['tool' => 'droost_consult', 'outcome' => 'fail', 'run' => 'run-n']),
-      json_encode(['tool' => 'droost_consult', 'outcome' => 'ok', 'run' => 'run-other']),
+      json_encode(['tool' => 'droost_search', 'outcome' => 'fail', 'run' => 'run-n']),
+      json_encode(['tool' => 'droost_search', 'outcome' => 'ok', 'run' => 'run-other']),
+      json_encode(['tool' => 'droost_scaffold', 'outcome' => 'ok', 'run' => 'run-n']),
     ]) . "\n");
     $this->assertNotNull($this->nudge($root, 'Write', ['file_path' => $root . '/droost/droost-workflow/tmp-spec-t1.md']));
   }
@@ -190,7 +180,7 @@ final class GuardNudgeTest extends WorkflowTestCase {
     $base = dirname(__DIR__, 2);
     $guard = (string) file_get_contents($base . '/pack/hooks/droost-workflow-guard.php');
     $mod = (string) file_get_contents($base . '/claude-plugins/droost-guard/hooks/register.js');
-    foreach (['consult', 'traverse', 'generator'] as $kind) {
+    foreach (['ground', 'traverse'] as $kind) {
       $this->assertSame(1, preg_match("/'" . $kind . "' => '((?:[^'\\\\]|\\\\.)*)'/", $guard, $php), $kind . ' in the guard');
       $this->assertSame(1, preg_match("/\\b" . $kind . ": '((?:[^'\\\\]|\\\\.)*)'/", $mod, $js), $kind . ' in the mod');
       $this->assertSame(stripslashes($php[1]), stripslashes($js[1]), $kind);

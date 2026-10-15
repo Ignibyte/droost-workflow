@@ -324,29 +324,27 @@ final class EvaluationReportTest extends TestCase {
   }
 
   /**
-   * The knowledge-to-router ratio is counted, not claimed.
+   * The knowledge calls are counted from the ledger, not claimed.
    *
-   * This is the number that exposed the original defect: 6 knowledge calls
-   * against 179 router calls across 39 rounds, in a system whose reports all
-   * said the codebase had been consulted.
+   * Six knowledge calls across 39 rounds, in a system whose reports all said
+   * the codebase had been consulted, is the number that exposed the original
+   * defect. The count is what a reader reads, never the grounding prose.
    */
-  public function testKnowledgeToRouterRatioIsCountedFromTheLedger(): void {
+  public function testKnowledgeCallsAreCountedFromTheLedger(): void {
     $store = new EvidenceStore($this->root);
-    for ($i = 0; $i < 7; $i++) {
-      $store->recordToolCall('r1', 'plan', EvaluationReport::ROUTER_TOOL, 'ok');
-    }
     $store->recordToolCall('r1', 'plan', 'droost_symbol', 'ok');
     $store->recordToolCall('r1', 'code', 'droost_search', 'ok');
     $store->recordToolCall('r1', 'code', 'droost_scaffold', 'fail');
 
     $report = (new EvaluationReport($store))->render('r1');
 
-    $this->assertStringContainsString('| **Knowledge : router ratio** | 2 : 7 |', $report);
-    $this->assertStringContainsString('| Total calls | 10 |', $report);
-    $this->assertStringContainsString('| Distinct tools | 4 |', $report);
+    $this->assertStringContainsString('| **Knowledge calls** (the codegraph, search, wiki, introspection and the brief: `KNOWLEDGE_TOOLS`) | 2 |', $report);
+    $this->assertStringContainsString('| Total calls | 3 |', $report);
+    $this->assertStringContainsString('| Distinct tools | 3 |', $report);
     $this->assertStringContainsString('| Refusals (`outcome: fail`) | 1 |', $report);
     $this->assertStringContainsString('| `droost_search` | 1 | knowledge |', $report);
     $this->assertStringContainsString('| `droost_scaffold` | 1 | — |', $report);
+    $this->assertStringNotContainsString('router', strtolower((string) strstr($report, '## 4a.')), 'no router is counted: there is none (owner, 2026-10-15)');
   }
 
   /**
@@ -358,39 +356,38 @@ final class EvaluationReportTest extends TestCase {
    */
   public function testZeroKnowledgeCallsSayTheCodebaseWasNeverAsked(): void {
     $store = new EvidenceStore($this->root);
-    $store->recordToolCall('r1', 'plan', EvaluationReport::ROUTER_TOOL, 'ok');
+    $store->recordToolCall('r1', 'plan', 'droost_scaffold', 'ok');
 
     $report = (new EvaluationReport($store))->render('r1');
 
     $this->assertStringContainsString('**zero here means the run never asked the codebase anything**', $report);
-    $this->assertStringContainsString('| **Knowledge : router ratio** | 0 : 1 |', $report);
+    $this->assertStringContainsString('| **Knowledge calls** (the codegraph, search, wiki, introspection and the brief: `KNOWLEDGE_TOOLS`) | 0 |', $report);
   }
 
   /**
-   * All ten knowledge tools are counted as knowledge, and nothing else is.
+   * Every knowledge tool is counted as knowledge, and nothing else is.
    *
-   * The list is duplicated from GroundingResolver in the Drupal module, which
-   * this package must not depend on. Duplication that nobody watches drifts,
-   * and the drift here is invisible from the output: a run grounded through a
-   * tool one list has and the other does not would render as a run that asked
-   * the codebase nothing. So the ratio is driven through every name, and the
-   * count it prints is what pins the list at thirteen.
+   * The list is duplicated in the Drupal module (GroundingResolver, the
+   * plan_grounded check) and in the guard and its mod, none of which this
+   * package may depend on. Duplication nobody watches drifts, and the drift
+   * is invisible from the output: a run grounded through a tool one list has
+   * and the other does not would render as a run that asked nothing.
    */
   public function testEveryKnowledgeToolIsCountedAsKnowledge(): void {
     $store = new EvidenceStore($this->root);
     foreach (EvaluationReport::KNOWLEDGE_TOOLS as $tool) {
       $store->recordToolCall('r1', 'plan', $tool, 'ok');
     }
-    $store->recordToolCall('r1', 'plan', EvaluationReport::ROUTER_TOOL, 'ok');
     $store->recordToolCall('r1', 'code', 'droost_scaffold', 'ok');
 
     $report = (new EvaluationReport($store))->render('r1');
 
     $this->assertStringContainsString(
-      '| **Knowledge : router ratio** | 13 : 1 |',
+      '| **Knowledge calls** (the codegraph, search, wiki, introspection and the brief: `KNOWLEDGE_TOOLS`) | ' . count(EvaluationReport::KNOWLEDGE_TOOLS) . ' |',
       $report,
-      'thirteen names in, thirteen knowledge calls out',
+      'every name in, one knowledge call each out',
     );
+    $this->assertContains('droost_brief', EvaluationReport::KNOWLEDGE_TOOLS, 'the site brief is knowledge');
     foreach (EvaluationReport::KNOWLEDGE_TOOLS as $tool) {
       $this->assertStringContainsString('| `' . $tool . '` | 1 | knowledge |', $report);
     }

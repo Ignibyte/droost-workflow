@@ -12,7 +12,7 @@ namespace Droost\Workflow\Vcs;
  * this without a repository and the one place this package spawns git is
  * visible.
  */
-final class CliVcs implements VcsInterface, RefResolverInterface {
+final class CliVcs implements VcsInterface, RefResolverInterface, AddedFilesInterface {
 
   /**
    * Constructs a CliVcs.
@@ -35,6 +35,30 @@ final class CliVcs implements VcsInterface, RefResolverInterface {
     [$exit, $stdout] = $this->git($projectRoot, ['rev-parse', 'HEAD']);
     $hash = trim($stdout);
     return $exit === 0 && preg_match('/^[0-9a-f]{7,64}$/', $hash) === 1 ? $hash : NULL;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function addedFiles(string $projectRoot, string $base): ?array {
+    [$exit, $committed] = $this->git(
+      $projectRoot,
+      ['diff', '--name-only', '-z', '--diff-filter=A', '--end-of-options', $base],
+    );
+    if ($exit !== 0) {
+      return NULL;
+    }
+    [$exitUntracked, $untracked] = $this->git($projectRoot, ['ls-files', '--others', '--exclude-standard', '-z']);
+    if ($exitUntracked !== 0) {
+      return NULL;
+    }
+    $files = [];
+    foreach ([...explode("\0", $committed), ...explode("\0", $untracked)] as $path) {
+      if ($path !== '') {
+        $files[$path] = TRUE;
+      }
+    }
+    return array_keys($files);
   }
 
   /**

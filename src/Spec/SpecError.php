@@ -8,7 +8,7 @@ namespace Droost\Workflow\Spec;
  * A run refused because the spec does not hold up its end.
  *
  * The spec is the run's living document: the acceptance criteria, the
- * tooling plan, the inspection ledgers and the realized capture all live in
+ * grounding, the inspection ledgers and the realized capture all live in
  * it, and the phases are gated on the parts of it they depend on. These
  * refusals carry the remedy in the message, because the reader is an agent
  * mid-run and the next thing it does is whatever the message says.

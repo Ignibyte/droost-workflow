@@ -33,7 +33,7 @@ final class RunWithSpec {
     file_put_contents($root . '/droost.workflow.yml', "preset: custom\nseekers: { on: false }\n");
     file_put_contents(
       $dir . '/spec-routes.md',
-      "# Spec\n\n## Tooling plan\n\n- hand-written (fixture)\n\n## Routes\n\n" . $routes . "\n",
+      "# Spec\n\n## Notes\n\n- fixture\n\n## Routes\n\n" . $routes . "\n",
     );
     $config = WorkflowConfig::load($root);
     $state = RunState::begin('run-routes', '2026-09-16T12:00:00+00:00', $config, NULL, NULL)

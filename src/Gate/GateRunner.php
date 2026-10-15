@@ -18,6 +18,7 @@ use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Evidence\RunSubject;
 use Droost\Workflow\State\RunState;
+use Droost\Workflow\Vcs\AddedFilesInterface;
 use Droost\Workflow\Vcs\VcsInterface;
 
 /**
@@ -211,7 +212,9 @@ final class GateRunner {
             $levers,
             $state,
             $projectRoot,
-            $recorded ?? $this->runOne($name, $levers, $projectRoot, $state->preset, $context),
+            $name === HouseRulesCheck::GATE
+              ? $this->houseRules($state, $projectRoot, $changed)
+              : ($recorded ?? $this->runOne($name, $levers, $projectRoot, $state->preset, $context)),
             $changed,
           ),
         ));
@@ -349,6 +352,33 @@ final class GateRunner {
       implode('; ', $own),
       $before,
     ));
+  }
+
+  /**
+   * The gate-judged house rules over what the run added (owner, 2026-10-15).
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run, for its frozen rules and base commit.
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string>|null $changed
+   *   The run's changed files, read on first use and kept for the phase.
+   *
+   * @return \Droost\Workflow\Gate\GateResult
+   *   The verdict.
+   */
+  private function houseRules(RunState $state, string $projectRoot, ?array &$changed): GateResult {
+    $house = $state->rules['house'] ?? [];
+    $house = is_array($house) ? array_values(array_filter($house, 'is_array')) : [];
+    /** @var list<array<mixed>> $house */
+    if ($this->vcs === NULL || $state->baseCommit === NULL || !$this->vcs->isRepository($projectRoot)) {
+      return HouseRulesCheck::run($house, NULL, NULL, $projectRoot);
+    }
+    $changed ??= $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot) ?? [];
+    $added = $this->vcs instanceof AddedFilesInterface
+      ? $state->ownChanges($this->vcs->addedFiles($projectRoot, $state->baseCommit), $projectRoot)
+      : NULL;
+    return HouseRulesCheck::run($house, $added, $changed, $projectRoot);
   }
 
   /**

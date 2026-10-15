@@ -170,6 +170,7 @@ final class PresetResolver {
       'config_clean' => new GateSettings('config_clean', TRUE),
       'grounding_check' => new GateSettings('grounding_check', TRUE),
       'composition_check' => new GateSettings('composition_check', TRUE),
+      'house_rules' => new GateSettings('house_rules', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', FALSE),
     ]);
   }
@@ -211,6 +212,7 @@ final class PresetResolver {
       'config_clean' => new GateSettings('config_clean', TRUE),
       'grounding_check' => new GateSettings('grounding_check', TRUE),
       'composition_check' => new GateSettings('composition_check', TRUE),
+      'house_rules' => new GateSettings('house_rules', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', TRUE, ['cover_diff' => TRUE]),
     ]);
   }
@@ -268,6 +270,7 @@ final class PresetResolver {
       'config_clean' => new GateSettings('config_clean', TRUE),
       'grounding_check' => new GateSettings('grounding_check', TRUE),
       'composition_check' => new GateSettings('composition_check', TRUE),
+      'house_rules' => new GateSettings('house_rules', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', TRUE, ['cover_diff' => TRUE]),
     ]);
   }
@@ -307,6 +310,7 @@ final class PresetResolver {
       'config_clean' => new GateSettings('config_clean', TRUE),
       'grounding_check' => new GateSettings('grounding_check', TRUE),
       'composition_check' => new GateSettings('composition_check', TRUE),
+      'house_rules' => new GateSettings('house_rules', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', TRUE, ['cover_diff' => TRUE]),
     ]);
   }
@@ -351,6 +355,7 @@ final class PresetResolver {
       'config_clean' => new GateSettings('config_clean', TRUE),
       'grounding_check' => new GateSettings('grounding_check', TRUE),
       'composition_check' => new GateSettings('composition_check', TRUE),
+      'house_rules' => new GateSettings('house_rules', TRUE),
       'wiki_fresh' => new GateSettings('wiki_fresh', TRUE),
     ];
   }

@@ -66,9 +66,9 @@ final class BuildRulesTest extends WorkflowTestCase {
     ], 'test')->rules()->resolve('sdc');
 
     $this->assertSame(['canvas_page'], $rules['kinds']['page']['owners']);
-    // `block` is retired: a rule advises, and a file that says block is read
-    // as report (owner, 2026-10-02), never refused.
-    $this->assertSame('report', $rules['kinds']['page']['mode']);
+    // `block` is an opt-in again (owner, 2026-10-15): a site that holds its
+    // builds to its rules says so.
+    $this->assertSame('block', $rules['kinds']['page']['mode']);
     $this->assertSame('file', $rules['kinds']['page']['source']);
     $this->assertSame(['content_template'], $rules['kinds']['detail']['owners']);
     $this->assertSame('report', $rules['kinds']['detail']['mode']);
@@ -153,7 +153,7 @@ final class BuildRulesTest extends WorkflowTestCase {
     $this->assertNotNull($loaded);
     $frozen = BuildRules::fromArray($loaded->rules)->resolve('sdc');
     $this->assertSame(['canvas_page', 'route'], $frozen['kinds']['page']['owners']);
-    $this->assertSame('report', $frozen['kinds']['page']['mode']);
+    $this->assertSame('block', $frozen['kinds']['page']['mode']);
 
     $plain = new RunStateStore($this->makeRoot());
     $plain->save(RunState::begin('run-2', '2026-10-02T00:00:00Z', WorkflowConfig::fromArray([], 'test')));
@@ -169,6 +169,55 @@ final class BuildRulesTest extends WorkflowTestCase {
   public function testAnUnknownCaseIsRefused(): void {
     $this->expectException(\InvalidArgumentException::class);
     BuildRules::none()->resolve('headless');
+  }
+
+  /**
+   * House rules: an id and a judge each, frozen with the run (2026-10-15).
+   */
+  public function testHouseRulesAreReadAndFrozen(): void {
+    $house = [
+      [
+        'id' => 'HR1',
+        'rule' => 'Every new UI component is a single-directory component.',
+        'judge' => 'gate',
+        'check' => 'sdc_markup',
+        'mode' => 'block',
+      ],
+      ['id' => 'HR2', 'rule' => 'Pages are composed in Canvas.', 'judge' => 'seeker'],
+    ];
+    $config = WorkflowConfig::fromArray(['rules' => ['house' => $house]], 'test');
+    $this->assertSame($house, $config->rules()->house);
+
+    $root = $this->makeRoot();
+    $store = new RunStateStore($root);
+    $store->save(RunState::begin('run-1', '2026-10-15T00:00:00Z', $config));
+    $this->assertSame($house, BuildRules::fromArray($store->load()->rules ?? [])->house, 'frozen as written');
+  }
+
+  /**
+   * A house rule that is not one is refused by what is wrong with it.
+   */
+  public function testHouseRulesAreValidated(): void {
+    $cases = [
+      'needs an id' => [['rule' => 'x', 'judge' => 'seeker']],
+      'judge must be gate or seeker' => [['id' => 'A', 'rule' => 'x', 'judge' => 'robot']],
+      'needs a check it knows' => [['id' => 'A', 'rule' => 'x', 'judge' => 'gate']],
+      'check and mode are a gate' => [['id' => 'A', 'rule' => 'x', 'judge' => 'seeker', 'mode' => 'block']],
+      'repeats the id' => [
+        ['id' => 'A', 'rule' => 'x', 'judge' => 'seeker'],
+        ['id' => 'A', 'rule' => 'y', 'judge' => 'seeker'],
+      ],
+      'needs its rule' => [['id' => 'A', 'rule' => ' ', 'judge' => 'seeker']],
+    ];
+    foreach ($cases as $expected => $house) {
+      try {
+        WorkflowConfig::fromArray(['rules' => ['house' => $house]], 'test');
+        $this->fail('refused: ' . $expected);
+      }
+      catch (ConfigError $e) {
+        $this->assertStringContainsString($expected, $e->getMessage());
+      }
+    }
   }
 
 }

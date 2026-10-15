@@ -59,6 +59,9 @@ final class GateSettings {
     // the owner's rules (owner, 2026-10-02). Engine-side, a name and a phase;
     // the truth lives in the site, as it does for rendered_check.
     'composition_check',
+    // The site's own rules a machine can check on the diff (`rules.house`,
+    // judge: gate; owner, 2026-10-15). Off when no house rule names a gate.
+    'house_rules',
     'wiki_fresh',
   ];
 
@@ -229,6 +232,8 @@ final class GateSettings {
     'grounding_check' => ['strict_citations' => 'flag'],
     // The rules themselves are the `rules` block, not levers on the gate.
     'composition_check' => [],
+    // Each rule carries its own check and mode, in `rules.house`.
+    'house_rules' => [],
     // The front-end lint trio takes `paths` for the same reason the static
     // PHP pair does: pointed at a directory, each tool discovers config with
     // nothing but argv. `config` pins the project's own file instead and

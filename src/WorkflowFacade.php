@@ -855,11 +855,8 @@ final class WorkflowFacade {
       $store->save($state);
     }
 
-    // The spec holds up its end before the phase runs. Leaving plan needs
-    // the tooling plan — every deliverable mapped to the surface that
-    // builds it, hand-written only with a stated reason — so "exhaust the
-    // generators first" is a checked contract, not advice. Gating complete
-    // needs the realized capture, so a run cannot close having left its own
+    // The spec holds up its end before the phase runs. Gating complete needs
+    // the realized capture, so a run cannot close having left its own
     // document behind.
     $specPath = $state->specPath;
     // The spec is the contract, and until the plan ends it is still being
@@ -869,8 +866,8 @@ final class WorkflowFacade {
     //
     // Sections, not the whole file: `## Realized` is appended at complete by
     // requirement and the seeker appends its ledgers as they happen, so the
-    // document must stay writable. What may not move is the tooling plan, the
-    // grounding table and the acceptance criteria.
+    // document must stay writable. What may not move is the grounding table,
+    // the acceptance criteria and the routes, each as its own rule allows.
     // THE FREEZE IS RECORDED TOO (F-33, F-35). A rewritten frozen section used
     // to throw SpecError::contractChanged, whose only remedy is destroying the
     // run — and P3-T1-a2 took it, honestly, having refused to manufacture tool
@@ -1712,7 +1709,7 @@ final class WorkflowFacade {
    * @param string $projectRoot
    *   The repository.
    * @param string $kind
-   *   One of `grounding`, `tooling`, `decision`, or a contributed step's own.
+   *   One of `grounding`, `decision`, or a contributed step's own.
    * @param string $subject
    *   What the note is about.
    * @param string|null $detail
@@ -1950,8 +1947,8 @@ final class WorkflowFacade {
   /**
    * Records what this phase intends to change, and what will cover it.
    *
-   * Nothing asked for this before. The `## Tooling plan` maps constructs to
-   * surfaces and never names a path; the `Verified By` column names a test and
+   * Nothing asked for this before. The plan never named a path; the
+   * `Verified By` column names a test and
    * is filled at the TEST phase, after the fact. The only statement of scope
    * was a sentence of prose in the code brief that nothing checked.
    *
@@ -2554,7 +2551,7 @@ final class WorkflowFacade {
       . 'write the document.',
       'remedy' => sprintf(
         'Write %s/spec-<slug>.md (tmp-spec-<slug>.md at medium/low) with its '
-        . '`## Tooling plan`, `## Grounding` and `## Routes` sections, then '
+        . '`## Grounding`, `## Acceptance criteria` and `## Routes` sections, then '
         . '`run --spec=<that path>` to gate the plan phase against it.',
         rtrim($dir, '/'),
       ),
@@ -2746,19 +2743,6 @@ final class WorkflowFacade {
     }
     $out = [];
     $name = strtolower($phase->value);
-
-    if ($phase === Phase::Plan
-      && !SpecContract::hasSection($projectRoot, $specPath, SpecContract::TOOLING_HEADING)) {
-      $out[] = [
-        'check' => 'tooling_plan',
-        'why' => sprintf(
-          'no "%s" section. Which surface built each deliverable is answerable '
-          . 'from the tool-call ledger, which the agent cannot write — so this '
-          . 'is a readability lint, not a missing fact.',
-          SpecContract::TOOLING_HEADING,
-        ),
-      ];
-    }
 
     if (in_array($phase, [Phase::Plan, Phase::Code], TRUE)) {
       $grounding = SpecContract::grounding($projectRoot, $specPath);
@@ -3167,7 +3151,7 @@ final class WorkflowFacade {
    *
    * The distinction the freeze could never draw is why this had to change: an
    * agent quietly deleting a criterion it failed and an agent correcting a
-   * tooling plan it no longer means produce the same breach. Only the second
+   * plan it no longer means produce the same breach. Only the second
    * happened in three live rounds, and the remedy for it was destroying the
    * run.
    *
@@ -3208,8 +3192,7 @@ final class WorkflowFacade {
           sprintf(
             '%d frozen-section change(s) since the plan froze the spec, recorded '
             . 'and not blocking. What the run DID is in the gates and the ledger; '
-            . 'the ledger in particular cannot be rewritten by the agent, which '
-            . 'is why the tooling plan no longer needs freezing.',
+            . 'the ledger in particular cannot be rewritten by the agent.',
             count($breaches),
           ),
           findings: array_map(

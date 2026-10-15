@@ -152,8 +152,7 @@ final class ScopeBeforeJudgementTest extends WorkflowTestCase {
    *   The document.
    */
   private function specText(): string {
-    return "# Scope\n\n## Tooling plan\n\n| Deliverable | Surface |\n|---|---|\n"
-      . "| the thing | hand-written: no generator covers it |\n\n"
+    return "# Scope\n\n"
       . "## Routes
 
 none — fixture

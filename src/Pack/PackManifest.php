@@ -125,11 +125,10 @@ final class PackManifest {
    */
   public const CITABLE_TOOLS = [
     'droost_architecture',
+    'droost_brief',
     'droost_capabilities',
     'droost_config_set',
     'droost_db_schema',
-    'droost_consult',
-    'droost_decide',
     'droost_entities',
     'droost_entity_create',
     'droost_entity_update',
@@ -146,8 +145,7 @@ final class PackManifest {
     'droost_symbol',
     'droost_verify',
     // The Views pair moved into droost core with the 2.0 submodule merge
-    // (D51-D54); the vocabulary predates the move and had never needed
-    // them until the Tooling plan doctrine started naming write surfaces.
+    // (D51-D54).
     'droost_views_compose',
     'droost_views_alter',
     // Also a legacy MODULE name below, and deliberately in both lists: droost

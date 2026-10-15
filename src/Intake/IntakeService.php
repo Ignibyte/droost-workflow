@@ -226,7 +226,7 @@ final class IntakeService {
     if ($state === NULL) {
       throw IntakeError::noneOpen();
     }
-    return IntakeCheck::run($this->projectRoot, $state, $this->store->answers($state->id), $this->store->ledger());
+    return IntakeCheck::run($this->projectRoot, $state, $this->store->answers($state->id));
   }
 
   /**

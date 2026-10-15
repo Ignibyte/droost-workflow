@@ -35,9 +35,9 @@ final class IntakeStore {
    * The ledgers an intake leaves to no run (F-6, for the intake).
    *
    * A row written outside a run is attributed to the next run that opens. The
-   * intake's consult of the whole model would then satisfy the first rung's
-   * `plan_consulted` for every construct it names, with the rung's own plan
-   * never put to droost: closing an intake archives them.
+   * intake's own reading of the site would then satisfy the first rung's
+   * `plan_grounded`, with the rung's own plan never having looked: closing an
+   * intake archives them.
    */
   public const LEDGERS = ['tool-calls.jsonl', 'guard-calls.jsonl', 'scaffolded.jsonl'];
 
@@ -187,23 +187,6 @@ final class IntakeStore {
     if (!is_file($path)) {
       @touch($path);
     }
-  }
-
-  /**
-   * The tool-call ledger's rows.
-   *
-   * @return list<array<mixed>>
-   *   Each row.
-   */
-  public function ledger(): array {
-    $rows = [];
-    foreach (@file($this->stateDir . '/tool-calls.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
-      $row = json_decode($line, TRUE);
-      if (is_array($row)) {
-        $rows[] = $row;
-      }
-    }
-    return $rows;
   }
 
   /**

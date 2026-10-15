@@ -130,7 +130,7 @@ final class CriteriaVerificationTest extends WorkflowTestCase {
     $root = $this->makeRoot();
     file_put_contents(
       $root . '/spec.md',
-      "# Spec\n\n## Tooling plan\n\n- hand\n\n## Acceptance criteria\n\n" . $table,
+      "# Spec\n\n## Notes\n\n- fixture\n\n## Acceptance criteria\n\n" . $table,
     );
     (new EvidenceStore($root))->upsertRun('r1', ['preset' => 'medium']);
 

@@ -421,7 +421,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
         'droost.workflow.yml: unknown gate "phpstain" (known: phpcs, phpstan, '
         . 'eslint, stylelint, prettier, phpunit, mutation, playwright, parity, '
         . 'coverage, '
-        . 'rendered_check, config_clean, grounding_check, composition_check, wiki_fresh)',
+        . 'rendered_check, config_clean, grounding_check, composition_check, house_rules, wiki_fresh)',
       ],
       'unknown gate option' => [
         ['gates' => ['phpcs' => ['levl' => 1]]],

@@ -24,12 +24,18 @@ use Droost\Workflow\Support\TypedArray;
  * with code components). A file names only what it changes; every kind it
  * leaves out keeps its case's default, and the resolved table says which.
  *
- * A rule is advice: what droost believes is good Drupal practice on the
- * site, told to the agent at plan. Its mode is `report`, which records a
- * break on a passing gate, or `off`, which does not look; `block` is retired
- * and read as `report` (owner, 2026-10-02). A FALSE declaration —
- * a page declared one owner and built as another — is not a rule and has no
- * mode: the composition gate fails it whatever the rules say.
+ * A rule's mode is `report` by default, which records a break on a passing
+ * gate, `off`, which does not look, or `block`, which fails the gate (owner,
+ * 2026-10-15: retired on 2026-10-02 as "guide, not enforce", back as an
+ * opt-in for a site that holds its builds to its rules). A FALSE declaration
+ * — a page declared one owner and built as another — is not a rule and has
+ * no mode: the composition gate fails it whatever the rules say.
+ *
+ * HOUSE RULES (`house`, 2026-10-15) are the site's own, in its own words,
+ * each with an id and a judge: `gate`, checked mechanically on the diff (a
+ * known check, `sdc_markup`), or `seeker`, read against the diff by the
+ * seeker, whose finding cites the id. droost tells the agent no way to
+ * build; it holds the work to the rules the site wrote.
  */
 final class BuildRules {
 
@@ -66,21 +72,26 @@ final class BuildRules {
   /**
    * How a broken rule is treated: recorded, or not held at all.
    *
-   * A rule is ADVICE (owner, 2026-10-02: "we guide it, not enforce it"). It
-   * is what droost believes is good Drupal practice on a site, told to the
-   * agent at plan, and the composition gate records what built each page
-   * beside it. Nothing fails a run for building a page another way; a false
-   * declaration still fails, because that is the record, not the rule.
+   * `report` records a break beside a passing gate; `block` fails it, for a
+   * site that holds its builds to its rules (owner, 2026-10-15); `off` does
+   * not look. A false declaration fails whatever the mode, because that is
+   * the record, not the rule.
    */
-  public const MODES = ['off', 'report'];
+  public const MODES = ['off', 'report', 'block'];
 
   /**
-   * A mode the rules once had, read as `report`.
-   *
-   * A lever file written before the correction keeps working: `block` is
-   * read as advice, never refused.
+   * The judges a house rule may name.
    */
-  public const RETIRED_MODES = ['block' => 'report'];
+  public const JUDGES = ['gate', 'seeker'];
+
+  /**
+   * The mechanical checks a gate-judged house rule may name.
+   *
+   * `sdc_markup`: the run adds no markup outside a single-directory
+   * component (a Twig template, a theme hook's template) and no Canvas code
+   * component.
+   */
+  public const HOUSE_CHECKS = ['sdc_markup'];
 
   /**
    * The mode a rule takes when nothing names one.
@@ -164,6 +175,7 @@ final class BuildRules {
     'resource',
     'editor_proof',
     'code_components',
+    'house',
   ];
 
   /**
@@ -175,11 +187,14 @@ final class BuildRules {
    *   The editor proof as written.
    * @param string|null $codeComponents
    *   The code components mode as written, or NULL.
+   * @param list<array{id: string, rule: string, judge: string, check?: string, mode?: string}> $house
+   *   The site's own rules, in the file's order.
    */
   private function __construct(
     public readonly array $kinds,
     public readonly array $editorProof,
     public readonly ?string $codeComponents,
+    public readonly array $house = [],
   ) {}
 
   /**
@@ -262,7 +277,76 @@ final class BuildRules {
       $code = $node->has('mode') ? self::mode($node->string('mode'), $source, 'code_components') : NULL;
     }
 
-    return new self($kinds, $proof, $code);
+    return new self($kinds, $proof, $code, $block->has('house') ? self::house($block->child('house')->toArray(), $source) : []);
+  }
+
+  /**
+   * Reads the house rules: a list of `{ id, rule, judge, check?, mode? }`.
+   *
+   * @param array<array-key, mixed> $entries
+   *   The list as written.
+   * @param string $source
+   *   The document label.
+   *
+   * @return list<array{id: string, rule: string, judge: string, check?: string, mode?: string}>
+   *   The rules.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When an entry is not a rule this reads.
+   */
+  private static function house(array $entries, string $source): array {
+    if ($entries !== [] && !array_is_list($entries)) {
+      throw ConfigError::invalidRule($source, 'house', 'is a list of rules, each { id, rule, judge }');
+    }
+    $out = [];
+    $ids = [];
+    foreach ($entries as $index => $entry) {
+      $at = sprintf('house[%d]', $index);
+      if (!is_array($entry)) {
+        throw ConfigError::invalidRule($source, $at, 'is not a rule: write { id, rule, judge }');
+      }
+      foreach (array_keys($entry) as $key) {
+        if (!in_array($key, ['id', 'rule', 'judge', 'check', 'mode'], TRUE)) {
+          throw ConfigError::invalidRule($source, $at, sprintf('takes id, rule, judge, check and mode, not "%s"', (string) $key));
+        }
+      }
+      $id = is_string($entry['id'] ?? NULL) ? trim($entry['id']) : '';
+      if (preg_match('/^[A-Za-z][A-Za-z0-9_-]{0,31}$/', $id) !== 1) {
+        throw ConfigError::invalidRule($source, $at, 'needs an id: a letter, then letters, digits, "-" or "_" (HR1, sdc-only)');
+      }
+      if (isset($ids[$id])) {
+        throw ConfigError::invalidRule($source, $at, sprintf('repeats the id "%s"', $id));
+      }
+      $ids[$id] = TRUE;
+      $text = is_string($entry['rule'] ?? NULL) ? trim($entry['rule']) : '';
+      if ($text === '') {
+        throw ConfigError::invalidRule($source, $at, sprintf('(%s) needs its rule, in words', $id));
+      }
+      $judge = is_string($entry['judge'] ?? NULL) ? $entry['judge'] : '';
+      if (!in_array($judge, self::JUDGES, TRUE)) {
+        throw ConfigError::invalidRule($source, $at, sprintf('(%s) judge must be gate or seeker', $id));
+      }
+      $rule = ['id' => $id, 'rule' => $text, 'judge' => $judge];
+      if ($judge === 'gate') {
+        $check = is_string($entry['check'] ?? NULL) ? $entry['check'] : '';
+        if (!in_array($check, self::HOUSE_CHECKS, TRUE)) {
+          throw ConfigError::invalidRule($source, $at, sprintf(
+            '(%s) is judged by a gate, which needs a check it knows (known: %s); a rule only judgment can read is judge: seeker',
+            $id,
+            implode(', ', self::HOUSE_CHECKS),
+          ));
+        }
+        $rule['check'] = $check;
+        if (isset($entry['mode'])) {
+          $rule['mode'] = self::mode(is_string($entry['mode']) ? $entry['mode'] : '', $source, $at);
+        }
+      }
+      elseif (isset($entry['check']) || isset($entry['mode'])) {
+        throw ConfigError::invalidRule($source, $at, sprintf('(%s) is judged by the seeker: check and mode are a gate\'s; how hard a finding holds is seekers.holds', $id));
+      }
+      $out[] = $rule;
+    }
+    return $out;
   }
 
   /**
@@ -294,6 +378,9 @@ final class BuildRules {
     }
     if ($this->codeComponents !== NULL) {
       $out['code_components'] = ['mode' => $this->codeComponents];
+    }
+    if ($this->house !== []) {
+      $out['house'] = $this->house;
     }
     return $out;
   }
@@ -404,7 +491,6 @@ final class BuildRules {
    */
   private static function mode(string $mode, string $source, string $key): string {
     $mode = trim($mode);
-    $mode = self::RETIRED_MODES[$mode] ?? $mode;
     if (!in_array($mode, self::MODES, TRUE)) {
       throw ConfigError::invalidRule($source, $key, sprintf('mode "%s" is not a mode (known: %s)', $mode, implode(', ', self::MODES)));
     }
@@ -447,6 +533,10 @@ final class BuildRules {
     $out = [];
     foreach ($frozen as $key => $rule) {
       if (!is_array($rule)) {
+        continue;
+      }
+      if ($key === 'house') {
+        $out[$key] = $rule;
         continue;
       }
       if (isset($rule['owners']) && is_array($rule['owners'])) {

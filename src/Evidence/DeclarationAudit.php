@@ -10,8 +10,8 @@ use Droost\Workflow\Gate\GateRemedy;
 /**
  * What the agent said it would change, against what it actually changed.
  *
- * Nothing in the workflow asked for this before. The `## Tooling plan` maps
- * constructs to surfaces and never names a path; the `Verified By` column names
+ * Nothing in the workflow asked for this before. The plan never named a
+ * path; the `Verified By` column names
  * a test and is filled at the TEST phase, after the fact. The only statement of
  * scope was a sentence in the code brief — "Build what the plan describes.
  * Nothing more" — which nothing checked.

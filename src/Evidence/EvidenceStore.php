@@ -2091,7 +2091,7 @@ final class EvidenceStore {
   /**
    * Records anything else the spec would have said in prose.
    *
-   * Grounding citations, tooling the run means to use, a decision and its
+   * Grounding citations, a decision and its
    * reason. Deliberately one loose table rather than three tight ones: what
    * killed the markdown contract was a schema inferred from heading position,
    * and inventing a new table per section would rebuild that in SQL.
@@ -2101,7 +2101,7 @@ final class EvidenceStore {
    * @param string $phase
    *   The phase declaring it.
    * @param string $kind
-   *   One of `grounding`, `tooling`, `decision` — or whatever a contributed
+   *   One of `grounding`, `decision` — or whatever a contributed
    *   step needs. Not a closed set: a note nobody reads is harmless, and a
    *   refused note in the middle of a phase is not.
    * @param string $subject

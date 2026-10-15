@@ -62,7 +62,7 @@ final class LedgerReachesTheStoreTest extends TestCase {
         'at' => '2026-09-15T01:00:00+00:00',
       ],
       [
-        'tool' => 'droost_decide',
+        'tool' => 'droost_brief',
         'outcome' => 'ok',
         'at' => '2026-09-15T01:00:01+00:00',
       ],
@@ -79,7 +79,7 @@ final class LedgerReachesTheStoreTest extends TestCase {
     $this->assertCount(3, $rows, 'every line in the file is a row');
     $this->assertSame(['code', 'code', 'code'], array_column($rows, 'phase'), 'tagged with the phase');
     $this->assertSame(
-      ['droost_decide', 'droost_doctor', 'droost_scaffold'],
+      ['droost_brief', 'droost_doctor', 'droost_scaffold'],
       array_column($rows, 'tool'),
     );
     $this->assertContains('refused', array_column($rows, 'outcome'), 'a refusal is a row like any other');
@@ -127,14 +127,14 @@ final class LedgerReachesTheStoreTest extends TestCase {
   public function testTheBrokenLineDoesNotStopTheRest(): void {
     file_put_contents(
       $this->root . '/droost/droost-workflow/tool-calls.jsonl',
-      "{not json\n" . json_encode(['tool' => 'droost_decide', 'outcome' => 'ok']) . "\n\n",
+      "{not json\n" . json_encode(['tool' => 'droost_brief', 'outcome' => 'ok']) . "\n\n",
     );
 
     $this->record('plan');
 
     $rows = $this->toolCalls();
     $this->assertCount(1, $rows, 'the good line survives the bad one');
-    $this->assertSame('droost_decide', $rows[0]['tool']);
+    $this->assertSame('droost_brief', $rows[0]['tool']);
   }
 
   /**

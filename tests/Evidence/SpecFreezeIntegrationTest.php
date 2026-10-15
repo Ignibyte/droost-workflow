@@ -55,12 +55,6 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     return <<<'MD'
     # T-integration
 
-    ## Tooling plan
-
-    | # | Construct | Surface |
-    |---|---|---|
-    | 1 | a bundle | `droost_structure_create` |
-
     ## Routes
 
     none — fixture

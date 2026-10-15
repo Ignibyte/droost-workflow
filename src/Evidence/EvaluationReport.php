@@ -83,19 +83,9 @@ final class EvaluationReport {
     'droost_services',
     'droost_db_schema',
     'droost_wiki',
-    // The plan consult (2026-10-02): the plan put to droost, answered from
-    // its index, graph and wiki and from the practice it holds.
-    'droost_consult',
+    // The site's facts as the plan reads them first (2026-10-15).
+    'droost_brief',
   ];
-
-  /**
-   * The decision-graph tool, counted against the knowledge tools.
-   *
-   * The ratio between the two is the number that exposed the original defect:
-   * 6 knowledge calls against 179 router calls across 39 rounds, in a system
-   * whose reports all claimed the codebase had been consulted.
-   */
-  public const string ROUTER_TOOL = 'droost_decide';
 
   /**
    * What a cell says when the store simply does not hold the fact.
@@ -315,7 +305,7 @@ final class EvaluationReport {
       . "> frozen medium gate set was what actually ran. Those rows are marked\n"
       . "> `reported` below, and the two digests are marked with what they\n"
       . "> actually cover: droost computes them, over the file `run.json` names,\n"
-      . "> and only across the `## Tooling plan` section. The gate set in §3 and\n"
+      . "> and only across the spec's frozen sections. The gate set in §3 and\n"
       . "> §4 is the check on all of it.\n";
 
     // Before anything else a reader might act on: does the record still follow
@@ -482,11 +472,10 @@ final class EvaluationReport {
       // reviewer proved both by running them. droost does the hashing, but over
       // whatever file `run.json` names, so pointing a run at a decoy moves the
       // digest and it stays perfectly honest about the decoy. And the digest
-      // covers ONLY the `## Tooling plan` section: two specs differing in
-      // title, grounding table and headings hash identically. A reader seeing
-      // "Spec hash: measured" concludes the document is pinned. One section is.
+      // covers the frozen sections only (grounding, criteria, routes), as
+      // the plan ended: a handle, not a seal.
       [
-        'Tooling-plan hash',
+        'Frozen-sections hash',
         self::code(self::text($run, 'spec_hash')),
         'hashed by droost, over the file run.json names',
       ],
@@ -517,9 +506,9 @@ final class EvaluationReport {
       . "  droost recorded it faithfully; it did not verify it. An agent that\n"
       . "  edits that file before a phase changes these rows, and the gate set\n"
       . "  that actually ran — §3 and §4 — is the check on them.\n"
-      . "- **The tooling-plan hash is not a hash of the spec.** It covers the\n"
-      . "  `## Tooling plan` section and nothing else, so two specs differing in\n"
-      . "  title, grounding and criteria share a digest. The freeze does NOT\n"
+      . "- **The frozen-sections hash is not a hash of the spec.** It covers\n"
+      . "  grounding, criteria and routes as the plan ended them, and nothing\n"
+      . "  else, so two specs differing elsewhere share a digest. The freeze does NOT\n"
       . "  rest on it — it compares the recorded TEXT row by row, because \"every\n"
       . "  row that was there is still there\" is not a question a hash can\n"
       . "  answer. Read the digest as a tripwire, never as a seal.\n"
@@ -1536,8 +1525,6 @@ final class EvaluationReport {
       $perPhase[$phase]['tools'][$tool] = $tool;
       $perPhase[$phase]['knowledge'] = ($perPhase[$phase]['knowledge'] ?? 0)
         + (in_array($tool, self::KNOWLEDGE_TOOLS, TRUE) ? $n : 0);
-      $perPhase[$phase]['router'] = ($perPhase[$phase]['router'] ?? 0)
-        + ($tool === self::ROUTER_TOOL ? $n : 0);
       if (self::text($call, 'outcome') === 'fail') {
         $refusals += $n;
       }
@@ -1548,27 +1535,16 @@ final class EvaluationReport {
     foreach (self::KNOWLEDGE_TOOLS as $tool) {
       $knowledge += $perTool[$tool] ?? 0;
     }
-    $router = $perTool[self::ROUTER_TOOL] ?? 0;
 
     $headline = [
       ['Total calls', (string) $total, 'every tool result, successes and refusals alike'],
       ['Distinct tools', (string) count($perTool), '—'],
       [
-        '**Knowledge calls** (the thirteen in `KNOWLEDGE_TOOLS`)',
+        '**Knowledge calls** (the codegraph, search, wiki, introspection and the brief: `KNOWLEDGE_TOOLS`)',
         (string) $knowledge,
         $knowledge === 0
           ? '**zero here means the run never asked the codebase anything**, whatever its grounding table says'
           : 'the codebase was reached',
-      ],
-      [
-        'Router calls (' . self::code(self::ROUTER_TOOL) . ')',
-        (string) $router,
-        'the decision graph, which answers about droost rather than about the code',
-      ],
-      [
-        '**Knowledge : router ratio**',
-        sprintf('%d : %d', $knowledge, $router),
-        'the number that exposed the original defect — 6 : 179 across 39 rounds',
       ],
       [
         'Refusals (`outcome: fail`)',
@@ -1584,7 +1560,6 @@ final class EvaluationReport {
         (string) $facts['calls'],
         (string) count($facts['tools']),
         (string) $facts['knowledge'],
-        (string) $facts['router'],
       ];
     }
 
@@ -1604,14 +1579,13 @@ final class EvaluationReport {
       . "\n### By phase\n\n"
       . "The JSONL ledger this replaced carried no phase, so its lines could\n"
       . "not be attributed to one from the record alone.\n\n"
-      . self::table(['Phase', 'Calls', 'Distinct tools', 'Knowledge', 'Router'], $phaseRows)
+      . self::table(['Phase', 'Calls', 'Distinct tools', 'Knowledge'], $phaseRows)
       . "\n### Every tool called\n\n"
       . self::table(['Tool', 'Calls', 'Class'], $toolRows)
       . "\nWhat this section still cannot answer, and the template's §4a asks\n"
-      . "for: **tooling-plan fidelity** (every droost tool the Tooling plan\n"
-      . "named, against this ledger) and **scaffold-vs-handwritten** (how many\n"
-      . "added files came from a blueprint and how many were typed). Both need\n"
-      . "the spec and the diff, neither of which is in the store.\n";
+      . "for: **scaffold-vs-handwritten** (how many added files came from a\n"
+      . "blueprint and how many were typed). It needs the diff, which is not in\n"
+      . "the store.\n";
   }
 
   /**
@@ -2386,11 +2360,7 @@ final class EvaluationReport {
    *   The class.
    */
   private static function toolClass(string $tool): string {
-    if (in_array($tool, self::KNOWLEDGE_TOOLS, TRUE)) {
-      return 'knowledge';
-    }
-
-    return $tool === self::ROUTER_TOOL ? 'router' : '—';
+    return in_array($tool, self::KNOWLEDGE_TOOLS, TRUE) ? 'knowledge' : '—';
   }
 
   /**

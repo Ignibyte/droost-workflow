@@ -59,7 +59,7 @@ abstract class WorkflowTestCase extends TestCase {
    * Writes a minimal governing spec that satisfies the phase contract.
    *
    * Every facade test that advances a run needs one, because the contract is
-   * real: leaving plan requires the tooling plan, and gating complete
+   * real: leaving plan reads the grounding, and gating complete
    * requires the realized capture. A test that must exercise the REFUSALS
    * removes or rewrites this file rather than the other way round — the
    * satisfied state is the common case, the violation is the special one.
@@ -77,7 +77,7 @@ abstract class WorkflowTestCase extends TestCase {
     if (!is_dir($dir)) {
       mkdir($dir, 0755, TRUE);
     }
-    $body = "# Spec: test run\n\n## Tooling plan\n\n- everything: hand-written (fixture)\n";
+    $body = "# Spec: test run\n\n## Notes\n\n- fixture\n";
     // And it names its routes — `none`, honestly, since a fixture builds no
     // page. The plan gate refuses a spec that is silent about them (F-15).
     $body .= "\n## Routes\n\nnone — fixture builds no page\n";

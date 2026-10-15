@@ -19,9 +19,6 @@ namespace Droost\Workflow\Intake;
  *              main content, every declared set of records and the frame is
  *              decided: cited by a construct, or set aside under `## Not
  *              built` with a reason
- *   consulted  the model, as it stands, was put to droost (`droost_consult`
- *              with `spec=droost/intake/model.md`): a consult row holds its
- *              sha256
  *   answered   every question has the human's answer on record (the guard
  *              writes it from `AskUserQuestion`, the operator from a terminal),
  *              and the file says what the record says
@@ -61,13 +58,11 @@ final class IntakeCheck {
    *   The intake.
    * @param list<array{question: string, answer: string}> $answers
    *   The answers on record for this intake.
-   * @param list<array<mixed>> $ledger
-   *   The tool-call ledger's rows.
    *
    * @return list<\Droost\Workflow\Intake\IntakeFinding>
    *   What is missing or wrong; empty when the intake may be approved.
    */
-  public static function run(string $projectRoot, IntakeState $state, array $answers, array $ledger): array {
+  public static function run(string $projectRoot, IntakeState $state, array $answers): array {
     $dir = rtrim($projectRoot, '/') . '/' . IntakeStore::DIR;
     $text = [];
     $findings = [];
@@ -98,19 +93,19 @@ final class IntakeCheck {
       }
     }
 
-    $plan = isset($text['model']) ? IntakeTables::rows($text['model'], '## Tooling plan') : [];
+    $plan = isset($text['model']) ? IntakeTables::rows($text['model'], '## Constructs') : [];
     $notBuilt = isset($text['model']) ? IntakeTables::rows($text['model'], '## Not built') : [];
     $modelRoutes = isset($text['model']) ? self::modelRoutes($text['model']) : NULL;
     if (isset($text['model'])) {
       if ($plan === []) {
-        $findings[] = new IntakeFinding('files', 'model.md has no `## Tooling plan` table: one row per construct, with the columns Construct, What it is, Evidence and Rung.');
+        $findings[] = new IntakeFinding('files', 'model.md has no `## Constructs` table: one row per construct, with the columns Construct, What it is, Evidence and Rung.');
       }
       if ($modelRoutes === NULL) {
         $findings[] = new IntakeFinding('files', 'model.md has no `## Routes` section: one line per page the site will serve, `- /path — what it is`.');
       }
       foreach (['construct', 'what it is', 'evidence', 'rung'] as $column) {
         if ($plan !== [] && !array_key_exists($column, $plan[0])) {
-          $findings[] = new IntakeFinding('files', sprintf('model.md\'s Tooling plan has no "%s" column.', ucfirst($column)));
+          $findings[] = new IntakeFinding('files', sprintf('model.md\'s Constructs table has no "%s" column.', ucfirst($column)));
         }
       }
     }
@@ -142,21 +137,6 @@ final class IntakeCheck {
       }
     }
 
-    if (isset($text['model'])) {
-      $sha = hash('sha256', $text['model']);
-      $consulted = FALSE;
-      foreach ($ledger as $row) {
-        $detail = is_array($row['detail'] ?? NULL) ? $row['detail'] : [];
-        if (($row['tool'] ?? NULL) === 'droost_consult' && ($row['outcome'] ?? NULL) === 'ok' && ($detail['sha'] ?? NULL) === $sha) {
-          $consulted = TRUE;
-          break;
-        }
-      }
-      if (!$consulted) {
-        $findings[] = new IntakeFinding('consulted', 'the model as it stands was never put to droost: call droost_consult with spec=droost/intake/model.md, and again after any change to it.');
-      }
-    }
-
     if (isset($text['questions'])) {
       self::answered(IntakeTables::rows($text['questions']), $answers, $findings);
     }
@@ -174,7 +154,7 @@ final class IntakeCheck {
   private static function purpose(string $role): string {
     return match ($role) {
       'audit' => 'run `droost-workflow intake audit --url <served source> --files <source>`',
-      'model' => 'the content model: a `## Tooling plan` table (Construct, What it is, Evidence, Rung) and `## Routes`',
+      'model' => 'the content model: a `## Constructs` table (Construct, What it is, Evidence, Rung) and `## Routes`',
       'questions' => 'the Q&A: a table of Id, Question, Recommendation, Answer and Decided by',
       default => 'the roadmap: a table of Rung, Ticket, Builds, Consumes and Pages',
     };
@@ -451,7 +431,7 @@ final class IntakeCheck {
    * Ladder: every construct in a rung, shown only where a rung builds it.
    *
    * @param list<array<string, string>> $plan
-   *   The Tooling plan's rows.
+   *   The Constructs table's rows.
    * @param array<int, list<string>> $rungs
    *   Each rung's pages.
    * @param list<\Droost\Workflow\Intake\IntakeFinding> $findings

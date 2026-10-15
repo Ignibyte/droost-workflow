@@ -19,7 +19,7 @@ final class IntakeTables {
    * @param string $text
    *   The file.
    * @param string $heading
-   *   The heading, `## Tooling plan`; '' for the file's first table.
+   *   The heading, `## Constructs`; '' for the file's first table.
    *
    * @return list<array<string, string>>
    *   The rows, each cell by its header.

@@ -11,24 +11,17 @@ use Droost\Workflow\State\RunStateStore;
  * What the run requires of its spec, phase by phase.
  *
  * The owner's rule, mechanized: the spec is the living document, and the
- * phases are gated on the parts of it they depend on. Leaving plan requires
- * the tooling plan — the section that maps every deliverable to the surface
- * that builds it (a droost blueprint, drush generate, a composer tool, or
- * hand-written WITH a stated reason), so "exhaust the generators before
- * writing your own" is a checked contract instead of advice. Gating complete
- * requires the realized capture, so a run cannot close having left its own
- * document behind.
+ * phases are gated on the parts of it they depend on. The plan grounds its
+ * claims in what the site and its code actually hold (`## Grounding`), and
+ * how to build is the agent's own choice (owner, 2026-10-15). Gating
+ * complete requires the realized capture, so a run cannot close having left
+ * its own document behind.
  *
  * This class only reads files. Which phases require which sections is
  * decided by the caller (the facade), because that is where phase
  * transitions are already orchestrated.
  */
 final class SpecContract {
-
-  /**
-   * The section that maps deliverables to the surfaces that build them.
-   */
-  public const TOOLING_HEADING = '## Tooling plan';
 
   /**
    * The section that captures what was actually built, at complete.
@@ -45,8 +38,8 @@ final class SpecContract {
    * both in the same breath, but only one of them produces a row somebody
    * checks. An agent under time pressure does what is graded.
    *
-   * So grounding produces a row too. Same mechanism as `## Tooling plan`:
-   * a section the phase cannot end without.
+   * So grounding produces a row too: a section the phase cannot end
+   * without.
    */
   public const GROUNDING_HEADING = '## Grounding';
 
@@ -303,7 +296,7 @@ final class SpecContract {
    * @param string $spec
    *   The spec, project-relative.
    * @param string $heading
-   *   The heading to look for, e.g. `## Tooling plan`.
+   *   The heading to look for, e.g. `## Grounding`.
    *
    * @return bool
    *   TRUE when the section is there. FALSE when it is not, and also when the
@@ -348,7 +341,7 @@ final class SpecContract {
       throw SpecError::missing($spec);
     }
     // Heading match at line start, tolerant of trailing words on the same
-    // line ("## Tooling plan (all surfaces exhausted)") but never of a
+    // line ("## Grounding (all three tiers)") but never of a
     // deeper heading level standing in for the required one — nor of a
     // heading QUOTED inside a fenced block, which read() has already blanked.
     $pattern = '/^' . preg_quote($heading, '/') . '\b/mi';
@@ -502,7 +495,7 @@ final class SpecContract {
    *
    * THIS SECTION READS ITS FENCES, and it is the only one that does (F-34).
    * `read()` blanks every fenced block before anything is parsed, so that a
-   * Tooling plan showing a sample command is never read as a real
+   * section showing a sample command is never read as a real
    * declaration — right for every section that mixes prose with examples.
    * `## Routes` does not mix: it is a list of paths and nothing else, so a
    * fence in it is never an example and there is nothing to protect against.
@@ -723,7 +716,7 @@ final class SpecContract {
    *
    * Each reader here matches on markdown STRUCTURE — a heading at line start,
    * a row opening with a pipe — and a fenced block is full of both while
-   * meaning neither. A spec that shows `## Tooling plan` as an example inside
+   * meaning neither. A spec that shows `## Grounding` as an example inside
    * triple backticks satisfied the contract on the strength of its own
    * teaching material, and a grounding table quoted as a template read as
    * grounding that happened.

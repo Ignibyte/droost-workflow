@@ -12,15 +12,16 @@
 //  - records, for the run's evidence, the Claude Code version and every
 //    other mod that hooks tool calls or prompts, so a record can say what
 //    could have stood in front of the guard (E5);
-//  - pins the run's phase, and whether the plan was put to droost, in the
-//    status line under the prompt;
-//  - carries droost's guidance (owner, 2026-10-02): the agent consults droost
-//    with its plan, and asks droost while it codes instead of walking the
-//    tree. It guides and never refuses: a note on the prompt while the plan
-//    is unconsulted, and a note on a tool's result when the agent searches
-//    core, contrib or vendor, or hand-writes a file a generator makes. The
-//    project's settings hooks carry the same notes (the guard's `nudge`
-//    mode), so this adds them only where that floor is not installed.
+//  - pins the run's phase, and whether the plan has looked at the site yet,
+//    in the status line under the prompt;
+//  - carries droost's guidance (owner, 2026-10-15): the agent looks at the
+//    site through droost before it plans, and asks droost while it codes
+//    instead of walking the tree. It never says how to build and never
+//    refuses: a note on the prompt while the plan has asked droost nothing,
+//    and a note on a tool's result when the agent searches core, contrib or
+//    vendor. The project's settings hooks carry the same notes (the guard's
+//    `nudge` mode), so this adds them only where that floor is not
+//    installed.
 
 const STATE_DIR = 'droost/droost-workflow'
 
@@ -38,39 +39,21 @@ const WATCHED_EVENTS = /^(tool\.(call|check)|classic\.PreToolUse|prompt\.(submit
 // The words of every note, kept identical to the PHP guard's (`nudge` mode),
 // so a record reads the same whichever of the two said it.
 export const NOTES = {
-  consult: 'droost: consult droost with your plan. When the spec names its constructs (the Tooling plan) and its pages (## Routes), call `droost_consult`: it reads the spec and answers each one with what droost believes is good Drupal practice on this site, the generator or tool that builds it, and the code and wiki pages that already cover it. Plan does not close until every construct and page in the spec has been put to it. What you build after that is your choice.',
-  traverse: 'droost: droost knows this codebase first-hand, core and contrib included. `droost_symbol` says where a class or hook lives and what calls it, `droost_graph` what depends on what, `droost_module_docs` what an installed module gives you, `droost_wiki` how this project is put together, and `droost_search` finds this site\'s code by words. Reading files works too; asking is faster, and it is recorded.',
-  generator: 'droost: this file has the shape of one a generator writes (LABEL). `droost_decide` with that kind names the generator or blueprint, and a scaffold carries the conventions you would otherwise remember. Writing it by hand is your choice; the record shows which you took.',
+  ground: 'droost: look before you spec. `drush droost:brief` gives the site\'s facts, and `drush droost:tool droost_search`, `droost_symbol`, `droost_wiki` and the other knowledge tools find the code and pages that already cover what this plan touches. The spec\'s `## Grounding` cites what you found; plan does not close until its citations resolve and droost was asked. How you build is your choice.',
+  traverse: 'droost: droost knows this codebase first-hand, core and contrib included. `drush droost:tool droost_symbol` says where a class or hook lives and what calls it, `droost_graph` what depends on what, `droost_module_docs` what an installed module gives you, `droost_wiki` how this project is put together, and `droost_search` finds this site\'s code by words. Reading files works too; asking is faster, and it is recorded.',
 }
+
+// The tools that read this site's knowledge: asking one is what grounds a
+// plan (owner, 2026-10-15). The same list as the evidence report's.
+export const KNOWLEDGE_TOOLS = [
+  'droost_search', 'droost_symbol', 'droost_graph', 'droost_module_docs', 'droost_deprecations',
+  'droost_entities', 'droost_routes', 'droost_capabilities', 'droost_architecture', 'droost_services',
+  'droost_db_schema', 'droost_wiki', 'droost_brief',
+]
 
 // Where a search walks code that is not the project's own.
 const FOREIGN_PATH = /(^|\/)(web\/core|core|vendor|(web\/)?(modules|themes|profiles)\/contrib)(\/|$)/
 const SEARCH_HEAD = /^(?:\S*\/)?(grep|egrep|fgrep|rg|ag|ack|find|fd|tree)$/
-
-// The files a generator or a droost blueprint makes, by their path in custom
-// code. A label names the kind to ask droost about; it is never a verdict.
-const GENERATOR_SHAPES = [
-  [/\/src\/Plugin\/Block\/[^/]+\.php$/, 'a block plugin'],
-  [/\/src\/Form\/[^/]+\.php$/, 'a form'],
-  [/\/src\/Controller\/[^/]+\.php$/, 'a controller'],
-  [/\/src\/EventSubscriber\/[^/]+\.php$/, 'an event subscriber'],
-  [/\/src\/Hook\/[^/]+\.php$/, 'a hook class'],
-  [/\/src\/Plugin\/Field\/Field(Type|Widget|Formatter)\/[^/]+\.php$/, 'a field plugin'],
-  [/\/src\/Plugin\/views\/[^/]+\/[^/]+\.php$/, 'a Views plugin'],
-  [/\/src\/Plugin\/Condition\/[^/]+\.php$/, 'a condition plugin'],
-  [/\/src\/Plugin\/Derivative\/[^/]+\.php$/, 'a plugin deriver'],
-  [/\/src\/Entity\/[^/]+\.php$/, 'an entity type'],
-  [/\/src\/Drush\/Commands\/[^/]+\.php$/, 'a drush command'],
-  [/\/tests\/src\/(Unit|Kernel|Functional|FunctionalJavascript)\/.+\.php$/, 'a test'],
-  [/\/components\/[^/]+\/[^/]+\.component\.yml$/, 'a single-directory component'],
-  [/\.routing\.yml$/, 'routes'],
-  [/\.permissions\.yml$/, 'permissions'],
-  [/\.links\.(menu|task|action|contextual)\.yml$/, 'menu, task or action links'],
-  [/\.services\.yml$/, 'services'],
-  [/\.info\.yml$/, 'a module or theme'],
-]
-
-const CUSTOM_CODE = /(^|\/)(web\/)?(modules|themes|profiles)\/custom\//
 const SPEC_FILE = /(^|\/)droost\/droost-workflow\/tmp-spec-[^/]+\.md$/
 
 /**
@@ -131,18 +114,6 @@ export function traverses(e) {
 }
 
 /**
- * The kind a written file has the shape of, when it is custom code, or null.
- */
-export function generatorShape(path) {
-  const file = String(path ?? '')
-  if (!CUSTOM_CODE.test(file)) return null
-  for (const [pattern, label] of GENERATOR_SHAPES) {
-    if (pattern.test(file)) return label
-  }
-  return null
-}
-
-/**
  * Whether a path is the run's spec.
  */
 export function isSpec(path) {
@@ -150,18 +121,17 @@ export function isSpec(path) {
 }
 
 /**
- * Whether the ledger holds a consult for this run.
+ * Whether the ledger shows droost's knowledge asked for this run.
  *
- * A row made before the run opened (`run` null) counts: plan writes the spec
- * and consults before `run plan` opens the run, as the ledger's own reader
- * keeps such rows for the run that opens next.
+ * A row made before the run opened (`run` null) counts, as the ledger's own
+ * reader keeps such rows for the run that opens next.
  */
-export function consulted(ledger, runId) {
+export function grounded(ledger, runId) {
   for (const line of String(ledger ?? '').split('\n')) {
     if (!line.trim()) continue
     let row
     try { row = JSON.parse(line) } catch { continue }
-    if (row?.tool !== 'droost_consult' || row?.outcome !== 'ok') continue
+    if (!KNOWLEDGE_TOOLS.includes(row?.tool) || row?.outcome !== 'ok') continue
     if (row.run == null || runId == null || row.run === runId) return true
   }
   return false
@@ -173,7 +143,7 @@ export function consulted(ledger, runId) {
  * `seen` counts per phase, so a search gets a note the first time in a phase
  * and every tenth time after, and a file shape once per phase.
  */
-export function noteFor(e, phase, seen, planConsulted, existed = false) {
+export function noteFor(e, phase, seen, planGrounded) {
   const tool = String(e?.tool ?? '')
   const key = (name) => `${phase ?? 'none'}:${name}`
   if (traverses(e)) {
@@ -183,18 +153,9 @@ export function noteFor(e, phase, seen, planConsulted, existed = false) {
   if (['Write', 'Edit', 'MultiEdit'].includes(tool)) {
     const path = String(e.file_path ?? '')
     if (isSpec(path)) {
-      if (planConsulted) return null
+      if (planGrounded) return null
       const n = (seen[key('spec')] = (seen[key('spec')] ?? 0) + 1)
-      return n === 1 || n % 5 === 0 ? NOTES.consult : null
-    }
-    // A file the Write CREATED (P8 run 1 rewrote the .info.yml `drush
-    // generate theme` had just made, and was told a generator writes it).
-    if (tool === 'Write' && !existed) {
-      const label = generatorShape(path)
-      if (label && !seen[key('generator:' + label)]) {
-        seen[key('generator:' + label)] = 1
-        return NOTES.generator.replace('LABEL', label)
-      }
+      return n === 1 || n % 5 === 0 ? NOTES.ground : null
     }
   }
   return null
@@ -226,8 +187,8 @@ async function openRun($) {
   }
 }
 
-async function consultedNow($, runId) {
-  return consulted(await read($, (await $.session.cwd()) + '/' + STATE_DIR + '/tool-calls.jsonl'), runId)
+async function groundedNow($, runId) {
+  return grounded(await read($, (await $.session.cwd()) + '/' + STATE_DIR + '/tool-calls.jsonl'), runId)
 }
 
 /**
@@ -266,7 +227,7 @@ async function status($) {
   try {
     const run = await openRun($)
     if (!run.phase) return $.ui.status(undefined)
-    const plan = run.phase === 'plan' ? ((await consultedNow($, run.id)) ? ' · plan consulted' : ' · plan not consulted yet') : ''
+    const plan = run.phase === 'plan' ? ((await groundedNow($, run.id)) ? ' · plan grounded' : ' · plan not grounded yet') : ''
     const others = watched.length ? ` · ${watched.length} other mod(s) hook tool calls` : ''
     $.ui.status(`droost · ${run.id ?? 'run'} · ${run.phase}${plan}${others}`)
   } catch {
@@ -282,18 +243,12 @@ export function register(on) {
         deny: `droost: this ${why}, and that is the OPERATOR's act. A mod runs inside Claude Code with the user's permissions and can approve a call droost's guard refused. Name the plugin and why it is needed, and ask the operator to install it.`,
       }
     }
-    let existed = false
-    try {
-      if (e?.tool === 'Write' && e?.file_path) existed = await $.fs.exists(String(e.file_path))
-    } catch {
-      existed = true
-    }
     const out = await next(e)
     try {
       if (await hasFloor($)) return out
       if (!out || typeof out.result !== 'string') return out
       const run = await openRun($)
-      const note = noteFor(e, run.phase, seen, await consultedNow($, run.id), existed)
+      const note = noteFor(e, run.phase, seen, await groundedNow($, run.id))
       return note ? { ...out, result: out.result + '\n\n' + note } : out
     } catch {
       return out
@@ -303,8 +258,8 @@ export function register(on) {
   on('prompt.submit', async ($, e, next) => {
     try {
       const run = await openRun($)
-      if (run.phase === 'plan' && !(await consultedNow($, run.id))) {
-        return next({ ...e, context: [...(Array.isArray(e?.context) ? e.context : []), NOTES.consult] })
+      if (run.phase === 'plan' && !(await groundedNow($, run.id))) {
+        return next({ ...e, context: [...(Array.isArray(e?.context) ? e.context : []), NOTES.ground] })
       }
     } catch {
       // Guidance that could break a prompt is worth less than none.

@@ -22,28 +22,11 @@ use Droost\Workflow\WorkflowFacade;
  * The spec holds up its end, phase by phase — or the run refuses.
  *
  * The owner's rule mechanized (2026-09-01): the spec is the living document.
- * Leaving plan requires the tooling plan, so "exhaust the generators before
- * hand-writing" is a checked contract; gating complete requires the realized
- * capture, so a run cannot close having left its own document behind. Ten
- * eval rounds ran on the advice-only version of both rules, and the tenth
- * datapoint of composer starvation is why they stopped being advice.
+ * The plan grounds its claims and names its pages; gating complete requires
+ * the realized capture, so a run cannot close having left its own document
+ * behind. How to build is the agent's (owner, 2026-10-15).
  */
 final class SpecContractTest extends WorkflowTestCase {
-
-  /**
-   * Leaving plan requires the tooling plan, and the refusal names the fix.
-   */
-  public function testPlanRecordsWithoutTheToolingPlan(): void {
-    $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
-    // Overwrite the helper's satisfying spec with one missing the section.
-    file_put_contents(
-      $root . '/droost/droost-workflow/spec-test-run.md',
-      "# Spec: test run\n\n## 1. The request\n\nWords.\n",
-    );
-    $this->facadeForCli()->run($root);
-
-    $this->assertShapeRecorded($root, 'spec_shape.tooling_plan', 'plan', 'Tooling plan');
-  }
 
   /**
    * Leaving plan requires the routes, and the refusal names the fix (F-15).
@@ -87,7 +70,7 @@ final class SpecContractTest extends WorkflowTestCase {
     $root = $this->makeRoot();
     mkdir($root . '/droost/droost-workflow', 0755, TRUE);
     $write = static function (string $body) use ($root): string {
-      file_put_contents($root . '/droost/droost-workflow/spec-r.md', "# S\n\n## Routes\n\n" . $body . "\n## Tooling plan\n\n- x\n");
+      file_put_contents($root . '/droost/droost-workflow/spec-r.md', "# S\n\n## Routes\n\n" . $body . "\n## Notes\n\n- x\n");
       return 'droost/droost-workflow/spec-r.md';
     };
 
@@ -103,7 +86,7 @@ final class SpecContractTest extends WorkflowTestCase {
     $prose = SpecContract::routes($root, $write("We will decide the pages later.\n"));
     $this->assertSame(['routes' => [], 'none' => FALSE], $prose, 'prose names nothing and is not none');
 
-    file_put_contents($root . '/droost/droost-workflow/spec-r.md', "# S\n\n## Tooling plan\n\n- x\n");
+    file_put_contents($root . '/droost/droost-workflow/spec-r.md', "# S\n\n## Notes\n\n- x\n");
     $this->assertNull(SpecContract::routes($root, 'droost/droost-workflow/spec-r.md'), 'no section is NULL, distinct from empty');
   }
 
@@ -190,10 +173,6 @@ final class SpecContractTest extends WorkflowTestCase {
     $spec = 'droost/droost-workflow/spec-test-run.md';
     file_put_contents($root . '/' . $spec, <<<'MD'
 # Spec
-
-## Tooling plan
-
-- x
 
 ## Acceptance criteria (EARS)
 
@@ -393,7 +372,7 @@ MD
   }
 
   /**
-   * A spec with a tooling plan, a realized capture and the given AC rows.
+   * A spec with a realized capture and the given AC rows.
    *
    * @param string $root
    *   The project root.
@@ -403,7 +382,7 @@ MD
   private function writeCriteriaSpec(string $root, string $rows): void {
     file_put_contents(
       $root . '/droost/droost-workflow/spec-test-run.md',
-      "# Spec: test run\n\n## Tooling plan\n\n- everything: hand-written (fixture)\n\n"
+      "# Spec: test run\n\n## Notes\n\n- fixture\n\n"
       // Grounding is a contract at plan and code, so a spec a run may
       // actually advance carries it. These tests are about the criteria
       // contract, not this one; the section is here so they reach it.
@@ -566,7 +545,7 @@ none — fixture
     $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
     file_put_contents(
       $root . '/droost/droost-workflow/spec-test-run.md',
-      "# Spec: test run\n\n## Tooling plan\n\n- hand-written (fixture)\n\n## Realized\n\nx\n",
+      "# Spec: test run\n\n## Notes\n\n- fixture\n\n## Realized\n\nx\n",
     );
     $this->facadeForCli()->run($root);
 
@@ -641,10 +620,6 @@ none — fixture
     $root = $this->makeRootWithConfig("preset: custom\nseekers: { on: false }\n");
     file_put_contents($root . '/droost/droost-workflow/spec-test-run.md', <<<'MD'
 # Spec: test run
-
-## Tooling plan
-
-- hand-written (fixture)
 
 ## Routes
 
@@ -725,7 +700,7 @@ none — fixture
     }
     file_put_contents(
       $root . '/droost/droost-workflow/spec-test-run.md',
-      "# Spec: test run\n\n## Tooling plan\n\n- hand-written (fixture)\n\n"
+      "# Spec: test run\n\n## Notes\n\n- fixture\n\n"
       . $table . "\n## Realized\n\nFixture capture.\n",
     );
     return 'droost/droost-workflow/spec-test-run.md';
@@ -736,7 +711,7 @@ none — fixture
    *
    * Every reader here matches on markdown structure, and a fenced block is
    * full of structure while meaning none of it. A spec that showed the shape
-   * of `## Tooling plan` in an example satisfied the requirement on the
+   * of `## Routes` in an example satisfied the requirement on the
    * strength of its own teaching material.
    */
   public function testFencedHeadingIsRecordedAbsent(): void {
@@ -747,14 +722,10 @@ none — fixture
 What the section will look like once it is written:
 
 ```markdown
-## Tooling plan
-
-- the rink list: views, via `drush generate`
-```
-
 ## Routes
 
-none — fixture
+- /rinks — the rink list
+```
 
 ## Grounding
 
@@ -771,7 +742,7 @@ MD
     );
     $this->facadeForCli()->run($root);
 
-    $this->assertShapeRecorded($root, 'spec_shape.tooling_plan', 'plan', 'Tooling plan');
+    $this->assertShapeRecorded($root, 'spec_shape.routes', 'plan', 'Routes');
   }
 
   /**
@@ -887,7 +858,7 @@ MD
     $write = static function (string $body) use ($root, $spec): void {
       file_put_contents(
         $root . '/' . $spec,
-        "# S\n\n## Tooling plan\n\n- hand\n\n## Routes\n\n" . $body,
+        "# S\n\n## Notes\n\n- fixture\n\n## Routes\n\n" . $body,
       );
     };
 

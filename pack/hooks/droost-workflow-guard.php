@@ -519,11 +519,11 @@ if ($mode === 'answers') {
   exit(0);
 }
 
-// NUDGE MODE: guidance, never a wall (owner, 2026-10-02: "we guide it, not
-// enforce it"). Wired to PostToolUse, so the call has already run and nothing
-// here can stop it. It adds a note the agent reads beside the tool's result:
-// consult droost with the plan, ask droost instead of walking core and
-// contrib, and which generator makes the file just hand-written. Each note is
+// NUDGE MODE: guidance, never a wall. Wired to PostToolUse, so the call has
+// already run and nothing here can stop it. It adds a note the agent reads
+// beside the tool's result: look at the site through droost before the spec
+// is written, and ask droost instead of walking core and contrib. It never
+// says how to build (owner, 2026-10-15). Each note is
 // a diary row (verdict `note`), so a record shows the nudge and what the agent
 // did next; a call that earns nothing leaves no row. The Claude mod carries
 // the same notes in the same words where this floor is not installed.
@@ -7121,40 +7121,8 @@ function unresolved_checks(string $root, string $stateDir, mixed $runId, string 
  */
 function guard_nudge_notes(): array {
   return [
-    'consult' => 'droost: consult droost with your plan. When the spec names its constructs (the Tooling plan) and its pages (## Routes), call `droost_consult`: it reads the spec and answers each one with what droost believes is good Drupal practice on this site, the generator or tool that builds it, and the code and wiki pages that already cover it. Plan does not close until every construct and page in the spec has been put to it. What you build after that is your choice.',
-    'traverse' => 'droost: droost knows this codebase first-hand, core and contrib included. `droost_symbol` says where a class or hook lives and what calls it, `droost_graph` what depends on what, `droost_module_docs` what an installed module gives you, `droost_wiki` how this project is put together, and `droost_search` finds this site\'s code by words. Reading files works too; asking is faster, and it is recorded.',
-    'generator' => 'droost: this file has the shape of one a generator writes (LABEL). `droost_decide` with that kind names the generator or blueprint, and a scaffold carries the conventions you would otherwise remember. Writing it by hand is your choice; the record shows which you took.',
-  ];
-}
-
-/**
- * The files a generator or a droost blueprint makes, by path in custom code.
- *
- * A label names the kind to ask droost about; it is never a verdict.
- *
- * @return array<string, string>
- *   Path pattern to label.
- */
-function guard_nudge_shapes(): array {
-  return [
-    '#/src/Plugin/Block/[^/]+\.php$#' => 'a block plugin',
-    '#/src/Form/[^/]+\.php$#' => 'a form',
-    '#/src/Controller/[^/]+\.php$#' => 'a controller',
-    '#/src/EventSubscriber/[^/]+\.php$#' => 'an event subscriber',
-    '#/src/Hook/[^/]+\.php$#' => 'a hook class',
-    '#/src/Plugin/Field/Field(Type|Widget|Formatter)/[^/]+\.php$#' => 'a field plugin',
-    '#/src/Plugin/views/[^/]+/[^/]+\.php$#' => 'a Views plugin',
-    '#/src/Plugin/Condition/[^/]+\.php$#' => 'a condition plugin',
-    '#/src/Plugin/Derivative/[^/]+\.php$#' => 'a plugin deriver',
-    '#/src/Entity/[^/]+\.php$#' => 'an entity type',
-    '#/src/Drush/Commands/[^/]+\.php$#' => 'a drush command',
-    '#/tests/src/(Unit|Kernel|Functional|FunctionalJavascript)/.+\.php$#' => 'a test',
-    '#/components/[^/]+/[^/]+\.component\.yml$#' => 'a single-directory component',
-    '#\.routing\.yml$#' => 'routes',
-    '#\.permissions\.yml$#' => 'permissions',
-    '#\.links\.(menu|task|action|contextual)\.yml$#' => 'menu, task or action links',
-    '#\.services\.yml$#' => 'services',
-    '#\.info\.yml$#' => 'a module or theme',
+    'ground' => 'droost: look before you spec. `drush droost:brief` gives the site\'s facts, and `drush droost:tool droost_search`, `droost_symbol`, `droost_wiki` and the other knowledge tools find the code and pages that already cover what this plan touches. The spec\'s `## Grounding` cites what you found; plan does not close until its citations resolve and droost was asked. How you build is your choice.',
+    'traverse' => 'droost: droost knows this codebase first-hand, core and contrib included. `drush droost:tool droost_symbol` says where a class or hook lives and what calls it, `droost_graph` what depends on what, `droost_module_docs` what an installed module gives you, `droost_wiki` how this project is put together, and `droost_search` finds this site\'s code by words. Reading files works too; asking is faster, and it is recorded.',
   ];
 }
 
@@ -7221,28 +7189,13 @@ function guard_nudge_traverses(string $tool, array $input): bool {
 }
 
 /**
- * The kind a written file has the shape of, when it is custom code, or NULL.
- */
-function guard_nudge_shape(string $path): ?string {
-  if (preg_match('#(^|/)(web/)?(modules|themes|profiles)/custom/#', $path) !== 1) {
-    return NULL;
-  }
-  foreach (guard_nudge_shapes() as $pattern => $label) {
-    if (preg_match($pattern, $path) === 1) {
-      return $label;
-    }
-  }
-  return NULL;
-}
-
-/**
  * The note a finished tool call earns, or NULL for no row at all.
  *
  * A search of core, contrib or vendor is noted the first time in a phase and
  * every tenth after; every one is a row, so the count is the diary's. The
- * spec is noted until the plan is consulted, on its first write and every
- * fifth. A hand-written file of a generator's shape is noted once per kind per
- * phase.
+ * spec is noted until the plan has asked droost's knowledge, on its first
+ * write and every fifth. How a file is built is never noted (owner,
+ * 2026-10-15).
  *
  * @param string $directory
  *   The state directory.
@@ -7292,42 +7245,33 @@ function guard_nudge(string $directory, string $tool, array $input, array $respo
   }
   $path = is_string($input['file_path'] ?? NULL) ? $input['file_path'] : '';
   if (preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/tmp-spec-[^/]+\.md$#', $path) === 1) {
-    if (guard_nudge_consulted($directory, $run)) {
+    if (guard_nudge_grounded($directory, $run)) {
       return NULL;
     }
     $n = $count('spec') + 1;
     return ($n === 1 || $n % 5 === 0)
-      ? ['verdict' => 'note', 'rule' => 'spec:noted', 'text' => guard_nudge_notes()['consult']]
+      ? ['verdict' => 'note', 'rule' => 'spec:noted', 'text' => guard_nudge_notes()['ground']]
       : ['verdict' => 'allow', 'rule' => 'spec', 'text' => NULL];
   }
-  // A file the Write CREATED. P8 run 1's agent ran `drush generate theme`
-  // and then rewrote the .info.yml it made: an update of a generated file,
-  // noted as hand-written. Claude Code says `create` or `update`; a host
-  // that says neither earns no note.
-  if ($tool !== 'Write' || ($response['type'] ?? NULL) !== 'create') {
-    return NULL;
-  }
-  $label = guard_nudge_shape($path);
-  if ($label === NULL || $count('generator:' . $label) > 0) {
-    return NULL;
-  }
-  return [
-    'verdict' => 'note',
-    'rule' => 'generator:' . $label,
-    'text' => str_replace('LABEL', $label, guard_nudge_notes()['generator']),
-  ];
+  return NULL;
 }
 
 /**
- * Whether the tool-call ledger holds a successful consult for this run.
+ * Whether the tool-call ledger shows droost's knowledge asked for this run.
  *
  * A row made before the run opened (`run` null) counts, as the ledger's own
- * reader keeps such rows for the run that opens next.
+ * reader keeps such rows for the run that opens next. The list is the
+ * evidence report's KNOWLEDGE_TOOLS and the mod's.
  */
-function guard_nudge_consulted(string $directory, ?string $run): bool {
+function guard_nudge_grounded(string $directory, ?string $run): bool {
+  $knowledge = [
+    'droost_search', 'droost_symbol', 'droost_graph', 'droost_module_docs', 'droost_deprecations',
+    'droost_entities', 'droost_routes', 'droost_capabilities', 'droost_architecture', 'droost_services',
+    'droost_db_schema', 'droost_wiki', 'droost_brief',
+  ];
   foreach (@file($directory . '/tool-calls.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
     $row = json_decode($line, TRUE);
-    if (is_array($row) && ($row['tool'] ?? NULL) === 'droost_consult' && ($row['outcome'] ?? NULL) === 'ok'
+    if (is_array($row) && in_array($row['tool'] ?? NULL, $knowledge, TRUE) && ($row['outcome'] ?? NULL) === 'ok'
       && (($row['run'] ?? NULL) === NULL || $run === NULL || $row['run'] === $run)) {
       return TRUE;
     }
