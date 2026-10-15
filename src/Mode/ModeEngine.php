@@ -1302,11 +1302,15 @@ final class ModeEngine {
    *   The phase.
    *
    * @return bool
-   *   TRUE when the trail holds an inspection recorded in that phase.
+   *   TRUE when the trail holds an inspection recorded in that phase, not
+   *   counting a self-review no seeker stood behind.
    */
   private function inspectedDuring(RunState $state, Phase $phase): bool {
+    // A self-review the hooks saw no seeker behind is no inspection here
+    // either: an author's status update at complete satisfied
+    // `at_complete` on its own (0.14.20).
     foreach ($state->seekerHistory as $entry) {
-      if (($entry['phase'] ?? '') === $phase->value) {
+      if (($entry['phase'] ?? '') === $phase->value && ($entry['dispatch'] ?? '') !== 'none') {
         return TRUE;
       }
     }

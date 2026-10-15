@@ -232,6 +232,29 @@ final class SeekerEnforcementTest extends WorkflowTestCase {
   }
 
   /**
+   * A self-review at complete is not complete's own inspection.
+   */
+  public function testSelfReviewDoesNotSatisfyAtComplete(): void {
+    $root = $this->wired("preset: custom\nmode: agentic\nseekers:\n  at_complete: true\n");
+    $this->toInspection($root);
+    $this->dispatch($root, 'workflow-seeker');
+    $this->facade()->recordSeeker($root, self::CLEAN);
+    $outcome = $this->facade()->run($root);
+    for ($i = 0; $i < 6 && $outcome->outcome === Outcome::Advanced; $i++) {
+      $outcome = $this->facade()->run($root);
+    }
+    $this->assertSame(Phase::Complete, $outcome->state->currentPhase);
+
+    $selfReview = str_replace('Inspector: independent', 'Inspector: self-reviewed', self::CLEAN);
+    $this->assertSame('none', $this->facade()->recordSeeker($root, $selfReview)['dispatch']);
+    $this->assertSame(Outcome::InspectionDue, $this->facade()->run($root)->outcome, 'the author\'s update is not the inspection');
+
+    $this->dispatch($root, 'workflow-seeker');
+    $this->facade()->recordSeeker($root, self::CLEAN);
+    $this->assertSame(Outcome::Completed, $this->facade()->run($root)->outcome);
+  }
+
+  /**
    * A ledger filed while a hold is open releases it, so it is asked again.
    */
   public function testNewLedgerReleasesTheHoldAskedOnTheLastOne(): void {
