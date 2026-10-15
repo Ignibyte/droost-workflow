@@ -74,6 +74,52 @@ final class SeekerEnforcementTest extends WorkflowTestCase {
   }
 
   /**
+   * A launch is not a return, and an independent ledger is the seeker's own.
+   *
+   * A client's agent launched the seeker in the background, and the launch
+   * was recorded as its return while the seeker was still reading (0.14.19).
+   */
+  public function testLaunchIsNotReturnAndTheLedgerIsTheSeekers(): void {
+    $root = $this->wired("preset: custom\nmode: agentic\n");
+    $this->toInspection($root);
+
+    $launch = $this->dispatch($root, 'workflow-seeker', 'dispatched', [
+      'tool_response' => ['status' => 'async_launched', 'agentId' => 'a1', 'outputFile' => '/tmp/a1'],
+    ]);
+    $this->assertSame('launched', $launch['mode']);
+    try {
+      $this->facade()->recordSeeker($root, self::OPEN_MEDIUM);
+      $this->fail('a ledger filed on a launch is refused');
+    }
+    catch (SeekerError $e) {
+      $this->assertStringContainsString('no workflow-seeker has returned', $e->getMessage());
+    }
+
+    // It returns: SubagentStop carries what it wrote.
+    $back = $this->dispatch($root, 'workflow-seeker', 'subagent-stop', [
+      'agent_type' => 'workflow-seeker',
+      'last_assistant_message' => "Done.\n\n" . self::OPEN_MEDIUM,
+    ]);
+    $this->assertSame([
+      'run' => 'run-seeker',
+      'mode' => 'dispatched',
+      'agent' => 'workflow-seeker',
+      'ledger' => 'F1:MEDIUM:open',
+    ], $back);
+
+    // Its rows with the status changed are not its ledger.
+    $rewritten = str_replace('| open   |', '| resolved |', self::OPEN_MEDIUM);
+    try {
+      $this->facade()->recordSeeker($root, $rewritten);
+      $this->fail('an independent ledger the seeker did not write is refused');
+    }
+    catch (SeekerError $e) {
+      $this->assertStringContainsString('are not the ones the workflow-seeker returned', $e->getMessage());
+    }
+    $this->assertSame('verified', $this->facade()->recordSeeker($root, self::OPEN_MEDIUM)['dispatch']);
+  }
+
+  /**
    * A self-review is taken as one: no round, and no release of a held finding.
    *
    * The pack's status update after fixes (F-44) is the main agent's ledger,
@@ -217,15 +263,19 @@ final class SeekerEnforcementTest extends WorkflowTestCase {
    *   The project.
    * @param string $type
    *   The subagent's type.
+   * @param string $mode
+   *   The guard mode: `dispatched` (PostToolUse) or `subagent-stop`.
+   * @param array<string, mixed> $extra
+   *   More of the hook's payload (a tool_response, a last message).
    *
    * @return array<string, mixed>
    *   The row's run, mode and agent.
    */
-  private function dispatch(string $root, string $type): array {
-    [$code] = $this->guard($root, 'dispatched', [
+  private function dispatch(string $root, string $type, string $mode = 'dispatched', array $extra = []): array {
+    [$code] = $this->guard($root, $mode, [
       'tool_name' => 'Agent',
       'tool_input' => ['subagent_type' => $type, 'prompt' => 'inspect'],
-    ]);
+    ] + $extra);
     $this->assertSame(0, $code, 'recording never refuses');
     $path = $root . '/droost/droost-workflow/guard-calls.jsonl';
     $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
@@ -235,7 +285,7 @@ final class SeekerEnforcementTest extends WorkflowTestCase {
     $lines[] = (string) json_encode($row, JSON_UNESCAPED_SLASHES);
     file_put_contents($path, implode("\n", $lines) . "\n");
 
-    return ['run' => $row['run'] ?? NULL, 'mode' => $row['mode'] ?? NULL, 'agent' => $row['agent'] ?? NULL];
+    return ['run' => $row['run'] ?? NULL, 'mode' => $row['mode'] ?? NULL, 'agent' => $row['agent'] ?? NULL] + (isset($row['ledger']) ? ['ledger' => $row['ledger']] : []);
   }
 
   /**

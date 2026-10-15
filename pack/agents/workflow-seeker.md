@@ -48,6 +48,12 @@ base, plus staged, unstaged AND untracked files. An untracked file is the
 newest code there is; it is fully in scope. Read the spec and the whole diff
 before judging anything.
 
+What the run declared (files, tests, its ticket) and every gate's output are
+in `drush droost:workflow:evidence` (`--full` for each gate's output whole;
+`vendor/bin/droost-workflow evidence` with no site). Read them there: the
+evidence store itself is the guard's to protect, and a query against it is
+refused however read-only it is.
+
 ## Effort awareness: the level the run chose
 
 Read the run's frozen preset from `droost/droost-workflow/run.json` before

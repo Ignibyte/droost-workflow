@@ -104,8 +104,14 @@ When the code phase's gates pass, the engine holds the run at
 1. Dispatch the **workflow-seeker** agent (subagent tool) with: the spec
    path, the diff boundary (everything this run changed — staged, unstaged
    AND untracked), and the instruction to return its ledger section verbatim.
+   Wait for it to RETURN: a seeker launched in the background is recorded
+   as launched, and its return (its completion notification) is what a
+   ledger is filed on. If your host does not report a background subagent's
+   return, dispatch the seeker in the foreground.
 2. Append the returned `## Seeker Inspection` section to the spec file,
-   word for word. You never edit its rows.
+   word for word. You never edit its rows: an independent ledger whose rows
+   differ from what the seeker returned is refused. A status you change
+   yourself goes in a section of your own, `Inspector: self-reviewed`.
 3. Record it: `drush droost:workflow:seeker-report <file>` (site-backed; the
    standalone `vendor/bin/droost-workflow seeker-report < <(the section)` on a
    checkout with no site) —

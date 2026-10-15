@@ -1209,6 +1209,10 @@ final class EvaluationReport {
         );
       }
     }
+    $tickets = $this->store->declared($runId, 'work_item');
+    if ($tickets !== []) {
+      $out .= "\nTicket declared: " . implode(', ', array_map(static fn (string $t): string => '`' . self::escape($t) . '`', $tickets)) . "\n";
+    }
 
     return $out;
   }

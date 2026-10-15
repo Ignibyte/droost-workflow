@@ -72,12 +72,36 @@ final class SeekerError extends \RuntimeException {
   public static function notDispatched(string $since): self {
     return new self(sprintf(
       'no workflow-seeker has returned since %s, so this ledger is not a '
-      . 'seeker\'s. Dispatch the workflow-seeker agent on the current diff '
-      . 'and file the ledger it writes, verbatim. A ledger the main agent '
+      . 'seeker\'s. Dispatch the workflow-seeker agent on the current diff, '
+      . 'wait for it to return (a background launch is not a return: wait for '
+      . 'its completion notification, or dispatch it in the foreground), and '
+      . 'file the ledger it writes, verbatim. A ledger the main agent '
       . 'writes (a status update after fixes) is a self-review: label it '
       . '"Inspector: self-reviewed". It is recorded as one, counts as no '
       . 'inspection, and releases no finding seekers.holds holds the run on',
       $since,
+    ), FALSE);
+  }
+
+  /**
+   * An independent ledger whose rows no returning seeker wrote.
+   *
+   * @param string $filed
+   *   The filed ledger's digest.
+   * @param string $returned
+   *   The last returning seeker's.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function notTheSeekersLedger(string $filed, string $returned): self {
+    return new self(sprintf(
+      'this ledger\'s rows (%s) are not the ones the workflow-seeker returned '
+      . '(%s). File the seeker\'s section verbatim; a status you changed '
+      . 'yourself (a fix marked resolved) goes in a self-reviewed section, '
+      . '"Inspector: self-reviewed", which counts as no inspection',
+      $filed,
+      $returned,
     ), FALSE);
   }
 

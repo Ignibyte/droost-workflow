@@ -196,7 +196,7 @@ final class PackMaterializer {
     // in the path. The guard resolves the same var internally for its run
     // state, so both the script and what it reads are project-anchored.
     $guard = 'php "$CLAUDE_PROJECT_DIR/.claude/hooks/droost-workflow-guard.php"';
-    // Seven wirings of one script; three of them on PreToolUse with different
+    // Eight wirings of one script; three of them on PreToolUse with different
     // matchers, so this is a list of (event, entry) pairs and presence is
     // checked per COMMAND, not per event — an install that already carries
     // the edit guard still gets the Bash guard added (R23-F2).
@@ -252,6 +252,12 @@ final class PackMaterializer {
       ['PostToolUse', [
         'matcher' => 'Agent|Task',
         'hooks' => [['type' => 'command', 'command' => $guard . ' dispatched']],
+      ],
+      ],
+      // A background subagent's RETURN (0.14.19): PostToolUse fires at its
+      // launch, so the return is read where it happens. Records only.
+      ['SubagentStop', [
+        'hooks' => [['type' => 'command', 'command' => $guard . ' subagent-stop']],
       ],
       ],
       ['PostToolUse', [

@@ -158,6 +158,7 @@ final class SeekerLedger {
     $inObservations = FALSE;
     $selfReviewed = FALSE;
     $inspector = NULL;
+    $preamble = TRUE;
     for ($i = $start, $n = count($lines); $i < $n; $i++) {
       $line = trim($lines[$i]);
       // The required declaration line, wherever it sits in the section.
@@ -174,13 +175,22 @@ final class SeekerLedger {
           )),
         };
       }
-      // Read the self-review disclosure from anywhere in the section,
-      // including the prose an agent writes around the table to explain the
-      // substitution. Case-insensitive, because the contract asks for the
-      // disclosure and not for a spelling.
-      if (!$selfReviewed) {
+      // Read the self-review disclosure from the section's PREAMBLE: the
+      // prose between the heading and the first finding row or the sentinel,
+      // where an agent explains the substitution. Case-insensitive, because
+      // the contract asks for the disclosure and not for a spelling.
+      //
+      // Not from the findings, the bullets or anything quoted (0.14.19): a
+      // real seeker's ledger on a client's run explained the self-review rule
+      // the ticket documented ("a self-reviewed update records as `none`")
+      // in a bullet after its table, and was refused as a contradiction.
+      if (str_starts_with($line, '|') || $line === self::SENTINEL) {
+        $preamble = FALSE;
+      }
+      $prose = (string) preg_replace('/`[^`]*`|"[^"]*"|“[^”]*”/u', '', $line);
+      if (!$selfReviewed && $preamble && !preg_match('/^([-*+>]|\d+\.)\s/', $line)) {
         foreach (self::SELF_REVIEWED as $phrase) {
-          if (stripos($line, $phrase) !== FALSE) {
+          if (stripos($prose, $phrase) !== FALSE) {
             $selfReviewed = TRUE;
             break;
           }
@@ -270,6 +280,28 @@ final class SeekerLedger {
    */
   public function isClean(): bool {
     return $this->sentinel || $this->blocking() === [];
+  }
+
+  /**
+   * This ledger's rows as the digest the guard keeps of a seeker's return.
+   *
+   * Each finding as ID:SEVERITY:status-word, sorted and joined, or `clean`
+   * for the sentinel (guard_ledger_digest(), in the pack's hook).
+   *
+   * @return string
+   *   The digest.
+   */
+  public function digest(): string {
+    $rows = [];
+    foreach ($this->findings as $finding) {
+      $status = strtolower((string) preg_replace('/[:\s].*$/s', '', $finding['status']));
+      $rows[] = $finding['id'] . ':' . $finding['severity'] . ':' . $status;
+    }
+    if ($rows === []) {
+      return 'clean';
+    }
+    sort($rows);
+    return implode(',', $rows);
   }
 
   /**

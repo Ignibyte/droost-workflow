@@ -344,6 +344,12 @@ $recordCall = static function () use ($root, $stateDir): void {
   if (is_string($agent) && $agent !== '') {
     $row['agent'] = $agent;
   }
+  // WHAT IT RETURNED, as a ledger digest, so an independent ledger is held to
+  // the rows the seeker wrote (0.14.19).
+  $ledger = $GLOBALS['workflow_guard_ledger'] ?? NULL;
+  if (is_string($ledger) && $ledger !== '') {
+    $row['ledger'] = $ledger;
+  }
   // WHICH GENERATORS THIS COMMAND RAN, when it was allowed to run. droost's
   // grounding_check asks the diary whether a file the run added came from
   // the surface that makes it, and a `drush generate` left no other trace:
@@ -448,9 +454,34 @@ if ($mode === 'record') {
 // `seeker-report` refuses a ledger no `workflow-seeker` returned before
 // (a client's run: the main agent wrote one and labelled it independent).
 // A diary and nothing else, like `record`: nothing here can refuse.
-if ($mode === 'dispatched') {
-  $type = $guardInput['subagent_type'] ?? NULL;
+//
+// A LAUNCH IS NOT A RETURN (0.14.19). Claude Code runs subagents in the
+// background by default, and then PostToolUse fires when the task moves to
+// the background, `tool_response.status: "async_launched"`, while the seeker
+// is still reading: a client's agent could have filed "Inspector:
+// independent" the next second. A launch is recorded as `launched` and counts
+// for nothing; a return is a `completed` result here, or SubagentStop (mode
+// `subagent-stop`), which carries the subagent's final message. Either way
+// the ledger it wrote is kept as a digest the ledger filed must match.
+if ($mode === 'dispatched' || $mode === 'subagent-stop') {
+  if ($mode === 'dispatched') {
+    $type = $guardInput['subagent_type'] ?? NULL;
+    $response = $payload['tool_response'] ?? NULL;
+    $text = guard_response_text($response);
+    $launched = (is_array($response) && ($response['status'] ?? NULL) === 'async_launched')
+      || str_contains($text, 'Async agent launched');
+  }
+  else {
+    $type = $payload['agent_type'] ?? NULL;
+    $text = is_string($payload['last_assistant_message'] ?? NULL) ? $payload['last_assistant_message'] : '';
+    $launched = FALSE;
+    $GLOBALS['workflow_guard_tool'] = 'SubagentStop';
+  }
+  $GLOBALS['workflow_guard_mode'] = $launched ? 'launched' : 'dispatched';
   $GLOBALS['workflow_guard_agent'] = is_string($type) && $type !== '' ? substr($type, 0, 120) : 'general-purpose';
+  if (!$launched) {
+    $GLOBALS['workflow_guard_ledger'] = guard_ledger_digest($text);
+  }
   return;
 }
 
@@ -7302,4 +7333,75 @@ function guard_nudge_consulted(string $directory, ?string $run): bool {
     }
   }
   return FALSE;
+}
+
+/**
+ * The text of a subagent's result as the Agent tool hands it back.
+ *
+ * @param mixed $response
+ *   The tool response: a string, or `content` as text blocks.
+ *
+ * @return string
+ *   The text, or ''.
+ */
+function guard_response_text(mixed $response): string {
+  if (is_string($response)) {
+    return $response;
+  }
+  if (!is_array($response)) {
+    return '';
+  }
+  $content = $response['content'] ?? $response;
+  if (is_string($content)) {
+    return $content;
+  }
+  $text = '';
+  foreach (is_array($content) ? $content : [] as $block) {
+    if (is_array($block) && is_string($block['text'] ?? NULL)) {
+      $text .= $block['text'] . "\n";
+    }
+  }
+  return $text;
+}
+
+/**
+ * The digest of the last seeker ledger in a text, or NULL when there is none.
+ *
+ * Each finding row as ID:SEVERITY:status-word, sorted and joined, or `clean`
+ * for the sentinel: SeekerLedger::digest() computes the same from the ledger
+ * filed, so a ledger whose rows a seeker did not write does not match.
+ *
+ * @param string $text
+ *   What the subagent returned.
+ *
+ * @return string|null
+ *   The digest.
+ */
+function guard_ledger_digest(string $text): ?string {
+  $at = strrpos($text, '## Seeker Inspection');
+  if ($at !== FALSE) {
+    $text = substr($text, $at + strlen('## Seeker Inspection'));
+    $next = preg_match('/^## (?!#)/m', $text, $m, PREG_OFFSET_CAPTURE) === 1 ? $m[0][1] : NULL;
+    if ($next !== NULL) {
+      $text = substr($text, 0, (int) $next);
+    }
+  }
+  $rows = [];
+  $sentinel = FALSE;
+  foreach (preg_split('/\R/', $text) ?: [] as $line) {
+    $line = trim($line);
+    if ($line === '(no findings)') {
+      $sentinel = TRUE;
+      continue;
+    }
+    if (preg_match('/^\|\s*([^|]+?)\s*\|\s*(CRITICAL|HIGH|MEDIUM|LOW)\s*\|.*\|\s*([^|]*?)\s*\|\s*$/i', $line, $match) === 1) {
+      $status = strtolower((string) preg_replace('/[:\s].*$/s', '', $match[3]));
+      $rows[] = $match[1] . ':' . strtoupper($match[2]) . ':' . $status;
+    }
+  }
+  if ($rows === []) {
+    return $sentinel ? 'clean' : NULL;
+  }
+  sort($rows);
+  return implode(',', $rows);
 }

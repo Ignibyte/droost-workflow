@@ -295,6 +295,32 @@ class SeekerLedgerTest extends TestCase {
   }
 
   /**
+   * A seeker discussing the self-review rule has not disclosed one (0.14.19).
+   *
+   * A client's real seeker explained, in a bullet after its table, the rule
+   * its ticket documented, and the ledger was refused as a contradiction.
+   */
+  public function testProseAboutSelfReviewAfterTheTableIsNoDisclosure(): void {
+    $ledger = SeekerLedger::parse(
+      "## Seeker Inspection\n\n"
+      . "Inspector: independent\n\n"
+      . "| ID | Severity | Location | Finding | Status |\n"
+      . "|----|----------|----------|---------|--------|\n"
+      . "| F1 | MEDIUM   | a.md:3   | drift   | open   |\n\n"
+      . "- **The seeker rule is true here.** A self-reviewed update records as `none` and cannot release a HIGH.\n"
+      . "The report says \"self-review\" where the playbook does.\n",
+    );
+    $this->assertFalse($ledger->selfReviewed);
+
+    // In the preamble, plain prose, it is still a disclosure.
+    $this->expectException(SeekerError::class);
+    $this->expectExceptionMessageMatches('/contradiction/');
+    SeekerLedger::parse(
+      "## Seeker Inspection\n\nInspector: independent\n\nThis was a self-review.\n\n(no findings)\n",
+    );
+  }
+
+  /**
    * An unknown inspector value is refused by name.
    */
   public function testAnUnknownInspectorValueIsRefused(): void {

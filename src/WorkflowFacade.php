@@ -1388,7 +1388,7 @@ final class WorkflowFacade {
     $store = new RunStateStore($projectRoot);
     $state = $this->requireRun($store);
     $ledger = SeekerLedger::parse($ledgerText);
-    $dispatch = $this->seekerDispatch($projectRoot, $store, $state);
+    $dispatch = $this->seekerDispatch($projectRoot, $store, $state, $ledger->selfReviewed ? NULL : $ledger->digest());
     if ($dispatch === 'none' && !$ledger->selfReviewed) {
       throw SeekerError::notDispatched(self::lastLedgerAt($state));
     }
@@ -1444,16 +1444,23 @@ final class WorkflowFacade {
    *   The run's store.
    * @param \Droost\Workflow\State\RunState $state
    *   The open run.
+   * @param string|null $digest
+   *   The ledger's rows (SeekerLedger::digest()) when it claims to be
+   *   independent; NULL for a self-review.
    *
    * @return string
    *   `verified`, `none` or `unverified`.
+   *
+   * @throws \Droost\Workflow\Seeker\SeekerError
+   *   When every seeker that returned kept a ledger, and this is none of them.
    */
-  private function seekerDispatch(string $projectRoot, RunStateStore $store, RunState $state): string {
+  private function seekerDispatch(string $projectRoot, RunStateStore $store, RunState $state, ?string $digest = NULL): string {
     $settings = @file_get_contents(rtrim($projectRoot, '/') . '/.claude/settings.json');
     if (!is_string($settings) || !str_contains($settings, 'droost-workflow-guard.php\\" dispatched')) {
       return 'unverified';
     }
     $floor = strtotime(self::lastLedgerAt($state));
+    $returned = [];
     foreach (@file(dirname($store->path()) . '/guard-calls.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
       $row = json_decode($line, TRUE);
       if (!is_array($row)
@@ -1465,10 +1472,22 @@ final class WorkflowFacade {
       }
       $at = is_string($row['at'] ?? NULL) ? strtotime($row['at']) : FALSE;
       if ($at !== FALSE && ($floor === FALSE || $at >= $floor)) {
-        return 'verified';
+        $returned[] = is_string($row['ledger'] ?? NULL) ? $row['ledger'] : NULL;
       }
     }
-    return 'none';
+    if ($returned === []) {
+      return 'none';
+    }
+    // HELD TO WHAT THE SEEKER WROTE (0.14.19). Where the guard kept the
+    // ledger a returning seeker wrote, an independent ledger's rows must be
+    // those: a client's agent rewrote a real seeker's statuses to `resolved`
+    // and filed it as independent. A return with no ledger kept (an older
+    // hook, a seeker that wrote none) binds nothing.
+    $kept = array_values(array_filter($returned, 'is_string'));
+    if ($digest !== NULL && $kept !== [] && !in_array($digest, $kept, TRUE) && count($kept) === count($returned)) {
+      throw SeekerError::notTheSeekersLedger($digest, end($kept));
+    }
+    return 'verified';
   }
 
   /**
