@@ -1,6 +1,6 @@
 ---
 name: workflow-code
-description: Phase 2 of the Droost Workflow. Build what the spec describes, using droost's scaffolding and the Drupal APIs, without touching core or contrib.
+description: Phase 2 of the Droost Workflow. Build what the spec describes, asking droost what the site already has, within the site's house rules, without touching core or contrib.
 ---
 
 # Code
@@ -59,33 +59,10 @@ three outcomes stop the phase:
 - a file declared and not touched is recorded and does not block.
 
 The spec's contract sections were fingerprinted when plan passed —
-`## Tooling plan`, `## Grounding`, `## Acceptance criteria` — and **changing
-one is RECORDED, not refused.** A `spec`/`frozen_sections` row names what
-moved and the phase advances. Appending is still expected: `## Realized` and
-the seeker's ledgers belong in this file.
-
-**When the build took another surface than the plan named, say so in the
-plan.** `grounding_check` records a `planned-not-called` row when the Tooling
-plan names a tool the ledger never saw, and a file made another way than
-droost advised; it fails neither (owner, 2026-10-02: droost guides, the agent
-chooses). Changing the row to the surface that did the work keeps the record
-true, and the edit goes through.
-
-State the reason in the row you write, so the record says "I planned X and
-needed Y". How to write X depends on the surface that replaced it:
-
-- **Hand-written, hand-edited or drush:** name the tool you declined in the
-  row's last cell. A row with a hand or drush surface is not read as a
-  promise to call anything.
-- **Another droost tool:** name only the tool you used, and describe the one
-  you planned in words ("the views composer"), or name it in a column headed
-  Why or Reason. Anywhere else in a row whose surface is a droost tool,
-  every `droost_*` id is read as a promise, so writing "planned:
-  `droost_views_compose` first" in the surface records it as planned and
-  not called.
-
-The plan as it froze is kept in the record, so nothing is lost by not naming
-it again.
+`## Grounding`, `## Acceptance criteria`, `## Routes` — and **changing one is
+RECORDED, not refused.** A `spec`/`frozen_sections` row names what moved and
+the phase advances. Appending is still expected: `## Realized` and the
+seeker's ledgers belong in this file.
 
 ## Entry gate
 
@@ -95,44 +72,33 @@ it again.
 
 ## Work
 
-**Ask droost and generate, rather than walk the tree.** droost knows this
-codebase first-hand: its wiki, its index and its symbol graph are built from
-this project's own code, core and contrib included. The questions that send
-an agent grepping through `web/core` or `vendor` are the ones it answers,
-and it is there all phase, not only at plan:
+**Ask droost rather than walk the tree.** droost knows this codebase
+first-hand: its wiki, its index and its symbol graph are built from this
+project's own code, core and contrib included. The questions that send an
+agent grepping through `web/core` or `vendor` are the ones it answers, and it
+is there all phase, not only at plan. Call it with `drush droost:tool <id>
+'<json>'` (`ddev drush …` on DDEV from the host):
 
 - `droost_wiki` — how this project is put together, page by page.
 - `droost_symbol` and `droost_graph` — where an existing class or hook lives,
   what calls it and what it calls, before you change it.
 - `droost_module_docs` — what an installed module gives you.
 - `droost_search` — this site's code, by words.
-- `droost_decide` — what builds a kind of thing here.
 
-**Scaffold before you type** — when there is a site to reach. Generated
-structure is consistent structure, and the generator already knows the
-conventions you would have to remember. Every tool below needs a booted
-site, `droost_scaffold` included:
+**How you build is yours to decide.** Write it by hand, run `drush generate`
+(bare, it lists what this site's drush offers), or use droost's write tools,
+each switched on by the site:
 
-- `drush generate` — modules, services, forms, blocks and most other plugin
-  types, event subscribers, entity types. Run it bare to list what this
-  site's drush offers.
-- `droost_scaffold` — where drush stops short: `#[Hook]` classes, SDCs,
-  Views filters and sorts, config schema, kernel and functional tests,
-  migrations, access handlers, plugin derivers, media sources, CKEditor 5
-  plugins, recipes, MCP tools.
-- `droost_decide graph=build-surface kind="<kind>"` — every surface that
-  builds a kind on this site, best first, when the lists above do not
-  settle it. With no kind it lists the kinds. grounding_check reads the
-  diff and records each file of a kind droost builds beside the surfaces
-  it advised; what you choose is yours.
+- `droost_scaffold` — skeletons for constructs drush does not generate
+  (`#[Hook]` classes, SDCs, Views filters and sorts, config schema, tests,
+  migrations, access handlers, plugin derivers, recipes).
 - `droost_structure_create` — content types, fields, bundles.
 - `droost_entity_create` / `droost_entity_update` — content.
 - `droost_config_set` — configuration.
 
-Scaffold the skeleton, then edit its method bodies with your FILE tools.
-Writing a whole source file through a shell heredoc (`cat <<` into
-modules/custom) skips what the scaffold knew; the seeker reads it against
-the plan's own row.
+Nothing holds a file to having come from one of them. What the gates and the
+seeker hold the result to is the spec, the declaration and the site's house
+rules (`vendor/bin/droost-workflow rules`).
 
 Then the rules that do not bend:
 
@@ -164,50 +130,43 @@ Then the rules that do not bend:
    inspecting it — the one blind spot in an otherwise file-based gate set,
    and yours to close by exporting.
 
-### Pages, and the components they are built from
+### Pages, and the house rules
 
-**Build each page as you declared it** (owner, 2026-10-02).
-`composition_check` reads what really builds every page the spec declared,
-at this phase: a Canvas page, a View page, an entity's display, a Webform,
-or a route. A page declared as one and built as another fails: the record
-must be true. A page built another way than droost's advice is recorded
-beside it, never failed. If the build had to change what owns a page,
-declare it again with its new owner, and say why where it departs from the
-advice.
+**Build each page as you declared it.** `composition_check` reads what really
+builds every page the spec declared, at this phase: a Canvas page, a View
+page, an entity's display, a Webform, or a route. A page declared as one and
+built as another fails: the record must be true. If the build had to change
+what owns a page, declare it again with its new owner.
+
+**The site's house rules bind the result.** `vendor/bin/droost-workflow
+rules` prints them: the page rules (which owners each kind of page may have
+on this site) and `rules.house`, each with an id and its judge.
+
+- A rule judged by **`gate`** is checked mechanically: the composition gate
+  for a page's owner, `sdc_markup` for new markup outside an SDC
+  component's directory. In `block` mode a break fails the gate; in `report`
+  mode it is recorded.
+- A rule judged by **`seeker`** is read against your diff by the seeker
+  (its lens 8). A break is HIGH, and on a site that holds on HIGH it holds
+  the run.
+- An exception is the OPERATOR's to grant. Ask, and record their answer in
+  the spec with who approved it and why; one you write for yourself
+  (`--except=` on a route) records the break, it does not excuse it.
+
+**Tools that write Canvas and displays**, if you choose them:
 
 - **A Canvas page:** create it with `droost_entity_create`
   (`entity_type: canvas_page`, with its title and path), then write its
   tree with `droost_canvas_tree_set`. `droost_canvas` lists what can be
   placed, a View's block display among them
-  (`block.views_block.<view>-<display>`). Each section is its own component,
-  so an editor can move it or change it; text an editor changes is a
-  component's input, never a template string.
+  (`block.views_block.<view>-<display>`).
 - **An entity's own page:** its full view mode, composed with
   `droost_display_compose`, its fields bound to the theme's components.
 
-**Components are SDC by default** (owner, 2026-10-02). Adapted, for SDC,
-from the Drupal Canvas team's skills (`drupal-canvas/skills`, MIT), which
-are written for code components:
-
-- **Decompose before you build.** One component per visual unit that
-  repeats (a card, a button, a page head), placed and composed, never one
-  component per page and never one per element.
-- **A prop for a value, a slot for content.** Text, a link, an image or a
-  variant is a prop; a region another component fills is a slot.
-- **Every prop is declared in `*.component.yml`** with its type and title,
-  an enum for a fixed set of variants, and `required` only where the
-  component cannot render without it.
-- **Style with the theme's tokens** (its Tailwind theme), never a colour or
-  a size written into one component.
-- **A code component** (a React component Canvas renders in the browser) is
-  allowed only on a site whose rules allow one, only for a piece that is
-  genuinely interactive, and only from the repository, never written in
-  Canvas's in-browser editor, where no gate reads it.
-
 ## Exit gate
 
-Every construct the spec named exists, and nothing exists that the spec did
-not name. Custom code and configuration only. **Any config the run created is
+Everything the spec said it would build exists, and nothing exists that the
+spec did not name. Custom code and configuration only. **Any config the run created is
 exported to tracked files** (rule 6) — otherwise the diff the seeker inspects
 is blind to it (the static gates never read YAML either way), and a
 config-only run would pass having verified nothing it built.
@@ -297,24 +256,21 @@ retry budget: it is a hold, not a failure.
 
 ## When droost's tools stop answering
 
-A site that is up can still lose droost's MCP server mid-run: a
-`ddev snapshot restore`, a `ddev restart`, a failed module install or a fatal
-in a plugin you wrote ends that one process. The supervisor droost:install
-put in front of it starts it again: call again. And every droost tool runs
-through drush, with the same answer and the same ledger row:
-`ddev drush droost:tool <tool> '<json arguments>'` (with no tool named, it
-lists them). Use it rather than wait for someone to reconnect the editor,
-and say in the spec that you did.
+A `ddev snapshot restore`, a `ddev restart`, a failed module install or a
+fatal in a plugin you wrote can leave the site unable to boot, and then every
+droost call fails with the site's error. Fix the site (the fatal drush
+prints, or `drush watchdog:show`), then call again. Read the state before
+repeating a call that writes.
 
 ## Without a site
 
 **Every tool above is unavailable** — including `droost_scaffold`. They are
-all Drupal plugins reached over MCP, so with no booted site there is no
+all Drupal plugins run through drush, so with no booted site there is no
 droost at all, not a reduced droost. It is tempting to assume the file-writing
 ones still work; they do not.
 
-So you are writing code by hand, to the conventions rather than from the
-generator. Do it, and record plainly which steps could not be applied: no
+So you are writing code by hand, to the conventions you can read in the
+repository. Do it, and record plainly which steps could not be applied: no
 content created, no configuration set, nothing introspected. Do not mark work
 complete because a file exists — the test phase decides what passed, and it
 cannot check what was never applied.

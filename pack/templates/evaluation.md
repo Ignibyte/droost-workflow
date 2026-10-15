@@ -177,26 +177,22 @@ jq -r 'select(.outcome=="fail") | .tool' droost/droost-workflow/tool-calls.jsonl
 |---|---|---|
 | Total calls | | |
 | Distinct tools | | |
-| **Knowledge calls** (`search`, `symbol`, `graph`, `module_docs`, `deprecations`, `entities`, `routes`, `capabilities`, `architecture`, `services`, `db_schema`, `wiki`, `consult`) | | **zero here means the run never asked the codebase anything**, whatever its grounding table says |
-| Router calls (`droost_decide`) | | |
-| **Knowledge : router ratio** | | the number that exposed the original defect — 6 : 179 across 39 rounds |
+| **Knowledge calls** (`search`, `symbol`, `graph`, `module_docs`, `deprecations`, `entities`, `routes`, `capabilities`, `architecture`, `services`, `db_schema`, `wiki`, `brief`) | | **zero here means the run never asked the codebase anything**, whatever its grounding table says; at plan, `plan_grounded` holds a run that asked nothing |
 | Write/scaffold calls (`scaffold`, `structure_create`, `config_set`, `entity_create`, `views_compose`) | | |
 | Refusals (`outcome: fail`) | | each one is a gate that was off, or an argument that was wrong |
 
-**Tooling-plan fidelity.** Every droost tool the Tooling plan named, against
-the ledger:
+**How it was built.** Of the files added under `web/modules/custom` and
+`web/themes/custom`, which came from a `drush generate`, which from a droost
+write tool or blueprint, and which were typed. Nothing holds a file to one
+way; the row is the record of what the run chose.
 
-| Tool the plan named | In the ledger? | If not — was the plan changed to hand-written with a reason? |
-|---|---|---|
+**House rules.** For each rule in `rules.house` (`vendor/bin/droost-workflow
+rules`): its judge, and what judged it — the gate's verdict for a `gate`
+rule, the seeker's finding (cited by rule id) for a `seeker` rule — and any
+exception, with the operator who approved it.
 
-> A plan that says `droost_structure_create` while the code hand-writes the
-> YAML is drift. `grounding_check` fails on it now, but record it here too:
-> the gate says *that* it drifted, the table says *what* it drifted to.
-
-**Scaffold-vs-handwritten.** Of the files added under `web/modules/custom` and
-`web/themes/custom`, how many came from a droost blueprint or a
-`drush generate`, and how many were typed? A run whose Tooling plan is all
-droost tools and whose diff is all hand-written prose has followed neither.
+| Rule | Judge | Verdict | Exception (approved by) |
+|---|---|---|---|
 
 ## 4b. Grounding — the three tiers, and whether each was actually reached
 
@@ -227,8 +223,8 @@ drush droost:workflow:report | grep -A3 grounding_check
   easiest to type without looking. Check the gate re-ran it: a `none:` claim
   about something the site has must fail.
 - **Half two is the ledger, not the table.** A citation proves the symbol
-  exists; it can be copied out of a file. `grounding_check` also fails when the
-  ledger records no knowledge-tool call at all — see §4a. Record both verdicts
+  exists; it can be copied out of a file. At plan, `plan_grounded` holds a run
+  whose ledger records no knowledge call — see §4a. Record both verdicts
   separately, or a run that cited well and looked up nothing scores as grounded.
 - **Which store answered is the fact this section exists to record.**
   `droost:search:index` runs custom|contrib|themes|wiki; core is a scope

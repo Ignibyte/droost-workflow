@@ -607,7 +607,7 @@ class PackContentLintTest extends TestCase {
     $this->assertStringContainsString('there is NO wiki step', $complete, 'the rule the plan must match');
     $this->assertStringContainsString('Plan only the capture your level makes', $plan);
     $this->assertMatchesRegularExpression('/At\s+\*\*`low`\*\*\s+complete writes\s+\*\*no wiki pages\*\*/', $plan, 'the plan skill must say a low run writes no wiki');
-    $this->assertStringContainsString('`droost_wiki_write` row is a promise the level forbids you to keep', $plan);
+    $this->assertStringContainsString('`droost_wiki_write` page is a promise the level forbids you to keep', $plan);
   }
 
   /**

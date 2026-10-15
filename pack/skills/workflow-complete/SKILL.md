@@ -79,7 +79,8 @@ Tools that help — every one needs a booted site:
 - `droost_wiki` — **read-only**: list and read the site's knowledge pages;
   `kind: status` reports which are stale; `kind: factsheet` pulls the
   generation packet you write FROM.
-- `droost_wiki_write` — the one MCP tool that writes the wiki. You supply
+- `droost_wiki_write` — the one droost tool that writes the wiki
+  (`drush droost:tool droost_wiki_write '<json>'`). You supply
   the body; Droost composes the provenance and rolls the write back unless
   the page verifies fresh. Gated behind the `allow_scaffold` write gate — armed at a TTY with `drush droost:gate allow_scaffold on`, never through config.
   **Follow the `documenting-changes` skill.** (`drush droost:wiki:generate`

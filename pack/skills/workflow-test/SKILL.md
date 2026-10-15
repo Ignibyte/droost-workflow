@@ -157,7 +157,7 @@ throws away.
   before you write a spec against them. The guard records every call and the
   evaluation reports the count, but nothing gates on it.
 - `native` — the same, through the editor's own browser.
-- `none` — fine. The spec below does not need an MCP server.
+- `none` — fine. The spec below does not need a browser of yours.
 
 **Record what proves each criterion**, one call per criterion, as you prove
 it:

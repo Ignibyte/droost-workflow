@@ -172,12 +172,12 @@ agent's good judgment.
 
 ## How the engine drives this
 
-Every surface — `vendor/bin/droost-workflow run`, `drush droost:workflow:run`,
-or the MCP run tool — drives one engine, and the engine writes run state to
+Every surface — `vendor/bin/droost-workflow run` and `drush droost:workflow:run`
+— drives one engine, and the engine writes run state to
 `droost/droost-workflow/run.json` on every invocation.
 
 **If this project has a working site, advance through the SITE-BACKED
-surface** — `drush droost:workflow:run` or the MCP run tool — not
+surface** — `drush droost:workflow:run` — not
 `vendor/bin/droost-workflow`. They are not equivalent: the standalone binary
 has no booted site, so every site-dependent gate (today, `rendered_check`)
 comes back skipped with its reason, however healthy the site is. A live run
@@ -258,7 +258,7 @@ and with what thresholds, is the lever file's business:
 
 | phase | fast flow (`flow: fast`, the default at `low` and `medium`) | strict flow (`flow: strict`, the default from `high` up) |
 |---|---|---|
-| plan | no gate; one check, `plan_consulted`: the spec as it stands was put to droost (`droost_consult`) | the same |
+| plan | no gate; one check, `plan_grounded`: the spec's `## Grounding` cites what resolves, and the run asked droost's knowledge during plan | the same |
 | code | phpcs, phpstan, eslint, stylelint, prettier, phpunit, mutation, coverage, config_clean, grounding_check, plus custom gates placed at `code`; then the seeker checkpoint, where the level runs one | phpcs, phpstan, eslint, stylelint, prettier, config_clean, grounding_check, plus custom gates placed at `code`; then the seeker checkpoint |
 | test | playwright, parity, rendered_check, config_clean, plus custom gates placed at `test` | the static pair again, phpunit, mutation, playwright, parity, coverage, rendered_check, config_clean, plus custom gates placed at `test` |
 | complete | documentation, then `wiki_fresh` only | documentation first, then the full enabled set re-run, the terminal safety net |

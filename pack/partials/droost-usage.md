@@ -5,49 +5,47 @@ this site — its code, its structure, its live state; this workflow is how it
 works. Every phase leans on it, and every phase has to cope with it being
 unavailable.
 
+## How to call it
+
+droost is reached by command, through drush:
+
+```bash
+drush droost:tool                                       # every tool, one line each
+drush droost:tool droost_search --help                  # one tool's arguments
+drush droost:tool droost_search '{"query":"rink"}'      # run it: JSON in, JSON out
+drush droost:brief                                      # the site's facts
+```
+
+On DDEV from the host, prefix `ddev` (`ddev drush droost:tool …`). Each call
+boots the site, so ask for what you need in as few calls as you can. A call
+prints the tool's answer as JSON and exits 1 when the tool says no. Every
+call is recorded in the run's tool-call ledger, whichever way you made it.
+
 ## The one thing to understand: no site, no droost
 
 **Every droost tool needs a booted site. All of them, without exception.**
 
-They are Drupal plugins, served over MCP by a running application. There is
-no subset that works on a plain checkout — not even the scaffolding tools,
-whose underlying generators are Drupal-free but which are only *reachable*
-through a booted container.
+They are Drupal plugins run by drush against the site. There is no subset
+that works on a plain checkout — not even the scaffolding tools, whose
+underlying generators are Drupal-free but which are only *reachable* through
+a booted site.
 
-So on the CLI surface, with no site, you do not have a reduced droost. You
-have none. Plan without grounding, build by hand, and be explicit in every
+So on a checkout with no site, you do not have a reduced droost. You have
+none. Plan without grounding, build by hand, and be explicit in every
 artefact about which of your foundations you could not check.
 
 This is worth stating plainly because the opposite assumption is the easy
 one to make, and it produces exactly the failure this workflow exists to
 prevent: an agent that believes it verified something it never could.
 
-## When droost's MCP server stops answering
+## When a call fails because the site did
 
-The editor reaches droost through one long `drush mcp:server` process, and
-the site can end it under you: a `ddev snapshot restore`, a `ddev restart`, a
-failed module install, or a fatal in a plugin you just wrote. That is a
-server that died, not a site without droost.
-
-- **On a site droost:install set up, the server comes back by itself.** A
-  call that was running when it died is answered with what happened, and the
-  supervisor starts the server again within seconds. Call again. Nothing is
-  repeated for you, so read the state before repeating a call that writes.
-- **Every droost tool also runs through drush**, with the same answer and
-  the same row in the run's tool-call ledger, so a consult made this way
-  counts for the plan as one made over MCP:
-
-  ```bash
-  ddev drush droost:tool                                     # the tools
-  ddev drush droost:tool droost_consult                      # the plan's consult
-  ddev drush droost:tool droost_decide '{"kind":"block"}'    # one call, JSON arguments
-  ```
-
-  (`drush droost:tool …` without DDEV.) It prints the tool's answer as
-  JSON, and exits 1 when the tool says no.
-
-Do not stop and wait for someone to reconnect the editor: use drush, and say
-in the spec that you did.
+A `ddev snapshot restore`, a `ddev restart`, a failed module install or a
+fatal in a plugin you just wrote can leave the site unable to boot. Then
+every droost call fails the same way, with the site's error. Fix the site
+(read `drush watchdog:show`, or the fatal drush prints), then call again.
+Nothing is repeated for you, so read the state before repeating a call that
+writes.
 
 ## What droost_verify actually does
 
@@ -91,14 +89,13 @@ run before you conclude anything from it.
 answer, not a broken site and not something to work around — report it and
 stop.
 
-**3. Some tools live in submodules that may not be installed.** On droost 2.x
-the brain, codebase search and the wiki all ship in droost core — so
-`droost_capabilities`, `droost_architecture`, `droost_symbol`, `droost_graph`,
-`droost_search` and the wiki tools are there whenever droost is. (On 1.x they
-came from `droost_brain`, `droost_search` and `droost_wiki`; the tool ids are
-the same either way.) What genuinely may be absent are the backend-bridging
-submodules — display, Canvas, Views, Devel and AI tooling. A perfectly healthy
-site can be missing any of those.
+**3. Some tools live in submodules that may not be installed.** The brain,
+codebase search and the wiki ship in droost core — so `droost_capabilities`,
+`droost_architecture`, `droost_symbol`, `droost_graph`, `droost_search` and
+the wiki tools are there whenever droost is. What genuinely may be absent
+are the backend-bridging submodules — Canvas, Devel and AI tooling. A
+perfectly healthy site can be missing any of those; `drush droost:tool`
+lists only what this site has.
 
 ## When a tool is unavailable
 

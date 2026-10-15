@@ -8,8 +8,8 @@ Report where things stand. This command changes nothing.
 ## Run `status`, then report what it returns
 
 Run the `status` verb on whichever surface you have —
-`vendor/bin/droost-workflow status`, `drush droost:workflow:status`, or the
-MCP status tool — and report its two halves rather than reconstructing
+`vendor/bin/droost-workflow status` or `drush droost:workflow:status` — and
+report its two halves rather than reconstructing
 either:
 
 **1. The levers — what a run here is held to.** The provenance (a committed

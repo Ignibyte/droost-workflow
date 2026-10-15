@@ -37,7 +37,7 @@ after the plan had already grounded could not attribute any of that work
 (F-25). So the sequence is:
 
 1. **Open the run** — on a project with a working site use the SITE-BACKED
-   surface, `drush droost:workflow:run` (or the droost MCP run tool). With no
+   surface, `drush droost:workflow:run`. With no
    spec written yet this BEGINS the run (writes `droost/droost-workflow/run.json`
    with the plan phase active) and answers `outcome: blocked` with one row,
    `spec`, saying the run is open and waiting for its document. That is not
@@ -86,17 +86,17 @@ after the plan had already grounded could not attribute any of that work
    the spec at the preset's weight (a full EARS spec at `high`/`xhigh`/`max`,
    a shorter same-shape spec at `medium`/`low`), reading the frozen preset
    from the `run.json` that now exists. The spec file exists BEFORE code
-   does, at every level of the dial. When it names its constructs and pages,
-   consult droost with it (`droost_consult`): plan does not close until the
-   spec as it stands has been put to droost. While the run is in plan the guard
+   does, at every level of the dial. Plan does not close until the spec's
+   `## Grounding` cites what resolves and the run has asked droost's
+   knowledge (`drush droost:brief`, then `drush droost:tool <id> '<json>'`):
+   the `plan_grounded` check. While the run is in plan the guard
    permits writes only under `droost/droost-workflow/` — the spec is plan's
    artefact; project files wait for code.
 5. **Declare the spec and gate the plan phase** —
    `drush droost:workflow:run --spec=droost/droost-workflow/spec-<slug>.md`
-   (or the MCP run tool with the same option). This records WHICH document
-   governs the run and gates plan against it — the spec's `## Tooling plan`,
-   `## Grounding` and `## Routes` sections must be present before the run may
-   leave plan. On a project holding several spec files the declaration is
+   This records WHICH document governs the run and gates plan against it —
+   its `## Grounding` must cite what resolves before the run may leave plan,
+   and a missing `## Routes` is recorded. On a project holding several spec files the declaration is
    mandatory: the engine refuses to guess which document a run answers to.
 
 Then switch to **`/droost:workflow:continue`** to work code → test →

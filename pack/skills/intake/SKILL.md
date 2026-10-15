@@ -16,7 +16,7 @@ This is not for one feature on a site that exists: that is a run
 ## The record you are held to
 
 Everything lives in `droost/intake/`, and `intake check` says what approval
-still needs. Six things are checked, and none of them judges whether a
+still needs. Five things are checked, and none of them judges whether a
 decision is good (that is the human's, at approval):
 
 - **files**: `audit.json` (written by the audit, never by you), `model.md`,
@@ -25,7 +25,6 @@ decision is good (that is the human's, at approval):
 - **coverage**: every route, every repeated structure and form in a page's
   main content, every set of records the source declares, and the frame
   (header and footer) is decided, or set aside with a reason;
-- **consulted**: the model, as it stands, was put to droost;
 - **answered**: every question has the human's answer on record, and your
   file says what the record says;
 - **ladder**: rungs in order, each consuming one below it, each with its
@@ -109,12 +108,12 @@ form, say), run it again with `--routes=/that,/other`.
 
 ## 3. The content model: `droost/intake/model.md`
 
-Write it in the shape droost's consult reads:
+Write it in this shape; `intake check` reads it:
 
 ```markdown
 # <Site> — content model
 
-## Tooling plan
+## Constructs
 
 | Construct | What it is | Evidence | Rung | Confidence | Why |
 |---|---|---|---|---|---|
@@ -139,7 +138,7 @@ Write it in the shape droost's consult reads:
 - **One row per construct**: each content type, each field (`Type: field`),
   each vocabulary, View display, landing page, Webform, menu, block,
   component and piece of custom code. What it is goes in its own column, in
-  droost's words for a kind ("a content type", "a View page").
+  plain Drupal words ("a content type", "a View page").
 - **Evidence** cites the audit's ids. Every structure, form and set of
   records the check names must be cited by a construct or set aside.
 - **Rung** is the roadmap's rung that builds it.
@@ -154,15 +153,21 @@ Write it in the shape droost's consult reads:
   human whether the old addresses matter: a source never deployed has no
   visitor holding them. Leaving them to answer 404 unsaid is neither.
 
-## 4. Put it to droost
+## 4. Check it against the site
 
-Call `droost_consult` with `spec=droost/intake/model.md`. droost answers each
-construct with the kind it reads it as, how this site builds that kind, and
-the page practice here (Canvas, SDC, Views). **Its answers are advice**:
-build each as you judge, and say why in the row when you differ. Revise the
-model, and **consult again after every change**: the check holds the model
-to its latest consult. Use `droost_decide` for a construct whose kind you
-are unsure of.
+Before the model goes to the human, look at what the site already has, so no
+construct duplicates one that exists and none breaks the site's house rules:
+
+- `drush droost:brief` — the site's case (Canvas, SDC, code components), its
+  modules, its content model and its house rules.
+- `drush droost:tool droost_entities '{}'` and `droost_module_docs` — what
+  already exists and what an installed module already gives you.
+- `vendor/bin/droost-workflow rules` — the house rules alone: each rung's
+  work is held to them, by a gate or by the seeker.
+
+A construct the site already has is reused, and the row says so; one a house
+rule shapes says which rule. How each is built is the rungs' call, not the
+model's.
 
 ## 5. Ask the human: `droost/intake/questions.md`
 
@@ -234,7 +239,7 @@ again only what is still unanswered. Without a host either, the operator
 records each answer in their terminal (`drush droost:workflow:intake answer
 "<question>" "<answer>"`).
 
-Revise the model with the answers, and consult again.
+Revise the model with the answers.
 
 **The source's words about its own behaviour** ("nothing is sent", "your
 message has not left this page", "status uses your device's clock", "not a

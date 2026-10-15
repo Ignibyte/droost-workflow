@@ -74,11 +74,11 @@ grading (`low | medium | high | xhigh | max | custom`; a lever file that said
   what run.json froze is exactly the defeat this lens exists to catch, and
   the spec did not ask for it.
 
-Nothing else thins with the dial. Dead code, drift, coupling, security and
-hand-written-what-a-generator-covers are graded identically at every level;
-`low` buys fewer gates, not a kinder reviewer.
+Nothing else thins with the dial. Dead code, drift, coupling, security,
+rebuilt-what-exists and the house rules are graded identically at every
+level; `low` buys fewer gates, not a kinder reviewer.
 
-## The seven lenses — cover every one, inside the scope contract
+## The eight lenses — cover every one, inside the scope contract
 
 1. **Dead or unreachable new code** — added code nothing calls; conditions
    that cannot be true; parameters never used; commented-out blocks shipped.
@@ -94,19 +94,14 @@ hand-written-what-a-generator-covers are graded identically at every level;
 5. **Security smells in the changed code** — unsanitized output or render,
    untrusted input reaching queries or the filesystem, access-check gaps,
    secrets in the diff, SSRF and deserialization shapes.
-6. **Hand-written what a generator covers** — the spec's Tooling plan maps
-   every construct to its surface, in the standing order droost tool →
-   `drush generate` → hand-written-with-reason. A construct built by hand
-   whose row claimed a tool, OR whose stated reason collapses under the
-   generator list (`drush generate` prints it — `yml:permissions`,
-   `yml:links:menu` and `controller` exist, and a live round hand-wrote all
-   three), is drift: cite the row and the generator by name. This is
-   **MEDIUM at minimum** when the row itself declared a scaffold surface —
-   the plan was right and the hands ignored it (a live round declared a
-   scaffold surface for its event subscriber, then wrote the whole file
-   through a shell heredoc). Whole files written via `cat <<` into
-   modules/custom are the tell; editing a scaffolded skeleton's method
-   bodies with file tools is the sanctioned shape and is NOT this finding.
+6. **Rebuilt what already exists** — the diff adds code, config or a
+   component that duplicates what the site already has: a service, a field,
+   a view, a component, a module's feature. Ask droost (`drush droost:tool
+   droost_search`, `droost_symbol`, `droost_module_docs`, `drush
+   droost:brief`) and read the spec's `## Grounding`: a row that says
+   "nothing matched" where something does is the same finding. MEDIUM; HIGH
+   when the copy splits behaviour, so the site now has two answers to one
+   question.
 7. **Discipline defeats introduced by this diff** — a lowered threshold, a
    new suppression or baseline, a skipped gate, a "TODO later" that defers a
    check the levers require. The lever file itself changing without the spec
@@ -130,6 +125,19 @@ hand-written-what-a-generator-covers are graded identically at every level;
    run and are not the diff's to fix unless the spec says so — list them as
    out-of-diff observations if they bear on the change, never as the run's
    defects.
+8. **House rules** — the site's own rules for how it is built. Run
+   `vendor/bin/droost-workflow rules` (it needs no site): it prints the house
+   rules (`rules.house` in `droost.workflow.yml`, each with an id, its text
+   and its judge) and the page rules. Check the diff against every rule
+   whose judge is `seeker`; a rule judged by `gate` is checked mechanically,
+   and you read it only to see whether the diff routed around the gate.
+   Every finding cites the rule's id in its Finding cell (`HR2: …`). A break
+   is **HIGH**, unless the spec records an exception the OPERATOR approved,
+   with who approved it and why — then it is carried with that reason. An
+   exception the agent wrote for itself (`--except=` on a route, a sentence
+   in the spec with no operator behind it) is no exception: the break is
+   HIGH. A site with no `rules.house` has nothing here; say so in one line,
+   not as a finding.
 
 ## The ledger — the EXACT format the engine parses
 

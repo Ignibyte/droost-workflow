@@ -216,8 +216,8 @@ gates:
   # one check `low` keeps in its test phase: a run that stops checking whether
   # the page renders is not light, it is blind.
   #
-  # No droost MCP tool renders a page, so this gate is implemented by the
-  # live-site surface rather than by droost — which means a run with no
+  # droost renders no page itself, so this gate is implemented by the
+  # live-site surface — which means a run with no
   # booted site records it "skipped, no site" rather than passed. That is the
   # intended behaviour and the reason it ships on: the gate you most want is
   # the one whose absence must be visible in the report.
@@ -225,7 +225,7 @@ gates:
   # It takes one option: the PROJECT'S standing paths, comma-separated.
   #   rendered_check: { on: true, routes: "/,/pricing" }
   # Omitted, that half is "/". The TICKET'S paths come from the run's spec —
-  # its `## Routes` section, which the plan gate requires — and the gate
+  # its declared routes, or its `## Routes` section — and the gate
   # renders the union, naming each route's source in its summary. Three live
   # rounds rendered "/" alone while the ticket's own page went unrequested.
   rendered_check: { on: true }
@@ -243,14 +243,18 @@ gates:
   #   suite:   { on: true, phase: test, cmd: "bin/gate.sh FULL", timeout: 900 }
 
 # The seeker checkpoint: an adversarial reviewer (the workflow-seeker agent)
-# inspects the run's diff after the code phase's gates pass, and again at
-# complete. Gates verify rules; the seeker verifies judgment — dead new
-# code, drift from the spec, coupling the change breaks, weak tests,
-# security smells, discipline defeats. On by default and highly
-# recommended. WHAT it looks at is not configurable (the one-hop blast
-# radius and the six lenses are the pattern, not a per-repo choice — a
-# reviewer you can remap is a reviewer you can negotiate with). HOW MANY
-# TIMES it looks is yours.
+# inspects the run's diff after the code phase's gates pass. Gates verify
+# rules; the seeker verifies judgment — dead new code, drift from the spec,
+# coupling the change breaks, weak tests, security smells, rebuilding what
+# exists, discipline defeats, and this site's house rules (below). On by
+# default and highly recommended. WHAT it looks at is not configurable (the
+# one-hop blast radius and the eight lenses are the pattern, not a per-repo
+# choice — a reviewer you can remap is a reviewer you can negotiate with).
+# HOW MANY TIMES it looks, and what holds the run, is yours:
+#   holds: critical | high | medium | none   which open findings hold the run
+#                                           (the level decides when omitted)
+#   at_complete: true                       complete waits for its own
+#                                           inspection too
 #
 # `rounds` is a FLOOR the code phase will not advance below, 1 to 5. One is
 # the default and the fast path. Raise it on a rung where a second pass
@@ -262,6 +266,20 @@ gates:
 # Turning it off, or down, is a reviewable line in this file — which is why
 # the levers live in a file.
 seekers: { on: true, rounds: 1 }
+
+# House rules: how THIS site is built, held by a gate or by the seeker.
+# droost prescribes no way to build; a site's own rules say what shape the
+# result must take. Each rule has an id, its text, and its judge:
+#   gate    checked mechanically: the composition gate (a page's owner) or
+#           sdc_markup (new markup outside an SDC component's directory)
+#   seeker  read against the diff by the seeker (its lens 8); a break is HIGH
+# An exception is the operator's to grant, recorded in the spec. To make the
+# rules binding, hold on HIGH: `seekers: { holds: high, at_complete: true }`.
+# `vendor/bin/droost-workflow rules` prints the resolved rules. For example:
+# rules:
+#   house:
+#     - { id: HR1, rule: "New markup lives in an SDC component", judge: gate }
+#     - { id: HR2, rule: "A landing page is a Canvas page, one component per section", judge: seeker }
 
 # How many times a failing gate may drive the feedback loop before the run
 # fails. 0 means a gate gets one attempt and no retry. The seeker hold is
