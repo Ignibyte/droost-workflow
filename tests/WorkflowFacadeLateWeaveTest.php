@@ -109,12 +109,12 @@ final class WorkflowFacadeLateWeaveTest extends WorkflowTestCase {
   }
 
   /**
-   * A gate a module declares after a seeing begin does not join; the report says so.
+   * A gate declared after a seeing begin does not join; the report says so.
    *
    * A client's run took a gate added mid-run into a run that never agreed
    * to it (0.14.18).
    */
-  public function testSeeingBeginDoesNotTakeAGateDeclaredLater(): void {
+  public function testSeeingBeginDoesNotTakeGatesDeclaredLater(): void {
     $root = $this->makeRootWithConfig("preset: low\n");
     $snyk = new ContributedGate('snyk', 'droost_snyk', ['code', 'test'], 'snyk test', 'report', 'exit 0: clean.');
     $audit = new ContributedGate('composer_audit', 'droost_audit', ['code', 'test'], 'composer audit', 'report', 'exit 0: clean.');
@@ -133,7 +133,7 @@ final class WorkflowFacadeLateWeaveTest extends WorkflowTestCase {
   /**
    * A contributed gate runs its frozen command, and says the module's changed.
    */
-  public function testAChangedCommandIsNamedBesideTheFrozenOne(): void {
+  public function testChangedCommandIsNamedBesideTheFrozenOne(): void {
     $root = $this->makeRootWithConfig("preset: low\n");
     $before = new ContributedGate('snyk', 'droost_snyk', ['code', 'test'], 'snyk test', 'report', 'exit 0: clean.');
     $after = new ContributedGate('snyk', 'droost_snyk', ['code', 'test'], 'snyk test --dev', 'report', 'exit 0: clean.');

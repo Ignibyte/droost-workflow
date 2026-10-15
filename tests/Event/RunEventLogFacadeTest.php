@@ -113,7 +113,7 @@ final class RunEventLogFacadeTest extends WorkflowTestCase {
   /**
    * A ticket declared with declare-changes --work-item is on every later event.
    */
-  public function testADeclaredTicketNamesTheEvents(): void {
+  public function testDeclaredTicketNamesTheEvents(): void {
     $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\nseekers:\n  on: false\n");
     $facade = $this->facade();
     $facade->run($root);

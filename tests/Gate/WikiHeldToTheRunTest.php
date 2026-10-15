@@ -18,7 +18,7 @@ use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\Vcs\VcsInterface;
 
 /**
- * The wiki gate fails on the pages a run made unfresh, not on every page (0.14.18).
+ * The wiki gate fails on the pages a run made unfresh, not every page.
  *
  * A client's run failed complete on a contrib theme's page that a
  * dependency bump had left stale before the run began, and spent a retry on
@@ -28,12 +28,15 @@ final class WikiHeldToTheRunTest extends WorkflowTestCase {
 
   private const GIN = ['page' => 'gin.md', 'sources' => 'web/themes/contrib/gin/gin.info.yml'];
 
-  private const OWN = ['page' => 'example_contact.md', 'sources' => 'web/modules/custom/example_contact/src/Form/ContactForm.php'];
+  private const OWN = [
+    'page' => 'example_contact.md',
+    'sources' => 'web/modules/custom/example_contact/src/Form/ContactForm.php',
+  ];
 
   /**
    * A page the run did not make stale is named, and does not fail the gate.
    */
-  public function testAPageFoundStaleDoesNotFailTheRun(): void {
+  public function testPageFoundStaleDoesNotFailTheRun(): void {
     $wiki = $this->wikiAfter("preset: high\n", [self::GIN], ['web/modules/custom/example_contact/src/Form/ContactForm.php']);
 
     $this->assertSame(GateStatus::Passed, $wiki->status);
@@ -44,7 +47,7 @@ final class WikiHeldToTheRunTest extends WorkflowTestCase {
   /**
    * A page whose source the run changed fails it, by name.
    */
-  public function testAPageTheRunMadeStaleFailsIt(): void {
+  public function testPageTheRunMadeStaleFailsIt(): void {
     $wiki = $this->wikiAfter("preset: high\n", [self::GIN, self::OWN], ['web/modules/custom/example_contact/src/Form/ContactForm.php']);
 
     $this->assertSame(GateStatus::Failed, $wiki->status);
@@ -53,7 +56,7 @@ final class WikiHeldToTheRunTest extends WorkflowTestCase {
   }
 
   /**
-   * `scope: all` holds the run to every page, as before.
+   * Scope all holds the run to every page, as before.
    */
   public function testScopeAllHoldsEveryPage(): void {
     $wiki = $this->wikiAfter("preset: high\ngates:\n  wiki_fresh: { scope: all }\n", [self::GIN], ['web/modules/custom/example_contact/src/Form/ContactForm.php']);
@@ -79,7 +82,14 @@ final class WikiHeldToTheRunTest extends WorkflowTestCase {
     $report = json_encode([
       'summary' => ['pages' => 2, 'fresh' => 1, 'stale' => 1, 'orphaned' => 0, 'invalid' => 0],
       'pages' => [
-        ['file' => 'gin.md', 'status' => 'stale', 'stale_sources' => [['path' => 'web/themes/contrib/gin/gin.info.yml', 'recorded' => 'a', 'current' => 'b']], 'missing_sources' => []],
+        [
+          'file' => 'gin.md',
+          'status' => 'stale',
+          'stale_sources' => [
+            ['path' => 'web/themes/contrib/gin/gin.info.yml', 'recorded' => 'a', 'current' => 'b'],
+          ],
+          'missing_sources' => [],
+        ],
         ['file' => 'example_contact.md', 'status' => 'fresh', 'stale_sources' => [], 'missing_sources' => []],
       ],
     ]);

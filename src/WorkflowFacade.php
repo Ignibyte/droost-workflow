@@ -1392,7 +1392,8 @@ final class WorkflowFacade {
     $record['phase'] = self::openPhase($state);
     $record['dispatch'] = $dispatch;
     // A HOLD ASKED ON THE LAST INSPECTION is released, not left standing
-    // (a client's first observed run): the code hold said "the inspection is clean" for nineteen
+    // (a client's first observed run): the code hold said "the inspection is
+    // clean" for nineteen
     // minutes through two more inspections that found MEDIUMs. Released, it
     // stays on the record as asked and bypassed, and the next `run` asks
     // again with this ledger's verdict.
@@ -2227,6 +2228,8 @@ final class WorkflowFacade {
    *   The run, or NULL for the run recorded in this project's state.
    * @param string|null $writeTo
    *   A project-relative path to write to, or NULL to only return the markdown.
+   * @param bool $full
+   *   Whether every transcript is shown whole, up to what the store keeps.
    *
    * @return array{markdown: string, run_id: string, written_to: string|null}
    *   The document, the run it describes, and where it was written.
@@ -2240,7 +2243,7 @@ final class WorkflowFacade {
       $state = $store->load();
       // A completed run is archived the moment it completes, so with none
       // open the newest archived run is the one asked about.
-      $runId = $state?->runId ?? $store->lastArchived()?->runId;
+      $runId = $state->runId ?? $store->lastArchived()?->runId;
       if ($runId === NULL) {
         throw StateError::noRun($store->label());
       }

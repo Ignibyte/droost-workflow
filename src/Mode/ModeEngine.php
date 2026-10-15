@@ -325,7 +325,8 @@ final class ModeEngine {
     //
     // WHICH FINDINGS HOLD is a lever since 0.14.18 (`seekers.holds`): the
     // level's default is the rule above, and `custom`, which owns every
-    // lever, can say `critical` or `medium` (a client's first observed run left code at custom with
+    // lever, can say `critical` or `medium` (a client's first observed run
+    // left code at custom with
     // open findings the pack said would hold it). And complete can be made to
     // need an inspection of its own (`seekers.at_complete`), which the README
     // promised and the engine never required.

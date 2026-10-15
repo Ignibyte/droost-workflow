@@ -20,7 +20,7 @@ use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\WorkflowFacade;
 
 /**
- * The seeker's ledger is a seeker's, and the levers that make it hold (0.14.18).
+ * The seeker's ledger is a seeker's, and the levers that make it hold.
  *
  * A client's first observed run at `custom` showed four gaps: a ledger the
  * main agent wrote itself was taken as an independent inspection, open
@@ -43,9 +43,9 @@ final class SeekerEnforcementTest extends WorkflowTestCase {
   private int $tick = 0;
 
   /**
-   * With dispatches recorded, a ledger needs a seeker that returned since the last.
+   * With dispatches recorded, a ledger needs a seeker returned since the last.
    */
-  public function testALedgerNoSeekerReturnedForIsRefused(): void {
+  public function testLedgerNoSeekerReturnedForIsRefused(): void {
     $root = $this->wired("preset: custom\nmode: agentic\n");
     $this->toInspection($root);
     $runId = (new RunStateStore($root))->load()?->runId;
@@ -79,7 +79,7 @@ final class SeekerEnforcementTest extends WorkflowTestCase {
    * The pack's status update after fixes (F-44) is the main agent's ledger,
    * and stays legal labelled as what it is.
    */
-  public function testASelfReviewCountsAsNoInspectionAndReleasesNoHold(): void {
+  public function testSelfReviewCountsAsNoInspectionAndReleasesNoHold(): void {
     $root = $this->wired("preset: custom\nmode: agentic\nseekers:\n  holds: medium\n");
     $this->toInspection($root);
     $selfReview = str_replace('Inspector: independent', 'Inspector: self-reviewed', self::CLEAN);
@@ -151,24 +151,21 @@ final class SeekerEnforcementTest extends WorkflowTestCase {
     $this->toInspection($root);
     $this->facade()->recordSeeker($root, self::CLEAN);
 
-    $outcome = NULL;
-    for ($i = 0; $i < 6; $i++) {
+    $outcome = $this->facade()->run($root);
+    for ($i = 0; $i < 6 && $outcome->outcome === Outcome::Advanced; $i++) {
       $outcome = $this->facade()->run($root);
-      if ($outcome->outcome !== Outcome::Advanced) {
-        break;
-      }
     }
-    $this->assertSame(Outcome::InspectionDue, $outcome?->outcome);
-    $this->assertSame(Phase::Complete, $outcome?->state->currentPhase, 'complete waits for its own inspection');
+    $this->assertSame(Outcome::InspectionDue, $outcome->outcome);
+    $this->assertSame(Phase::Complete, $outcome->state->currentPhase, 'complete waits for its own inspection');
 
     $this->facade()->recordSeeker($root, self::CLEAN);
     $this->assertSame(Outcome::Completed, $this->facade()->run($root)->outcome);
   }
 
   /**
-   * A ledger filed while a hold is open releases it, so the hold is asked again.
+   * A ledger filed while a hold is open releases it, so it is asked again.
    */
-  public function testANewLedgerReleasesTheHoldAskedOnTheLastOne(): void {
+  public function testNewLedgerReleasesTheHoldAskedOnTheLastOne(): void {
     $root = $this->makeRootWithConfig("preset: custom\nmode: pair\n");
     $this->facade()->run($root);
     $this->facade()->answer($root, 'go on');
@@ -181,7 +178,9 @@ final class SeekerEnforcementTest extends WorkflowTestCase {
 
     $state = (new RunStateStore($root))->load();
     $this->assertNull($state?->awaiting, 'the stale hold is no longer standing');
-    $last = $state?->qaHistory[array_key_last($state->qaHistory)] ?? [];
+    $history = $state->qaHistory ?? [];
+    $last = $history === [] ? [] : $history[array_key_last($history)];
+    $this->assertIsArray($last);
     $this->assertArrayHasKey('released_at', $last, 'and the record keeps it as asked and released');
   }
 
@@ -239,11 +238,17 @@ final class SeekerEnforcementTest extends WorkflowTestCase {
     $root = $this->makeRootWithConfig($yaml);
     mkdir($root . '/.claude', 0755, TRUE);
     file_put_contents($root . '/.claude/settings.json', json_encode([
-      'hooks' => ['PostToolUse' => [[
-        'matcher' => 'Agent|Task',
-        'hooks' => [['type' => 'command', 'command' => 'php "$CLAUDE_PROJECT_DIR/.claude/hooks/droost-workflow-guard.php" dispatched']],
-      ],
-      ],
+      'hooks' => [
+        'PostToolUse' => [[
+          'matcher' => 'Agent|Task',
+          'hooks' => [
+            [
+              'type' => 'command',
+              'command' => 'php "$CLAUDE_PROJECT_DIR/.claude/hooks/droost-workflow-guard.php" dispatched',
+            ],
+          ],
+        ],
+        ],
       ],
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     return $root;

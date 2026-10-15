@@ -90,7 +90,7 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
    * Every ticket used to end with a `reset` by hand before the next `run`
    * could begin (0.14.18).
    */
-  public function testACompletedRunIsArchivedAsItCompletes(): void {
+  public function testCompletedRunIsArchivedAsItCompletes(): void {
     $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\n");
     $executor = $this->allGatesPass();
     for ($i = 0; $i < 16; $i++) {

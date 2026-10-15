@@ -55,7 +55,8 @@ final class SeekerError extends \RuntimeException {
   /**
    * A ledger labelled independent with no seeker run behind it.
    *
-   * A client's first observed run: the main agent appended a second ledger itself, labelled it
+   * A client's first observed run: the main agent appended a second ledger
+   * itself, labelled it
    * "Inspector: independent" and marked every finding resolved, and the
    * checkpoint took it as clean. The guard records each subagent that
    * returns (PostToolUse on Agent and Task), so a ledger that says it is

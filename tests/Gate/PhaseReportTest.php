@@ -237,7 +237,7 @@ class PhaseReportTest extends TestCase {
   /**
    * A pass that measured nothing is counted apart from one that measured.
    */
-  public function testALabelledPassIsNotCountedAsPassed(): void {
+  public function testLabelledPassIsNotCountedAsPassed(): void {
     $report = (new PhaseReport(Phase::Code))
       ->with(GateResult::ran('phpcs', GateStatus::Passed, 0, 1, 'phpcs passed', [], 'phpcs'))
       ->with(GateResult::labelledPass('eslint', 0, 1, 'eslint passed — nothing analysed', 'eslint'));

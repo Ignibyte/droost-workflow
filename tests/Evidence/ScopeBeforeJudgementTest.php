@@ -210,13 +210,13 @@ none — fixture
    * there before the run began (0.14.18). The run records what it found
    * changed, by hash; a file the run then edits is its change again.
    */
-  public function testAFileChangedBeforeTheRunBeganIsNotTheRuns(): void {
+  public function testFileChangedBeforeTheRunBeganIsNotTheRuns(): void {
     [$root, $spec] = $this->project();
     file_put_contents($root . '/kh-delete.csv', "id\n1\n");
     $facade = $this->facadeSeeing(['src/Declared.php', 'kh-delete.csv']);
 
     $this->assertSame(Outcome::Advanced, $facade->run($root, $spec)->outcome, 'plan ends');
-    $this->assertArrayHasKey('kh-delete.csv', (new RunStateStore($root))->load()?->preexisting ?? [], 'recorded as found');
+    $this->assertArrayHasKey('kh-delete.csv', (new RunStateStore($root))->load()->preexisting ?? [], 'recorded as found');
     @mkdir($root . '/src', 0755, TRUE);
     file_put_contents($root . '/src/Declared.php', "<?php\n");
     $facade->declareChanges($root, ['src/Declared.php'], [], 'code');

@@ -169,6 +169,10 @@ final class WorkflowConfig {
    * @param \Droost\Workflow\Config\BuildRules|null $rules
    *   The owner's rules for what builds a page, as written; NULL for none,
    *   which is every case's defaults (owner, 2026-10-02).
+   * @param string $seekerHolds
+   *   Which open seeker findings hold the run: critical, medium or none.
+   * @param bool $seekerAtComplete
+   *   Whether complete needs an inspection of its own.
    */
   private function __construct(
     public readonly Mode $mode,
@@ -789,7 +793,8 @@ final class WorkflowConfig {
    * Reads which open seeker findings hold the run.
    *
    * A lever because `custom` owns every lever (0.14.15) and had no way to say
-   * "an open CRITICAL holds this run": a client's first observed run left code at `custom` with the
+   * "an open CRITICAL holds this run": a client's first observed run left
+   * code at `custom` with the
    * pack's "open CRITICAL or MEDIUM rows hold the run" enforced by nothing.
    * `critical` holds on an open CRITICAL, `medium` on an open CRITICAL or
    * MEDIUM, `none` on neither. LOWs never hold.

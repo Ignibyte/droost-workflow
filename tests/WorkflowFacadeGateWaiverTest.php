@@ -13,7 +13,6 @@ use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunOutcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
-use Droost\Workflow\State\RunStateStore;
 use Droost\Workflow\State\StateError;
 use Droost\Workflow\WorkflowFacade;
 

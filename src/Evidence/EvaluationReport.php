@@ -151,6 +151,9 @@ final class EvaluationReport {
    *
    * @param \Droost\Workflow\Evidence\EvidenceStore $store
    *   The store to read. Never written to.
+   * @param bool $fullTranscripts
+   *   Whether each transcript is shown whole (evidence --full), up to what
+   *   the store keeps, rather than cut in the middle.
    */
   public function __construct(
     private readonly EvidenceStore $store,

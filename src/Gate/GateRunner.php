@@ -320,15 +320,16 @@ final class GateRunner {
     $own = [];
     $found = [];
     foreach ($pages as $page) {
-      $file = (string) ($page['page'] ?? '');
-      $sources = array_filter(explode("\n", (string) ($page['sources'] ?? '')));
+      $file = is_string($page['page'] ?? NULL) ? $page['page'] : '';
+      $sources = array_filter(explode("\n", is_string($page['sources'] ?? NULL) ? $page['sources'] : ''));
+      $line = is_string($page['message'] ?? NULL) ? $page['message'] : $file;
       $touched = array_intersect($sources, $changed) !== []
         || array_filter($changed, static fn (string $path): bool => $file !== '' && str_ends_with($path, '/' . $file)) !== [];
       if ($touched) {
-        $own[] = (string) ($page['message'] ?? $file);
+        $own[] = $line;
       }
       else {
-        $found[] = (string) ($page['message'] ?? $file);
+        $found[] = $line;
       }
     }
     $before = $found === [] ? '' : sprintf(

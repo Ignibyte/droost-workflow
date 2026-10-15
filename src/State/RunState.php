@@ -178,6 +178,12 @@ final class RunState {
    * @param array<array-key, mixed> $rules
    *   The owner's rules for what builds a page, as BuildRules::toArray()
    *   froze them at begin; empty for none.
+   * @param string $seekerHolds
+   *   Which open seeker findings hold the run, frozen at begin.
+   * @param bool $seekerAtComplete
+   *   Whether complete needs an inspection of its own, frozen at begin.
+   * @param array<string, string> $preexisting
+   *   What the tree held changed when the run began, path to sha1.
    */
   public function __construct(
     public readonly string $runId,
@@ -378,7 +384,7 @@ final class RunState {
         $found[$path] = $hash;
       }
     }
-    return new self(...[...get_object_vars($this), 'preexisting' => $found]);
+    return $this->with(preexisting: $found);
   }
 
   /**
@@ -2184,6 +2190,8 @@ final class RunState {
    *   The ticket binding to record, or NULL to keep the run's own.
    * @param \Droost\Workflow\State\LoopState|null $loop
    *   The loop record, or NULL to keep the run's own.
+   * @param array<string, string>|null $preexisting
+   *   What the tree held changed at begin, or NULL to keep the run's own.
    *
    * @return self
    *   A new instance.
@@ -2204,6 +2212,7 @@ final class RunState {
     bool $clearSeeker = FALSE,
     ?array $workItem = NULL,
     ?LoopState $loop = NULL,
+    ?array $preexisting = NULL,
   ): self {
     return new self(
       $this->runId,
@@ -2239,7 +2248,7 @@ final class RunState {
       rules: $this->rules,
       seekerHolds: $this->seekerHolds,
       seekerAtComplete: $this->seekerAtComplete,
-      preexisting: $this->preexisting,
+      preexisting: $preexisting ?? $this->preexisting,
     );
   }
 

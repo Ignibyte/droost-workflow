@@ -908,7 +908,7 @@ final class ConfigError extends \RuntimeException {
   }
 
   /**
-   * seekers.holds names no severity it knows.
+   * Seekers.holds names no severity it knows.
    *
    * @param string $source
    *   The document label.

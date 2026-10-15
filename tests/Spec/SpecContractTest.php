@@ -949,7 +949,7 @@ MD
    *   A fragment the finding's message must contain.
    */
   private function assertShapeRecorded(string $root, string $rule, string $phase, string $expect): void {
-    $runId = $this->lastRun($root)?->runId ?? '';
+    $runId = $this->lastRun($root)->runId ?? '';
     $this->assertNotSame('', $runId, 'the run has no id');
 
     $rows = (new EvidenceStore($root))->checklist($runId, $phase);

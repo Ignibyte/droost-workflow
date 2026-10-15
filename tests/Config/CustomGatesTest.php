@@ -216,14 +216,18 @@ final class CustomGatesTest extends TestCase {
    * "Found 14 security vulnerability advisories affecting 1 package:"
    * (0.14.18).
    */
-  public function testAFailingGatesPlainOutputIsKeptLineByLine(): void {
+  public function testFailingGatesPlainOutputIsKeptLineByLine(): void {
     $plain = "Found 2 security vulnerability advisories affecting 1 package:\n"
       . "+-------------------+\n"
       . "| Package  | guzzlehttp/guzzle |\n"
       . "| CVE      | CVE-2022-29248    |\n"
       . "| CVE      | CVE-2022-31042    |\n";
     $executor = new ShellGateExecutor(static fn (): array => [1, $plain, ''], static fn (): int => 0);
-    $gate = new GateSettings('module:composer_audit', TRUE, ['cmd' => 'composer audit', 'phase' => 'code', 'verdict' => 'exit 1: advisories.']);
+    $gate = new GateSettings('module:composer_audit', TRUE, [
+      'cmd' => 'composer audit',
+      'phase' => 'code',
+      'verdict' => 'exit 1: advisories.',
+    ]);
 
     $result = $executor->execute($gate, '/tmp');
 
@@ -238,12 +242,22 @@ final class CustomGatesTest extends TestCase {
   /**
    * JSON output is a row per finding, wherever its list sits; never a brace.
    */
-  public function testAFailingGatesJsonIsARowPerFinding(): void {
+  public function testFailingGatesJsonIsOneRowPerFinding(): void {
     $json = (string) json_encode([
       'advisories' => [
         'guzzlehttp/guzzle' => [
-          ['advisoryId' => 'PKSA-1', 'packageName' => 'guzzlehttp/guzzle', 'cve' => 'CVE-2022-29248', 'title' => 'Cookie leak'],
-          ['advisoryId' => 'PKSA-2', 'packageName' => 'guzzlehttp/guzzle', 'cve' => 'CVE-2022-31042', 'title' => 'Header leak'],
+          [
+            'advisoryId' => 'PKSA-1',
+            'packageName' => 'guzzlehttp/guzzle',
+            'cve' => 'CVE-2022-29248',
+            'title' => 'Cookie leak',
+          ],
+          [
+            'advisoryId' => 'PKSA-2',
+            'packageName' => 'guzzlehttp/guzzle',
+            'cve' => 'CVE-2022-31042',
+            'title' => 'Header leak',
+          ],
         ],
       ],
       'abandoned' => [],
