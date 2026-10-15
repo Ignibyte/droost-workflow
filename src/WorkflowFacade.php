@@ -2227,7 +2227,7 @@ final class WorkflowFacade {
    * @throws \Droost\Workflow\State\StateError
    *   When no run id is given and none can be resolved from the project.
    */
-  public function evidence(string $projectRoot, ?string $runId = NULL, ?string $writeTo = NULL): array {
+  public function evidence(string $projectRoot, ?string $runId = NULL, ?string $writeTo = NULL, bool $full = FALSE): array {
     if ($runId === NULL || trim($runId) === '') {
       $store = new RunStateStore($projectRoot);
       $state = $store->load();
@@ -2239,7 +2239,11 @@ final class WorkflowFacade {
       }
     }
 
-    $markdown = (new EvaluationReport(new EvidenceStore($projectRoot)))
+    // --full: every stored transcript whole, up to the 16 KB the store keeps
+    // (GateResult::OUTPUT_CAP). A client's report-mode gate listed fourteen
+    // advisories, and the 2,000-character cut left half unreachable from any
+    // surface a run may use (0.14.18).
+    $markdown = (new EvaluationReport(new EvidenceStore($projectRoot), $full))
       ->render($runId, $this->currentSubjects($projectRoot));
 
     $written = NULL;

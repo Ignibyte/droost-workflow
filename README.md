@@ -423,6 +423,21 @@ all behind the run is woven into complete, so it still runs once),
 and the record says so — `run.contributed_source` names the door that began
 it, `run.late_woven` names each gate and the phase it joined at.
 
+A run begun on a door that DID see the catalog agreed to the gates it saw.
+A gate a module declares after that does not join it: each phase the gate
+declares reports it `off — declared after this run began`, and the next run
+takes it. And a contributed gate's command is frozen when the run takes the
+gate, like every lever, so a run cannot loosen the gate it is held to by
+editing the plugin that declares it; when the module's command has changed
+since, the gate's summary names both, and the next run runs the new one.
+
+In the strict flow, complete re-runs every gate the run holds, contributed
+gates included, whatever phases they declare: it is the last wall before the
+run is recorded complete. A failing contributed gate's output reaches the
+record as findings, a row per line of plain output or per object in a JSON
+report's lists, and `evidence --full` prints each gate's output whole (up to
+the 16 KB kept) where the report otherwise cuts it at 2,000 characters.
+
 ### Work-item project config
 
 The optional `work_item:` block is the project config of a tracker bridge

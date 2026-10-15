@@ -152,7 +152,10 @@ final class EvaluationReport {
    * @param \Droost\Workflow\Evidence\EvidenceStore $store
    *   The store to read. Never written to.
    */
-  public function __construct(private readonly EvidenceStore $store) {}
+  public function __construct(
+    private readonly EvidenceStore $store,
+    private readonly bool $fullTranscripts = FALSE,
+  ) {}
 
   /**
    * Fingerprints of what each gate would examine now, from the last render().
@@ -1374,7 +1377,7 @@ final class EvaluationReport {
         self::cell(self::number($row, 'attempt')),
         self::escape((string) (self::text($row, 'stream') ?? '')),
         self::stateLabel(self::text($row, 'state')),
-        self::fence($content),
+        $this->fullTranscripts ? self::fence($content, PHP_INT_MAX) : self::fence($content),
       );
     }
 
@@ -1415,16 +1418,19 @@ final class EvaluationReport {
    *
    * @param string $content
    *   The raw stream.
+   * @param int $max
+   *   The most characters shown; the rest is cut from the middle, and the
+   *   cut says to read it whole with --full.
    *
    * @return string
    *   The block.
    */
-  private static function fence(string $content): string {
+  private static function fence(string $content, int $max = self::MAX_TRANSCRIPT): string {
     $length = mb_strlen($content);
-    if ($length > self::MAX_TRANSCRIPT) {
-      $half = intdiv(self::MAX_TRANSCRIPT, 2);
+    if ($length > $max) {
+      $half = intdiv($max, 2);
       $content = mb_substr($content, 0, $half)
-        . sprintf("\n\n… %d of %d characters cut from the middle …\n\n", $length - self::MAX_TRANSCRIPT, $length)
+        . sprintf("\n\n… %d of %d characters cut from the middle (evidence --full shows them all) …\n\n", $length - $max, $length)
         . mb_substr($content, -$half);
     }
     $ticks = 3;

@@ -1932,6 +1932,21 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     // A contributed gate declared what its verdict means; a failure repeats
     // it, so the report never shows an exit code nobody can read (D72).
     $summary = $this->summarise($gate->name, $exit, $stdout, $stderr);
+    $findings = $exit === 0 ? $this->findings($stdout) : self::customFindings($stdout, $stderr);
+    if ($exit !== 0 && $findings !== []) {
+      // WHAT IT FOUND, counted, not the one line a summary keeps. A client's
+      // `composer audit` gate summarised fourteen advisories as "Found 14
+      // security vulnerability advisories affecting 1 package:", and in its
+      // JSON format as "{" (0.14.18); the rows now carry each one.
+      $first = $findings[0]['message'] ?? '';
+      $summary = sprintf(
+        '%s failed (exit %d): %d finding(s) recorded from its output%s',
+        $gate->name,
+        $exit,
+        count($findings),
+        is_string($first) && $first !== '' ? '; the first: ' . mb_substr($first, 0, 160) : '',
+      );
+    }
     $verdict = $gate->option('verdict');
     if ($exit !== 0 && is_string($verdict) && $verdict !== '') {
       $summary .= ' — what this means: ' . $verdict;
@@ -1943,9 +1958,85 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $exit,
       $elapsed,
       $summary,
-      $this->findings($stdout),
+      $findings,
       $cmd,
     );
+  }
+
+  /**
+   * A failing custom or contributed gate's findings, from whatever it printed.
+   *
+   * No parser is declared for these gates, so the record reads the two
+   * shapes they print. JSON: every list of objects is a row per object,
+   * wherever it sits (composer audit's `advisories` are keyed by package),
+   * and an empty list is no row. Anything else: a row per line of output
+   * that says something, so a plain-format report reaches the record whole.
+   * At most 200 rows; the transcript keeps the rest.
+   *
+   * @param string $stdout
+   *   Standard output.
+   * @param string $stderr
+   *   Standard error, read when stdout is empty.
+   *
+   * @return list<array<string, mixed>>
+   *   The findings.
+   */
+  private static function customFindings(string $stdout, string $stderr): array {
+    $text = trim($stdout) !== '' ? $stdout : $stderr;
+    if (trim($text) === '') {
+      return [];
+    }
+    try {
+      $decoded = json_decode($text, TRUE, 64, JSON_THROW_ON_ERROR);
+    }
+    catch (\JsonException) {
+      $decoded = NULL;
+    }
+    $rows = [];
+    if (is_array($decoded)) {
+      $walk = static function (array $node, string $path) use (&$walk, &$rows): void {
+        if ($node !== [] && array_is_list($node) && array_filter($node, 'is_array') === $node) {
+          foreach ($node as $item) {
+            $rows[] = ['key' => $path, 'message' => self::itemLine($item), 'detail' => $item];
+          }
+          return;
+        }
+        foreach ($node as $key => $value) {
+          if (is_array($value)) {
+            $walk($value, $path === '' ? (string) $key : $path . '.' . $key);
+          }
+        }
+      };
+      $walk($decoded, '');
+    }
+    else {
+      foreach (preg_split('/\R/', $text) ?: [] as $line) {
+        $line = trim($line);
+        if ($line !== '' && preg_match('/^[-=+|*#\s]+$/', $line) !== 1) {
+          $rows[] = ['rule' => 'output', 'message' => mb_substr($line, 0, 300)];
+        }
+      }
+    }
+    return array_slice($rows, 0, 200);
+  }
+
+  /**
+   * One line naming a JSON finding, from the fields such reports carry.
+   *
+   * @param array<mixed> $item
+   *   The finding.
+   *
+   * @return string
+   *   Its line.
+   */
+  private static function itemLine(array $item): string {
+    $parts = [];
+    foreach (['packageName', 'package', 'name', 'severity', 'cve', 'advisoryId', 'id', 'title', 'message', 'link'] as $field) {
+      if (isset($item[$field]) && is_scalar($item[$field]) && (string) $item[$field] !== '') {
+        $parts[] = (string) $item[$field];
+      }
+    }
+    return $parts === [] ? mb_substr((string) json_encode($item, JSON_UNESCAPED_SLASHES), 0, 300) : mb_substr(implode(' — ', $parts), 0, 300);
   }
 
   /**

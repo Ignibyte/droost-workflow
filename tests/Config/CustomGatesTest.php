@@ -210,6 +210,57 @@ final class CustomGatesTest extends TestCase {
   }
 
   /**
+   * A failing gate's plain output reaches the record a line a finding.
+   *
+   * A client's `composer audit` gate kept one line of fourteen advisories,
+   * "Found 14 security vulnerability advisories affecting 1 package:"
+   * (0.14.18).
+   */
+  public function testAFailingGatesPlainOutputIsKeptLineByLine(): void {
+    $plain = "Found 2 security vulnerability advisories affecting 1 package:\n"
+      . "+-------------------+\n"
+      . "| Package  | guzzlehttp/guzzle |\n"
+      . "| CVE      | CVE-2022-29248    |\n"
+      . "| CVE      | CVE-2022-31042    |\n";
+    $executor = new ShellGateExecutor(static fn (): array => [1, $plain, ''], static fn (): int => 0);
+    $gate = new GateSettings('module:composer_audit', TRUE, ['cmd' => 'composer audit', 'phase' => 'code', 'verdict' => 'exit 1: advisories.']);
+
+    $result = $executor->execute($gate, '/tmp');
+
+    $messages = array_column($result->findings, 'message');
+    $this->assertContains('| CVE      | CVE-2022-29248    |', $messages);
+    $this->assertContains('| CVE      | CVE-2022-31042    |', $messages, 'every line, not the first');
+    $this->assertNotContains('+-------------------+', $messages, 'a rule line says nothing');
+    $this->assertStringContainsString('4 finding(s) recorded from its output', $result->summary);
+    $this->assertStringContainsString('what this means: exit 1: advisories.', $result->summary);
+  }
+
+  /**
+   * JSON output is a row per finding, wherever its list sits; never a brace.
+   */
+  public function testAFailingGatesJsonIsARowPerFinding(): void {
+    $json = (string) json_encode([
+      'advisories' => [
+        'guzzlehttp/guzzle' => [
+          ['advisoryId' => 'PKSA-1', 'packageName' => 'guzzlehttp/guzzle', 'cve' => 'CVE-2022-29248', 'title' => 'Cookie leak'],
+          ['advisoryId' => 'PKSA-2', 'packageName' => 'guzzlehttp/guzzle', 'cve' => 'CVE-2022-31042', 'title' => 'Header leak'],
+        ],
+      ],
+      'abandoned' => [],
+    ], JSON_PRETTY_PRINT);
+    $executor = new ShellGateExecutor(static fn (): array => [1, $json, ''], static fn (): int => 0);
+    $gate = new GateSettings('module:composer_audit', TRUE, ['cmd' => 'composer audit --format=json', 'phase' => 'code']);
+
+    $result = $executor->execute($gate, '/tmp');
+
+    $this->assertCount(2, $result->findings, 'one per advisory, and no row for the empty list');
+    $this->assertSame('advisories.guzzlehttp/guzzle', $result->findings[0]['key']);
+    $this->assertSame('guzzlehttp/guzzle — CVE-2022-29248 — PKSA-1 — Cookie leak', $result->findings[0]['message']);
+    $this->assertStringContainsString('2 finding(s) recorded from its output; the first: guzzlehttp/guzzle', $result->summary);
+    $this->assertStringNotContainsString('): {', $result->summary);
+  }
+
+  /**
    * A custom gate takes a timeout, and a kill is no verdict (F-158).
    *
    * A repo's own suite that outlasts ten minutes failed every time it ran,

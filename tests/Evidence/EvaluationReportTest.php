@@ -704,10 +704,15 @@ final class EvaluationReportTest extends TestCase {
     $this->assertStringContainsString('TAIL-MARKER', $report);
     $this->assertStringContainsString('characters cut from the middle', $report);
     $this->assertMatchesRegularExpression(
-      '/… 3022 of 5022 characters cut from the middle …/',
+      '/… 3022 of 5022 characters cut from the middle \(evidence --full shows them all\) …/',
       $report,
-      'the cut is stated exactly, not approximately',
+      'the cut is stated exactly, not approximately, and says how to read it whole',
     );
+
+    // --full: the whole stream, as the store keeps it (0.14.18).
+    $full = (new EvaluationReport($store, TRUE))->render('r1');
+    $this->assertStringContainsString('HEAD-MARKER' . str_repeat('x', 5000) . 'TAIL-MARKER', $full);
+    $this->assertStringNotContainsString('characters cut from the middle', $full);
   }
 
   /**

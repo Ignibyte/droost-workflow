@@ -1089,7 +1089,7 @@ final class ArgvDispatcher {
    * @param string $projectRoot
    *   The repository.
    * @param list<string> $argv
-   *   The arguments: --run=<id>, --write[=<path>].
+   *   The arguments: --run=<id>, --write[=<path>], --full.
    *
    * @return int
    *   The exit code.
@@ -1097,6 +1097,7 @@ final class ArgvDispatcher {
   private function evidence(string $projectRoot, array $argv): int {
     $runId = NULL;
     $writeTo = NULL;
+    $full = in_array('--full', $argv, TRUE);
     foreach ($argv as $arg) {
       if (str_starts_with($arg, '--run=')) {
         $runId = substr($arg, 6);
@@ -1114,7 +1115,7 @@ final class ArgvDispatcher {
     // that path is deliberately NOT covered by the ignore rule — the SQLite
     // file stays out of git (binary, unresolvable conflicts on concurrent
     // runs) and the rendered digest is the review artefact.
-    $result = $this->facade($projectRoot)->evidence($projectRoot, $runId, $writeTo);
+    $result = $this->facade($projectRoot)->evidence($projectRoot, $runId, $writeTo, $full);
 
     if ($result['written_to'] !== NULL) {
       $this->say(sprintf('Evaluation for %s written to %s', $result['run_id'], $result['written_to']));
@@ -1758,7 +1759,10 @@ final class ArgvDispatcher {
       evidence         render the run's evaluation FROM the record, rather
                        than writing one about it: --run=<id> for an archived
                        run, --write[=<path>] to save it (default
-                       droost/evidence/<run>.md). Re-measures the fingerprint
+                       droost/evidence/<run>.md), --full for every gate's
+                       output whole (up to the 16 KB kept), not cut at 2,000
+                       characters. With no run open, the newest archived
+                       one. Re-measures the fingerprint
                        of what every green examined, so a verdict that no
                        longer describes the code reads EXPIRED.
       specs            at test: run the ticket's browser specs now, as the
