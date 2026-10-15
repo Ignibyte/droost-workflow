@@ -322,17 +322,28 @@ final class ModeEngine {
     //
     // Both are questions with a yes/no answer that the agent cannot write:
     // the rows come from a parsed inspection ledger.
-    $criticalsMustBeZero = in_array($state->preset, ['high', 'xhigh', 'max', 'factory'], TRUE);
+    //
+    // WHICH FINDINGS HOLD is a lever since 0.14.18 (`seekers.holds`): the
+    // level's default is the rule above, and `custom`, which owns every
+    // lever, can say `critical` or `medium` (a client's first observed run left code at custom with
+    // open findings the pack said would hold it). And complete can be made to
+    // need an inspection of its own (`seekers.at_complete`), which the README
+    // promised and the engine never required.
     // A FLOOR the operator sets, defaulting to one. Counting the trail
     // rather than asking "is it non-empty" is what makes `seekers.rounds`
     // mechanical instead of advisory: a run configured for two cannot leave
     // code on one, whatever the pack text says.
+    // A self-review the hooks saw no seeker behind (`dispatch: none`) is the
+    // main agent's status update, not an inspection: it counts toward no
+    // round, and releases no holding finding (below).
     $roundsRequired = max(1, $state->seekerRounds);
-    $inspectionRan = count($state->seekerHistory) >= $roundsRequired;
-    if ($phase === Phase::Code
+    $inspectionRan = $phase === Phase::Code
+      ? count(array_filter($state->seekerHistory, static fn (array $e): bool => ($e['dispatch'] ?? '') !== 'none')) >= $roundsRequired
+      : $this->inspectedDuring($state, Phase::Complete);
+    if (($phase === Phase::Code || ($phase === Phase::Complete && $state->seekerAtComplete))
       && $state->seekers
       && (!$inspectionRan
-        || ($criticalsMustBeZero && $this->openCriticalSeekerCount($state, $projectRoot) > 0))) {
+        || $this->openHoldingSeekerCount($state, $phase, $projectRoot) > 0)) {
       // WITH THE FINDINGS, when there are any. This returned nothing but the
       // word: `outcome: "inspection-due"`, `report.advance: true`,
       // `blocked: []`, `awaiting: null`, and no key naming the open MEDIUM
@@ -1221,16 +1232,18 @@ final class ModeEngine {
    */
 
   /**
-   * How many OPEN CRITICAL seeker findings this run has, in this phase.
+   * How many OPEN seeker findings this run has that hold it, in this phase.
    *
    * The engine's whole interest in the seeker, reduced to an integer (F-35).
    * The seeker reads a diff and forms an opinion about severity; that is
    * judgment and it stays the seeker's. What droost does with it is count the
-   * criticals and compare to zero, which is binary and mechanical, and only at
-   * `high` and above.
+   * findings at the severities `seekers.holds` names (the criticals, at
+   * `high` and above by default) and compare to zero.
    *
    * @param \Droost\Workflow\State\RunState $state
    *   The run, whose seeker history says which inspection round is current.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase whose findings are read.
    * @param string $projectRoot
    *   The repository.
    *
@@ -1239,14 +1252,63 @@ final class ModeEngine {
    *   not evidence of a critical, and the phase's own audit already reports
    *   that it could not be asked.
    */
-  private function openCriticalSeekerCount(RunState $state, string $projectRoot): int {
-    $open = $this->openSeekerFindingsFor($state, Phase::Code, $projectRoot);
-    $criticals = array_filter(
+  private function openHoldingSeekerCount(RunState $state, Phase $phase, string $projectRoot): int {
+    $severities = match ($state->seekerHolds) {
+      'medium' => ['critical', 'medium'],
+      'critical' => ['critical'],
+      default => [],
+    };
+    if ($severities === []) {
+      return 0;
+    }
+    // As the last INSPECTION left them: a self-review after it can mark a
+    // finding resolved for the record, and a seeker has to agree before the
+    // run moves on it.
+    $round = 0;
+    foreach (array_values($state->seekerHistory) as $index => $entry) {
+      if (($entry['dispatch'] ?? '') !== 'none') {
+        $round = $index + 1;
+      }
+    }
+    try {
+      $open = (new EvidenceStore($projectRoot))->openSeekerFindings($state->runId, $phase->value, $round);
+    }
+    catch (\Throwable) {
+      $open = [];
+    }
+    $holding = array_filter(
       $open,
-      static fn (array $f): bool => stripos($f['why'] ?? '', 'critical') === 0,
+      static function (array $f) use ($severities): bool {
+        foreach ($severities as $severity) {
+          if (stripos($f['why'] ?? '', $severity) === 0) {
+            return TRUE;
+          }
+        }
+        return FALSE;
+      },
     );
 
-    return count($criticals);
+    return count($holding);
+  }
+
+  /**
+   * Whether a seeker's ledger was filed while the run was in a phase.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase.
+   *
+   * @return bool
+   *   TRUE when the trail holds an inspection recorded in that phase.
+   */
+  private function inspectedDuring(RunState $state, Phase $phase): bool {
+    foreach ($state->seekerHistory as $entry) {
+      if (($entry['phase'] ?? '') === $phase->value) {
+        return TRUE;
+      }
+    }
+    return FALSE;
   }
 
   /**

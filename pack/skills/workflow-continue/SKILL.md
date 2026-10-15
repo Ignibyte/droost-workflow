@@ -112,13 +112,18 @@ When the code phase's gates pass, the engine holds the run at
    or pipe the whole spec file; the engine parses the LAST section. The
    parse is the record: counts come from the ledger text, never from a
    summary of it.
-4. Open CRITICAL or open MEDIUM findings hold the run. Fix what they name,
-   re-dispatch the seeker (a fresh section, appended), re-report. `resolved`
-   rows and `carried: <reason>` MEDIUMs release; LOW never blocks.
+4. Which open findings hold the run is the lever `seekers.holds`
+   (`critical` from `high` up, `none` below and at `custom` unless the file
+   says `critical` or `medium`); read the `outcome`, not the level. Fix what
+   they name, re-dispatch the seeker (a fresh section, appended), re-report.
+   `resolved` rows and `carried: <reason>` MEDIUMs release; LOW never blocks.
+   A ledger you write yourself is labelled `Inspector: self-reviewed`: one
+   labelled independent with no seeker returned since the last is refused,
+   and a self-review counts as no inspection and releases no held finding.
 
-The checkpoint holds again at complete — and if you edited anything since the
-last inspection, re-dispatch before completing rather than riding a stale
-clean.
+With `seekers.at_complete: true` the checkpoint holds again at complete, and
+if you edited anything since the last inspection, re-dispatch before
+completing rather than riding a stale clean either way.
 
 **If you cannot dispatch the seeker, the checkpoint still happens.** Some
 sessions cannot spawn subagents — a host that offers no subagent surface, or

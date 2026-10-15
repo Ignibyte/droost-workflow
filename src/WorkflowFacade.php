@@ -47,6 +47,7 @@ use Droost\Workflow\Mode\PendingQuestion;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\QuestionSinkInterface;
 use Droost\Workflow\Mode\RunOutcome;
+use Droost\Workflow\Seeker\SeekerError;
 use Droost\Workflow\Seeker\SeekerLedger;
 use Droost\Workflow\Spec\CriteriaVerification;
 use Droost\Workflow\Spec\SpecContract;
@@ -1319,8 +1320,19 @@ final class WorkflowFacade {
     $store = new RunStateStore($projectRoot);
     $state = $this->requireRun($store);
     $ledger = SeekerLedger::parse($ledgerText);
+    $dispatch = $this->seekerDispatch($projectRoot, $store, $state);
+    if ($dispatch === 'none' && !$ledger->selfReviewed) {
+      throw SeekerError::notDispatched(self::lastLedgerAt($state));
+    }
     $record = $ledger->toRecord($this->now());
-    $state = $state->withSeekerReport($record);
+    $record['phase'] = self::openPhase($state);
+    $record['dispatch'] = $dispatch;
+    // A HOLD ASKED ON THE LAST INSPECTION is released, not left standing
+    // (a client's first observed run): the code hold said "the inspection is clean" for nineteen
+    // minutes through two more inspections that found MEDIUMs. Released, it
+    // stays on the record as asked and bypassed, and the next `run` asks
+    // again with this ledger's verdict.
+    $state = $state->released($this->now())->withSeekerReport($record);
     $store->save($state);
 
     // The findings as ROWS, not as a count beside prose nobody queries. The
@@ -1341,6 +1353,69 @@ final class WorkflowFacade {
     }
 
     return $record;
+  }
+
+  /**
+   * Whether a seeker ran for the ledger being filed.
+   *
+   * The guard writes a row for every subagent that returns (PostToolUse on
+   * Agent and Task, `mode: dispatched`, its `subagent_type` as `agent`), and
+   * the state directory is the guard's to write, not the agent's. A ledger
+   * is a seeker's when a `workflow-seeker` row for this run has been
+   * written since the last ledger, or since the run began; otherwise it is
+   * the main agent's (`none`), which it must say ("Inspector:
+   * self-reviewed"). The pack's status update after fixes is one (F-44).
+   * Where the project's hooks do not record dispatches (another host, or a
+   * pack from before 0.14.18 not re-initialised), the ledger is taken and
+   * marked `unverified`, which the record says.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param \Droost\Workflow\State\RunStateStore $store
+   *   The run's store.
+   * @param \Droost\Workflow\State\RunState $state
+   *   The open run.
+   *
+   * @return string
+   *   `verified`, `none` or `unverified`.
+   */
+  private function seekerDispatch(string $projectRoot, RunStateStore $store, RunState $state): string {
+    $settings = @file_get_contents(rtrim($projectRoot, '/') . '/.claude/settings.json');
+    if (!is_string($settings) || !str_contains($settings, 'droost-workflow-guard.php\\" dispatched')) {
+      return 'unverified';
+    }
+    $floor = strtotime(self::lastLedgerAt($state));
+    foreach (@file(dirname($store->path()) . '/guard-calls.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+      $row = json_decode($line, TRUE);
+      if (!is_array($row)
+        || ($row['mode'] ?? NULL) !== 'dispatched'
+        || ($row['run'] ?? NULL) !== $state->runId
+        || !is_string($row['agent'] ?? NULL)
+        || preg_match('/(^|:)workflow-seeker$/', $row['agent']) !== 1) {
+        continue;
+      }
+      $at = is_string($row['at'] ?? NULL) ? strtotime($row['at']) : FALSE;
+      if ($at !== FALSE && ($floor === FALSE || $at >= $floor)) {
+        return 'verified';
+      }
+    }
+    return 'none';
+  }
+
+  /**
+   * When the last ledger was filed, or the run began when none was.
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The open run.
+   *
+   * @return string
+   *   An ISO-8601 time.
+   */
+  private static function lastLedgerAt(RunState $state): string {
+    $last = $state->seekerHistory === [] ? NULL : $state->seekerHistory[array_key_last($state->seekerHistory)];
+    return is_array($last) && is_string($last['reported_at'] ?? NULL) && $last['reported_at'] !== ''
+      ? $last['reported_at']
+      : $state->startedAt;
   }
 
   /**

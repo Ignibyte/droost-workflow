@@ -261,18 +261,24 @@ them.
 **Re-inspect only where you are made to**, and there are exactly two ways
 that happens. The lever file's `seekers: { rounds: N }` is a floor the code
 phase will not advance below — read the `outcome`, not the number, because
-`inspection-due` keeps coming back until the trail is long enough. And from
-`high` up the checkpoint *additionally* requires **zero open CRITICAL**, so
-there, if a CRITICAL is open: fix it and re-inspect until none is.
+`inspection-due` keeps coming back until the trail is long enough. And
+`seekers.holds` makes the checkpoint *additionally* require zero open
+findings at that severity (`critical` by default from `high` up; `custom`
+may say `critical` or `medium`), so there, if one is open: fix it and
+re-inspect until none is.
 
-An open MEDIUM never requires another round, at any level.
+Otherwise an open MEDIUM never requires another round.
 
 **But close the ones you fixed — that is not a re-inspection.** A finding's
 status lives in the `## Seeker Inspection` table, and it is one of `open`,
 `resolved`, or `carried: <reason>`. Once you have fixed what the inspection
 found, append an updated section with those rows marked, and record it with
-`seeker-report` again. **No subagent, no second read of the diff** — you are
-reporting what you did, not asking to be reviewed again.
+`seeker-report` again, labelled `Inspector: self-reviewed`.
+**No subagent, no second read of the diff** — you are reporting what you
+did, not asking to be reviewed again. The engine records it as a self-review: it counts as no
+inspection, and where `seekers.holds` holds the run on a finding, only a
+seeker's ledger releases it. A ledger labelled independent with no
+`workflow-seeker` returned since the last one is refused.
 
 Skip it and the evidence store keeps every finding at `open` forever, because
 the only thing that ever moves a status is a later report. A run that fixed

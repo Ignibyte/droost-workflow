@@ -338,6 +338,12 @@ $recordCall = static function () use ($root, $stateDir): void {
     'rule' => $GLOBALS['workflow_guard_rule'] ?? NULL,
     'at' => date('c'),
   ];
+  // WHICH SUBAGENT RETURNED, on a `dispatched` row: seeker-report files a
+  // ledger only after a `workflow-seeker` has.
+  $agent = $GLOBALS['workflow_guard_agent'] ?? NULL;
+  if (is_string($agent) && $agent !== '') {
+    $row['agent'] = $agent;
+  }
   // WHICH GENERATORS THIS COMMAND RAN, when it was allowed to run. droost's
   // grounding_check asks the diary whether a file the run added came from
   // the surface that makes it, and a `drush generate` left no other trace:
@@ -434,6 +440,17 @@ $GLOBALS['workflow_guard_command'] = is_string($guardInput['command'] ?? NULL) ?
 // The shutdown function is already registered above and writes the row however
 // this script leaves, so `return` here is a complete recording.
 if ($mode === 'record') {
+  return;
+}
+
+// DISPATCHED MODE: a subagent has returned. Wired to PostToolUse on Agent and
+// Task, so the subagent ran; its `subagent_type` goes in the diary, and
+// `seeker-report` refuses a ledger no `workflow-seeker` returned before
+// (a client's run: the main agent wrote one and labelled it independent).
+// A diary and nothing else, like `record`: nothing here can refuse.
+if ($mode === 'dispatched') {
+  $type = $guardInput['subagent_type'] ?? NULL;
+  $GLOBALS['workflow_guard_agent'] = is_string($type) && $type !== '' ? substr($type, 0, 120) : 'general-purpose';
   return;
 }
 

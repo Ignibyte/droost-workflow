@@ -240,6 +240,14 @@ final class RunState {
      * no rules, every case's defaults, is what those runs had.
      */
     public readonly array $rules = [],
+    /**
+     * Which open seeker findings hold the run (seekers.holds), frozen.
+     */
+    public readonly string $seekerHolds = 'none',
+    /**
+     * Whether complete needs an inspection of its own (seekers.at_complete).
+     */
+    public readonly bool $seekerAtComplete = FALSE,
   ) {}
 
   /**
@@ -314,6 +322,8 @@ final class RunState {
         $config->followUps,
       ),
       rules: $config->rules()->toArray(),
+      seekerHolds: $config->seekerHolds,
+      seekerAtComplete: $config->seekerAtComplete,
     );
   }
 
@@ -433,6 +443,8 @@ final class RunState {
       $this->workItem,
       $this->loop,
       rules: $this->rules,
+      seekerHolds: $this->seekerHolds,
+      seekerAtComplete: $this->seekerAtComplete,
     );
   }
 
@@ -799,6 +811,8 @@ final class RunState {
       $this->workItem,
       $this->loop,
       rules: $this->rules,
+      seekerHolds: $this->seekerHolds,
+      seekerAtComplete: $this->seekerAtComplete,
     );
   }
 
@@ -962,6 +976,8 @@ final class RunState {
       $this->workItem,
       $this->loop,
       rules: $this->rules,
+      seekerHolds: $this->seekerHolds,
+      seekerAtComplete: $this->seekerAtComplete,
     );
   }
 
@@ -1009,6 +1025,8 @@ final class RunState {
       $this->workItem,
       $this->loop,
       rules: $this->rules,
+      seekerHolds: $this->seekerHolds,
+      seekerAtComplete: $this->seekerAtComplete,
     );
   }
 
@@ -1139,6 +1157,8 @@ final class RunState {
       $this->workItem,
       $this->loop,
       rules: $this->rules,
+      seekerHolds: $this->seekerHolds,
+      seekerAtComplete: $this->seekerAtComplete,
     );
   }
 
@@ -1179,6 +1199,8 @@ final class RunState {
       'low' => (int) ($record['low'] ?? 0),
       'observations' => (int) ($record['observations'] ?? 0),
       'self_reviewed' => (bool) ($record['self_reviewed'] ?? FALSE),
+      'phase' => (string) ($record['phase'] ?? ''),
+      'dispatch' => (string) ($record['dispatch'] ?? 'unverified'),
       'reported_at' => (string) ($record['reported_at'] ?? ''),
     ];
     // The current verdict REPLACES; the trail APPENDS. An inspection that
@@ -1287,6 +1309,8 @@ final class RunState {
       'work_item' => $this->workItem,
       'loop' => $this->loop->toArray(),
       'rules' => $this->rules,
+      'seeker_holds' => $this->seekerHolds,
+      'seeker_at_complete' => $this->seekerAtComplete,
     ];
   }
 
@@ -1395,6 +1419,11 @@ final class RunState {
       LoopState::fromArray($node->optionalChild('loop')?->toArray()),
       // Absent on every run.json written before rules existed.
       rules: $node->optionalChild('rules')?->toArray() ?? [],
+      // Absent on every run.json written before the levers: those runs held
+      // on what their level held on, and inspected at code only.
+      seekerHolds: $node->optionalString('seeker_holds', '')
+        ?: WorkflowConfig::defaultSeekerHolds(self::readPreset($node, $label)),
+      seekerAtComplete: $node->optionalBool('seeker_at_complete', FALSE),
     );
   }
 
@@ -1536,6 +1565,8 @@ final class RunState {
       $this->workItem,
       $this->loop,
       rules: $this->rules,
+      seekerHolds: $this->seekerHolds,
+      seekerAtComplete: $this->seekerAtComplete,
     );
   }
 
@@ -1603,6 +1634,9 @@ final class RunState {
         // an unlabelled inspection is an independent one by default: the
         // pack asks a SELF-review to say so, never the other way round.
         'self_reviewed' => $typed->optionalBool('self_reviewed', FALSE),
+        // Absent before 0.14.18: no phase was kept, and no dispatch checked.
+        'phase' => $typed->optionalString('phase', '') ?? '',
+        'dispatch' => $typed->optionalString('dispatch', 'unverified') ?? 'unverified',
         'reported_at' => $typed->string('reported_at'),
       ];
     }
@@ -1650,6 +1684,8 @@ final class RunState {
       // read back, and an unlabelled inspection is an independent one: the
       // pack asks a SELF-review to say so, never the other way round.
       'self_reviewed' => $seekerNode->optionalBool('self_reviewed', FALSE),
+      'phase' => $seekerNode->optionalString('phase', '') ?? '',
+      'dispatch' => $seekerNode->optionalString('dispatch', 'unverified') ?? 'unverified',
       'reported_at' => $seekerNode->string('reported_at'),
     ];
   }
@@ -2097,6 +2133,8 @@ final class RunState {
       $workItem ?? $this->workItem,
       $loop ?? $this->loop,
       rules: $this->rules,
+      seekerHolds: $this->seekerHolds,
+      seekerAtComplete: $this->seekerAtComplete,
     );
   }
 

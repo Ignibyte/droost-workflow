@@ -603,7 +603,7 @@ final class ConfigError extends \RuntimeException {
     string $key,
   ): self {
     return new self($source, sprintf(
-      'seekers accepts only "on" and "rounds" — got "%s". The one-hop blast radius and '
+      'seekers accepts only "on", "rounds", "holds" and "at_complete" — got "%s". The one-hop blast radius and '
       . 'the six lenses are the pattern, not configuration.',
       $key,
     ));
@@ -903,6 +903,26 @@ final class ConfigError extends \RuntimeException {
       . 'where a second pass earns its cost. A ceiling exists so a typo '
       . 'cannot buy fifty subagent passes over the same diff.',
       $ceiling,
+      $got,
+    ));
+  }
+
+  /**
+   * seekers.holds names no severity it knows.
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $got
+   *   The value written.
+   *
+   * @return self
+   *   The refusal.
+   */
+  public static function seekerHoldsUnknown(string $source, string $got): self {
+    return new self($source, sprintf(
+      'seekers.holds must be critical, medium or none — got "%s". critical '
+      . 'holds the run on an open CRITICAL finding, medium on an open CRITICAL '
+      . 'or MEDIUM, none on neither; a LOW never holds.',
       $got,
     ));
   }

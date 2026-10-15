@@ -84,7 +84,12 @@ final class WorkflowConfig {
    * a reviewer you can negotiate with. How many times it looks is a
    * different question, and it is the operator's.
    */
-  private const SEEKER_OPTIONS = ['on', 'rounds'];
+  private const SEEKER_OPTIONS = ['on', 'rounds', 'holds', 'at_complete'];
+
+  /**
+   * The open findings that may hold a run, by the lowest severity that does.
+   */
+  public const SEEKER_HOLDS = ['critical', 'medium', 'none'];
 
   /**
    * The most inspections a run may be made to sit through.
@@ -185,6 +190,8 @@ final class WorkflowConfig {
     public readonly int $maxLoops = 0,
     public readonly string $followUps = 'auto',
     private readonly ?BuildRules $rules = NULL,
+    public readonly string $seekerHolds = 'none',
+    public readonly bool $seekerAtComplete = FALSE,
   ) {}
 
   /**
@@ -450,6 +457,8 @@ final class WorkflowConfig {
           : self::LOOP_BUDGETS[$base->name] ?? 3,
         self::readFollowUps($root, $source),
         $root->has('rules') ? BuildRules::read($root->child('rules'), $source) : BuildRules::none(),
+        self::readSeekerHolds($root, $source, self::defaultSeekerHolds($base->name)),
+        self::readSeekerAtComplete($root),
       );
     }
     catch (DataError $e) {
@@ -757,6 +766,71 @@ final class WorkflowConfig {
       throw ConfigError::seekerRoundsOutOfRange($source, $rounds, self::MAX_SEEKER_ROUNDS);
     }
     return $rounds;
+  }
+
+  /**
+   * The open findings a level holds a run on when the file does not say.
+   *
+   * `high` and above hold on an open CRITICAL (F-35); below that, and at
+   * `custom`, the seeker's findings are advisory unless `seekers.holds`
+   * says otherwise.
+   *
+   * @param string $preset
+   *   The level.
+   *
+   * @return string
+   *   One of SEEKER_HOLDS.
+   */
+  public static function defaultSeekerHolds(string $preset): string {
+    return in_array($preset, ['high', 'xhigh', 'max', 'factory'], TRUE) ? 'critical' : 'none';
+  }
+
+  /**
+   * Reads which open seeker findings hold the run.
+   *
+   * A lever because `custom` owns every lever (0.14.15) and had no way to say
+   * "an open CRITICAL holds this run": a client's first observed run left code at `custom` with the
+   * pack's "open CRITICAL or MEDIUM rows hold the run" enforced by nothing.
+   * `critical` holds on an open CRITICAL, `medium` on an open CRITICAL or
+   * MEDIUM, `none` on neither. LOWs never hold.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   * @param string $default
+   *   The level's default.
+   *
+   * @return string
+   *   One of SEEKER_HOLDS.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When the value is not one of them.
+   */
+  private static function readSeekerHolds(TypedArray $root, string $source, string $default): string {
+    $node = $root->optionalChild('seekers');
+    $holds = $node?->optionalString('holds', $default) ?? $default;
+    if (!in_array($holds, self::SEEKER_HOLDS, TRUE)) {
+      throw ConfigError::seekerHoldsUnknown($source, $holds);
+    }
+    return $holds;
+  }
+
+  /**
+   * Reads whether the complete phase needs an inspection of its own.
+   *
+   * Off by default: the inspection is a code-phase step (F-35). On, complete
+   * does not finish until a seeker has inspected the run during complete,
+   * and `holds` applies to that inspection's findings too.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   *
+   * @return bool
+   *   Whether complete requires its own inspection.
+   */
+  private static function readSeekerAtComplete(TypedArray $root): bool {
+    return $root->optionalChild('seekers')?->optionalBool('at_complete', FALSE) ?? FALSE;
   }
 
   /**

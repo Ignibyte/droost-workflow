@@ -184,18 +184,29 @@ tool missing, config missing (phpunit with no phpunit.xml refuses before
 spawning anything), or a labeled "nothing to analyse / no tests yet" that
 hardens itself the moment real code or a first test exists.
 
-**The seeker checkpoint** holds a green code phase — and completion — until
-an adversarial inspection is recorded clean. Gates verify rules; the seeker
+**The seeker checkpoint** holds a green code phase until an adversarial
+inspection is recorded. Gates verify rules; the seeker
 (the pack's `workflow-seeker` agent) verifies judgment: dead new code, drift
 from the spec's EARS criteria, coupling the change breaks, weak tests,
 security smells in the changed code, attempts to defeat the workflow's own
 discipline. Its scope contract is the diff plus one hop to the changed
 symbols' consumers — never an audit of the neighbourhood — and its verdict
-is an exact ledger the engine PARSES (`seeker-report`, stdin): open CRITICAL
-or MEDIUM rows hold the run, resolved and carried-with-reason rows release
-it, and a section with neither rows nor the `(no findings)` sentinel is an
-incomplete inspection and refuses. `seekers: { on: false }` is the one
-lever, on by default; the hold spends no retry budget.
+is an exact ledger the engine PARSES (`seeker-report`, stdin), and a section
+with neither rows nor the `(no findings)` sentinel is an incomplete
+inspection and refuses. A ledger is filed only after a `workflow-seeker`
+subagent has returned since the last one: the guard records each subagent
+that returns (PostToolUse on Agent and Task), and a ledger with none behind
+it is refused (where the hooks do not record dispatches, it is taken and
+marked `dispatch: unverified`). Which open rows hold the run is
+`seekers.holds`: `critical` (the default at `high` and above), `medium`
+(an open CRITICAL or MEDIUM), or `none` (the default below `high` and at
+`custom`, where the findings are advisory and go to the report); resolved
+and carried-with-reason rows never hold. `seekers.at_complete: true` makes
+complete wait for an inspection of its own, held the same way. A ledger
+filed while a hold is open releases it, so the next `run` asks again on the
+new verdict. `seekers: { on: false }` turns the checkpoint off,
+`seekers.rounds` raises how many inspections code needs (1 to 5); the hold
+spends no retry budget.
 
 **Enforcement is its own lever**, orthogonal to the preset: `hard` blocks
 out-of-phase actions while a run is active (editing project files during

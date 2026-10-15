@@ -811,7 +811,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
    */
   public function testSeekersStillRefusesUnknownOptions(): void {
     $this->expectException(ConfigError::class);
-    $this->expectExceptionMessageMatches('/seekers accepts only "on" and "rounds"/');
+    $this->expectExceptionMessageMatches('/seekers accepts only "on", "rounds", "holds" and "at_complete"/');
     WorkflowConfig::fromArray(
       ['preset' => 'medium', 'seekers' => ['lenses' => 3]],
       'test',

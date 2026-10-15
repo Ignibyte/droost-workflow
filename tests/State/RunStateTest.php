@@ -341,6 +341,8 @@ class RunStateTest extends TestCase {
       'low' => 0,
       'observations' => 3,
       'self_reviewed' => FALSE,
+      'phase' => '',
+      'dispatch' => 'unverified',
       'reported_at' => 't1',
     ], $written->seeker);
     $this->assertSame('playwright-mcp', $written->browser);
