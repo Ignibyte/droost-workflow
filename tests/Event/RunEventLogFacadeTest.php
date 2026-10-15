@@ -111,6 +111,25 @@ final class RunEventLogFacadeTest extends WorkflowTestCase {
   }
 
   /**
+   * A ticket declared with declare-changes --work-item is on every later event.
+   */
+  public function testADeclaredTicketNamesTheEvents(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\nseekers:\n  on: false\n");
+    $facade = $this->facade();
+    $facade->run($root);
+    mkdir($root . '/src', 0755, TRUE);
+    file_put_contents($root . '/src/A.php', "<?php\n");
+    $facade->declareChanges($root, ['src/A.php'], [], 'code', 'TICKET-1');
+    $facade->run($root);
+
+    $events = iterator_to_array((new RunEventLog((new RunStateStore($root))->directory()))->read(), FALSE);
+    $last = end($events);
+    $this->assertInstanceOf(RunEvent::class, $last);
+    $this->assertSame('TICKET-1', $last->workItemId);
+    $this->assertNull($events[0]->workItemId, 'and none before it was declared');
+  }
+
+  /**
    * Reset archives the run and keeps the log, and says so in it.
    *
    * A completed run is reset the moment it completes (0.14.18), so the

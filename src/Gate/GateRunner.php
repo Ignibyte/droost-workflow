@@ -209,6 +209,7 @@ final class GateRunner {
           $recorded ?? $this->runOne($name, $levers, $projectRoot, $state->preset, $context),
         ));
         $result = $this->steeredByTheRun($name, $levers, $state, $projectRoot, $result, $changed);
+        $result = $this->frozenCommandNoted($name, $levers, $live[$name] ?? NULL, $result);
         $result = $this->outsideTheDiff($state, $projectRoot, $result, $changed);
         if ($drift !== []) {
           // Through the one helper that carries every field: the positional
@@ -238,7 +239,67 @@ final class GateRunner {
       }
     }
 
+    // A GATE A MODULE DECLARED AFTER THE RUN BEGAN, on a run that read the
+    // catalog at begin: not in this run's agreement, so it does not run, and
+    // the report says so rather than leaving it out in silence (0.14.18).
+    if ($only === NULL && $state->sawContributedAtBegin()) {
+      foreach ($live as $name => $levers) {
+        if (!GateSettings::isContributed($name) || array_key_exists($name, $state->resolvedGates)
+          || ($levers['on'] ?? TRUE) === FALSE) {
+          continue;
+        }
+        $declared = array_map('trim', explode(',', (string) ($levers['phase'] ?? '')));
+        if ($phase !== Phase::Complete && !in_array($phase->value, $declared, TRUE)) {
+          continue;
+        }
+        $report = $report->with(new GateResult(
+          $name,
+          GateStatus::Off,
+          summary: sprintf(
+            '%s off — declared after this run began, so it is not among the gates this run agreed to and did not run; it runs from the next run',
+            $name,
+          ),
+          skipReason: 'declared after the run began',
+        ));
+      }
+    }
+
     return $report;
+  }
+
+  /**
+   * Says when a contributed gate ran a command its module no longer declares.
+   *
+   * A contributed gate's command is frozen when the run takes the gate, like
+   * every lever: a run must not loosen the gate it is held to by editing the
+   * plugin that declares it. So a run that changes a gate's plugin is
+   * measured by the command it began with, and the next run measures the
+   * change. Until 0.14.18 nothing said so (a client's run read its snyk gate
+   * as passed on the old command).
+   *
+   * @param string $name
+   *   The gate.
+   * @param array<string, mixed> $frozen
+   *   The levers it ran with.
+   * @param array<string, mixed>|null $current
+   *   The levers the site declares now, or NULL when unknown.
+   * @param \Droost\Workflow\Gate\GateResult $result
+   *   What the gate reported.
+   *
+   * @return \Droost\Workflow\Gate\GateResult
+   *   The result, its summary naming both commands when they differ.
+   */
+  private function frozenCommandNoted(string $name, array $frozen, ?array $current, GateResult $result): GateResult {
+    if (!GateSettings::isContributed($name) || $current === NULL
+      || !is_string($frozen['cmd'] ?? NULL) || !is_string($current['cmd'] ?? NULL)
+      || $frozen['cmd'] === $current['cmd']) {
+      return $result;
+    }
+    return $result->withSummary(rtrim($result->summary, '. ') . sprintf(
+      ' [ran the command this run froze when it took the gate, `%s`; the module now declares `%s`, which the next run runs]',
+      $frozen['cmd'],
+      $current['cmd'],
+    ));
   }
 
   /**

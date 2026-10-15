@@ -124,6 +124,16 @@ final class RunStateStore {
   private readonly string $stateDir;
 
   /**
+   * The project this store belongs to.
+   *
+   * @return string
+   *   The root.
+   */
+  public function projectRoot(): string {
+    return $this->projectRoot;
+  }
+
+  /**
    * The directory run artefacts live in.
    *
    * @return string

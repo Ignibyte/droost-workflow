@@ -349,7 +349,34 @@ final class RunState {
   }
 
   /**
+   * What a surface blind to the catalog records as its contributed source.
+   */
+  public const CONTRIBUTED_BLIND = 'none resolved by this surface';
+
+  /**
+   * Whether the surface that began this run read the contributed catalog.
+   *
+   * A blind surface says so in its source: the facade's own sentence when
+   * it was handed no catalog, and DrushCatalogResolver's, which begins
+   * "unresolved", when drush could not answer.
+   *
+   * @return bool
+   *   FALSE for a run begun blind to it (the bare CLI) and for a record from
+   *   before the source was kept: those runs take contributed gates late.
+   */
+  public function sawContributedAtBegin(): bool {
+    return $this->contributedSource !== NULL
+      && $this->contributedSource !== self::CONTRIBUTED_BLIND
+      && !str_starts_with($this->contributedSource, 'unresolved');
+  }
+
+  /**
    * Contributed gates joining a run that was begun without them.
+   *
+   * Only for a run begun BLIND to the catalog (the bare CLI): one begun on a
+   * surface that read it agreed to what it read, and a gate a module
+   * declares later is not added (0.14.18; a client's run took a gate added
+   * mid-run into a run that never agreed to it).
    *
    * The frozen-set invariant — a run is measured against exactly what its
    * own document says — is kept by AMENDING the document, on record: each
@@ -370,6 +397,12 @@ final class RunState {
    *   A new instance.
    */
   public function withLateContributed(array $gates, Phase $at): self {
+    if ($this->sawContributedAtBegin()) {
+      // A run begun on a surface that read the catalog agreed to the gates
+      // it read (0.14.18): a module that declares a gate later does not add
+      // it to this run. The report names it, off, at each phase it declares.
+      return $this;
+    }
     $resolved = $this->resolvedGates;
     $phaseGates = $this->phaseGates;
     $late = $this->lateWoven;

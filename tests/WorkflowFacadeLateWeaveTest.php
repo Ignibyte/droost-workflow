@@ -109,6 +109,46 @@ final class WorkflowFacadeLateWeaveTest extends WorkflowTestCase {
   }
 
   /**
+   * A gate a module declares after a seeing begin does not join; the report says so.
+   *
+   * A client's run took a gate added mid-run into a run that never agreed
+   * to it (0.14.18).
+   */
+  public function testSeeingBeginDoesNotTakeAGateDeclaredLater(): void {
+    $root = $this->makeRootWithConfig("preset: low\n");
+    $snyk = new ContributedGate('snyk', 'droost_snyk', ['code', 'test'], 'snyk test', 'report', 'exit 0: clean.');
+    $audit = new ContributedGate('composer_audit', 'droost_audit', ['code', 'test'], 'composer audit', 'report', 'exit 0: clean.');
+    $this->facade('begin', [$snyk], 'the booted site (GateCatalog)')->run($root);
+
+    $outcome = $this->facade('later', [$snyk, $audit], 'the booted site (GateCatalog)')->run($root);
+
+    $this->assertArrayNotHasKey('module:composer_audit', $outcome->state->resolvedGates, 'not in the run\'s agreement');
+    $this->assertNotContains('module:composer_audit', $this->executed['later'], 'and not run');
+    $row = $this->gateRow($outcome->state->gateResults, 'code', 'module:composer_audit');
+    $this->assertSame(GateStatus::Off->value, $row['status']);
+    $this->assertIsString($row['summary']);
+    $this->assertStringContainsString('declared after this run began', $row['summary']);
+  }
+
+  /**
+   * A contributed gate runs its frozen command, and says the module's changed.
+   */
+  public function testAChangedCommandIsNamedBesideTheFrozenOne(): void {
+    $root = $this->makeRootWithConfig("preset: low\n");
+    $before = new ContributedGate('snyk', 'droost_snyk', ['code', 'test'], 'snyk test', 'report', 'exit 0: clean.');
+    $after = new ContributedGate('snyk', 'droost_snyk', ['code', 'test'], 'snyk test --dev', 'report', 'exit 0: clean.');
+    $this->facade('begin', [$before], 'the booted site (GateCatalog)')->run($root);
+
+    $outcome = $this->facade('later', [$after], 'the booted site (GateCatalog)')->run($root);
+
+    $this->assertSame('snyk test', $outcome->state->resolvedGates['module:snyk']['cmd'], 'the frozen command stands');
+    $row = $this->gateRow($outcome->state->gateResults, 'code', 'module:snyk');
+    $this->assertIsString($row['summary']);
+    $this->assertStringContainsString('ran the command this run froze when it took the gate, `snyk test`', $row['summary']);
+    $this->assertStringContainsString('the module now declares `snyk test --dev`', $row['summary']);
+  }
+
+  /**
    * A run begun on a seeing surface needs no weave, and says so.
    */
   public function testSeeingBeginLeavesNothingToWeave(): void {

@@ -554,7 +554,7 @@ final class WorkflowFacade {
       return $this->contributedSource;
     }
     if ($this->contributed === NULL) {
-      return 'none resolved by this surface';
+      return RunState::CONTRIBUTED_BLIND;
     }
     return $this->contributed === [] ? 'declared to this surface (none)' : 'declared to this surface';
   }
@@ -3502,10 +3502,37 @@ final class WorkflowFacade {
    *   What the type carries.
    */
   private function event(RunStateStore $store, RunState $state, string $type, array $payload): void {
-    $workItem = $state->workItem['id'] ?? NULL;
+    $workItem = $state->workItem['id'] ?? self::declaredWorkItem($store, $state);
     (new RunEventLog($store->directory(), NULL, fn (): string => $this->now()))
       ->append($state->runId, is_string($workItem) ? $workItem : NULL, $type, $payload);
     $this->relayEvents();
+  }
+
+  /**
+   * The ticket a run declared with `declare-changes --work-item`, if one.
+   *
+   * A run bound to a ticket at begin (`run --ticket`) names it in its
+   * record; one that declared it later had it only as a declaration, and
+   * every event said `work_item_id: null` (0.14.18, a client's run declared
+   * its ticket in plan and the cockpit never learned it).
+   *
+   * @param \Droost\Workflow\State\RunStateStore $store
+   *   The run's store.
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   *
+   * @return string|null
+   *   The last declared ticket, or NULL.
+   */
+  private static function declaredWorkItem(RunStateStore $store, RunState $state): ?string {
+    try {
+      $declared = (new EvidenceStore($store->projectRoot()))->declared($state->runId, 'work_item');
+    }
+    catch (\Throwable) {
+      return NULL;
+    }
+    $last = end($declared);
+    return is_string($last) && $last !== '' ? $last : NULL;
   }
 
   /**
