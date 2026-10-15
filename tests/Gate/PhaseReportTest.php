@@ -144,6 +144,7 @@ class PhaseReportTest extends TestCase {
     $this->assertFalse($document['advance']);
     $this->assertSame([
       'passed' => 0,
+      'labelled' => 0,
       'failed' => 1,
       'reported' => 0,
       'skipped-no-site' => 1,
@@ -231,6 +232,20 @@ class PhaseReportTest extends TestCase {
 
     $this->assertTrue($report->advance());
     $this->assertStringContainsString('no gates configured', $report->summaryLine());
+  }
+
+  /**
+   * A pass that measured nothing is counted apart from one that measured.
+   */
+  public function testALabelledPassIsNotCountedAsPassed(): void {
+    $report = (new PhaseReport(Phase::Code))
+      ->with(GateResult::ran('phpcs', GateStatus::Passed, 0, 1, 'phpcs passed', [], 'phpcs'))
+      ->with(GateResult::labelledPass('eslint', 0, 1, 'eslint passed — nothing analysed', 'eslint'));
+
+    $this->assertSame(1, $report->tally()['passed']);
+    $this->assertSame(1, $report->tally()['labelled']);
+    $this->assertSame('code: 1 passed, 1 passed measuring nothing', $report->summaryLine());
+    $this->assertTrue($report->advance(), 'it still advances: a labelled pass is a pass, said honestly');
   }
 
 }

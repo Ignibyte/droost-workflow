@@ -187,7 +187,7 @@ final class GateRunner {
         // full set and says why.
         if (($levers['scope'] ?? NULL) === 'ticket' && in_array($name, ShellGateExecutor::TICKET_SCOPED, TRUE)) {
           if ($this->vcs !== NULL && $state->baseCommit !== NULL) {
-            $changed ??= $this->vcs->changedFiles($projectRoot, $state->baseCommit);
+            $changed ??= $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot) ?? [];
             $levers['ticket_files'] = implode("\n", $changed);
           }
           else {
@@ -316,7 +316,7 @@ final class GateRunner {
     if ($this->vcs === NULL || $state->baseCommit === NULL || !$this->vcs->isRepository($projectRoot)) {
       return $result->withSummary(rtrim($result->summary, '. ') . ' — held to every page: the run\'s diff could not be read, so which pages it made stale is unknown');
     }
-    $changed ??= $this->vcs->changedFiles($projectRoot, $state->baseCommit);
+    $changed ??= $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot) ?? [];
     $own = [];
     $found = [];
     foreach ($pages as $page) {
@@ -424,7 +424,7 @@ final class GateRunner {
       }
     }
     $own = array_values(array_intersect(
-      self::customExtensions($projectRoot, $this->vcs->changedFiles($projectRoot, $state->baseCommit)),
+      self::customExtensions($projectRoot, $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot) ?? []),
       $uncovered,
     ));
     if ($own === []) {
@@ -473,7 +473,7 @@ final class GateRunner {
       || $this->vcs === NULL || !$this->vcs->isRepository($projectRoot)) {
       return $result;
     }
-    $changed ??= $this->vcs->changedFiles($projectRoot, $state->baseCommit);
+    $changed ??= $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot) ?? [];
     $steering = SteeringConfigs::changed($name, $levers, $projectRoot, $changed);
     if ($steering === []) {
       return $result;
@@ -522,7 +522,7 @@ final class GateRunner {
     if ($errors === []) {
       return $result;
     }
-    $changed ??= $this->vcs->changedFiles($projectRoot, $state->baseCommit);
+    $changed ??= $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot) ?? [];
     $touched = array_flip(array_map(static fn (string $path): string => ltrim(str_replace('\\', '/', $path), '/'), $changed));
     $outside = array_values(array_filter($errors, static fn (string $file): bool => !isset($touched[$file])));
     if ($outside === []) {
@@ -624,7 +624,7 @@ final class GateRunner {
     if ($this->vcs === NULL || $state->baseCommit === NULL) {
       return NULL;
     }
-    $changed ??= $this->vcs->changedFiles($projectRoot, $state->baseCommit);
+    $changed ??= $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot) ?? [];
     $now = RunSubject::of($projectRoot, $changed, RunSubject::TEST);
     try {
       $row = (new EvidenceStore($projectRoot))->recordedRun($state->runId, $name);
@@ -686,7 +686,7 @@ final class GateRunner {
       return NULL;
     }
 
-    return $this->vcs->changedFiles($projectRoot, $state->baseCommit);
+    return $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot);
   }
 
   /**
@@ -827,7 +827,7 @@ final class GateRunner {
     if ($baseline === NULL) {
       return [NULL, NULL];
     }
-    $changed = $this->vcs?->changedFiles($projectRoot, $state->baseCommit) ?? [];
+    $changed = $state->ownChanges($this->vcs?->changedFiles($projectRoot, $state->baseCommit), $projectRoot) ?? [];
     return [new BaselineContext($baseline, $changed), NULL];
   }
 

@@ -95,13 +95,26 @@ final class PhaseReport {
   /**
    * A count per status, for a summary line.
    *
+   * A labelled pass (the gate ran and examined nothing: no file it reads
+   * changed, no page to check) is `labelled`, beside `passed` rather than in
+   * it. A client's code phase read "13 passed" with four of them measuring
+   * nothing; each summary said so, and the count did not (0.14.18).
+   *
    * @return array<string, int>
-   *   Status value to count, including zeroes, in enum order.
+   *   Status value to count, including zeroes, in enum order, with
+   *   `labelled` after `passed`.
    */
   public function tally(): array {
     $tally = [];
     foreach (GateStatus::cases() as $status) {
-      $tally[$status->value] = count($this->withStatus($status));
+      $results = $this->withStatus($status);
+      if ($status === GateStatus::Passed) {
+        $labelled = count(array_filter($results, static fn (GateResult $r): bool => $r->labelledPass));
+        $tally[$status->value] = count($results) - $labelled;
+        $tally['labelled'] = $labelled;
+        continue;
+      }
+      $tally[$status->value] = count($results);
     }
     return $tally;
   }
@@ -119,7 +132,7 @@ final class PhaseReport {
     $parts = [];
     foreach ($this->tally() as $status => $count) {
       if ($count > 0) {
-        $parts[] = $count . ' ' . $status;
+        $parts[] = $count . ' ' . ($status === 'labelled' ? 'passed measuring nothing' : $status);
       }
     }
     return sprintf(

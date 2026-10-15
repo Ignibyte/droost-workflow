@@ -248,6 +248,16 @@ final class RunState {
      * Whether complete needs an inspection of its own (seekers.at_complete).
      */
     public readonly bool $seekerAtComplete = FALSE,
+    /**
+     * What the working tree already held changed when the run began.
+     *
+     * Path to its sha1 then. A file still identical to how the run found it
+     * is not the run's change (0.14.18: an untracked file the developer had
+     * left blocked code as undeclared). Absent before 0.14.18.
+     *
+     * @var array<string, string>
+     */
+    public readonly array $preexisting = [],
   ) {}
 
   /**
@@ -346,6 +356,55 @@ final class RunState {
       $config->gates,
       $config->flow,
     );
+  }
+
+  /**
+   * This run, knowing what the tree already held changed when it began.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $changed
+   *   The working tree's changes at begin (modified, added, untracked).
+   *
+   * @return self
+   *   A new instance.
+   */
+  public function withPreexisting(string $projectRoot, array $changed): self {
+    $found = [];
+    foreach (array_slice($changed, 0, 2000) as $path) {
+      $file = rtrim($projectRoot, '/') . '/' . $path;
+      $hash = is_file($file) ? @sha1_file($file) : FALSE;
+      if (is_string($hash)) {
+        $found[$path] = $hash;
+      }
+    }
+    return new self(...[...get_object_vars($this), 'preexisting' => $found]);
+  }
+
+  /**
+   * The changed files that are this run's: not as the run found them.
+   *
+   * @param list<string>|null $changed
+   *   The files changed since the base commit, or NULL when unknown.
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return list<string>|null
+   *   The same list, less every file still identical to how it was when the
+   *   run began.
+   */
+  public function ownChanges(?array $changed, string $projectRoot): ?array {
+    if ($changed === NULL || $this->preexisting === []) {
+      return $changed;
+    }
+    return array_values(array_filter($changed, function (string $path) use ($projectRoot): bool {
+      $was = $this->preexisting[$path] ?? NULL;
+      if ($was === NULL) {
+        return TRUE;
+      }
+      $file = rtrim($projectRoot, '/') . '/' . $path;
+      return !is_file($file) || @sha1_file($file) !== $was;
+    }));
   }
 
   /**
@@ -478,6 +537,7 @@ final class RunState {
       rules: $this->rules,
       seekerHolds: $this->seekerHolds,
       seekerAtComplete: $this->seekerAtComplete,
+      preexisting: $this->preexisting,
     );
   }
 
@@ -846,6 +906,7 @@ final class RunState {
       rules: $this->rules,
       seekerHolds: $this->seekerHolds,
       seekerAtComplete: $this->seekerAtComplete,
+      preexisting: $this->preexisting,
     );
   }
 
@@ -1011,6 +1072,7 @@ final class RunState {
       rules: $this->rules,
       seekerHolds: $this->seekerHolds,
       seekerAtComplete: $this->seekerAtComplete,
+      preexisting: $this->preexisting,
     );
   }
 
@@ -1060,6 +1122,7 @@ final class RunState {
       rules: $this->rules,
       seekerHolds: $this->seekerHolds,
       seekerAtComplete: $this->seekerAtComplete,
+      preexisting: $this->preexisting,
     );
   }
 
@@ -1192,6 +1255,7 @@ final class RunState {
       rules: $this->rules,
       seekerHolds: $this->seekerHolds,
       seekerAtComplete: $this->seekerAtComplete,
+      preexisting: $this->preexisting,
     );
   }
 
@@ -1344,6 +1408,7 @@ final class RunState {
       'rules' => $this->rules,
       'seeker_holds' => $this->seekerHolds,
       'seeker_at_complete' => $this->seekerAtComplete,
+      'preexisting' => $this->preexisting,
     ];
   }
 
@@ -1457,6 +1522,11 @@ final class RunState {
       seekerHolds: $node->optionalString('seeker_holds', '')
         ?: WorkflowConfig::defaultSeekerHolds(self::readPreset($node, $label)),
       seekerAtComplete: $node->optionalBool('seeker_at_complete', FALSE),
+      preexisting: array_filter(
+        $node->optionalChild('preexisting')?->toArray() ?? [],
+        static fn (mixed $hash, mixed $path): bool => is_string($hash) && is_string($path),
+        ARRAY_FILTER_USE_BOTH,
+      ),
     );
   }
 
@@ -1600,6 +1670,7 @@ final class RunState {
       rules: $this->rules,
       seekerHolds: $this->seekerHolds,
       seekerAtComplete: $this->seekerAtComplete,
+      preexisting: $this->preexisting,
     );
   }
 
@@ -2168,6 +2239,7 @@ final class RunState {
       rules: $this->rules,
       seekerHolds: $this->seekerHolds,
       seekerAtComplete: $this->seekerAtComplete,
+      preexisting: $this->preexisting,
     );
   }
 

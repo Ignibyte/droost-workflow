@@ -13,6 +13,7 @@ use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Tests\WorkflowTestCase;
+use Droost\Workflow\State\RunStateStore;
 use Droost\Workflow\Vcs\VcsInterface;
 use Droost\Workflow\WorkflowFacade;
 
@@ -200,6 +201,30 @@ none — fixture
         && ($row['state'] ?? '') === 'blocked',
     ));
     $this->assertNotSame([], $creep, 'and the record says which promise the diff broke');
+  }
+
+  /**
+   * A file the tree already held changed when the run began is not the run's.
+   *
+   * A client's run blocked code on an untracked file the developer had left
+   * there before the run began (0.14.18). The run records what it found
+   * changed, by hash; a file the run then edits is its change again.
+   */
+  public function testAFileChangedBeforeTheRunBeganIsNotTheRuns(): void {
+    [$root, $spec] = $this->project();
+    file_put_contents($root . '/kh-delete.csv', "id\n1\n");
+    $facade = $this->facadeSeeing(['src/Declared.php', 'kh-delete.csv']);
+
+    $this->assertSame(Outcome::Advanced, $facade->run($root, $spec)->outcome, 'plan ends');
+    $this->assertArrayHasKey('kh-delete.csv', (new RunStateStore($root))->load()?->preexisting ?? [], 'recorded as found');
+    @mkdir($root . '/src', 0755, TRUE);
+    file_put_contents($root . '/src/Declared.php', "<?php\n");
+    $facade->declareChanges($root, ['src/Declared.php'], [], 'code');
+
+    $this->assertNotSame(Outcome::Blocked, $facade->run($root, $spec)->outcome, 'the file it found is not undeclared');
+
+    file_put_contents($root . '/kh-delete.csv', "id\n1\n2\n");
+    $this->assertSame(Outcome::Blocked, $this->facadeSeeing(['src/Declared.php', 'kh-delete.csv'])->run($root, $spec)->outcome, 'once the run changes it, it is');
   }
 
   /**

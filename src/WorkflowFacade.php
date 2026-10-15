@@ -741,6 +741,10 @@ final class WorkflowFacade {
       if ($item !== NULL) {
         $state = $state->withWorkItem($item->binding());
       }
+      // What the tree already held changed: not this run's (0.14.18).
+      if ($this->vcs->isRepository($projectRoot)) {
+        $state = $state->withPreexisting($projectRoot, $this->vcs->changedFiles($projectRoot, NULL));
+      }
       $store->save($state);
       if ($item !== NULL) {
         $state = $this->bindTicket($projectRoot, $store, $state, $item);
@@ -1846,7 +1850,7 @@ final class WorkflowFacade {
     // After the run, so whatever the suite itself wrote is part of the tree it
     // is held to.
     $changed = $this->vcs->isRepository($projectRoot) && $state->baseCommit !== NULL
-      ? $this->vcs->changedFiles($projectRoot, $state->baseCommit)
+      ? $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot)
       : NULL;
     $subject = RunSubject::of($projectRoot, $changed, RunSubject::TEST);
     $passed = $result->status === GateStatus::Passed;
@@ -1973,6 +1977,9 @@ final class WorkflowFacade {
         'declare-changes needs at least one file or test. An empty declaration '
         . 'is not a small scope, it is no scope — and the code phase audits '
         . 'the diff against what was declared.'
+        . ($workItem !== NULL && trim($workItem) !== ''
+          ? sprintf(' A ticket is declared with the files it covers: declare-changes --work-item=%s --files=<paths> (and --tests=, --type=).', trim($workItem))
+          : '')
       );
     }
     $state = $this->requireRun(new RunStateStore($projectRoot));
@@ -3051,7 +3058,7 @@ final class WorkflowFacade {
         // ticket, whose `status:` line the engine moves when the run begins
         // (F-162). A plan cannot declare either, and neither is the agent's.
         array_values(array_diff(
-          $this->vcs->changedFiles($projectRoot, $state->baseCommit),
+          $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot) ?? [],
           array_filter([
             ...array_map(
               static fn (array $record): ?string => $record['path'] ?? NULL,
