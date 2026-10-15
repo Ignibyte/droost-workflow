@@ -19,7 +19,9 @@ against.
 - No run is already in progress, or you are deliberately resuming one. Check
   `droost/droost-workflow/run.json` — and read it: a `current_phase` of `null`
   means the run FINISHED (the file is its record, cleared with
-  `drush droost:workflow:reset`), while a named phase means it is live.
+  `drush droost:workflow:reset`; a run that completes is archived as it
+  completes, so this is a failed run or an older one), while a named phase
+  means it is live.
 
 ## Work
 

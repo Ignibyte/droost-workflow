@@ -289,7 +289,7 @@ final class WorkflowFacadeWorkItemTest extends WorkflowTestCase {
    * @phpstan-impure
    */
   private function stateOf(string $root): ?RunState {
-    return (new RunStateStore($root))->load();
+    return $this->lastRun($root);
   }
 
 }

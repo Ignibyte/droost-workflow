@@ -73,7 +73,7 @@ final class WorkflowFacadeGateWaiverTest extends WorkflowTestCase {
     $this->assertStringContainsString('chore #12', is_string($summary) ? $summary : '');
 
     // And the waiver survives the advance — the 0.5.2 lesson, applied.
-    $reloaded = (new RunStateStore($root))->load();
+    $reloaded = $this->lastRun($root);
     $this->assertNotNull($reloaded);
     $this->assertArrayHasKey('mutation', $reloaded->gateWaivers);
     $this->assertSame(

@@ -45,7 +45,7 @@ final class RunEventLogFacadeTest extends WorkflowTestCase {
         break;
       }
     }
-    $state = (new RunStateStore($root))->load();
+    $state = $this->lastRun($root);
     $this->assertNotNull($state);
     $this->assertNull($state->currentPhase, 'the run reached its end');
 
@@ -78,6 +78,7 @@ final class RunEventLogFacadeTest extends WorkflowTestCase {
       'question.answered',
       'phase.ended:complete',
       'run.completed',
+      'run.reset',
     ], $types, 'one event per persisted change, in the order the engine made them');
 
     // The failed attempt is the only event that shows the failed gate.
@@ -111,6 +112,9 @@ final class RunEventLogFacadeTest extends WorkflowTestCase {
 
   /**
    * Reset archives the run and keeps the log, and says so in it.
+   *
+   * A completed run is reset the moment it completes (0.14.18), so the
+   * reset here is that one: right after `run.completed`.
    */
   public function testResetKeepsTheLog(): void {
     $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\nseekers:\n  on: false\n");
@@ -119,14 +123,13 @@ final class RunEventLogFacadeTest extends WorkflowTestCase {
       // Driven to completion.
     }
     $log = new RunEventLog((new RunStateStore($root))->directory());
-    $before = count(iterator_to_array($log->read(), FALSE));
-    $state = (new RunStateStore($root))->load();
+    $state = $this->lastRun($root);
     $this->assertNotNull($state);
-
-    $facade->reset($root);
+    $this->assertNull((new RunStateStore($root))->load(), 'the completed run was archived');
 
     $after = iterator_to_array($log->read(), FALSE);
-    $this->assertCount($before + 1, $after, 'every earlier event is still there');
+    $types = array_map(static fn (RunEvent $e): string => $e->type, $after);
+    $this->assertSame(['run.completed', 'run.reset'], array_slice($types, -2), 'every earlier event is still there, then the reset');
     $last = end($after);
     $this->assertInstanceOf(RunEvent::class, $last);
     $this->assertSame('run.reset', $last->type);

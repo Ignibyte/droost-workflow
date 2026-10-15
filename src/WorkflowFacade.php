@@ -204,7 +204,19 @@ final class WorkflowFacade {
    */
   public function status(string $projectRoot): array {
     $config = WorkflowConfig::load($projectRoot, $this->contributed);
-    $state = (new RunStateStore($projectRoot))->load();
+    $store = new RunStateStore($projectRoot);
+    $state = $store->load();
+    // With none open, the last run if it completed: a completed run is
+    // archived the moment it completes (0.14.18), and status showed it, its
+    // phase NULL, until someone reset it. `archived` says where it went.
+    $archived = FALSE;
+    if ($state === NULL) {
+      $last = $store->lastArchived();
+      if ($last !== NULL && $last->currentPhase === NULL) {
+        $state = $last;
+        $archived = TRUE;
+      }
+    }
 
     $status = [
       // In cockpit mode, how far the run-event log has reached the cockpit:
@@ -300,6 +312,7 @@ final class WorkflowFacade {
     $question = $engine->pendingQuestion($state);
     $status['run'] = [
       'run_id' => $state->runId,
+      'archived' => $archived,
       'started_at' => $state->startedAt,
       // The level the run is HELD to — frozen at begin, so it may lawfully
       // differ from levers.preset above after a mid-run lever edit. Without
@@ -332,7 +345,8 @@ final class WorkflowFacade {
       // Declared rows first, the markdown table only where a run has none —
       // and `source` says which answered, so a reader is never guessing
       // whether a count came from a tool call or from a heading's position.
-      'criteria' => CriteriaVerification::resolve($projectRoot, $state->runId, $state->specPath),
+      // An archived run's spec went into history/ beside it, when it moved.
+      'criteria' => CriteriaVerification::resolve($projectRoot, $state->runId, $archived ? self::archivedSpec($store, $state) : $state->specPath),
       'gate_waivers' => $state->gateWaivers,
       'browser' => $state->browser,
       'tasks' => $state->tasks,
@@ -951,6 +965,7 @@ final class WorkflowFacade {
         $advanced->blocked,
       );
       $this->event($store, $advanced->state, 'run.completed', ['outcome' => $advanced->toArray()]);
+      $this->archiveCompleted($projectRoot);
     }
 
     return $advanced;
@@ -1127,9 +1142,54 @@ final class WorkflowFacade {
     );
     if ($answered->currentPhase === NULL) {
       $this->event($store, $answered, 'run.completed', ['outcome' => $outcome->toArray()]);
+      $this->archiveCompleted($projectRoot);
     }
 
     return $outcome;
+  }
+
+  /**
+   * Where an archived run's spec is now, project-relative.
+   *
+   * @param \Droost\Workflow\State\RunStateStore $store
+   *   The store.
+   * @param \Droost\Workflow\State\RunState $state
+   *   The archived run.
+   *
+   * @return string|null
+   *   The archived copy when reset moved it, else the path the run recorded.
+   */
+  private static function archivedSpec(RunStateStore $store, RunState $state): ?string {
+    $base = (string) preg_replace('/[^A-Za-z0-9._-]/', '_', $state->runId);
+    $copy = $store->directory() . '/history/' . $base . '.spec.md';
+    if (is_file($copy)) {
+      return $store->directoryLabel() . '/history/' . $base . '.spec.md';
+    }
+    return $state->specPath;
+  }
+
+  /**
+   * Archives a run the moment it completes (0.14.18).
+   *
+   * A completed run.json used to stay where it was until someone ran
+   * `reset`, and the next ticket's `run` refused until they did: by hand, on
+   * every ticket. The record is final when the run completes, so archiving it
+   * then loses nothing, and history/ keeps it readable (`evidence` reads the
+   * newest archived run when none is open). `reset --force` stays for
+   * abandoning a run that is NOT finished, and a failed run waits for one.
+   * An archive that cannot be made leaves the record where it was, as
+   * before.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   */
+  private function archiveCompleted(string $projectRoot): void {
+    try {
+      $this->reset($projectRoot);
+    }
+    catch (StateError) {
+      // The record stays in place; `reset` remains the way to clear it.
+    }
   }
 
   /**
@@ -2171,10 +2231,12 @@ final class WorkflowFacade {
     if ($runId === NULL || trim($runId) === '') {
       $store = new RunStateStore($projectRoot);
       $state = $store->load();
-      if ($state === NULL) {
+      // A completed run is archived the moment it completes, so with none
+      // open the newest archived run is the one asked about.
+      $runId = $state?->runId ?? $store->lastArchived()?->runId;
+      if ($runId === NULL) {
         throw StateError::noRun($store->label());
       }
-      $runId = $state->runId;
     }
 
     $markdown = (new EvaluationReport(new EvidenceStore($projectRoot)))

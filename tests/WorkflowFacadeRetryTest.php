@@ -171,7 +171,7 @@ class WorkflowFacadeRetryTest extends WorkflowTestCase {
       'a run whose every gate passes reaches completion',
     );
 
-    $reloaded = (new RunStateStore($root))->load();
+    $reloaded = $this->lastRun($root);
     $this->assertNotNull($reloaded);
     $this->assertNull(
       $reloaded->currentPhase,
@@ -183,11 +183,13 @@ class WorkflowFacadeRetryTest extends WorkflowTestCase {
       'the final phase is recorded passed, not left active',
     );
 
-    // Re-running a completed run re-affirms it and leaves the record terminal;
-    // it does not silently restart.
-    $again = $this->facade($executor)->run($root);
-    $this->assertSame(Outcome::Completed, $again->outcome);
-    $this->assertNull((new RunStateStore($root))->load()?->currentPhase);
+    // The completed record was archived the moment it completed (0.14.18),
+    // so the next `run` is the next ticket's, with no reset by hand, and the
+    // finished record stays in history/.
+    $this->assertNull((new RunStateStore($root))->load(), 'nothing is left open');
+    $this->facade($executor)->run($root);
+    $this->assertNotNull((new RunStateStore($root))->load(), 'the next run began');
+    $this->assertSame($reloaded->runId, (new RunStateStore($root))->lastArchived()?->runId, 'the finished one is in history');
   }
 
   /**

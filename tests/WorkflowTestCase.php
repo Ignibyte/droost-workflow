@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests;
 
+use Droost\Workflow\State\RunState;
+use Droost\Workflow\State\RunStateStore;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -258,6 +260,23 @@ abstract class WorkflowTestCase extends TestCase {
     );
 
     return [$code, $stdout, $stderr];
+  }
+
+  /**
+   * The open run, or the last one archived when none is open.
+   *
+   * A completed run is archived the moment it completes (0.14.18), so a
+   * test reading a finished run reads it from history/.
+   *
+   * @param string $root
+   *   The project.
+   *
+   * @return \Droost\Workflow\State\RunState|null
+   *   The run.
+   */
+  protected function lastRun(string $root): ?RunState {
+    $store = new RunStateStore($root);
+    return $store->load() ?? $store->lastArchived();
   }
 
 }

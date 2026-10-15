@@ -949,12 +949,7 @@ MD
    *   A fragment the finding's message must contain.
    */
   private function assertShapeRecorded(string $root, string $rule, string $phase, string $expect): void {
-    $record = json_decode(
-      (string) file_get_contents($root . '/droost/droost-workflow/run.json'),
-      TRUE,
-    );
-    $this->assertIsArray($record, 'the run record is unreadable');
-    $runId = is_string($record['run_id'] ?? NULL) ? $record['run_id'] : '';
+    $runId = $this->lastRun($root)?->runId ?? '';
     $this->assertNotSame('', $runId, 'the run has no id');
 
     $rows = (new EvidenceStore($root))->checklist($runId, $phase);

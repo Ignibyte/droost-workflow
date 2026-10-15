@@ -105,7 +105,7 @@ class TestLoopTest extends WorkflowTestCase {
 
     $completed = $this->facade($gates)->run($root);
     $this->assertSame(Outcome::Completed, $completed->outcome, 'the follow-up file does not read as scope creep');
-    $reloaded = (new RunStateStore($root))->load();
+    $reloaded = $this->lastRun($root);
     $this->assertSame(PhaseStatus::Deferred, $reloaded?->statusOf(Phase::Test), 'still deferred at the end');
   }
 

@@ -79,7 +79,7 @@ final class WorkflowFacadeEventsTest extends WorkflowTestCase {
       }
     }
 
-    $state = (new RunStateStore($root))->load();
+    $state = $this->lastRun($root);
     $this->assertNotNull($state);
     $this->assertNull($state->currentPhase, 'the agentic run reached its end');
 
@@ -241,7 +241,7 @@ final class WorkflowFacadeEventsTest extends WorkflowTestCase {
       }
     }
 
-    $state = (new RunStateStore($root))->load();
+    $state = $this->lastRun($root);
     $this->assertNotNull($state);
     $this->assertNull(
       $state->currentPhase,
@@ -304,7 +304,7 @@ final class WorkflowFacadeEventsTest extends WorkflowTestCase {
       }
     }
 
-    $state = (new RunStateStore($root))->load();
+    $state = $this->lastRun($root);
     $this->assertNotNull($state);
     $this->assertNull($state->currentPhase, 'the interactive run reached its end');
     $this->assertSame(

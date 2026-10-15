@@ -337,7 +337,7 @@ product just as much as the code is. At `medium` and `low` the spec and the
 change summary are presented in chat; from `high` up they are recorded
 artifacts, and the wiki is written (at `low` it is not — `wiki_fresh` is off).
 
-The finished record persists as `droost/droost-workflow/run.json` until it is
-cleared — `drush droost:workflow:reset` archives it to
-`droost/droost-workflow/history/` — and the next run cannot start over it, so
-finishing a ticket ends with the reset pointer, not just the report.
+A COMPLETED run is archived the moment it completes: its record, ledgers and
+spec go to `droost/droost-workflow/history/`, `status` and `evidence` still
+read it there, and the next ticket's `run` starts with no reset. A FAILED
+run stays as `run.json` until `drush droost:workflow:reset` archives it.

@@ -170,10 +170,10 @@ run them, and the report says exactly that.
 
 The capture exists (or was presented, at `medium`/`low`), the report has been
 presented in full — skips, ledger and browser tier included — and the run is
-recorded as complete. Tell the operator the finished record persists until
-`drush droost:workflow:reset` archives it — the next run starts after that,
-and until a run is active, custom-code edits are walled again
-(`require_run`).
+recorded as complete. The completed run was archived to
+`droost/droost-workflow/history/` as it completed (`status` and `evidence`
+still read it), so the next ticket starts with `run` and no reset; until a
+run is active, custom-code edits are walled again (`require_run`).
 
 ## Without a site
 

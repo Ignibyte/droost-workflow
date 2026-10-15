@@ -68,7 +68,9 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
         continue;
       }
       if ($outcome->outcome === Outcome::Paused) {
-        $this->facade($executor)->answer($root, 'continue');
+        if ($this->facade($executor)->answer($root, 'continue')->outcome === Outcome::Completed) {
+          break;
+        }
         continue;
       }
       break;
@@ -76,10 +78,52 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
 
     // Answering the FINAL phase's check-in finalizes the run: pair mode can
     // actually reach the terminal state.
-    $reloaded = (new RunStateStore($root))->load();
+    $reloaded = $this->lastRun($root);
     $this->assertNotNull($reloaded);
     $this->assertNull($reloaded->currentPhase, 'the pair run finished');
     $this->assertSame(PhaseStatus::Passed, $reloaded->statusOf(Phase::Complete));
+  }
+
+  /**
+   * A completed run is archived as it completes, and stays readable.
+   *
+   * Every ticket used to end with a `reset` by hand before the next `run`
+   * could begin (0.14.18).
+   */
+  public function testACompletedRunIsArchivedAsItCompletes(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\n");
+    $executor = $this->allGatesPass();
+    for ($i = 0; $i < 16; $i++) {
+      $facade = $this->facade($executor);
+      $outcome = $facade->run($root);
+      if ($outcome->outcome === Outcome::InspectionDue) {
+        $facade->recordSeeker($root, "## Seeker Inspection\n\nInspector: independent\n\n(no findings)\n");
+        continue;
+      }
+      if ($outcome->outcome !== Outcome::Advanced) {
+        break;
+      }
+    }
+    $this->assertSame(Outcome::Completed, $outcome->outcome);
+    $dir = $root . '/droost/droost-workflow';
+    $this->assertFileDoesNotExist($dir . '/run.json', 'nothing left to reset');
+    $this->assertFileExists($dir . '/history/run-lifecycle.json');
+    $this->assertFileExists($dir . '/history/run-lifecycle.spec.md', 'the spec went with it');
+
+    $status = $this->facade($executor)->status($root);
+    $this->assertIsArray($status['run']);
+    $this->assertSame('run-lifecycle', $status['run']['run_id']);
+    $this->assertTrue($status['run']['archived']);
+    $this->assertNull($status['run']['current_phase']);
+    $this->assertSame('run-lifecycle', $this->facade($executor)->evidence($root)['run_id'], 'evidence reads it from history');
+
+    try {
+      $this->facade($executor)->reset($root);
+      $this->fail('nothing is left to reset');
+    }
+    catch (StateError $e) {
+      $this->assertStringContainsString('no run in progress', $e->getMessage());
+    }
   }
 
   /**
@@ -448,6 +492,8 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
     $this->driveToCompletion($executor, $root);
 
     // With history in the way as a FILE, mkdir and rename both must fail.
+    // (The completion's own archive made the directory: moved aside.)
+    $this->assertTrue(rename($root . '/droost/droost-workflow/history', $root . '/droost/droost-workflow/history-aside'));
     file_put_contents($root . '/droost/droost-workflow/history', 'in the way');
 
     try {
@@ -497,9 +543,19 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
         break;
       }
     }
-    $state = (new RunStateStore($root))->load();
+    $this->assertNull((new RunStateStore($root))->load(), 'a completed run is archived as it completes');
+    $state = $this->lastRun($root);
     $this->assertNotNull($state);
     $this->assertNull($state->currentPhase, 'the fixture run reached its end');
+    // PUT BACK, as a record from before 0.14.18 (or one whose archive could
+    // not be made) is left: these tests are about what reset and the verbs
+    // do with a finished record still in place.
+    $dir = $root . '/droost/droost-workflow';
+    $this->assertTrue(rename($dir . '/history/' . $state->runId . '.json', $dir . '/run.json'));
+    $spec = $state->specPath;
+    if (is_string($spec) && is_file($dir . '/history/' . $state->runId . '.spec.md')) {
+      $this->assertTrue(rename($dir . '/history/' . $state->runId . '.spec.md', $root . '/' . $spec));
+    }
   }
 
   /**

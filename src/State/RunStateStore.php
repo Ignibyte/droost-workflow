@@ -188,17 +188,61 @@ final class RunStateStore {
    *   is never deleted or replaced in that case.
    */
   public function load(): ?RunState {
-    $path = $this->path();
+    return $this->loadFile($this->path(), $this->label());
+  }
+
+  /**
+   * The newest run archived in history/, completed or not.
+   *
+   * A completed run is archived the moment it completes (0.14.18), so this
+   * is where "the last run" is read once none is open. Newest by the
+   * record's modification time; a record that cannot be read is skipped.
+   *
+   * @return \Droost\Workflow\State\RunState|null
+   *   The run, or NULL when nothing readable is archived.
+   */
+  public function lastArchived(): ?RunState {
+    $records = glob($this->directory() . '/history/*.json') ?: [];
+    usort($records, static fn (string $a, string $b): int => ((int) @filemtime($b)) <=> ((int) @filemtime($a)) ?: strcmp($b, $a));
+    foreach ($records as $record) {
+      try {
+        $state = $this->loadFile($record, $this->stateDir . '/history/' . basename($record));
+      }
+      catch (StateError) {
+        continue;
+      }
+      if ($state !== NULL) {
+        return $state;
+      }
+    }
+    return NULL;
+  }
+
+  /**
+   * Reads one run record.
+   *
+   * @param string $path
+   *   The file.
+   * @param string $label
+   *   Its operator-facing path.
+   *
+   * @return \Droost\Workflow\State\RunState|null
+   *   The run, or NULL when there is no file.
+   *
+   * @throws \Droost\Workflow\State\StateError
+   *   When the file exists but cannot be read, parsed, or understood.
+   */
+  private function loadFile(string $path, string $label): ?RunState {
     if (!is_file($path)) {
       return NULL;
     }
     if (!is_readable($path)) {
-      throw StateError::corrupt($this->label(), 'the file is not readable');
+      throw StateError::corrupt($label, 'the file is not readable');
     }
 
     $raw = file_get_contents($path);
     if ($raw === FALSE) {
-      throw StateError::corrupt($this->label(), 'the file could not be read');
+      throw StateError::corrupt($label, 'the file could not be read');
     }
 
     try {
@@ -206,7 +250,7 @@ final class RunStateStore {
     }
     catch (\JsonException $e) {
       throw StateError::corrupt(
-        $this->label(),
+        $label,
         'invalid JSON — ' . $e->getMessage(),
         $e,
       );
@@ -214,7 +258,7 @@ final class RunStateStore {
 
     if (!is_array($decoded)) {
       throw StateError::corrupt(
-        $this->label(),
+        $label,
         'the file must contain an object, got ' . get_debug_type($decoded),
       );
     }
@@ -223,7 +267,7 @@ final class RunStateStore {
     // exempt: that is how an empty JSON object arrives.
     if ($decoded !== [] && array_is_list($decoded)) {
       throw StateError::corrupt(
-        $this->label(),
+        $label,
         'the file must contain an object, got a list',
       );
     }
@@ -232,22 +276,22 @@ final class RunStateStore {
     try {
       if (!$node->has('v')) {
         throw StateError::corrupt(
-          $this->label(),
+          $label,
           'no schema version — this is not a run state file',
         );
       }
       $version = $node->int('v');
       if ($version !== RunState::SCHEMA_VERSION) {
         throw StateError::unsupportedVersion(
-          $this->label(),
+          $label,
           $version,
           RunState::SCHEMA_VERSION,
         );
       }
-      return RunState::fromArray($node, $this->label());
+      return RunState::fromArray($node, $label);
     }
     catch (DataError $e) {
-      throw StateError::fromData($this->label(), $e);
+      throw StateError::fromData($label, $e);
     }
   }
 
