@@ -2565,9 +2565,11 @@ function guard_named_root(): string {
  * @param int $depth
  *   Recursion guard.
  * @param list<array{0: list<string>, 1: list<string>}>|null $pipes
- *   Filled, when passed, with each pipe on this line outside a substitution:
- *   the command that writes into it and the one that reads from it, as
- *   tokenised before any argument is recursed into.
+ *   Filled, when passed, with each pipe on this line: the command that writes
+ *   into it and the one that reads from it, as tokenised before any argument
+ *   is recursed into. Pipes inside a substitution, a command string (`bash -c
+ *   '…'`, `ddev exec "…"`) or a script read here are filled too (2026-10-15),
+ *   so a caller asking what every pipe feeds sees the nested ones.
  *
  * @return list<list<string>>
  *   One argument list per command.
@@ -2802,6 +2804,11 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
   $endCommand();
 
   if ($depth >= 3) {
+    foreach ($invocations as $n => $one) {
+      if (($consumes[$n] ?? FALSE) && $n > 0) {
+        $pipes[] = [$invocations[$n - 1], $one];
+      }
+    }
     return $invocations;
   }
 
@@ -2818,7 +2825,7 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
   // outside substitutions.
   $substituted = [];
   foreach (operator_commands_substitution_spans($command)[0] as $inner) {
-    foreach (operator_commands_invocations($inner, $depth + 1) as $one) {
+    foreach (operator_commands_invocations($inner, $depth + 1, $pipes) as $one) {
       $substituted[] = $one;
     }
   }
@@ -3024,7 +3031,27 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
     if ($runs && !$inlineCodeHeld && !$syntaxOnly && $depth < 2) {
       // The HEAD too, for `./do.sh` — there the script is the program, not an
       // argument to one.
+      // AFTER THE SCRIPT, ITS ARGV (an adopter's run, 2026-10-15). A shell
+      // script already ended the walk, and any other was read and the walk
+      // went on, so every file after it was taken for another script: `php
+      // probe.php "$PWD" table.out`, where table.out was written by a
+      // redirect earlier on the line, was refused as writing table.out "and
+      // then running it". Only a file an option loads as code before the
+      // script (`node -r hook.js app.js`, `ruby -r`, `perl -M`, php's `-c`
+      // ini) is not the program, so the walk goes on past it, as it did. And
+      // only where the head is the interpreter or the script itself: `ddev
+      // exec …` and `python3 -m pytest a.py b.py` hand their files to a
+      // program that may run each.
+      $programFirst = $selfExecuting
+        || (preg_match($runner, $head) === 1 && !in_array('-m', $bare, TRUE));
+      $loaders = [
+        '-r', '--require', '--import', '--loader', '--experimental-loader',
+        '-c', '-M', '-I', '-z', '--rcfile', '--init-file',
+      ];
+      $previous = '';
       foreach ($selfExecuting ? $bare : array_slice($bare, 1) as $argument) {
+        $loadedByOption = in_array(ltrim($previous, "\x01"), $loaders, TRUE);
+        $previous = $argument;
         // A REDIRECT'S TARGET IS WRITTEN, NOT RUN (F-266). Only `>` marks a
         // token, so a marked one is a file this command's output goes to:
         // `ddev exec 'cat /tmp/site.png' > shot.png` was refused as running
@@ -3203,6 +3230,9 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
               trim($command),
             ));
           }
+          if ($programFirst && !$loadedByOption) {
+            break;
+          }
           continue;
         }
         // THE SAME HEREDOC READING AS A COMMAND LINE. A script's heredocs were
@@ -3212,8 +3242,11 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
         foreach (operator_commands_code_heredocs($script) as $code) {
           guard_judge_code($code, $command);
         }
-        foreach (operator_commands_invocations(operator_commands_scan_text($script), $depth + 1) as $line) {
+        foreach (operator_commands_invocations(operator_commands_scan_text($script), $depth + 1, $pipes) as $line) {
           $inners[] = $line;
+        }
+        if ($loadedByOption) {
+          continue;
         }
         break;
       }
@@ -3254,7 +3287,7 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
           $kept[] = $token;
           continue;
         }
-        foreach (operator_commands_invocations($token, $depth + 1) as $inner) {
+        foreach (operator_commands_invocations($token, $depth + 1, $pipes) as $inner) {
           $inners[] = $inner;
         }
         continue;
@@ -4523,12 +4556,22 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
             // is not. P6 run 9's agent looped `head -1` over archived specs
             // and was told only that a hand-written line forges the record
             // (F-112), so the refusal says why a loop is different.
+            // WHY IT IS JUDGED A WRITE, when nothing on it says so (an
+            // adopter's run, 2026-10-15). The lever file's words are about
+            // editing it, and a seeker's search refused under them read as an
+            // accusation of an edit. A program this guard does not know to
+            // only read is treated as a writer, and the refusal says that is
+            // the reason.
+            $why = in_array($verb, ['for', 'select'], TRUE)
+              ? ' A `' . $verb . '` loop\'s body can write to every name its list expands to, and the guard cannot see what it does with them, so a loop over these files is refused where naming them to a reader is not.'
+              : ($target || preg_match($destructive, ltrim($plain[0] ?? '', "\x01")) === 1 ? '' : sprintf(
+                ' `%s` is not a program this guard knows to only read, so what it does with the names is judged as a write. Name the files to a reader (`ls`, `cat`, `grep`, `find` without an action), or narrow the pattern so it misses them.',
+                $verb,
+              ));
             guard_refuse('protected-path:wildcard', sprintf(
               '%s A wildcard in this command expands onto it.%s (Refused: %s)',
               $refused,
-              in_array($verb, ['for', 'select'], TRUE)
-                ? ' A `' . $verb . '` loop\'s body can write to every name its list expands to, and the guard cannot see what it does with them, so a loop over these files is refused where naming them to a reader is not.'
-                : '',
+              $why,
               trim($command),
             ));
           }
@@ -4612,7 +4655,8 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
   // refused for reaching the baseline it tells phpcs to stay out of. The
   // value of an ignore or exclude flag names what the tool will not touch.
   $reaching = (string) preg_replace('/(^|\s)--(?:ignore|exclude|exclude-dir|ignore-dir)=\S+/', '$1', $command);
-  if (preg_match('#(^|[\s\'"=/])droost/baseline(/|\s|$)#', $reaching) === 1) {
+  if (preg_match('#(^|[\s\'"=/])droost/baseline(/|\s|$)#', $reaching) === 1
+    && !baseline_only_read($invocations, $pipes)) {
     guard_refuse('protected-path:baseline:shell', sprintf(
       'A shell command in this run reaches droost/baseline/. That is the '
       . 'OPERATOR\'s adoption record, written by `droost-workflow baseline` from '
@@ -4623,6 +4667,97 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       trim($command),
     ));
   }
+}
+
+/**
+ * Whether every command naming droost/baseline/ is git reading it.
+ *
+ * The baseline wall matched the path anywhere on the line, so a seeker's
+ * tamper check, `git status --short droost.workflow.yml droost/baseline`, was
+ * refused in four of five inspections of an adopter's first observed run
+ * (2026-10-15) as editing the baseline: the one reviewer whose job is to see
+ * whether the run touched it could not ask git. Git's history and status
+ * verbs are let through when nothing on them writes, and no pipe on the line
+ * hands what they print to anything but a reader: `git ls-files
+ * droost/baseline | xargs rm` reads with git and deletes through the pipe.
+ * Reading the files themselves stays the sanctioned surface's (`baseline
+ * --status`), as it was, and everything else still meets the wall, a command
+ * string sent to another shell included (`tmux send-keys "…
+ * droost/baseline …"` types into a pane that may run it).
+ *
+ * @param list<list<string>> $invocations
+ *   Every command on the line, nested and substituted ones included.
+ * @param list<array{0: list<string>, 1: list<string>}> $pipes
+ *   Every pipe on the line, nested ones included.
+ *
+ * @return bool
+ *   TRUE when the path is only named to git's readers.
+ */
+function baseline_only_read(array $invocations, array $pipes): bool {
+  $names = static function (array $tokens): bool {
+    $text = implode(' ', array_map(static fn (string $token): string => ltrim($token, "\x01"), $tokens));
+    $text = (string) preg_replace('/(^|\s)--(?:ignore|exclude|exclude-dir|ignore-dir)=\S+/', '$1', $text);
+    return preg_match('#(^|[\s\'"=/])droost/baseline(/|\s|$)#', $text) === 1;
+  };
+  foreach ($pipes as [, $consumer]) {
+    if (!baseline_reader($consumer, FALSE)) {
+      return FALSE;
+    }
+  }
+  foreach ($invocations as $tokens) {
+    if ($names($tokens) && !baseline_reader($tokens, TRUE)) {
+      return FALSE;
+    }
+  }
+  return TRUE;
+}
+
+/**
+ * Whether one command only reads, for the baseline wall.
+ *
+ * Narrower than the operand tier's readers on purpose. `git add` and `git
+ * commit` stage and record and are not here; nor is `sed`, whose program
+ * writes through `w`; nor a `git` with options before its subcommand, since
+ * `-c core.fsmonitor=…` runs a program on `git status`; nor `rg --pre`,
+ * which runs one per file.
+ *
+ * @param list<string> $tokens
+ *   One command, as tokenised.
+ * @param bool $gitOnly
+ *   Whether only git's readers count: the commands that name the baseline.
+ *   A pipe's reader may be any reader (`| head`, `| grep`).
+ *
+ * @return bool
+ *   TRUE when it reads and writes nothing.
+ */
+function baseline_reader(array $tokens, bool $gitOnly): bool {
+  $plain = operator_commands_unwrapped($tokens);
+  $program = ltrim($plain[0] ?? '', "\x01");
+  $verb = strtolower(basename($program));
+  foreach ($tokens as $token) {
+    if (str_starts_with($token, "\x01")) {
+      // A redirect writes its target; one into the baseline is the write.
+      if (str_contains($token, 'droost/baseline')) {
+        return FALSE;
+      }
+      continue;
+    }
+    if (operator_commands_write_flag($token, $program)
+      || str_starts_with($token, '--pre')
+      || !guard_substitutions_only_read($token)) {
+      return FALSE;
+    }
+  }
+  if ($verb === 'git') {
+    return in_array(strtolower(ltrim($plain[1] ?? '', "\x01")), ['status', 'diff', 'log', 'show', 'ls-files', 'blame'], TRUE);
+  }
+  if ($gitOnly) {
+    return FALSE;
+  }
+  if ($verb === 'find') {
+    return !find_action_writes($plain);
+  }
+  return $verb !== 'sed' && in_array($verb, guard_reading_verbs(), TRUE);
 }
 
 /**
@@ -5907,14 +6042,19 @@ function find_action_writes(array $tokens): bool {
  *   The program the argument belongs to, when known. `-o` is a destination
  *   for `curl`, `sort`, `gcc` and `wget -O`, and is "only the matching part"
  *   for every grep — so `grep -o '…' run.json` was refused as WRITING the
- *   record. The searchers never write through `-o`.
+ *   record. The searchers never write through `-o`. Nor does `find`, where
+ *   `-o` is "or" (an adopter's run, 2026-10-15): `find vendor -path
+ *   '*droost*' -name A -o -path '*droost*' -name B` was marked a write, its
+ *   quoted patterns expanded onto the lever file, and a seeker's search was
+ *   refused as editing the dial. What find writes is decided by its
+ *   actions, `find_action_writes()`.
  *
  * @return bool
  *   TRUE when it makes its command write.
  */
 function operator_commands_write_flag(string $token, string $command = ''): bool {
   if (preg_match('/^-[oO](=|$)/', $token) === 1
-    && in_array(strtolower(basename(ltrim($command, "\x01"))), ['grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack'], TRUE)) {
+    && in_array(strtolower(basename(ltrim($command, "\x01"))), ['grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'find'], TRUE)) {
     return FALSE;
   }
 
