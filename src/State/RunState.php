@@ -183,7 +183,7 @@ final class RunState {
    * @param bool $seekerAtComplete
    *   Whether complete needs an inspection of its own, frozen at begin.
    * @param array<string, string> $preexisting
-   *   What the tree held changed when the run began, path to sha1.
+   *   What the tree held changed when the run began, path to sha256.
    */
   public function __construct(
     public readonly string $runId,
@@ -257,7 +257,7 @@ final class RunState {
     /**
      * What the working tree already held changed when the run began.
      *
-     * Path to its sha1 then. A file still identical to how the run found it
+     * Path to its sha256 then. A file still identical to how the run found it
      * is not the run's change (0.14.18: an untracked file the developer had
      * left blocked code as undeclared). Absent before 0.14.18.
      *
@@ -379,7 +379,7 @@ final class RunState {
     $found = [];
     foreach (array_slice($changed, 0, 2000) as $path) {
       $file = rtrim($projectRoot, '/') . '/' . $path;
-      $hash = is_file($file) ? @sha1_file($file) : FALSE;
+      $hash = is_file($file) ? @hash_file('sha256', $file) : FALSE;
       if (is_string($hash)) {
         $found[$path] = $hash;
       }
@@ -409,7 +409,7 @@ final class RunState {
         return TRUE;
       }
       $file = rtrim($projectRoot, '/') . '/' . $path;
-      return !is_file($file) || @sha1_file($file) !== $was;
+      return !is_file($file) || @hash_file('sha256', $file) !== $was;
     }));
   }
 
