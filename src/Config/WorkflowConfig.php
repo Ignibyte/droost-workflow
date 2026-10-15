@@ -89,7 +89,7 @@ final class WorkflowConfig {
   /**
    * The open findings that may hold a run, by the lowest severity that does.
    */
-  public const SEEKER_HOLDS = ['critical', 'medium', 'none'];
+  public const SEEKER_HOLDS = ['critical', 'high', 'medium', 'none'];
 
   /**
    * The most inspections a run may be made to sit through.
@@ -796,8 +796,8 @@ final class WorkflowConfig {
    * "an open CRITICAL holds this run": a client's first observed run left
    * code at `custom` with the
    * pack's "open CRITICAL or MEDIUM rows hold the run" enforced by nothing.
-   * `critical` holds on an open CRITICAL, `medium` on an open CRITICAL or
-   * MEDIUM, `none` on neither. LOWs never hold.
+   * `critical` holds on an open CRITICAL, `high` on an open CRITICAL or
+   * HIGH, `medium` on any of the three, `none` on none. LOWs never hold.
    *
    * @param \Droost\Workflow\Support\TypedArray $root
    *   The document root.

@@ -129,6 +129,24 @@ final class SeekerEnforcementTest extends WorkflowTestCase {
   }
 
   /**
+   * HIGH sits between CRITICAL and MEDIUM, and `holds: high` holds on it alone.
+   */
+  public function testHoldsHighHoldsOnHighAndNotOnMedium(): void {
+    $high = str_replace('| MEDIUM   |', '| HIGH     |', self::OPEN_MEDIUM);
+    $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\nseekers:\n  holds: high\n");
+    $this->toInspection($root);
+    $record = $this->facade()->recordSeeker($root, $high);
+    $this->assertSame(1, $record['high']);
+    $this->assertSame('findings', $record['status']);
+    $this->assertSame(Outcome::InspectionDue, $this->facade()->run($root)->outcome, 'an open HIGH holds');
+
+    $medium = $this->makeRootWithConfig("preset: custom\nmode: agentic\nseekers:\n  holds: high\n");
+    $this->toInspection($medium);
+    $this->facade()->recordSeeker($medium, self::OPEN_MEDIUM);
+    $this->assertSame(Outcome::Advanced, $this->facade()->run($medium)->outcome, 'an open MEDIUM does not, at holds: high');
+  }
+
+  /**
    * The lever's values, its level defaults, and a word it does not know.
    */
   public function testTheHoldsLever(): void {
@@ -138,9 +156,10 @@ final class SeekerEnforcementTest extends WorkflowTestCase {
     $this->assertSame('medium', WorkflowConfig::fromArray(['preset' => 'custom', 'seekers' => ['holds' => 'medium']], 't')->seekerHolds);
     $this->assertTrue(WorkflowConfig::fromArray(['preset' => 'custom', 'seekers' => ['at_complete' => TRUE]], 't')->seekerAtComplete);
 
+    $this->assertSame('high', WorkflowConfig::fromArray(['preset' => 'custom', 'seekers' => ['holds' => 'high']], 't')->seekerHolds);
     $this->expectException(ConfigError::class);
-    $this->expectExceptionMessage('seekers.holds must be critical, medium or none');
-    WorkflowConfig::fromArray(['preset' => 'custom', 'seekers' => ['holds' => 'high']], 't');
+    $this->expectExceptionMessage('seekers.holds must be critical, high, medium or none');
+    WorkflowConfig::fromArray(['preset' => 'custom', 'seekers' => ['holds' => 'severe']], 't');
   }
 
   /**

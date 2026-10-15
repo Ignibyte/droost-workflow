@@ -249,9 +249,9 @@ holding the run rather than advancing: dispatch the
 `## Seeker Inspection` section to the spec verbatim, and record it with the
 `seeker-report` surface.
 
-**ONE inspection, then fix, then move on.** Fix what it found — CRITICAL and
-MEDIUM first, LOW where it is cheap — and record the fixes in the spec. Do
-**not** dispatch a second inspection to confirm your own fixes. The
+**ONE inspection, then fix, then move on.** Fix what it found — CRITICAL,
+HIGH and MEDIUM first, LOW where it is cheap — and record the fixes in the
+spec. Do **not** dispatch a second inspection to confirm your own fixes. The
 checkpoint asks whether an inspection RAN, and once one has, the engine
 advances; another round answers a question nobody asked, and it is not
 cheap — each one is a subagent reading the entire cumulative diff. A measured
@@ -267,7 +267,8 @@ findings at that severity (`critical` by default from `high` up; `custom`
 may say `critical` or `medium`), so there, if one is open: fix it and
 re-inspect until none is.
 
-Otherwise an open MEDIUM never requires another round.
+Otherwise an open finding the lever does not hold never requires another
+round: record it, show it at the hold, carry it if you do not fix it.
 
 **But close the ones you fixed — that is not a re-inspection.** A finding's
 status lives in the `## Seeker Inspection` table, and it is one of `open`,

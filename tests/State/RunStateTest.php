@@ -337,6 +337,7 @@ class RunStateTest extends TestCase {
     $this->assertSame([
       'status' => 'findings',
       'critical' => 1,
+      'high' => 0,
       'medium' => 2,
       'low' => 0,
       'observations' => 3,

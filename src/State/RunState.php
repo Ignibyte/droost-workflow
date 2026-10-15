@@ -1298,6 +1298,7 @@ final class RunState {
     $record = [
       'status' => $record['status'] ?? 'clean',
       'critical' => (int) ($record['critical'] ?? 0),
+      'high' => (int) ($record['high'] ?? 0),
       'medium' => (int) ($record['medium'] ?? 0),
       'low' => (int) ($record['low'] ?? 0),
       'observations' => (int) ($record['observations'] ?? 0),
@@ -1737,6 +1738,8 @@ final class RunState {
       $history[] = [
         'status' => $status,
         'critical' => $typed->int('critical'),
+        // Absent before HIGH existed (0.14.18): none was recorded.
+        'high' => $typed->optionalInt('high', 0),
         'medium' => $typed->int('medium'),
         'low' => $typed->int('low'),
         'observations' => $typed->int('observations'),
@@ -1787,6 +1790,7 @@ final class RunState {
     return [
       'status' => $status,
       'critical' => $seekerNode->int('critical'),
+      'high' => $seekerNode->optionalInt('high', 0),
       'medium' => $seekerNode->int('medium'),
       'low' => $seekerNode->int('low'),
       'observations' => $seekerNode->int('observations'),

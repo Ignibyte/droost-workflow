@@ -26,9 +26,11 @@ namespace Droost\Workflow\Seeker;
  * `(no findings)` — required even when observations follow, because a heading
  * with neither rows nor sentinel is an INCOMPLETE inspection and blocks.
  *
- * Severity protocol: an open CRITICAL or open MEDIUM blocks; a resolved or
- * carried row does not (carrying a MEDIUM forward with a reason is a recorded
- * owner decision); LOW never blocks. Out-of-scope observations are advisory
+ * Severity protocol (HIGH since 0.14.18, between CRITICAL and MEDIUM): an
+ * open CRITICAL, HIGH or MEDIUM makes the ledger `findings`, and which of
+ * them hold the run is the lever `seekers.holds`; a resolved or carried row
+ * does not (carrying a finding forward with a reason is a recorded owner
+ * decision); LOW never blocks. Out-of-scope observations are advisory
  * bullets under their own subheading — counted, never blocking.
  */
 final class SeekerLedger {
@@ -46,7 +48,7 @@ final class SeekerLedger {
   /**
    * The severities a finding row may carry.
    */
-  private const SEVERITIES = ['CRITICAL', 'MEDIUM', 'LOW'];
+  private const SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
 
   /**
    * The declaration line every inspection must carry.
@@ -276,17 +278,18 @@ final class SeekerLedger {
    * @param string $reportedAt
    *   When, as a caller-supplied ISO-8601 string.
    *
-   * @return array{status: string, critical: int, medium: int, low: int, observations: int, self_reviewed: bool, reported_at: string}
+   * @return array{status: string, critical: int, high: int, medium: int, low: int, observations: int, self_reviewed: bool, reported_at: string}
    *   The record.
    */
   public function toRecord(string $reportedAt): array {
-    $counts = ['CRITICAL' => 0, 'MEDIUM' => 0, 'LOW' => 0];
+    $counts = ['CRITICAL' => 0, 'HIGH' => 0, 'MEDIUM' => 0, 'LOW' => 0];
     foreach ($this->findings as $finding) {
       $counts[$finding['severity']]++;
     }
     return [
       'status' => $this->isClean() ? 'clean' : 'findings',
       'critical' => $counts['CRITICAL'],
+      'high' => $counts['HIGH'],
       'medium' => $counts['MEDIUM'],
       'low' => $counts['LOW'],
       'observations' => $this->observations,

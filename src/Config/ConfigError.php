@@ -920,9 +920,10 @@ final class ConfigError extends \RuntimeException {
    */
   public static function seekerHoldsUnknown(string $source, string $got): self {
     return new self($source, sprintf(
-      'seekers.holds must be critical, medium or none — got "%s". critical '
-      . 'holds the run on an open CRITICAL finding, medium on an open CRITICAL '
-      . 'or MEDIUM, none on neither; a LOW never holds.',
+      'seekers.holds must be critical, high, medium or none — got "%s". '
+      . 'critical holds the run on an open CRITICAL finding, high on an open '
+      . 'CRITICAL or HIGH, medium on any of the three, none on none; a LOW '
+      . 'never holds.',
       $got,
     ));
   }

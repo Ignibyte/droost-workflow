@@ -147,7 +147,8 @@ Inspector: independent
 | ID | Severity | Location | Finding | Status |
 |----|----------|----------|---------|--------|
 | F1 | CRITICAL | path:line | one line | open |
-| F2 | MEDIUM   | path:line | one line | open |
+| F2 | HIGH     | path:line | one line | open |
+| F3 | MEDIUM   | path:line | one line | open |
 ```
 
 Without findings — the sentinel is REQUIRED even when observations follow:
@@ -166,29 +167,53 @@ Inspector: independent
 
 ## The severity protocol
 
-- **CRITICAL** — security, correctness, or a discipline defeat introduced by
-  the diff. **From `high` up** this blocks until fixed and re-inspected; at
-  `medium` it is fixed but does not hold the phase. Nothing below `high`
-  counts open critical findings, so do not describe it as blocking there.
-- **MEDIUM** — coupling the diff breaks, drift from the spec, real gaps in
-  this run's tests. **Never blocks, at any level** — earlier text here said
-  it "blocks while `open`", which no level implements and which bought three
-  re-inspection rounds in one measured code phase. Fix it; a later inspection
-  may mark it `resolved`, or the owner may carry it: `carried: <reason>`.
-- **LOW** — dead new code, naming, missing docblocks on new internal
-  helpers. Never blocks.
+Four severities. Grade each finding by what happens if it ships, not by how
+sure you are or how much work it is to fix.
 
-Inside the diff, default to reporting: a finding you are unsure about is a
-MEDIUM with your doubt stated, not a silent omission. Outside the diff,
+- **CRITICAL** — the change is unsafe or broken: an exploitable security
+  hole, data loss or corruption, the feature failing on its main path, or a
+  discipline defeat (a gate, lever, baseline or the run's record tampered
+  with or routed around).
+- **HIGH** — the change does not do what it says, or says what it did not
+  do, and a reviewer reading the record would be misled:
+  - an acceptance criterion not met, or met only on a path the ticket does
+    not name;
+  - a security smell in changed code short of a shown exploit (output not
+    escaped, an access check missing or wrong, a secret or a raw query
+    built from input);
+  - a false claim in the record: a verification described that did not
+    happen, a gate outcome rounded up, a `Verified By` cell naming a test
+    that does not test it;
+  - a test for a criterion that would still pass with the change reverted.
+- **MEDIUM** — real but bounded: coupling the diff breaks, drift from the
+  spec that leaves every criterion met, gaps in this run's tests that do not
+  leave a criterion unproven, a record imprecision that misleads in degree
+  rather than in kind.
+- **LOW** — dead new code, naming, missing docblocks on new internal
+  helpers.
+
+Which open findings hold the run is the lever `seekers.holds`, not your
+grading: `critical` (the default from `high` up) holds on an open CRITICAL,
+`high` on CRITICAL or HIGH, `medium` on any of the three, `none` (the
+default below `high` and at `custom`) on none. A LOW never holds. Do not
+inflate a MEDIUM to make it hold, or deflate a HIGH to let a run go; the
+severity is your judgment and the lever is the owner's. A held finding is
+fixed and re-inspected; any other may be marked `resolved` by a later
+inspection, or carried by the owner: `carried: <reason>`.
+
+Inside the diff, default to reporting: a finding you are unsure about is
+reported at the severity it would have if true, with your doubt stated, not
+a silent omission. Outside the diff,
 default to omitting: only a genuinely dangerous pre-existing problem earns
 one of the five observation slots.
 
 **The record is graded by materiality, not by precision.** The run's own
 prose — the spec's `## Realized` capture, earlier ledger sections, READMEs,
 the change summary — is part of the diff and IS in scope, but a defect there
-is MEDIUM only if it would mislead someone acting on the record: a claim the
-code contradicts, a verification described that did not happen, a gate
-outcome rounded up. An imprecision that misleads nobody is LOW at most, and
+is a finding only if it would mislead someone acting on the record: a claim
+the code contradicts, a verification described that did not happen, a gate
+outcome rounded up is HIGH; a claim that misleads in degree is MEDIUM. An
+imprecision that misleads nobody is LOW at most, and
 wording you would merely have chosen differently is not a finding. The
 reason is structural: every fix appends prose to answer the last inspection,
 so a reviewer that grades prose for precision finds something new in every

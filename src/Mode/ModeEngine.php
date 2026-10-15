@@ -1255,7 +1255,8 @@ final class ModeEngine {
    */
   private function openHoldingSeekerCount(RunState $state, Phase $phase, string $projectRoot): int {
     $severities = match ($state->seekerHolds) {
-      'medium' => ['critical', 'medium'],
+      'medium' => ['critical', 'high', 'medium'],
+      'high' => ['critical', 'high'],
       'critical' => ['critical'],
       default => [],
     };

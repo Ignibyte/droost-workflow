@@ -198,8 +198,8 @@ subagent has returned since the last one: the guard records each subagent
 that returns (PostToolUse on Agent and Task), and a ledger with none behind
 it is refused (where the hooks do not record dispatches, it is taken and
 marked `dispatch: unverified`). Which open rows hold the run is
-`seekers.holds`: `critical` (the default at `high` and above), `medium`
-(an open CRITICAL or MEDIUM), or `none` (the default below `high` and at
+`seekers.holds`: `critical` (the default at `high` and above), `high` (an
+open CRITICAL or HIGH), `medium` (CRITICAL, HIGH or MEDIUM), or `none` (the default below `high` and at
 `custom`, where the findings are advisory and go to the report); resolved
 and carried-with-reason rows never hold. `seekers.at_complete: true` makes
 complete wait for an inspection of its own, held the same way. A ledger
