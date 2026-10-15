@@ -116,7 +116,11 @@ final class SeekerEnforcementTest extends WorkflowTestCase {
    * At custom, `seekers.holds: medium` holds code on an open MEDIUM.
    */
   public function testCustomCanHoldOnAnOpenMedium(): void {
-    $held = $this->makeRootWithConfig("preset: custom\nmode: agentic\nseekers:\n  holds: medium\n");
+    $held = $this->makeRootWithConfig("preset: custom\nmode: agentic\nseekers:\n  holds: medium\n  at_complete: true\n");
+    $levers = $this->facade()->status($held)['levers'];
+    $this->assertIsArray($levers);
+    $this->assertSame('medium', $levers['seeker_holds'], 'status shows the lever before any run freezes it');
+    $this->assertTrue($levers['seeker_at_complete']);
     $this->toInspection($held);
     $this->facade()->recordSeeker($held, self::OPEN_MEDIUM);
     $this->assertSame(Outcome::InspectionDue, $this->facade()->run($held)->outcome, 'the open MEDIUM holds');

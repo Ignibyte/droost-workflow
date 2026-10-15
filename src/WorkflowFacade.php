@@ -259,6 +259,8 @@ final class WorkflowFacade {
         // the one command an operator reads BEFORE there is a run (F-12).
         'seekers' => $config->seekers,
         'seeker_rounds' => $config->seekerRounds,
+        'seeker_holds' => $config->seekerHolds,
+        'seeker_at_complete' => $config->seekerAtComplete,
         // The work-item integration for status: how a run's ticket is fetched
         // and written back. NULL when the repo declares none.
         'work_item' => $config->workItem?->toArray(),
@@ -334,6 +336,8 @@ final class WorkflowFacade {
       // from status alone.
       'seekers' => $state->seekers,
       'seeker_rounds' => $state->seekerRounds,
+      'seeker_holds' => $state->seekerHolds,
+      'seeker_at_complete' => $state->seekerAtComplete,
       'seeker' => $state->seeker,
       // The arc, not just the verdict: a clean re-inspection replaces the
       // record but must not erase what the earlier ones caught.

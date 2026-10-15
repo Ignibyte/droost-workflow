@@ -3065,6 +3065,12 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
         '-r', '--require', '--import', '--loader', '--experimental-loader',
         '-c', '-M', '-I', '-z', '--rcfile', '--init-file',
       ];
+      // Python's `-I` is isolated mode and takes no argument: read as a
+      // loader, `python3 -I s.py < data.json` skipped the script and took
+      // the data for it (an adopter's run, 2026-10-15).
+      if (preg_match('/^python[0-9.]*$/', strtolower(basename(ltrim($head, "\x01")))) === 1) {
+        $loaders = array_values(array_diff($loaders, ['-I']));
+      }
       $previous = '';
       foreach ($selfExecuting ? $bare : array_slice($bare, 1) as $argument) {
         $loadedByOption = in_array(ltrim($previous, "\x01"), $loaders, TRUE);
