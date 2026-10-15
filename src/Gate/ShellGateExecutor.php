@@ -1593,6 +1593,30 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $uncovered,
     );
     $pages = $count('pages');
+    // Each failing page a row, with its sources, so the runner can tell the
+    // pages this run made stale from the ones it found stale (0.14.18).
+    foreach (is_array($report['pages'] ?? NULL) ? $report['pages'] : [] as $page) {
+      if (!is_array($page) || !in_array($page['status'] ?? NULL, ['stale', 'orphaned', 'invalid'], TRUE) || !is_string($page['file'] ?? NULL)) {
+        continue;
+      }
+      $sources = [];
+      foreach (is_array($page['stale_sources'] ?? NULL) ? $page['stale_sources'] : [] as $source) {
+        if (is_array($source) && is_string($source['path'] ?? NULL)) {
+          $sources[] = $source['path'];
+        }
+      }
+      foreach (is_array($page['missing_sources'] ?? NULL) ? $page['missing_sources'] : [] as $source) {
+        if (is_string($source)) {
+          $sources[] = $source;
+        }
+      }
+      $findings[] = [
+        'rule' => 'wiki.' . $page['status'],
+        'message' => sprintf('%s is %s%s', $page['file'], $page['status'], $sources === [] ? '' : ' (changed: ' . implode(', ', $sources) . ')'),
+        'page' => $page['file'],
+        'sources' => implode("\n", $sources),
+      ];
+    }
     if ($exit !== 0) {
       return GateResult::ran(
         'wiki_fresh',

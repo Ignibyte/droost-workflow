@@ -206,7 +206,14 @@ final class GateRunner {
           $levers,
           $state,
           $projectRoot,
-          $recorded ?? $this->runOne($name, $levers, $projectRoot, $state->preset, $context),
+          $this->wikiHeldToTheRun(
+            $name,
+            $levers,
+            $state,
+            $projectRoot,
+            $recorded ?? $this->runOne($name, $levers, $projectRoot, $state->preset, $context),
+            $changed,
+          ),
         ));
         $result = $this->steeredByTheRun($name, $levers, $state, $projectRoot, $result, $changed);
         $result = $this->frozenCommandNoted($name, $levers, $live[$name] ?? NULL, $result);
@@ -265,6 +272,82 @@ final class GateRunner {
     }
 
     return $report;
+  }
+
+  /**
+   * The wiki verdict, failing only on the pages this run made unfresh.
+   *
+   * `droost:wiki:status` fails on any stale page, whoever made it stale. A
+   * client's run failed complete on a contrib theme's page that a dependency
+   * bump had left stale before the run began, and spent a retry on a page
+   * nothing in its scope could fix (0.14.18). A failing page is the run's
+   * when the run changed one of its sources or the page itself; the rest are
+   * named in the summary, as found, and do not fail the gate. `scope: all`
+   * keeps the whole-wiki verdict, and a run whose diff cannot be read keeps
+   * it too, and says so.
+   *
+   * @param string $name
+   *   The gate.
+   * @param array<string, mixed> $levers
+   *   Its levers.
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run, for its base commit.
+   * @param string $projectRoot
+   *   The repository.
+   * @param \Droost\Workflow\Gate\GateResult $result
+   *   What the tool reported.
+   * @param list<string>|null $changed
+   *   The run's changed files, read on first use and kept for the phase.
+   *
+   * @return \Droost\Workflow\Gate\GateResult
+   *   The verdict.
+   */
+  private function wikiHeldToTheRun(string $name, array $levers, RunState $state, string $projectRoot, GateResult $result, ?array &$changed): GateResult {
+    if ($name !== 'wiki_fresh' || $result->status !== GateStatus::Failed || ($levers['scope'] ?? NULL) === 'all') {
+      return $result;
+    }
+    $pages = array_values(array_filter(
+      $result->findings,
+      static fn (array $f): bool => in_array($f['rule'] ?? NULL, ['wiki.stale', 'wiki.orphaned', 'wiki.invalid'], TRUE),
+    ));
+    if ($pages === []) {
+      return $result;
+    }
+    if ($this->vcs === NULL || $state->baseCommit === NULL || !$this->vcs->isRepository($projectRoot)) {
+      return $result->withSummary(rtrim($result->summary, '. ') . ' — held to every page: the run\'s diff could not be read, so which pages it made stale is unknown');
+    }
+    $changed ??= $this->vcs->changedFiles($projectRoot, $state->baseCommit);
+    $own = [];
+    $found = [];
+    foreach ($pages as $page) {
+      $file = (string) ($page['page'] ?? '');
+      $sources = array_filter(explode("\n", (string) ($page['sources'] ?? '')));
+      $touched = array_intersect($sources, $changed) !== []
+        || array_filter($changed, static fn (string $path): bool => $file !== '' && str_ends_with($path, '/' . $file)) !== [];
+      if ($touched) {
+        $own[] = (string) ($page['message'] ?? $file);
+      }
+      else {
+        $found[] = (string) ($page['message'] ?? $file);
+      }
+    }
+    $before = $found === [] ? '' : sprintf(
+      '; %d page(s) were already unfresh and this run did not change their sources, so they do not fail it (refresh them with drush droost:wiki:generate, here or in a run of their own; gates.wiki_fresh.scope: all holds a run to them): %s',
+      count($found),
+      implode('; ', $found),
+    );
+    if ($own === []) {
+      return $result->withVerdict(GateStatus::Passed, sprintf(
+        'wiki_fresh passed — no page this run changed the sources of is stale, orphaned or invalid%s',
+        $before,
+      ));
+    }
+    return $result->withSummary(sprintf(
+      'wiki_fresh FAILED — %d page(s) this run made unfresh: %s%s',
+      count($own),
+      implode('; ', $own),
+      $before,
+    ));
   }
 
   /**

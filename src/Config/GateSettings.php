@@ -243,7 +243,11 @@ final class GateSettings {
     // themes a run changed to having a wiki page: one the run touched with no
     // page fails the gate, while a gap an earlier run left stays a note and
     // contrib is never held (F-60, owner 2026-09-23).
-    'wiki_fresh' => ['cover_diff' => 'flag', 'timeout' => 'seconds'],
+    // `scope: all` fails the gate on any stale page, as before 0.14.18; by
+    // default it fails on the pages whose sources this run changed, and names
+    // the rest (a client's run spent a retry on a contrib theme's page a
+    // dependency bump left stale before the run began).
+    'wiki_fresh' => ['cover_diff' => 'flag', 'scope' => 'string', 'timeout' => 'seconds'],
   ];
 
   /**

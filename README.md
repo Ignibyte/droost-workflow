@@ -69,7 +69,7 @@ gates:
   coverage:       { on: false, min: 0 }
   rendered_check: { on: true }                 # artifacts are truth
   config_clean:   { on: true }                 # a fresh cex produces zero diff (mode: report = advisory)
-  wiki_fresh:     { on: true }                 # the project's own docs still match the code
+  wiki_fresh:     { on: true }                 # the project's own docs still match the code: fails on a page whose sources the run changed; one found stale is named (scope: all holds every page)
   # every gate also takes mode: block | report — report records a failure and
   # advances (on the mandatory trio, only at preset: custom)
   # custom:                                    # your own commands as gates
