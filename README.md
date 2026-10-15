@@ -431,6 +431,15 @@ gate, like every lever, so a run cannot loosen the gate it is held to by
 editing the plugin that declares it; when the module's command has changed
 since, the gate's summary names both, and the next run runs the new one.
 
+A gate's verdict can be steered by a file the run changes: its config, its
+ignore or policy file. The built-in gates know theirs; a contributed gate
+declares them (`steers: ['.snyk']` on `#[DroostGate]`), a custom one takes
+`steered_by: <path>,<name>`, and snyk, gitleaks, semgrep, trivy and rector
+are known by id. When the run changed one, the gate's summary says
+`[steered by config this run changed: …]`, and the seeker reads an ignore
+the spec does not record as the developer's decision as a discipline
+finding.
+
 In the strict flow, complete re-runs every gate the run holds, contributed
 gates included, whatever phases they declare: it is the last wall before the
 run is recorded complete. A failing contributed gate's output reaches the

@@ -111,7 +111,13 @@ hand-written-what-a-generator-covers are graded identically at every level;
    and you name the move here as a defeat whether or not a gate caught it. A
    `gates.contributed.<id>: { mode: report }` or `{ on: false }` added by
    this diff to quiet a module's gate is the same finding with a different
-   spelling.
+   spelling. So is a gate's own config, ignore or policy file the diff
+   changed (`.snyk`, `.gitleaksignore`, `.semgrepignore`, `.eslintrc.json`):
+   the gate's summary names it as `[steered by config this run changed: …]`,
+   and a pass under it is a verdict the run wrote. Read what changed. An
+   ignore the spec records as the developer's decision, with its reason and
+   an expiry, is carried with that reason; one the spec does not record is
+   HIGH.
 
    The other way round is not a finding: a gate line reading `passed — 0
    new, N inherited` is the baseline working. Inherited findings predate the

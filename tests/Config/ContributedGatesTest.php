@@ -122,6 +122,30 @@ final class ContributedGatesTest extends WorkflowTestCase {
   }
 
   /**
+   * The catalog's row carries what the module declared, whole (0.14.19).
+   */
+  public function testCatalogRowCarriesFaultsRemedyAndSteers(): void {
+    $gate = new ContributedGate(
+      'snyk',
+      'droost_snyk',
+      ['code', 'test'],
+      'snyk test',
+      'report',
+      'exit 1: findings.',
+      [2 => 'environment'],
+      'snyk auth',
+      ['.snyk'],
+    );
+
+    $back = ContributedGate::fromArray($gate->toArray());
+
+    $this->assertSame([2 => 'environment'], $back->faults, 'read back by the bare CLI, the fault map survives');
+    $this->assertSame('snyk auth', $back->remedy);
+    $this->assertSame(['.snyk'], $back->steers);
+    $this->assertSame('.snyk', $back->toSettings()->option('steered_by'));
+  }
+
+  /**
    * The declaration is validated where it is made, by name.
    */
   public function testDeclarationsAreValidated(): void {

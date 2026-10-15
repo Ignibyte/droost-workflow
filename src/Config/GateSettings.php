@@ -436,9 +436,9 @@ final class GateSettings {
       }
     }
     foreach ($node->keys() as $given) {
-      if (!in_array($given, ['on', 'phase', 'cmd', 'mode', 'timeout'], TRUE)) {
+      if (!in_array($given, ['on', 'phase', 'cmd', 'mode', 'timeout', 'steered_by'], TRUE)) {
         throw ConfigError::invalidCustomGate($source, $key, sprintf(
-          'unknown option "%s" (accepted: on, phase, cmd, mode, timeout)',
+          'unknown option "%s" (accepted: on, phase, cmd, mode, timeout, steered_by)',
           $given,
         ));
       }
@@ -498,6 +498,11 @@ final class GateSettings {
     // gate that runs one failed every time it ran, whatever the suite said.
     if ($node->has('timeout')) {
       $options['timeout'] = $node->intInRange('timeout', 1, 86400);
+    }
+    // The files that steer the gate's verdict (its config, its ignore file),
+    // comma-separated: a run that changes one is named in the summary.
+    if ($node->has('steered_by')) {
+      $options['steered_by'] = implode(',', array_filter(array_map('trim', explode(',', $node->string('steered_by')))));
     }
     return new self(self::CUSTOM_PREFIX . $key, $node->bool('on'), $options);
   }

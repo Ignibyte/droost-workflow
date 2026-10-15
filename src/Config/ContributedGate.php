@@ -63,6 +63,11 @@ final class ContributedGate {
    * @param string $remedy
    *   (optional) The command that clears an environment fault. Printed to the
    *   agent as the OPERATOR's to run, never its own.
+   * @param list<string> $steers
+   *   (optional) The files that steer the gate's verdict: its config, its
+   *   ignore or policy file (`.snyk`). A run that changes one is named in the
+   *   gate's summary (0.14.19). A path is project-relative; a bare name
+   *   matches at any depth.
    */
   public function __construct(
     public readonly string $id,
@@ -73,6 +78,7 @@ final class ContributedGate {
     public readonly string $verdict = '',
     public readonly array $faults = [],
     public readonly string $remedy = '',
+    public readonly array $steers = [],
   ) {
     if (preg_match(self::ID, $id) !== 1) {
       throw new \InvalidArgumentException(sprintf(
@@ -156,7 +162,11 @@ final class ContributedGate {
    * surface reads back (R31-F3): a run begun with no booted site must be held
    * to the same contributed gates as one begun through drush or the MCP tool.
    *
-   * @return array{id: string, provider: string, phases: list<string>, command: string, mode: string, verdict: string}
+   * Faults, remedy and steers ride along (0.14.19): read back without them,
+   * a gate the bare CLI resolved through drush mapped every exit code to the
+   * agent and named nothing that steered it.
+   *
+   * @return array{id: string, provider: string, phases: list<string>, command: string, mode: string, verdict: string, faults: array<int, string>, remedy: string, steers: list<string>}
    *   The row.
    */
   public function toArray(): array {
@@ -167,6 +177,9 @@ final class ContributedGate {
       'command' => $this->command,
       'mode' => $this->defaultMode,
       'verdict' => $this->verdict,
+      'faults' => $this->faults,
+      'remedy' => $this->remedy,
+      'steers' => array_values($this->steers),
     ];
   }
 
@@ -206,7 +219,24 @@ final class ContributedGate {
     if (!is_string($mode)) {
       throw new \InvalidArgumentException(sprintf('Contributed gate row %s: "mode" must be a string.', $label));
     }
-    return new self((string) $row['id'], (string) $row['provider'], $names, (string) $row['command'], $mode, (string) $row['verdict']);
+    $faults = [];
+    foreach (is_array($row['faults'] ?? NULL) ? $row['faults'] : [] as $exit => $fault) {
+      if (is_numeric($exit) && is_string($fault)) {
+        $faults[(int) $exit] = $fault;
+      }
+    }
+    $steers = array_values(array_filter(is_array($row['steers'] ?? NULL) ? $row['steers'] : [], 'is_string'));
+    return new self(
+      (string) $row['id'],
+      (string) $row['provider'],
+      $names,
+      (string) $row['command'],
+      $mode,
+      (string) $row['verdict'],
+      $faults,
+      is_string($row['remedy'] ?? NULL) ? $row['remedy'] : '',
+      $steers,
+    );
   }
 
   /**
@@ -236,6 +266,10 @@ final class ContributedGate {
         array_keys($faults),
         $faults,
       ));
+    }
+    $steers = array_values(array_filter($this->steers, static fn (mixed $f): bool => is_string($f) && trim($f) !== '' && !str_contains($f, ',')));
+    if ($steers !== []) {
+      $options['steered_by'] = implode(',', $steers);
     }
     if ($this->remedy !== '') {
       $options['remedy'] = $this->remedy;

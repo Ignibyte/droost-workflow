@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Gate;
 
+use Droost\Workflow\Config\GateSettings;
+
 /**
  * The config files a gate's verdict is reached under, as the executor runs it.
  *
@@ -129,8 +131,59 @@ final class SteeringConfigs {
       'mutation' => in_array($path, ShellGateExecutor::INFECTION_CONFIGS, TRUE)
         || in_array($path, self::PHPUNIT, TRUE),
       'eslint', 'stylelint', 'prettier' => self::steersTheTrio($gate, $levers, $root, $path),
-      default => FALSE,
+      default => self::steersDeclaringGate($gate, $levers, $path),
     };
+  }
+
+  /**
+   * What steers a contributed or custom gate that declares nothing, by id.
+   *
+   * The policy and ignore files of the scanners modules wrap. A run that
+   * adds an ignore to one passes a blocking gate on a verdict it wrote, and
+   * a client's run did, with the report saying nothing (0.14.19).
+   */
+  private const KNOWN = [
+    'snyk' => ['.snyk'],
+    'gitleaks' => ['.gitleaks.toml', '.gitleaksignore'],
+    'semgrep' => ['.semgrepignore', '.semgrep.yml', '.semgrep.yaml'],
+    'trivy' => ['.trivyignore', 'trivy.yaml'],
+    'rector' => ['rector.php'],
+    'drupal_rector' => ['rector.php'],
+  ];
+
+  /**
+   * Whether a changed file steers a contributed or custom gate.
+   *
+   * What the gate declares (`steers` on a module's gate, `steered_by` on a
+   * custom one), and the scanner's own files known by its id. A declared
+   * path matches that path; a bare name matches at any depth.
+   *
+   * @param string $gate
+   *   The gate.
+   * @param array<string, mixed> $levers
+   *   Its levers.
+   * @param string $path
+   *   The project-relative path.
+   *
+   * @return bool
+   *   TRUE when the gate reads it.
+   */
+  private static function steersDeclaringGate(string $gate, array $levers, string $path): bool {
+    if (!GateSettings::isContributed($gate) && !GateSettings::isCustom($gate)) {
+      return FALSE;
+    }
+    $id = substr($gate, (int) strpos($gate, ':') + 1);
+    $declared = is_string($levers['steered_by'] ?? NULL) ? explode(',', $levers['steered_by']) : [];
+    foreach ([...$declared, ...(self::KNOWN[$id] ?? [])] as $entry) {
+      $entry = trim(str_replace('\\', '/', $entry), " /");
+      if ($entry === '') {
+        continue;
+      }
+      if (str_contains($entry, '/') ? $path === $entry : basename($path) === $entry) {
+        return TRUE;
+      }
+    }
+    return FALSE;
   }
 
   /**
