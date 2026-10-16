@@ -109,7 +109,10 @@ level; `low` buys fewer gates, not a kinder reviewer.
    adoption baseline is the operator's record of debt that predates every
    run, written from their terminal and never by the run — the engine
    freezes its hash at begin and fails every consulting gate when it moves,
-   and you name the move here as a defeat whether or not a gate caught it. A
+   and you name the move here as a defeat whether or not a gate caught it.
+   Ask git (`git status --short -- droost/baseline`, `git diff HEAD --stat
+   -- droost/baseline`) or `droost-workflow baseline --status`; the guard
+   lets any read of it through and walls every write. A
    `gates.contributed.<id>: { mode: report }` or `{ on: false }` added by
    this diff to quiet a module's gate is the same finding with a different
    spelling. So is a gate's own config, ignore or policy file the diff

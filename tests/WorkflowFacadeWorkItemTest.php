@@ -195,6 +195,45 @@ final class WorkflowFacadeWorkItemTest extends WorkflowTestCase {
   }
 
   /**
+   * A ticket named with `declare-changes` is in run.json too (F-295).
+   *
+   * The check said "this run is tied to" the ticket while run.json carried
+   * `work_item: null`. A declared ticket is a name, never moved, and never
+   * replaces the ticket `run --ticket` bound.
+   */
+  public function testDeclaredTicketIsInTheRunRecord(): void {
+    $root = $this->project();
+    $facade = $this->facade($root);
+    $ticket = $root . '/droost/tickets/open/TICKET-169-the-container-stops-granting-root.md';
+    $before = (string) file_get_contents($ticket);
+
+    $facade->run($root);
+    $facade->declareChanges($root, ['src'], [], 'code', 'TICKET-1');
+    $facade->declareChanges($root, ['src'], [], 'code', 'TICKET-169');
+    $document = json_decode((string) file_get_contents($root . '/droost/droost-workflow/run.json'), TRUE);
+    $this->assertIsArray($document);
+    $this->assertIsArray($document['work_item'] ?? NULL);
+    $this->assertSame('TICKET-169', $document['work_item']['id'] ?? NULL, 'the last declaration is the run\'s ticket');
+    $this->assertSame('declared', $document['work_item']['source'] ?? NULL);
+
+    $outcome = $facade->run($root);
+    for ($i = 0; $i < 12 && $outcome->outcome === Outcome::Advanced; $i++) {
+      $outcome = $facade->run($root);
+    }
+    $this->assertSame(Outcome::Completed, $outcome->outcome);
+    $this->assertSame($before, (string) file_get_contents($ticket), 'a declared ticket is never moved');
+
+    $bound = $this->project();
+    $facade = $this->facade($bound);
+    $facade->run($bound, NULL, 'TICKET-169');
+    $facade->declareChanges($bound, ['src'], [], 'code', 'TICKET-2');
+    $state = $this->stateOf($bound);
+    $this->assertNotNull($state);
+    $this->assertSame('TICKET-169', $state->workItem['id'] ?? NULL, 'the bound ticket stays');
+    $this->assertSame('markdown', $state->workItem['source'] ?? NULL);
+  }
+
+  /**
    * A project with druplit's two fixture tickets and a markdown source.
    *
    * @return string

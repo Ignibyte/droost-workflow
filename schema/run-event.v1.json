@@ -54,13 +54,15 @@
       "properties": { "phase": { "type": "string" } }
     },
     "phase.attempted": {
-      "description": "A phase's gates ran, pass or fail: a failed gate never ends a phase, so this is the only event that shows one. report is PhaseReport::toArray(): phase, advance, tally and every gate's result.",
+      "description": "A phase's gates ran, pass or fail: a failed gate never ends a phase, so this is the only event that shows one. report is PhaseReport::toArray(): phase, advance, tally and every gate's result; its advance is false when a check held the phase. outcome is what the attempt did (Outcome), and blocked names the checks that held it.",
       "type": "object",
       "required": ["phase", "attempt", "report"],
       "properties": {
         "phase": { "type": "string" },
         "attempt": { "type": "integer", "minimum": 1 },
-        "report": { "type": ["object", "null"] }
+        "report": { "type": ["object", "null"] },
+        "outcome": { "type": "string" },
+        "blocked": { "type": "array", "items": { "type": "object" } }
       }
     },
     "phase.ended": {

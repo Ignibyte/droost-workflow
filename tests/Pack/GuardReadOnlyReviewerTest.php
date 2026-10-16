@@ -12,11 +12,12 @@ use Droost\Workflow\Tests\WorkflowTestCase;
  * An adopter's first observed run (2026-10-15) met three wrong refusals.
  * Four of five seekers were refused `git status --short droost.workflow.yml
  * droost/baseline`, the tamper check a seeker exists to run, because the
- * baseline wall matched the path anywhere on the line. Reading the baseline's
- * files is still `baseline --status`'s; asking git whether they changed is
- * the seeker's. One was refused a `find` whose `-o` ("or") was
- * read as an output flag, so its quoted `'*droost*'` expanded onto the lever
- * file and the refusal spoke of editing the dial. And the main agent was told
+ * baseline wall matched the path anywhere on the line; the next run's seeker
+ * was refused `ls -la droost/baseline/` (F-292). Any reader may name the
+ * baseline now, since `git show` already printed it. One was refused a
+ * `find` whose `-o` ("or") was read as an output flag, so its quoted
+ * `'*droost*'` expanded onto the lever file and the refusal spoke of editing
+ * the dial. And the main agent was told
  * it "writes planted-table.out and then runs it" for a command that wrote
  * summary-probe.php with a heredoc and ran that, handing it planted-table.out
  * as data.
@@ -35,14 +36,16 @@ final class GuardReadOnlyReviewerTest extends WorkflowTestCase {
       'git status --short droost.workflow.yml droost/baseline 2>&1 | head',
       'ddev drush droost:wiki:status 2>&1 | grep -i "my_module"; git diff HEAD --stat -- droost.workflow.yml droost/baseline/ .claude/ docs/ | tail -2',
       'git log --oneline -- droost/baseline',
+      // F-292: the next run's complete seeker, as it was spelled.
+      "for f in \$(git diff HEAD --name-only) droost.workflow.yml .snyk; do stat -f '%Sm %N' -t '%Y-%m-%dT%H:%M:%S' \"\$f\"; done | sort; ls -la droost/baseline/ 2>/dev/null | head; git diff HEAD --stat -- droost.workflow.yml .snyk droost/baseline",
+      'cat droost/baseline/manifest.json',
+      'ls -la droost/baseline',
+      'shasum -a 256 droost/baseline/*',
+      'stat droost/baseline/manifest.json',
+      'cat droost/baseline/manifest.json > /tmp/copy.json',
     ] as $command) {
       [$exit, , $stderr] = $this->attempt($root, $command);
       $this->assertSame(0, $exit, $command . ': ' . $stderr);
-    }
-    // Reading the files themselves is still `baseline --status`'s.
-    foreach (['cat droost/baseline/manifest.json', 'ls -la droost/baseline'] as $command) {
-      [$exit] = $this->attempt($root, $command);
-      $this->assertSame(2, $exit, $command);
     }
   }
 
@@ -72,6 +75,16 @@ final class GuardReadOnlyReviewerTest extends WorkflowTestCase {
       'bash -c "git ls-files droost/baseline | xargs rm"',
       'git show HEAD:droost/baseline/manifest.json > droost/baseline/manifest.json',
       'ls droost/baseline/* | xargs rm',
+      'ls droost/baseline | sort -o droost/baseline/manifest.json',
+      'ls droost/baseline | sort --output=droost/baseline/manifest.json',
+      'ls droost/baseline > droost/baseline/manifest.json',
+      'cat /tmp/x > droost/baseline/manifest.json',
+      'ls droost/baseline; cp /tmp/x droost/baseline/manifest.json',
+      'stat droost/baseline/manifest.json && mv droost/baseline/manifest.json /tmp',
+      'cat droost/baseline/manifest.json | bash',
+      'ls droost/baseline | while read f; do : > "droost/baseline/$f"; done',
+      'for f in droost/baseline/*; do rm "$f"; done',
+      'find droost/baseline -type f -exec truncate -s0 {} +',
       'echo droost/baseline/manifest.json | while read f; do rm "$f"; done',
       'cat droost/baseline/manifest.json | sh',
       'cat droost/baseline/manifest.json | tee droost/baseline/x',

@@ -4523,20 +4523,22 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
 }
 
 /**
- * Whether every command naming droost/baseline/ is git reading it.
+ * Whether every command naming droost/baseline/ only reads it.
  *
  * The baseline wall matched the path anywhere on the line, so a seeker's
  * tamper check, `git status --short droost.workflow.yml droost/baseline`, was
  * refused in four of five inspections of an adopter's first observed run
  * (2026-10-15) as editing the baseline: the one reviewer whose job is to see
  * whether the run touched it could not ask git. Git's history and status
- * verbs are let through when nothing on them writes, and no pipe on the line
- * hands what they print to anything but a reader: `git ls-files
- * droost/baseline | xargs rm` reads with git and deletes through the pipe.
- * Reading the files themselves stays the sanctioned surface's (`baseline
- * --status`), as it was, and everything else still meets the wall, a command
- * string sent to another shell included (`tmux send-keys "…
- * droost/baseline …"` types into a pane that may run it).
+ * verbs were let through, and the next run's seeker was refused `ls -la
+ * droost/baseline/ | head` beside its `git diff` (F-292). Keeping the files
+ * from plain readers protected nothing, since `git show
+ * HEAD:droost/baseline/…` already prints them, so any reader may name the
+ * baseline when nothing on it writes and no pipe on the line hands what it
+ * prints to anything but a reader: `git ls-files droost/baseline | xargs rm`
+ * reads with git and deletes through the pipe. Everything else still meets
+ * the wall, a command string sent to another shell included (`tmux send-keys
+ * "… droost/baseline …"` types into a pane that may run it).
  *
  * @param list<list<string>> $invocations
  *   Every command on the line, nested and substituted ones included.
@@ -4544,7 +4546,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
  *   Every pipe on the line, nested ones included.
  *
  * @return bool
- *   TRUE when the path is only named to git's readers.
+ *   TRUE when the path is only named to readers.
  */
 function baseline_only_read(array $invocations, array $pipes): bool {
   $names = static function (array $tokens): bool {
@@ -4553,12 +4555,12 @@ function baseline_only_read(array $invocations, array $pipes): bool {
     return preg_match('#(^|[\s\'"=/])droost/baseline(/|\s|$)#', $text) === 1;
   };
   foreach ($pipes as [, $consumer]) {
-    if (!baseline_reader($consumer, FALSE)) {
+    if (!baseline_reader($consumer)) {
       return FALSE;
     }
   }
   foreach ($invocations as $tokens) {
-    if ($names($tokens) && !baseline_reader($tokens, TRUE)) {
+    if ($names($tokens) && !baseline_reader($tokens)) {
       return FALSE;
     }
   }
@@ -4576,14 +4578,11 @@ function baseline_only_read(array $invocations, array $pipes): bool {
  *
  * @param list<string> $tokens
  *   One command, as tokenised.
- * @param bool $gitOnly
- *   Whether only git's readers count: the commands that name the baseline.
- *   A pipe's reader may be any reader (`| head`, `| grep`).
  *
  * @return bool
  *   TRUE when it reads and writes nothing.
  */
-function baseline_reader(array $tokens, bool $gitOnly): bool {
+function baseline_reader(array $tokens): bool {
   $plain = operator_commands_unwrapped($tokens);
   $program = ltrim($plain[0] ?? '', "\x01");
   $verb = strtolower(basename($program));
@@ -4604,13 +4603,13 @@ function baseline_reader(array $tokens, bool $gitOnly): bool {
   if ($verb === 'git') {
     return in_array(strtolower(ltrim($plain[1] ?? '', "\x01")), ['status', 'diff', 'log', 'show', 'ls-files', 'blame'], TRUE);
   }
-  if ($gitOnly) {
-    return FALSE;
-  }
   if ($verb === 'find') {
     return !find_action_writes($plain);
   }
-  return $verb !== 'sed' && in_array($verb, guard_reading_verbs(), TRUE);
+  // Text filters write only through `-o`/`--output`, refused above. Without
+  // them, a `done | sort` anywhere on the line was refused as editing the
+  // baseline the same line listed (F-292).
+  return $verb !== 'sed' && in_array($verb, [...guard_reading_verbs(), 'sort', 'cut', 'tr', 'column', 'nl', 'tac'], TRUE);
 }
 
 /**

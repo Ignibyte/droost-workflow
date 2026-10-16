@@ -83,6 +83,11 @@ use Droost\Workflow\WorkItem\WorkItemSourceInterface;
 final class WorkflowFacade {
 
   /**
+   * The source of a ticket the run only named, with `declare-changes`.
+   */
+  private const string DECLARED_SOURCE = 'declared';
+
+  /**
    * Observes lifecycle transitions. A notification, never the record.
    */
   private readonly WorkflowListenerInterface $listener;
@@ -952,11 +957,19 @@ final class WorkflowFacade {
     }
     $store->save($advanced->state);
     // Every attempt, pass or fail: a failed gate never ends a phase, so this
-    // is the only event that shows one.
+    // is the only event that shows one. The gate report alone said `advance:
+    // true` on a plan that plan_grounded held (F-296): the checks that held
+    // it ride beside it, and the report's advance says what happened.
+    $report = $advanced->report?->toArray();
+    if ($report !== NULL && $advanced->blocked !== []) {
+      $report['advance'] = FALSE;
+    }
     $this->event($store, $advanced->state, 'phase.attempted', [
       'phase' => $phase->value,
       'attempt' => (new EvidenceStore($projectRoot))->phaseAttempt($advanced->state->runId, $phase->value),
-      'report' => $advanced->report?->toArray(),
+      'report' => $report,
+      'outcome' => $advanced->outcome->value,
+      'blocked' => $advanced->blocked,
     ]);
     $this->questionAsked($store, $state, $advanced->state, $advanced->question);
     $this->announceLoop($store, $state, $advanced);
@@ -2018,7 +2031,8 @@ final class WorkflowFacade {
           : '')
       );
     }
-    $state = $this->requireRun(new RunStateStore($projectRoot));
+    $runs = new RunStateStore($projectRoot);
+    $state = $this->requireRun($runs);
     $currentPhase = $state->currentPhase;
     $phase = $currentPhase === NULL ? 'plan' : $currentPhase->value;
     $store = new EvidenceStore($projectRoot);
@@ -2049,6 +2063,21 @@ final class WorkflowFacade {
     }
     foreach ($kinds as $kind => $values) {
       self::recordDeclaration($store, $state->runId, $phase, $kind, $values, $now);
+    }
+    // The run record names the ticket too. It held only `run --ticket`'s
+    // binding, so a run whose check said "tied to" its ticket carried
+    // `work_item: null` in run.json (F-295). A ticket bound at begin is the
+    // source's and stays; a declared one is only a name, never moved.
+    if (isset($kinds['work_item']) && ($state->workItem === NULL || ($state->workItem['source'] ?? NULL) === self::DECLARED_SOURCE)) {
+      $runs->save($state->withWorkItem([
+        'id' => $kinds['work_item'][0],
+        'source' => self::DECLARED_SOURCE,
+        'number' => NULL,
+        'title' => NULL,
+        'status' => NULL,
+        'type' => NULL,
+        'path' => NULL,
+      ]));
     }
 
     return [
@@ -2160,7 +2189,7 @@ final class WorkflowFacade {
    */
   private function moveTicket(string $projectRoot, RunStateStore $store, RunState $state, string $to, string $reason): RunState {
     $id = $state->workItem['id'] ?? NULL;
-    if (!is_string($id) || $this->workItems === NULL) {
+    if (!is_string($id) || $this->workItems === NULL || ($state->workItem['source'] ?? NULL) === self::DECLARED_SOURCE) {
       return $state;
     }
     try {

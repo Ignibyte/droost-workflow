@@ -8,6 +8,8 @@ use Droost\Workflow\Cli\ArgvDispatcher;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Event\RunEvent;
 use Droost\Workflow\Event\RunEventLog;
+use Droost\Workflow\Evidence\CheckAdjudicatorInterface;
+use Droost\Workflow\Evidence\CheckAdjudicators;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
@@ -108,6 +110,31 @@ final class RunEventLogFacadeTest extends WorkflowTestCase {
     $this->assertSame($state->runId, $events[0]->runId);
     $this->assertNull($events[0]->workItemId);
     $this->assertSame('interactive', $events[0]->payload['mode']);
+  }
+
+  /**
+   * A plan a check held is not reported as advancing (F-296).
+   *
+   * The gate report said `advance: true` with no gates while plan_grounded
+   * blocked, and the event carried nothing else.
+   */
+  public function testHeldPlanSaysSo(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\nseekers:\n  on: false\n");
+    // Droost is here and was never asked, so plan_grounded holds the plan.
+    mkdir($root . '/vendor/bin', 0755, TRUE);
+    file_put_contents($root . '/vendor/bin/droost', "#!/usr/bin/env php\n");
+    $outcome = $this->facade(CheckAdjudicators::withLibraryChecks())->run($root);
+    $this->assertSame(Outcome::Blocked, $outcome->outcome);
+
+    $events = iterator_to_array((new RunEventLog((new RunStateStore($root))->directory()))->read(), FALSE);
+    $attempts = array_values(array_filter($events, static fn (RunEvent $e): bool => $e->type === 'phase.attempted'));
+    $this->assertCount(1, $attempts);
+    $payload = $attempts[0]->payload;
+    $this->assertSame('blocked', $payload['outcome'] ?? NULL);
+    $this->assertIsArray($payload['report']);
+    $this->assertFalse($payload['report']['advance'] ?? NULL, 'a held phase does not advance');
+    $this->assertIsArray($payload['blocked']);
+    $this->assertContains('plan_grounded', array_column($payload['blocked'], 'check'));
   }
 
   /**
@@ -216,7 +243,9 @@ final class RunEventLogFacadeTest extends WorkflowTestCase {
         is_bool($value) => 'boolean',
         is_int($value) => 'integer',
         is_string($value) => 'string',
-        is_array($value) && array_is_list($value) && $value !== [] => 'array',
+        // JSON's `[]` is either; PHP decodes both to the same empty array.
+        $value === [] => in_array('array', $allowed, TRUE) ? 'array' : 'object',
+        is_array($value) && array_is_list($value) => 'array',
         is_array($value) => 'object',
         default => gettype($value),
       };
@@ -246,10 +275,13 @@ final class RunEventLogFacadeTest extends WorkflowTestCase {
   /**
    * A facade whose phpcs fails its first run at code and passes after.
    *
+   * @param \Droost\Workflow\Evidence\CheckAdjudicatorInterface|null $checks
+   *   The checks it asks, or none.
+   *
    * @return \Droost\Workflow\WorkflowFacade
    *   The facade.
    */
-  private function facade(): WorkflowFacade {
+  private function facade(?CheckAdjudicatorInterface $checks = NULL): WorkflowFacade {
     $executor = new class() implements GateExecutorInterface {
 
       /**
@@ -278,6 +310,7 @@ final class RunEventLogFacadeTest extends WorkflowTestCase {
       new RunStateOnlySink(),
       static fn (): string => '2026-09-28T12:00:00+00:00',
       static fn (): string => 'run-events-log',
+      checks: $checks,
     );
   }
 

@@ -1361,7 +1361,6 @@ final class GuardTest extends WorkflowTestCase {
       'php reaching the store' => 'php -r "new PDO(sqlite:droost/droost-workflow/evidence.sqlite)"',
       'moving a file onto it' => 'mv /tmp/forged droost/droost-workflow/evidence.sqlite',
       'a redirect into the baseline' => 'echo {} > droost/baseline/phpstan.json',
-      'even reading the baseline' => 'cat droost/baseline/phpcs.json',
     ];
     foreach ($refused as $label => $command) {
       [$code, , $stderr] = $this->guard($root, 'operator-commands', [
@@ -1378,6 +1377,8 @@ final class GuardTest extends WorkflowTestCase {
       'running the suite' => 'vendor/bin/phpunit --no-coverage',
       'the sanctioned evidence surface' => 'php vendor/bin/droost-workflow evidence --write',
       'the sanctioned baseline surface' => 'php vendor/bin/droost-workflow baseline --status',
+      // F-292: `git show` printed it already, and the seeker reads it.
+      'reading the baseline' => 'cat droost/baseline/phpcs.json',
       'an ordinary commit' => 'git add -A && git commit -m x',
       'a file that merely shares a word' => 'cat docs/baseline-notes.md',
     ];
