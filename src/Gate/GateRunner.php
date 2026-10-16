@@ -192,11 +192,14 @@ final class GateRunner {
         // full set and says why.
         if (($levers['scope'] ?? NULL) === 'ticket' && in_array($name, ShellGateExecutor::TICKET_SCOPED, TRUE)) {
           if ($this->vcs !== NULL && $state->baseCommit !== NULL) {
-            $changed ??= $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot) ?? [];
-            $levers['ticket_files'] = implode("\n", $changed);
+            $changed ??= $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot);
+          }
+          // A diff that could not be read is unknown, never empty (S4-13).
+          if ($changed === NULL) {
+            $levers['ticket_unknown'] = TRUE;
           }
           else {
-            $levers['ticket_unknown'] = TRUE;
+            $levers['ticket_files'] = implode("\n", $changed);
           }
         }
         // A RECORDED RUN, where the level allows one (0.11, `low`): the run
@@ -323,7 +326,10 @@ final class GateRunner {
     if ($this->vcs === NULL || $state->baseCommit === NULL || !$this->vcs->isRepository($projectRoot)) {
       return $result->withSummary(rtrim($result->summary, '. ') . ' — held to every page: the run\'s diff could not be read, so which pages it made stale is unknown');
     }
-    $changed ??= $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot) ?? [];
+    $changed ??= $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot);
+    if ($changed === NULL) {
+      return $result->withSummary(rtrim($result->summary, '. ') . ' — held to every page: the run\'s diff could not be read, so which pages it made stale is unknown');
+    }
     $own = [];
     $found = [];
     foreach ($pages as $page) {
@@ -378,7 +384,7 @@ final class GateRunner {
     if ($this->vcs === NULL || $state->baseCommit === NULL || !$this->vcs->isRepository($projectRoot)) {
       return HouseRulesCheck::run($house, NULL, NULL, $projectRoot);
     }
-    $changed ??= $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot) ?? [];
+    $changed ??= $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot);
     $added = $this->vcs instanceof AddedFilesInterface
       ? $state->ownChanges($this->vcs->addedFiles($projectRoot, $state->baseCommit), $projectRoot)
       : NULL;

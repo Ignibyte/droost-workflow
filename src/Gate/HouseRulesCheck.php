@@ -34,6 +34,14 @@ final class HouseRulesCheck {
   private const OUTPUT_LINES = 20;
 
   /**
+   * How many bytes of file names one invocation is handed.
+   *
+   * Far under any system's argument limit (macOS allows 1 MB with the
+   * environment), so a long list never fails to start.
+   */
+  private const ARG_BYTES = 65536;
+
+  /**
    * Runs the gate-judged house rules over what the run added.
    *
    * @param list<array<mixed>> $house
@@ -71,19 +79,40 @@ final class HouseRulesCheck {
     $findings = [];
     $blocking = FALSE;
     $read = [];
+    $total = 0;
+    $live = 0;
+    $exitCode = 0;
+    $elapsed = 0;
     foreach ($rules as $rule) {
       $id = self::text($rule['id'] ?? NULL, '?');
       $mode = self::text($rule['mode'] ?? NULL, 'report');
       if ($mode === 'off') {
         continue;
       }
+      $live++;
       if (isset($rule['cmd'])) {
         $outcome = self::command($rule, $changed ?? $files, $projectRoot, $runner);
         if ($outcome instanceof GateResult) {
           return $outcome;
         }
-        [$count, $why] = $outcome;
+        [$count, $why, $exit, $ms] = $outcome;
+        $total += $count;
+        $elapsed += $ms;
+        $exitCode = $exit !== 0 ? $exit : $exitCode;
         $read[] = sprintf('%s read %d changed file(s)', $id, $count);
+        // THE RULE'S OWN SCRIPT, CHANGED BY THE RUN IT JUDGES (S5-6). A
+        // check whose script the agent rewrote says whatever the rewrite
+        // says; its verdict is the agent's, and the record says so.
+        foreach (self::steeringScripts(self::text($rule['cmd'], ''), $changed ?? $files, $projectRoot) as $script) {
+          $findings[] = [
+            'file' => $script,
+            'line' => 0,
+            'rule' => $id,
+            'message' => sprintf('%s: its command\'s own script %s was changed by this run, so what it reports is not a measurement; the OPERATOR reviews the change', $id, $script),
+            'detail' => $mode === 'block' ? 'error' : 'warning',
+          ];
+          $blocking = $blocking || $mode === 'block';
+        }
         if ($why !== NULL) {
           $findings[] = [
             'file' => '',
@@ -96,6 +125,7 @@ final class HouseRulesCheck {
         }
         continue;
       }
+      $total += count($files);
       $read[] = sprintf('%s read %d added file(s)', $id, count($files));
       foreach (self::breaks(self::text($rule['check'] ?? NULL, ''), $files, $projectRoot) as $file => $why) {
         $findings[] = [
@@ -109,15 +139,23 @@ final class HouseRulesCheck {
       }
     }
     $ids = implode(', ', array_map(static fn (array $r): string => self::text($r['id'] ?? NULL, '?'), $rules));
+    if ($live === 0) {
+      return GateResult::off(self::GATE, sprintf('every gate-judged house rule (%s) is mode: off', $ids));
+    }
     $scope = $added === NULL ? ' (added and changed could not be told apart, so every changed file was read)' : '';
+    if ($findings === [] && $total === 0) {
+      // A pass that read nothing is said as one (S4-1): no rule had a file to
+      // judge, which is not the same claim as every rule holding.
+      return GateResult::labelledPass(self::GATE, 0, $elapsed, sprintf('house_rules read nothing — no file this run added or changed is one %s reads (%s)%s', $ids, implode('; ', $read), $scope), 'house rules: ' . $ids);
+    }
     if ($findings === []) {
-      return GateResult::ran(self::GATE, GateStatus::Passed, 0, 0, sprintf('house_rules passed — %s held (%s)%s', $ids, implode('; ', $read), $scope), [], 'house rules: ' . $ids);
+      return GateResult::ran(self::GATE, GateStatus::Passed, 0, $elapsed, sprintf('house_rules passed — %s held (%s)%s', $ids, implode('; ', $read), $scope), [], 'house rules: ' . $ids);
     }
     return GateResult::ran(
       self::GATE,
       $blocking ? GateStatus::Failed : GateStatus::Reported,
-      1,
-      0,
+      $exitCode !== 0 ? $exitCode : 1,
+      $elapsed,
       sprintf(
         '%s — %d break(s) of the house rules (%s)%s: %s',
         $blocking ? 'house_rules FAILED' : 'report — house_rules',
@@ -136,9 +174,13 @@ final class HouseRulesCheck {
    *
    * The files are handed as the command's arguments (`cmd "$@"`), so the
    * site's tool reads what the run changed and never the code it inherited.
+   * Each is given as `./path`, so a file named like an option (`--version`)
+   * is a file and never a flag that turns the tool into a no-op pass (S4-4).
+   * A long list is split so no invocation passes the system's argument
+   * limit, and every part must exit zero.
    *
    * @param array<mixed> $rule
-   *   The rule, with its `cmd` and maybe its `files` globs.
+   *   The rule, with its `cmd`, maybe its `files` globs and its `timeout`.
    * @param list<string> $changed
    *   The files the run changed.
    * @param string $projectRoot
@@ -146,13 +188,15 @@ final class HouseRulesCheck {
    * @param (callable(list<string>, string, int): array{int, string, string})|null $runner
    *   Runs the command.
    *
-   * @return array{int, string|null}|\Droost\Workflow\Gate\GateResult
-   *   How many files it read and why it broke (NULL when it held), or the
-   *   gate's result when the command could not run.
+   * @return array{int, string|null, int, int}|\Droost\Workflow\Gate\GateResult
+   *   How many files it read, why it broke (NULL when it held), the exit code
+   *   and the milliseconds it took; or the gate's result when the command
+   *   could not run, which is the environment's, never the agent's.
    */
   private static function command(array $rule, array $changed, string $projectRoot, ?callable $runner): array|GateResult {
     $id = self::text($rule['id'] ?? NULL, '?');
     $cmd = self::text($rule['cmd'] ?? NULL, '');
+    $timeout = is_int($rule['timeout'] ?? NULL) && $rule['timeout'] > 0 ? $rule['timeout'] : self::CMD_TIMEOUT;
     $globs = is_array($rule['files'] ?? NULL) ? array_values(array_filter($rule['files'], 'is_string')) : [];
     $root = rtrim($projectRoot, '/');
     $files = [];
@@ -167,41 +211,119 @@ final class HouseRulesCheck {
       $files[] = $path;
     }
     if ($files === []) {
-      return [0, NULL];
+      return [0, NULL, 0, 0];
     }
     $invocation = sprintf('%s (%s, over %d changed file(s))', $cmd, $id, count($files));
     if ($runner === NULL) {
       return GateResult::toolFailed(self::GATE, 1, sprintf('%s names a command and nothing here runs commands', $id), 'Run the gate through the workflow, which runs house-rule commands.', $invocation);
     }
-    [$exit, $stdout, $stderr] = $runner(['/bin/sh', '-c', $cmd . ' "$@"', 'house-rule', ...$files], $root, self::CMD_TIMEOUT);
-    if ($exit === 0) {
-      return [count($files), NULL];
+    $started = hrtime(TRUE);
+    foreach (self::batches($files) as $batch) {
+      $operands = array_map(static fn (string $f): string => './' . $f, $batch);
+      $argv = ['/bin/sh', '-c', $cmd . ' "$@"', 'house-rule', ...$operands];
+      [$exit, $stdout, $stderr] = $runner($argv, $root, $timeout);
+      $ms = (int) ((hrtime(TRUE) - $started) / 1_000_000);
+      if ($exit === 0) {
+        continue;
+      }
+      if ($exit === 127) {
+        return GateResult::toolMissing(self::GATE, $invocation, sprintf(
+          'The command for house rule %s was not found. Install it, or ask the OPERATOR to change the rule in droost.workflow.yml (rules.house); an agent cannot decide either.',
+          $id,
+        ), 127, $ms);
+      }
+      if ($exit === 124) {
+        return GateResult::toolFailed(self::GATE, 124, sprintf('%s\'s command did not finish in %ds', $id, $timeout), 'Make the command faster, narrow the files it reads (files: in the rule), or ask the OPERATOR to raise the rule\'s timeout.', $invocation);
+      }
+      // 126 is a command that cannot execute, and above 128 a signal killed
+      // it (out of memory, a kill): the machine's, not a verdict on the
+      // code. A negative exit is a process that never started.
+      if ($exit === 126 || $exit > 128 || $exit < 0) {
+        return GateResult::toolFailed(self::GATE, $exit, sprintf('%s\'s command could not run to a verdict (exit %d)', $id, $exit), 'Make the command executable and runnable on this machine; a signal or an unexecutable script is the environment\'s to fix.', $invocation);
+      }
+      $output = trim($stdout . "\n" . $stderr);
+      $lines = $output === '' ? [] : array_slice(preg_split('/\R/', $output) ?: [], 0, self::OUTPUT_LINES);
+      return [count($files), sprintf(
+        'its command exited %d over %d changed file(s)%s',
+        $exit,
+        count($files),
+        $lines === [] ? '' : ":\n" . implode("\n", $lines),
+        ), $exit, $ms,
+      ];
     }
-    if ($exit === 127) {
-      return GateResult::toolMissing(self::GATE, $invocation, sprintf(
-        'The command for house rule %s was not found. Install it, or ask the OPERATOR to change the rule in droost.workflow.yml (rules.house); an agent cannot decide either.',
-        $id,
-      ), 127);
+
+    return [count($files), NULL, 0, (int) ((hrtime(TRUE) - $started) / 1_000_000)];
+  }
+
+  /**
+   * The files, in parts small enough for one command line each.
+   *
+   * @param list<string> $files
+   *   The files.
+   *
+   * @return list<list<string>>
+   *   The parts.
+   */
+  private static function batches(array $files): array {
+    $parts = [];
+    $current = [];
+    $bytes = 0;
+    foreach ($files as $file) {
+      $size = strlen($file) + 3;
+      if ($current !== [] && $bytes + $size > self::ARG_BYTES) {
+        $parts[] = $current;
+        $current = [];
+        $bytes = 0;
+      }
+      $current[] = $file;
+      $bytes += $size;
     }
-    if ($exit === 124) {
-      return GateResult::toolFailed(self::GATE, 124, sprintf('%s\'s command did not finish in %ds', $id, self::CMD_TIMEOUT), 'Make the command faster, or narrow the files it reads (files: in the rule).', $invocation);
+    if ($current !== []) {
+      $parts[] = $current;
     }
-    $output = trim($stdout . "\n" . $stderr);
-    $lines = $output === '' ? [] : array_slice(preg_split('/\R/', $output) ?: [], 0, self::OUTPUT_LINES);
-    return [count($files), sprintf(
-      'its command exited %d over %d changed file(s)%s',
-      $exit,
-      count($files),
-      $lines === [] ? '' : ":\n" . implode("\n", $lines),
-      ),
-    ];
+
+    return $parts;
+  }
+
+  /**
+   * The files a rule's command runs that this run changed.
+   *
+   * Every word of the command that names a file in the repository is a
+   * script the rule's verdict rests on (`scripts/check.sh`, `sh bin/lint`).
+   *
+   * @param string $cmd
+   *   The rule's command.
+   * @param list<string> $changed
+   *   The files the run changed.
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return list<string>
+   *   The changed scripts, repository-relative.
+   */
+  private static function steeringScripts(string $cmd, array $changed, string $projectRoot): array {
+    $changedSet = array_flip(array_map(static fn (string $f): string => ltrim(str_replace('\\', '/', $f), '/'), $changed));
+    $found = [];
+    foreach (preg_split('/[\s;&|()]+/', $cmd) ?: [] as $word) {
+      $word = trim($word, '\'"');
+      $word = (string) preg_replace('#^\./#', '', $word);
+      if ($word === '' || str_starts_with($word, '-') || !isset($changedSet[$word])) {
+        continue;
+      }
+      if (is_file(rtrim($projectRoot, '/') . '/' . $word)) {
+        $found[$word] = TRUE;
+      }
+    }
+
+    return array_keys($found);
   }
 
   /**
    * Whether a path matches one of a rule's globs, by its path or its name.
    *
    * `*` is any run of characters, `/` included, so `web/modules/custom/*`
-   * reaches every file below it; `?` is one character.
+   * reaches every file below it; `?` is one character; `{php,module}` is
+   * either word.
    *
    * @param string $path
    *   The path, from the repository.
@@ -212,13 +334,39 @@ final class HouseRulesCheck {
    *   TRUE when one matches.
    */
   private static function matches(string $path, array $globs): bool {
-    foreach ($globs as $glob) {
+    foreach (self::expandBraces($globs) as $glob) {
       $pattern = '#^' . strtr(preg_quote($glob, '#'), ['\\*' => '.*', '\\?' => '.']) . '$#';
       if (preg_match($pattern, $path) === 1 || preg_match($pattern, basename($path)) === 1) {
         return TRUE;
       }
     }
     return FALSE;
+  }
+
+  /**
+   * Globs with each `{a,b}` written out as one glob per word.
+   *
+   * @param list<string> $globs
+   *   The globs.
+   *
+   * @return list<string>
+   *   The globs, with no braces left.
+   */
+  private static function expandBraces(array $globs): array {
+    $out = [];
+    foreach ($globs as $glob) {
+      if (preg_match('/\{([^{}]*)\}/', $glob, $m, PREG_OFFSET_CAPTURE) !== 1) {
+        $out[] = $glob;
+        continue;
+      }
+      $before = substr($glob, 0, $m[0][1]);
+      $after = substr($glob, $m[0][1] + strlen($m[0][0]));
+      foreach (self::expandBraces(array_map(static fn (string $word): string => $before . $word . $after, explode(',', $m[1][0]))) as $one) {
+        $out[] = $one;
+      }
+    }
+
+    return $out;
   }
 
   /**

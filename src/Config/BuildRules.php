@@ -187,7 +187,7 @@ final class BuildRules {
    *   The editor proof as written.
    * @param string|null $codeComponents
    *   The code components mode as written, or NULL.
-   * @param list<array{id: string, rule: string, judge: string, check?: string, cmd?: string, files?: list<string>, mode?: string}> $house
+   * @param list<array{id: string, rule: string, judge: string, check?: string, cmd?: string, files?: list<string>, timeout?: int, mode?: string}> $house
    *   The site's own rules, in the file's order.
    */
   private function __construct(
@@ -293,7 +293,7 @@ final class BuildRules {
    * @param string $source
    *   The document label.
    *
-   * @return list<array{id: string, rule: string, judge: string, check?: string, cmd?: string, files?: list<string>, mode?: string}>
+   * @return list<array{id: string, rule: string, judge: string, check?: string, cmd?: string, files?: list<string>, timeout?: int, mode?: string}>
    *   The rules.
    *
    * @throws \Droost\Workflow\Config\ConfigError
@@ -311,8 +311,8 @@ final class BuildRules {
         throw ConfigError::invalidRule($source, $at, 'is not a rule: write { id, rule, judge }');
       }
       foreach (array_keys($entry) as $key) {
-        if (!in_array($key, ['id', 'rule', 'judge', 'check', 'cmd', 'files', 'mode'], TRUE)) {
-          throw ConfigError::invalidRule($source, $at, sprintf('takes id, rule, judge, check, cmd, files and mode, not "%s"', (string) $key));
+        if (!in_array($key, ['id', 'rule', 'judge', 'check', 'cmd', 'files', 'timeout', 'mode'], TRUE)) {
+          throw ConfigError::invalidRule($source, $at, sprintf('takes id, rule, judge, check, cmd, files, timeout and mode, not "%s"', (string) $key));
         }
       }
       $id = is_string($entry['id'] ?? NULL) ? trim($entry['id']) : '';
@@ -338,8 +338,8 @@ final class BuildRules {
           $rule['mode'] = self::mode(is_string($entry['mode']) ? $entry['mode'] : '', $source, $at);
         }
       }
-      elseif (isset($entry['check']) || isset($entry['cmd']) || isset($entry['files']) || isset($entry['mode'])) {
-        throw ConfigError::invalidRule($source, $at, sprintf('(%s) is judged by the seeker: check, cmd, files and mode are a gate\'s; how hard a finding holds is seekers.holds', $id));
+      elseif (isset($entry['check']) || isset($entry['cmd']) || isset($entry['files']) || isset($entry['timeout']) || isset($entry['mode'])) {
+        throw ConfigError::invalidRule($source, $at, sprintf('(%s) is judged by the seeker: check, cmd, files, timeout and mode are a gate\'s; how hard a finding holds is seekers.holds', $id));
       }
       $out[] = $rule;
     }
@@ -358,8 +358,8 @@ final class BuildRules {
    * @param string $at
    *   Where it is in the list.
    *
-   * @return array{check: string}|array{cmd: string, files?: list<string>}
-   *   The check, or the command and its file globs.
+   * @return array{check: string}|array{cmd: string, files?: list<string>, timeout?: int}
+   *   The check, or the command, its file globs and its timeout.
    *
    * @throws \Droost\Workflow\Config\ConfigError
    *   When it names neither, both, or one this cannot run.
@@ -379,8 +379,8 @@ final class BuildRules {
       if (!in_array($check, self::HOUSE_CHECKS, TRUE)) {
         throw ConfigError::invalidRule($source, $at, sprintf('(%s) check must be one droost knows: %s', $id, implode(', ', self::HOUSE_CHECKS)));
       }
-      if (isset($entry['files'])) {
-        throw ConfigError::invalidRule($source, $at, sprintf('(%s) files narrows a cmd; a check reads what it reads', $id));
+      if (isset($entry['files']) || isset($entry['timeout'])) {
+        throw ConfigError::invalidRule($source, $at, sprintf('(%s) files and timeout belong to a cmd; a check reads what it reads', $id));
       }
       return ['check' => $check];
     }
@@ -392,7 +392,8 @@ final class BuildRules {
     }
     $out = ['cmd' => $cmd];
     if (isset($entry['files'])) {
-      $files = is_string($entry['files']) ? explode(',', $entry['files']) : $entry['files'];
+      // Split on the commas between globs, never inside a `{a,b}`.
+      $files = is_string($entry['files']) ? preg_split('/,(?![^{]*\})/', $entry['files']) : $entry['files'];
       $globs = is_array($files) ? array_values(array_filter(array_map(
         static fn (mixed $glob): string => is_string($glob) ? trim($glob) : '',
         $files,
@@ -401,6 +402,12 @@ final class BuildRules {
         throw ConfigError::invalidRule($source, $at, sprintf('(%s) files is a glob or a list of globs (*.php, web/modules/custom/*)', $id));
       }
       $out['files'] = $globs;
+    }
+    if (isset($entry['timeout'])) {
+      if (!is_int($entry['timeout']) || $entry['timeout'] < 1) {
+        throw ConfigError::invalidRule($source, $at, sprintf('(%s) timeout is a whole number of seconds', $id));
+      }
+      $out['timeout'] = $entry['timeout'];
     }
     return $out;
   }

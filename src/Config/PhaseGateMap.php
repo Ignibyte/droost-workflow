@@ -83,6 +83,9 @@ final class PhaseGateMap {
       'parity',
       'rendered_check',
       'config_clean',
+      // The site's own rules hold over what test adds too (S4-9): a fix made
+      // while the suite ran is code no later phase reads in the fast flow.
+      'house_rules',
     ],
     'complete' => [
       'wiki_fresh',

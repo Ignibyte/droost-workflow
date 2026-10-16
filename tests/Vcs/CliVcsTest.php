@@ -26,7 +26,7 @@ final class CliVcsTest extends WorkflowTestCase {
       throw new \RuntimeException('git: command not found');
     });
     $this->assertNull($noGit->head('/repo'), 'a missing git binary is "no repository", not a crash');
-    $this->assertSame([], $noGit->changedFiles('/repo', 'abc'));
+    $this->assertNull($noGit->changedFiles('/repo', 'abc'), 'a diff nobody could read is unknown, never empty (S4-13)');
   }
 
   /**
@@ -100,6 +100,20 @@ final class CliVcsTest extends WorkflowTestCase {
       '-z, because --porcelain quotes any path containing a space and nothing '
       . 'downstream strips the quotes',
     );
+  }
+
+  /**
+   * A diff against the base that fails is unknown, never empty (S4-13).
+   *
+   * An unreachable base made `git diff` fail, and the working tree alone came
+   * back, which read as "nothing committed changed".
+   */
+  public function testFailedDiffIsUnknown(): void {
+    $vcs = new CliVcs(static function (array $argv): array {
+      return in_array('diff', $argv, TRUE) ? [128, '', 'fatal: bad object'] : [0, "?? x.php\0", ''];
+    });
+
+    $this->assertNull($vcs->changedFiles('/repo', 'deadbeef'));
   }
 
   /**

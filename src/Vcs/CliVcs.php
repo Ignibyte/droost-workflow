@@ -89,7 +89,7 @@ final class CliVcs implements VcsInterface, RefResolverInterface, AddedFilesInte
   /**
    * {@inheritdoc}
    */
-  public function changedFiles(string $projectRoot, ?string $base): array {
+  public function changedFiles(string $projectRoot, ?string $base): ?array {
     $files = [];
     // Committed since the base (when a base is known), plus everything the
     // working tree holds that the index or HEAD does not: modified, added,
@@ -109,11 +109,15 @@ final class CliVcs implements VcsInterface, RefResolverInterface, AddedFilesInte
       // A committed path containing a newline is worse: splitting on `\R`
       // invents two paths out of one, neither of which exists.
       [$exit, $stdout] = $this->git($projectRoot, ['diff', '--name-only', '-z', $base]);
-      if ($exit === 0) {
-        foreach (explode("\0", $stdout) as $line) {
-          if ($line !== '') {
-            $files[] = $line;
-          }
+      // A failed diff (an unreachable base) is unknown: returning only the
+      // working tree read as "no committed changes", and every ticket-scoped
+      // gate lost them without a word (S4-13).
+      if ($exit !== 0) {
+        return NULL;
+      }
+      foreach (explode("\0", $stdout) as $line) {
+        if ($line !== '') {
+          $files[] = $line;
         }
       }
     }

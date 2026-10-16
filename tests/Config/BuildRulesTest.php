@@ -213,9 +213,12 @@ final class BuildRulesTest extends WorkflowTestCase {
       'check must be one droost knows' => [$gate + ['check' => 'nope']],
       'needs one of check (known' => [$gate + ['check' => 'sdc_markup', 'cmd' => 'lint']],
       'cmd must be a non-empty single-line command' => [$gate + ['cmd' => "lint\nrm -rf x"]],
-      'files narrows a cmd' => [$gate + ['check' => 'sdc_markup', 'files' => '*.twig']],
+      'files and timeout belong to a cmd' => [$gate + ['check' => 'sdc_markup', 'files' => '*.twig']],
       'files is a glob or a list of globs' => [$gate + ['cmd' => 'lint', 'files' => []]],
-      'check, cmd, files and mode are a gate' => [['id' => 'A', 'rule' => 'x', 'judge' => 'seeker', 'mode' => 'block']],
+      'timeout is a whole number of seconds' => [$gate + ['cmd' => 'lint', 'timeout' => 'soon']],
+      'check, cmd, files, timeout and mode are a gate' => [
+        ['id' => 'A', 'rule' => 'x', 'judge' => 'seeker', 'mode' => 'block'],
+      ],
       'are a gate\'s' => [['id' => 'A', 'rule' => 'x', 'judge' => 'seeker', 'cmd' => 'lint']],
       'repeats the id' => [
         ['id' => 'A', 'rule' => 'x', 'judge' => 'seeker'],

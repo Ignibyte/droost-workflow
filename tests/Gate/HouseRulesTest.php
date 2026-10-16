@@ -150,7 +150,98 @@ final class HouseRulesTest extends WorkflowTestCase {
     $result = $this->houseRules($root);
 
     $this->assertSame(GateStatus::Passed, $result->status);
+    $this->assertTrue($result->labelledPass, 'a pass that read nothing is labelled (S4-1)');
+    $this->assertStringContainsString('house_rules read nothing', $result->summary);
     $this->assertStringContainsString('HR4 read 0 changed file(s)', $result->summary);
+  }
+
+  /**
+   * Every gate rule off is the gate off, never a pass (S4-1).
+   */
+  public function testEveryRuleOffIsOff(): void {
+    $root = $this->repo(str_replace('mode: block', 'mode: off', self::SDC));
+    $this->write($root, 'web/themes/custom/site/templates/card.html.twig', '<div></div>');
+
+    $this->assertSame(GateStatus::Off, $this->houseRules($root)->status);
+  }
+
+  /**
+   * A file named like an option is handed as a file (S4-4).
+   */
+  public function testOptionShapedFileNameIsPassedAsFile(): void {
+    $flagAware = "case \"\$1\" in --version) exit 0;; esac\nprintf '%s\\n' \"\$@\"\nexit 3\n";
+    $root = $this->repo(str_replace("files: [ '*.php' ], ", '', self::CMD_ECHO), ['bin/echo-fail.sh' => $flagAware]);
+    $this->write($root, '--version', 'x');
+
+    $result = $this->houseRules($root);
+
+    $this->assertSame(GateStatus::Failed, $result->status, 'a `--version` file must not make the tool print its version and pass');
+    $this->assertStringContainsString('./--version', $this->firstMessage($result));
+  }
+
+  /**
+   * A command that cannot execute, or a signal, is the environment's (S4-5).
+   */
+  public function testUnrunnableCommandIsTheEnvironments(): void {
+    foreach ([126 => "exit 126\n", 137 => "exit 137\n"] as $code => $script) {
+      $root = $this->repo(self::CMD_ECHO, ['bin/echo-fail.sh' => $script]);
+      $this->write($root, 'web/modules/custom/camps/src/List.php', "<?php\n");
+
+      $result = $this->houseRules($root);
+
+      $this->assertSame(GateStatus::ErrorToolFailed, $result->status, (string) $code);
+      $this->assertSame($code, $result->exitCode);
+    }
+  }
+
+  /**
+   * A break records the command's own exit code (S4-5).
+   */
+  public function testBreakRecordsTheExitCode(): void {
+    $root = $this->repo(self::CMD_ECHO, ['bin/echo-fail.sh' => self::ECHO_FAIL]);
+    $this->write($root, 'web/modules/custom/camps/src/List.php', "<?php\n");
+
+    $this->assertSame(3, $this->houseRules($root)->exitCode);
+  }
+
+  /**
+   * A rule's timeout is its own (S4-12).
+   */
+  public function testRuleTimeoutIsHonoured(): void {
+    $root = $this->repo(str_replace('mode: block', 'timeout: 1, mode: block', self::CMD_ECHO), ['bin/echo-fail.sh' => "sleep 5\n"]);
+    $this->write($root, 'web/modules/custom/camps/src/List.php', "<?php\n");
+
+    $result = $this->houseRules($root);
+
+    $this->assertSame(GateStatus::ErrorToolFailed, $result->status);
+    $this->assertStringContainsString('did not finish in 1s', $result->summary);
+  }
+
+  /**
+   * Braces in a files glob name either word.
+   */
+  public function testBracesInGlobs(): void {
+    $root = $this->repo(str_replace("files: [ '*.php' ]", "files: '*.{php,module}'", self::CMD_ECHO), ['bin/echo-fail.sh' => self::ECHO_FAIL]);
+    $this->write($root, 'web/modules/custom/camps/camps.module', "<?php\n");
+
+    $result = $this->houseRules($root);
+
+    $this->assertSame(GateStatus::Failed, $result->status, $result->summary);
+    $this->assertStringContainsString('camps.module', $this->firstMessage($result));
+  }
+
+  /**
+   * A rule whose own script the run rewrote says so (S5-6).
+   */
+  public function testRewrittenRuleScriptIsSaid(): void {
+    $root = $this->repo(self::CMD_ECHO, ['bin/echo-fail.sh' => self::ECHO_FAIL]);
+    $this->write($root, 'bin/echo-fail.sh', "exit 0\n");
+    $this->write($root, 'web/modules/custom/camps/src/List.php', "<?php\n");
+
+    $result = $this->houseRules($root);
+
+    $this->assertSame(GateStatus::Failed, $result->status, 'the rewritten script passes, and its verdict is not a measurement');
+    $this->assertStringContainsString('bin/echo-fail.sh was changed by this run', $this->firstMessage($result));
   }
 
   /**
@@ -202,6 +293,21 @@ final class HouseRulesTest extends WorkflowTestCase {
       }
     }
     $this->fail('house_rules did not run at code');
+  }
+
+  /**
+   * The first finding's message.
+   *
+   * @param \Droost\Workflow\Gate\GateResult $result
+   *   The gate's result.
+   *
+   * @return string
+   *   The message, or ''.
+   */
+  private function firstMessage(GateResult $result): string {
+    $message = $result->findings[0]['message'] ?? '';
+
+    return is_string($message) ? $message : '';
   }
 
   /**

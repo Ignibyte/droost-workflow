@@ -51,10 +51,12 @@ interface VcsInterface {
    * @param string|null $base
    *   The commit to compare against; NULL compares the working tree with HEAD.
    *
-   * @return list<string>
-   *   Project-relative paths, sorted, deduplicated. Empty when there is no
-   *   repository or nothing changed.
+   * @return list<string>|null
+   *   Project-relative paths, sorted, deduplicated. Empty when nothing
+   *   changed; NULL when the diff against the base could not be read (no
+   *   repository, no git, an unreachable base), which is not the same claim
+   *   as an empty one.
    */
-  public function changedFiles(string $projectRoot, ?string $base): array;
+  public function changedFiles(string $projectRoot, ?string $base): ?array;
 
 }

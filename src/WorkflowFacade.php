@@ -747,7 +747,7 @@ final class WorkflowFacade {
       }
       // What the tree already held changed: not this run's (0.14.18).
       if ($this->vcs->isRepository($projectRoot)) {
-        $state = $state->withPreexisting($projectRoot, $this->vcs->changedFiles($projectRoot, NULL));
+        $state = $state->withPreexisting($projectRoot, $this->vcs->changedFiles($projectRoot, NULL) ?? []);
       }
       $store->save($state);
       if ($item !== NULL) {

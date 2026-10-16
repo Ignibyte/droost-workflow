@@ -50,7 +50,7 @@ class FastFlowTest extends WorkflowTestCase {
       $this->assertContains($gate, $code, $gate . ' runs at code');
     }
     $test = PhaseGateMap::gatesFor(Phase::Test, 'fast');
-    $this->assertSame(['playwright', 'parity', 'rendered_check', 'config_clean'], $test);
+    $this->assertSame(['playwright', 'parity', 'rendered_check', 'config_clean', 'house_rules'], $test, 'the site\'s rules hold over what test adds (S4-9)');
     foreach (['phpcs', 'phpstan', 'phpunit', 'mutation', 'coverage'] as $gate) {
       $this->assertNotContains($gate, $test, $gate . ' is not run again at test');
     }
