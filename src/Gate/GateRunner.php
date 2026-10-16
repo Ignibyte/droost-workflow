@@ -10,6 +10,7 @@ use Droost\Workflow\Baseline\BaselineAwareSiteDriverInterface;
 use Droost\Workflow\Baseline\BaselineContext;
 use Droost\Workflow\Baseline\BaselineError;
 use Droost\Workflow\Baseline\BaselineStore;
+use Droost\Workflow\Cli\CliProcess;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\PresetResolver;
@@ -94,12 +95,15 @@ final class GateRunner {
    * @param list<\Droost\Workflow\Config\ContributedGate> $contributed
    *   The gates enabled modules declare, so re-reading the lever file at gate
    *   time resolves the same set the run froze.
+   * @param (\Closure(list<string>, string, int): array{int, string, string})|null $commandRunner
+   *   Runs a house rule's command; NULL runs it as a process.
    */
   public function __construct(
     private readonly GateExecutorInterface $executor,
     private readonly SiteDriverInterface $driver,
     private readonly ?VcsInterface $vcs = NULL,
     private readonly array $contributed = [],
+    private readonly ?\Closure $commandRunner = NULL,
   ) {}
 
   /**
@@ -378,7 +382,17 @@ final class GateRunner {
     $added = $this->vcs instanceof AddedFilesInterface
       ? $state->ownChanges($this->vcs->addedFiles($projectRoot, $state->baseCommit), $projectRoot)
       : NULL;
-    return HouseRulesCheck::run($house, $added, $changed, $projectRoot);
+    return HouseRulesCheck::run($house, $added, $changed, $projectRoot, $this->commandRunner());
+  }
+
+  /**
+   * What runs a house rule's command.
+   *
+   * @return \Closure(list<string>, string, int): array{int, string, string}
+   *   The runner.
+   */
+  private function commandRunner(): \Closure {
+    return $this->commandRunner ?? CliProcess::run(...);
   }
 
   /**

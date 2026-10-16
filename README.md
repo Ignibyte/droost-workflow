@@ -457,14 +457,28 @@ rules:
   house:
     - { id: HR1, rule: 'New markup lives in single-directory components.', judge: gate, check: sdc_markup, mode: block }
     - { id: HR2, rule: 'Pages are composed in Canvas, never as a View page.', judge: seeker }
+    - { id: HR3, rule: 'Custom code never queries the database directly.', judge: gate, cmd: "! grep -n 'Drupal::database'", files: '*.php', mode: block }
 seekers: { holds: high, at_complete: true }
 ```
 
-A rule a machine can check names a `check` and is judged by the
-`house_rules` gate on what the run added: `sdc_markup` fails a Twig template
-outside a single-directory component's directory and a Canvas code
-component (`mode: block`), or records it beside a passing phase (`report`,
-the default). A rule only judgment can read is the seeker's: it runs
+A rule a machine can check is judged by the `house_rules` gate, through one
+of two things:
+
+- a `check` droost knows, read over what the run added: `sdc_markup` fails a
+  Twig template outside a single-directory component's directory and a
+  Canvas code component;
+- a `cmd` of the site's own: phpstan, a phpcs sniff, semgrep, ast-grep, a
+  grep. It runs at the project root with the files the run changed as its
+  arguments (`cmd "$@"`), narrowed by `files` (a glob or a list), so it reads
+  the run's work and never the code the run inherited. Exit zero holds the
+  rule; any other exit is a break, its first lines in the finding; a command
+  that is not there (127) or runs past ten minutes fails the gate as the
+  environment's, never as a pass. One line, the site's own, reviewed in the
+  diff like every lever.
+
+A break fails the gate at `mode: block`, or is recorded beside a passing
+phase at `report` (the default). A rule only judgment can read is the
+seeker's: it runs
 `droost-workflow rules`, checks the diff against each, cites the id in every
 finding, and grades a break HIGH unless the spec records an exception the
 operator approved; `seekers.holds: high` makes that hold the run. The page

@@ -1411,7 +1411,7 @@ final class ArgvDispatcher {
     $text = static fn (mixed $value, string $default): string => is_scalar($value) ? (string) $value : $default;
     foreach ($house as $rule) {
       $judge = ($rule['judge'] ?? '') === 'gate'
-        ? sprintf('gate %s, %s', $text($rule['check'] ?? NULL, '?'), $text($rule['mode'] ?? NULL, 'report'))
+        ? sprintf('gate %s, %s', isset($rule['cmd']) ? 'cmd: ' . $text($rule['cmd'], '?') : $text($rule['check'] ?? NULL, '?'), $text($rule['mode'] ?? NULL, 'report'))
         : 'seeker';
       $this->say(sprintf('  %s [%s] %s', $text($rule['id'] ?? NULL, '?'), $judge, $text($rule['rule'] ?? NULL, '')));
     }

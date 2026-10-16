@@ -31,6 +31,16 @@ final class HouseRulesTest extends WorkflowTestCase {
   private const SDC = "rules:\n  house:\n    - { id: HR1, rule: 'New markup lives in single-directory components.', judge: gate, check: sdc_markup, mode: block }\n";
 
   /**
+   * A command that prints the files it was handed and fails.
+   */
+  private const CMD_ECHO = "rules:\n  house:\n    - { id: HR4, rule: 'Custom PHP is checked.', judge: gate, cmd: 'sh bin/echo-fail.sh', files: [ '*.php' ], mode: block }\n";
+
+  /**
+   * The script CMD_ECHO runs.
+   */
+  private const ECHO_FAIL = "printf '%s\\n' \"\$@\"\nexit 3\n";
+
+  /**
    * A template the run adds outside a component fails a block-mode rule.
    */
   public function testNewMarkupOutsideComponentsFails(): void {
@@ -83,6 +93,77 @@ final class HouseRulesTest extends WorkflowTestCase {
 
     $this->assertSame(GateStatus::Off, $result->status);
     $this->assertStringContainsString('no house rule is judged by a gate', $result->summary);
+  }
+
+  /**
+   * A rule's own command is handed the files the run changed, and only those.
+   */
+  public function testCommandReadsTheChangedFiles(): void {
+    $root = $this->repo(self::CMD_ECHO, [
+      'bin/echo-fail.sh' => self::ECHO_FAIL,
+      'web/modules/custom/camps/src/Old.php' => "<?php\n",
+      'web/modules/custom/camps/src/Kept.php' => "<?php\n",
+    ]);
+    $this->write($root, 'web/modules/custom/camps/src/Old.php', "<?php\n// changed\n");
+    $this->write($root, 'web/modules/custom/camps/src/New.php', "<?php\n");
+    $this->write($root, 'web/modules/custom/camps/camps.info.yml', "name: Camps\n");
+
+    $result = $this->houseRules($root);
+
+    $this->assertSame(GateStatus::Failed, $result->status);
+    $message = $result->findings[0]['message'] ?? '';
+    $this->assertIsString($message);
+    $this->assertStringContainsString('HR4: its command exited 3 over 2 changed file(s)', $message);
+    $this->assertStringContainsString('web/modules/custom/camps/src/New.php', $message);
+    $this->assertStringContainsString('web/modules/custom/camps/src/Old.php', $message);
+    $this->assertStringNotContainsString('Kept.php', $message, 'an unchanged file is the code the run inherited');
+    $this->assertStringNotContainsString('camps.info.yml', $message, 'files narrows what the command reads');
+  }
+
+  /**
+   * A command that exits zero holds its rule, and says how much it read.
+   */
+  public function testCommandThatExitsZeroHolds(): void {
+    $root = $this->repo("rules:\n  house:\n    - { id: HR3, rule: 'No direct database queries.', judge: gate, cmd: \"! grep -n 'Drupal::database'\", files: '*.php', mode: block }\n");
+    $this->write($root, 'web/modules/custom/camps/src/List.php', "<?php\n\$ids = \$query->execute();\n");
+
+    $result = $this->houseRules($root);
+
+    $this->assertSame(GateStatus::Passed, $result->status, $result->summary);
+    $this->assertStringContainsString('HR3 read 1 changed file(s)', $result->summary);
+
+    $this->write($root, 'web/modules/custom/camps/src/List.php', "<?php\n\$ids = \\Drupal::database()->select('node');\n");
+    $result = $this->houseRules($root);
+    $this->assertSame(GateStatus::Failed, $result->status);
+    $message = $result->findings[0]['message'] ?? '';
+    $this->assertIsString($message);
+    $this->assertStringContainsString("2:\$ids = \\Drupal::database()", $message);
+  }
+
+  /**
+   * A rule whose files the run did not touch read nothing, and says so.
+   */
+  public function testCommandWithNothingToReadSaysSo(): void {
+    $root = $this->repo(self::CMD_ECHO, ['bin/echo-fail.sh' => self::ECHO_FAIL]);
+    $this->write($root, 'README.md', "changed\n");
+
+    $result = $this->houseRules($root);
+
+    $this->assertSame(GateStatus::Passed, $result->status);
+    $this->assertStringContainsString('HR4 read 0 changed file(s)', $result->summary);
+  }
+
+  /**
+   * A command that is not there fails the gate: nobody checked the rule.
+   */
+  public function testMissingCommandIsNoPass(): void {
+    $root = $this->repo("rules:\n  house:\n    - { id: HR5, rule: 'Lint.', judge: gate, cmd: 'droost-no-such-linter', mode: report }\n");
+    $this->write($root, 'web/modules/custom/camps/src/List.php', "<?php\n");
+
+    $result = $this->houseRules($root);
+
+    $this->assertSame(GateStatus::ErrorToolMissing, $result->status);
+    $this->assertStringContainsString('HR5', (string) $result->remedy);
   }
 
   /**

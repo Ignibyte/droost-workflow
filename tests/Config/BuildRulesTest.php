@@ -184,6 +184,13 @@ final class BuildRulesTest extends WorkflowTestCase {
         'mode' => 'block',
       ],
       ['id' => 'HR2', 'rule' => 'Pages are composed in Canvas.', 'judge' => 'seeker'],
+      [
+        'id' => 'HR3',
+        'rule' => 'No direct database queries.',
+        'judge' => 'gate',
+        'cmd' => "! grep -n 'Drupal::database'",
+        'files' => ['*.php', '*.module'],
+      ],
     ];
     $config = WorkflowConfig::fromArray(['rules' => ['house' => $house]], 'test');
     $this->assertSame($house, $config->rules()->house);
@@ -198,11 +205,18 @@ final class BuildRulesTest extends WorkflowTestCase {
    * A house rule that is not one is refused by what is wrong with it.
    */
   public function testHouseRulesAreValidated(): void {
+    $gate = ['id' => 'A', 'rule' => 'x', 'judge' => 'gate'];
     $cases = [
       'needs an id' => [['rule' => 'x', 'judge' => 'seeker']],
       'judge must be gate or seeker' => [['id' => 'A', 'rule' => 'x', 'judge' => 'robot']],
-      'needs a check it knows' => [['id' => 'A', 'rule' => 'x', 'judge' => 'gate']],
-      'check and mode are a gate' => [['id' => 'A', 'rule' => 'x', 'judge' => 'seeker', 'mode' => 'block']],
+      'needs one of check' => [$gate],
+      'check must be one droost knows' => [$gate + ['check' => 'nope']],
+      'needs one of check (known' => [$gate + ['check' => 'sdc_markup', 'cmd' => 'lint']],
+      'cmd must be a non-empty single-line command' => [$gate + ['cmd' => "lint\nrm -rf x"]],
+      'files narrows a cmd' => [$gate + ['check' => 'sdc_markup', 'files' => '*.twig']],
+      'files is a glob or a list of globs' => [$gate + ['cmd' => 'lint', 'files' => []]],
+      'check, cmd, files and mode are a gate' => [['id' => 'A', 'rule' => 'x', 'judge' => 'seeker', 'mode' => 'block']],
+      'are a gate\'s' => [['id' => 'A', 'rule' => 'x', 'judge' => 'seeker', 'cmd' => 'lint']],
       'repeats the id' => [
         ['id' => 'A', 'rule' => 'x', 'judge' => 'seeker'],
         ['id' => 'A', 'rule' => 'y', 'judge' => 'seeker'],

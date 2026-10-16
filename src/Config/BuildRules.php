@@ -187,7 +187,7 @@ final class BuildRules {
    *   The editor proof as written.
    * @param string|null $codeComponents
    *   The code components mode as written, or NULL.
-   * @param list<array{id: string, rule: string, judge: string, check?: string, mode?: string}> $house
+   * @param list<array{id: string, rule: string, judge: string, check?: string, cmd?: string, files?: list<string>, mode?: string}> $house
    *   The site's own rules, in the file's order.
    */
   private function __construct(
@@ -281,14 +281,19 @@ final class BuildRules {
   }
 
   /**
-   * Reads the house rules: a list of `{ id, rule, judge, check?, mode? }`.
+   * Reads the house rules: `{ id, rule, judge, check?, cmd?, files?, mode? }`.
+   *
+   * A rule judged by a gate names exactly one of `check` (one droost knows,
+   * HOUSE_CHECKS) or `cmd` (the site's own command, handed the run's changed
+   * files; exit zero holds the rule). `files` narrows the files a command is
+   * handed to those matching its globs (`*.php`, `web/modules/custom/*`).
    *
    * @param array<array-key, mixed> $entries
    *   The list as written.
    * @param string $source
    *   The document label.
    *
-   * @return list<array{id: string, rule: string, judge: string, check?: string, mode?: string}>
+   * @return list<array{id: string, rule: string, judge: string, check?: string, cmd?: string, files?: list<string>, mode?: string}>
    *   The rules.
    *
    * @throws \Droost\Workflow\Config\ConfigError
@@ -306,8 +311,8 @@ final class BuildRules {
         throw ConfigError::invalidRule($source, $at, 'is not a rule: write { id, rule, judge }');
       }
       foreach (array_keys($entry) as $key) {
-        if (!in_array($key, ['id', 'rule', 'judge', 'check', 'mode'], TRUE)) {
-          throw ConfigError::invalidRule($source, $at, sprintf('takes id, rule, judge, check and mode, not "%s"', (string) $key));
+        if (!in_array($key, ['id', 'rule', 'judge', 'check', 'cmd', 'files', 'mode'], TRUE)) {
+          throw ConfigError::invalidRule($source, $at, sprintf('takes id, rule, judge, check, cmd, files and mode, not "%s"', (string) $key));
         }
       }
       $id = is_string($entry['id'] ?? NULL) ? trim($entry['id']) : '';
@@ -328,23 +333,74 @@ final class BuildRules {
       }
       $rule = ['id' => $id, 'rule' => $text, 'judge' => $judge];
       if ($judge === 'gate') {
-        $check = is_string($entry['check'] ?? NULL) ? $entry['check'] : '';
-        if (!in_array($check, self::HOUSE_CHECKS, TRUE)) {
-          throw ConfigError::invalidRule($source, $at, sprintf(
-            '(%s) is judged by a gate, which needs a check it knows (known: %s); a rule only judgment can read is judge: seeker',
-            $id,
-            implode(', ', self::HOUSE_CHECKS),
-          ));
-        }
-        $rule['check'] = $check;
+        $rule += self::gateCheck($entry, $id, $source, $at);
         if (isset($entry['mode'])) {
           $rule['mode'] = self::mode(is_string($entry['mode']) ? $entry['mode'] : '', $source, $at);
         }
       }
-      elseif (isset($entry['check']) || isset($entry['mode'])) {
-        throw ConfigError::invalidRule($source, $at, sprintf('(%s) is judged by the seeker: check and mode are a gate\'s; how hard a finding holds is seekers.holds', $id));
+      elseif (isset($entry['check']) || isset($entry['cmd']) || isset($entry['files']) || isset($entry['mode'])) {
+        throw ConfigError::invalidRule($source, $at, sprintf('(%s) is judged by the seeker: check, cmd, files and mode are a gate\'s; how hard a finding holds is seekers.holds', $id));
       }
       $out[] = $rule;
+    }
+    return $out;
+  }
+
+  /**
+   * What a gate-judged house rule runs: a check droost knows, or a command.
+   *
+   * @param array<array-key, mixed> $entry
+   *   The rule as written.
+   * @param string $id
+   *   Its id.
+   * @param string $source
+   *   The document label.
+   * @param string $at
+   *   Where it is in the list.
+   *
+   * @return array{check: string}|array{cmd: string, files?: list<string>}
+   *   The check, or the command and its file globs.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When it names neither, both, or one this cannot run.
+   */
+  private static function gateCheck(array $entry, string $id, string $source, string $at): array {
+    $hasCheck = isset($entry['check']);
+    $hasCmd = isset($entry['cmd']);
+    if ($hasCheck === $hasCmd) {
+      throw ConfigError::invalidRule($source, $at, sprintf(
+        '(%s) is judged by a gate, which needs one of check (known: %s) or cmd (your own command, handed the run\'s changed files); a rule only judgment can read is judge: seeker',
+        $id,
+        implode(', ', self::HOUSE_CHECKS),
+      ));
+    }
+    if ($hasCheck) {
+      $check = is_string($entry['check']) ? $entry['check'] : '';
+      if (!in_array($check, self::HOUSE_CHECKS, TRUE)) {
+        throw ConfigError::invalidRule($source, $at, sprintf('(%s) check must be one droost knows: %s', $id, implode(', ', self::HOUSE_CHECKS)));
+      }
+      if (isset($entry['files'])) {
+        throw ConfigError::invalidRule($source, $at, sprintf('(%s) files narrows a cmd; a check reads what it reads', $id));
+      }
+      return ['check' => $check];
+    }
+    $cmd = is_string($entry['cmd']) ? trim($entry['cmd']) : '';
+    // The command is the repository's own, reviewed in the same diff as every
+    // other lever, as a custom gate's is: the constraint is shape, not trust.
+    if ($cmd === '' || str_contains($cmd, "\n") || str_contains($cmd, "\0")) {
+      throw ConfigError::invalidRule($source, $at, sprintf('(%s) cmd must be a non-empty single-line command', $id));
+    }
+    $out = ['cmd' => $cmd];
+    if (isset($entry['files'])) {
+      $files = is_string($entry['files']) ? explode(',', $entry['files']) : $entry['files'];
+      $globs = is_array($files) ? array_values(array_filter(array_map(
+        static fn (mixed $glob): string => is_string($glob) ? trim($glob) : '',
+        $files,
+      ), static fn (string $glob): bool => $glob !== '')) : [];
+      if ($globs === []) {
+        throw ConfigError::invalidRule($source, $at, sprintf('(%s) files is a glob or a list of globs (*.php, web/modules/custom/*)', $id));
+      }
+      $out['files'] = $globs;
     }
     return $out;
   }
