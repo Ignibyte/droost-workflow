@@ -40,6 +40,32 @@ class BootedSiteDriverTest extends TestCase {
   }
 
   /**
+   * A site that sends anonymous visitors to log in is read as they see it.
+   *
+   * F-285: require_login and a forced SAML login answer MAIN requests
+   * only. Asked as a sub-request, every page rendered; a visitor got a 302.
+   */
+  public function testLoginGateThatAnswersOnlyMainRequestsIsSeen(): void {
+    $kernel = new class() implements HttpKernelInterface {
+
+      /**
+       * {@inheritdoc}
+       */
+      public function handle(Request $request, int $type = self::MAIN_REQUEST, bool $catch = TRUE): Response {
+        return $type === self::MAIN_REQUEST
+          ? new Response('', 302, ['Location' => '/saml/login'])
+          : new Response('<html><body>ok</body></html>', 200);
+      }
+
+    };
+    $driver = new BootedSiteDriver($kernel, static fn (): int => 0);
+
+    $result = $driver->run(new GateSettings('rendered_check', TRUE), '/tmp');
+
+    $this->assertNotSame(GateStatus::Passed, $result->status, 'a page every visitor is redirected from did not render for one');
+  }
+
+  /**
    * The run's spec routes are rendered in-process too, and a broken one fails.
    *
    * The F-15 shape exactly: the front page is 200 and the ticket's page is

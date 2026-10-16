@@ -1919,6 +1919,27 @@ function operator_commands_opaque_head(array $tokens): bool {
  */
 function operator_commands_arms_write_gate(array $tokens): bool {
   $arming = ['on', 'true', '1', 'yes', 'arm', 'armed'];
+  // `droost:install` (alias `droost`) arms the gates it is told to: with
+  // `--gates=<flags|all>` or the deprecated `--scaffold`. With neither it
+  // keeps what is armed (F-286); with `--gates=none` it arms nothing.
+  foreach ($tokens as $index => $token) {
+    if (!in_array(strtolower($token), ['droost:install', 'droost'], TRUE)) {
+      continue;
+    }
+    foreach (array_slice($tokens, $index + 1) as $offset => $option) {
+      $lower = strtolower($option);
+      if (preg_match('/^--gates(?:=(.*))?$/', $lower, $m) === 1) {
+        $value = $m[1] ?? strtolower($tokens[$index + 2 + $offset] ?? '');
+        if (!in_array(trim($value, "'\" "), ['none', 'no', 'n', 'false', 'off', '0', ''], TRUE)) {
+          return TRUE;
+        }
+      }
+      if (preg_match('/^--scaffold(?:=(.*))?$/', $lower, $m) === 1
+        && !in_array(trim($m[1] ?? 'yes', "'\" "), ['no', 'n', 'false', 'off', '0'], TRUE)) {
+        return TRUE;
+      }
+    }
+  }
   $words = array_values(array_filter(
     $tokens,
     static fn (string $token): bool => !str_starts_with($token, '-'),

@@ -598,6 +598,10 @@ final class GuardTest extends WorkflowTestCase {
       'drush dgate allow_scaffold true',
       'ddev drush config:set droost.settings allow_entity_write true -y',
       'drush cset -y droost.settings allow_destructive 1',
+      // droost:install arms what --gates names (F-286).
+      'ddev drush droost:install --gates=all -y',
+      'drush droost --gates allow_eval -y',
+      'ddev drush droost:install --scaffold -y',
     ] as $command) {
       [$exit, , $stderr] = $this->guard($this->makeRoot(), 'operator-commands', [
         'tool_input' => ['command' => $command],
@@ -627,6 +631,9 @@ final class GuardTest extends WorkflowTestCase {
       'ddev drush droost:gate allow_entity_write off',
       'drush config:set --input-format=yaml droost.settings allow_entity_write false -y',
       'ddev drush droost:gate allow_scaffold',
+      // With no --gates it keeps what is armed; --gates=none arms nothing.
+      'ddev drush droost:install -y',
+      'drush droost:install --gates=none -y',
       'ddev drush droost:workflow:status',
       'ddev drush cr',
       'git log --oneline -3',

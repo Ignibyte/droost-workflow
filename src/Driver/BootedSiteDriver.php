@@ -181,7 +181,7 @@ final class BootedSiteDriver implements SiteDriverInterface {
    */
   private function answered(string $path): ?Response {
     try {
-      return $this->kernel->handle(self::visit($path), HttpKernelInterface::SUB_REQUEST, TRUE);
+      return $this->kernel->handle(self::visit($path), HttpKernelInterface::MAIN_REQUEST, TRUE);
     }
     catch (\Throwable) {
       return NULL;
@@ -201,14 +201,18 @@ final class BootedSiteDriver implements SiteDriverInterface {
   private function check(string $route): ?array {
     ['path' => $path, 'status' => $expected] = RenderedRoutes::expectation($route);
     try {
+      // A MAIN request, as a visitor's is. Subscribers that guard a site
+      // answer main requests only (require_login, a forced SAML login): as a
+      // sub-request every page "rendered for an anonymous visitor" that a
+      // real one is redirected away from (F-285, seen on a client's run).
       $response = $this->kernel->handle(
         self::visit($path),
-        HttpKernelInterface::SUB_REQUEST,
+        HttpKernelInterface::MAIN_REQUEST,
         FALSE,
       );
     }
     catch (HttpExceptionInterface $e) {
-      // The sub-request runs with catching off, so Drupal ANSWERS a refusal
+      // The request runs with catching off, so Drupal ANSWERS a refusal
       // by throwing it: access denied is an AccessDeniedHttpException, not a
       // 403 response (F-120: a refusal faked as a response in a test passed
       // while a real site's threw). A visitor never meets the exception: the

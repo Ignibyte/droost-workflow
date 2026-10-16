@@ -243,7 +243,7 @@ Then produce the spec:
      "When a visitor opens /rinks, the site shall list every published rink"
    ```
 
-   The test phase then records what proves each one —
+   Code then records what proves each one as it checks it —
    `verify-criterion AC-1 "RinkListTest::testEveryPublished"`, or
    `verify-criterion AC-1 "manual — checked at 390px"` where a human looked.
    Verifying a ref nobody declared is refused, and it is the ONLY refusal on
