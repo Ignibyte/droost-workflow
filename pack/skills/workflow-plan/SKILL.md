@@ -34,7 +34,7 @@ to build. How you build is yours to decide; the house rules are what the
 gates and the seeker hold the result to.
 
 **How to call droost.** droost is reached by command. `drush droost:tool`
-lists every tool, `drush droost:tool <id> --help` shows one tool's arguments,
+lists every tool, `drush droost:tool <id> help` shows one tool's arguments,
 and `drush droost:tool <id> '<json>'` runs it:
 
 ```bash

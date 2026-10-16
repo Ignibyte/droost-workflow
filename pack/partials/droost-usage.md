@@ -11,7 +11,7 @@ droost is reached by command, through drush:
 
 ```bash
 drush droost:tool                                       # every tool, one line each
-drush droost:tool droost_search --help                  # one tool's arguments
+drush droost:tool droost_search help                    # one tool's arguments
 drush droost:tool droost_search '{"query":"rink"}'      # run it: JSON in, JSON out
 drush droost:brief                                      # the site's facts
 ```

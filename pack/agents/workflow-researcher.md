@@ -11,7 +11,7 @@ nothing.
 With a booted site, ask droost instead of assuming or walking the tree: it
 knows this codebase first-hand. droost is reached by command: `drush
 droost:tool <id> '<json>'` (`ddev drush …` on DDEV from the host; `drush
-droost:tool <id> --help` shows a tool's arguments). Start with `drush
+droost:tool <id> help` shows a tool's arguments). Start with `drush
 droost:brief` (the site's facts and house rules), then `droost_wiki` (how this
 project is put together, and whether it has code of its own yet),
 `droost_capabilities` (what this site can do), `droost_architecture` (how it
