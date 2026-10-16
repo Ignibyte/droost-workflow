@@ -5290,6 +5290,36 @@ function with_find_exec_commands(array $invocations): array {
 }
 
 /**
+ * The run record's path, resolved and held inside the project root.
+ *
+ * The root and the state directory arrive in the hook's input. Both are
+ * resolved, and a record that resolves outside the root is not read: the
+ * guard reads its own project's run, never a path the input points
+ * elsewhere (a static analyser's path-traversal finding on every site that
+ * commits this hook, until 0.18.1).
+ *
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The state directory, relative to the root.
+ *
+ * @return string|null
+ *   The run.json path, or NULL when there is none inside the root.
+ */
+function guard_run_record_path(string $root, string $stateDir): ?string {
+  $base = realpath($root);
+  if ($base === FALSE) {
+    return NULL;
+  }
+  $record = realpath($base . '/' . $stateDir . '/run.json');
+  if ($record === FALSE || !str_starts_with($record, $base . DIRECTORY_SEPARATOR) || basename($record) !== 'run.json') {
+    return NULL;
+  }
+
+  return $record;
+}
+
+/**
  * Whether a run is actually under way, rather than merely recorded.
  *
  * `run.json` is BOTH the live record and the finished one: a completed run
@@ -5310,8 +5340,8 @@ function with_find_exec_commands(array $invocations): array {
  *   TRUE while a phase is active.
  */
 function guard_run_is_live(string $root, string $stateDir): bool {
-  $path = $root . '/' . $stateDir . '/run.json';
-  if (!is_file($path)) {
+  $path = guard_run_record_path($root, $stateDir);
+  if ($path === NULL) {
     return FALSE;
   }
   $raw = @file_get_contents($path);
@@ -5342,7 +5372,8 @@ function guard_run_is_live(string $root, string $stateDir): bool {
  *   The reference directory without slashes at either end, or '' for none.
  */
 function guard_parity_reference(string $root, string $stateDir): string {
-  $document = json_decode((string) @file_get_contents($root . '/' . $stateDir . '/run.json'), TRUE);
+  $record = guard_run_record_path($root, $stateDir);
+  $document = $record === NULL ? NULL : json_decode((string) @file_get_contents($record), TRUE);
   $parity = is_array($document) && is_array($document['resolved_gates']['parity'] ?? NULL)
     ? $document['resolved_gates']['parity']
     : NULL;
