@@ -3271,6 +3271,7 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
           // the run record, was allowed while the same code as `python3 -c`
           // was refused: one Write and one Bash call past the wall, the shape
           // F-165 closed for shell scripts.
+          guard_judge_library_code($script, $command, sprintf('This runs %s, a program', $file));
           if (code_names_enforcement($script) && code_writes($script)) {
             guard_refuse('protected-path:in-script', sprintf(
               'This runs %s, and that program names the enforcement itself — '
@@ -5756,6 +5757,83 @@ function enforcement_path_markers(): string {
 }
 
 /**
+ * Whether code drives droost/workflow's own classes, or loads them.
+ *
+ * THE LIBRARY IS THE ENFORCEMENT'S HANDS (S5-1, 2026-10-16). The path rule
+ * below fires on code that names a protected FILE and writes; one line of
+ * `php -r` that loads the autoloader and calls the library names neither:
+ *
+ *     php -r 'require "vendor/autoload.php";
+ *       $s = new Droost\Workflow\State\RunStateStore(getcwd());
+ *       $s->save($s->load()->withGateWaiver("phpstan", "x", date("c")));'
+ *
+ * wrote a gate waiver into the run record, `EffortSwitch::apply()` moved the
+ * dial mid-run, and `ToolCallLog::append()` forged a knowledge call, each
+ * allowed. The operator verbs are the library's methods; calling them from
+ * code is calling the verbs. So code that names the library's namespace (in
+ * any case, any backslash spelling, or split across a string concatenation)
+ * or loads Composer's autoloader is the enforcement's to run, not the
+ * agent's, while a run is live. The commands the agent is given stay open:
+ * `vendor/bin/droost`, drush, phpunit and composer are programs, never code
+ * handed to an interpreter.
+ *
+ * @param string $code
+ *   The program's text.
+ *
+ * @return string
+ *   What it names ('the library' or 'the autoloader'), or '' for neither.
+ */
+function code_drives_library(string $code): string {
+  if (preg_match('#droost[\s\'".\\\\]{0,12}workflow[\s\'"]{0,4}\\\\#i', $code) === 1
+    || preg_match('#droost\\\\+workflow#i', $code) === 1) {
+    return 'droost/workflow\'s classes';
+  }
+  if (preg_match('#vendor/autoload\.php|autoload_real\.php|ComposerAutoloaderInit|vendor/droost/workflow/#i', $code) === 1) {
+    return 'Composer\'s autoloader';
+  }
+
+  return '';
+}
+
+/**
+ * Refuses code that drives droost/workflow's own classes during a live run.
+ *
+ * @param string $code
+ *   The program's text.
+ * @param string $command
+ *   The command line, for the refusal.
+ * @param string $what
+ *   How the refusal opens ("This hands an interpreter code", "This runs x").
+ * @param string|null $root
+ *   The project root, or NULL for the one this hook runs in.
+ * @param string|null $stateDir
+ *   The state directory, or NULL for the one this hook resolved.
+ */
+function guard_judge_library_code(string $code, string $command, string $what, ?string $root = NULL, ?string $stateDir = NULL): void {
+  $names = code_drives_library($code);
+  if ($names === '') {
+    return;
+  }
+  $root ??= is_string($GLOBALS['root'] ?? NULL) ? $GLOBALS['root'] : guard_named_root();
+  $stateDir ??= is_string($GLOBALS['stateDir'] ?? NULL) ? $GLOBALS['stateDir'] : 'droost/droost-workflow';
+  if ($root === '' || !guard_run_is_live($root, $stateDir)) {
+    return;
+  }
+  guard_refuse('protected-path:library-code', sprintf(
+    '%s that loads %s while a run is live. The library is what keeps the run '
+    . 'record, the levers and the tool-call ledger, and its methods are the '
+    . 'operator verbs (gate-waive, bypass, effort, baseline): calling them '
+    . 'from code is calling the verbs. Use the commands you are given '
+    . '(`vendor/bin/droost`, `drush droost:tool`, `drush droost:workflow:*` '
+    . 'or `vendor/bin/droost-workflow`), and show the OPERATOR any verb that '
+    . 'is theirs. (Refused: %s)',
+    $what,
+    $names,
+    trim($command),
+  ));
+}
+
+/**
  * Refuses code that carries an operator verb, or writes the enforcement.
  *
  * One judgement for every way code reaches an interpreter: a heredoc body,
@@ -5779,6 +5857,7 @@ function enforcement_path_markers(): string {
  *   The state directory, or NULL for the one this hook resolved.
  */
 function guard_judge_code(string $code, string $command, ?string $root = NULL, ?string $stateDir = NULL): void {
+  guard_judge_library_code($code, $command, 'This hands an interpreter code', $root, $stateDir);
   if (preg_match(operator_verb_pattern(), $code) === 1) {
     guard_refuse('operator-command:in-interpreter', sprintf(
       'This hands an interpreter code carrying one of the operator-only '
@@ -5938,6 +6017,21 @@ function operator_commands_inline_code(array $plain, string $cwd = ''): ?string 
     }
 
     return $program === [] ? NULL : implode(' ', $program);
+  }
+  // DRUSH'S EVAL IS AN INTERPRETER TOO. `drush php:eval '<code>'` runs PHP in
+  // the booted site, with the same autoloader `php -r` loads by hand.
+  if ($head === 'drush') {
+    foreach (array_slice($plain, 1) as $index => $token) {
+      $token = strtolower(ltrim($token, "\x01"));
+      if (str_starts_with($token, '-')) {
+        continue;
+      }
+      if (in_array($token, ['php:eval', 'php-eval', 'eval', 'ev'], TRUE)) {
+        return implode(' ', array_map(static fn (string $t): string => ltrim($t, "\x01"), array_slice($plain, $index + 2)));
+      }
+      return NULL;
+    }
+    return NULL;
   }
   $want = $flags[$head] ?? NULL;
   if ($want === NULL) {
