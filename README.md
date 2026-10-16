@@ -636,11 +636,17 @@ test: phpcs, phpstan, eslint, prettier, phpunit, mutation, playwright, parity, c
 complete: phpcs, phpstan, eslint, stylelint, prettier, phpunit, mutation, playwright, parity, coverage, rendered_check, config_clean, grounding_check, composition_check, house_rules, wiki_fresh
 ```
 
-Plan runs no gate — there is no code yet to measure. droost's Drupal half
-adds one check there, `plan_grounded`: plan waits until the spec's
-`## Grounding` cites what the site and its code really hold, and droost's
-knowledge (the brief, the codegraph, search, the wiki, introspection) was
-asked during plan. droost forces the agent to LOOK; it never says how to
+Plan runs no gate — there is no code yet to measure. One check holds it,
+`plan_grounded`: plan waits until the spec's `## Grounding` cites what the
+site and its code really hold, and droost's knowledge (the brief, the
+codegraph, search, the wiki, introspection) was asked during plan. It is this
+library's (`PlanGroundedCheck`), so both doors ask it the same way: it reads
+the tool-call ledger and resolves citations from droost's code index
+(`<state dir>/code-index.sqlite`) and the files, none of which needs Drupal.
+Until 0.16 it was droost's, and a broken site let the standalone binary close
+plan with it recorded as skipped (F-276). A project with no droost to ask
+(no `vendor/bin/droost`, no `vendor/bin/drush`, no index) records it as
+skipped, with that reason. droost forces the agent to LOOK; it never says how to
 build (owner, 2026-10-15: "as models get better they dont need to ask they
 need you to build rules around your code"). The site's own rules are what
 the work is held to: a page rule in `rules:` is reported by default and
@@ -1016,7 +1022,7 @@ something a reader discovers by reading `PackManifest`.
 **The Drupal surface ships with droost, not here.** `drupal/droost`'s
 `droost_workflow` submodule supplies the two things that genuinely need a
 booted site — the `drush droost:workflow:*` commands and the checks that read
-the site (`plan_grounded`, the rendered check, the composition gate). Enable
+the site (the rendered check, the composition gate). Enable
 it and you get both; the pipeline underneath is this library either way.
 
 That split is P6.7 in droost's roadmap, and the reason is delivery rather than
@@ -1070,7 +1076,12 @@ droost is reached by command. `drush droost:tool` lists droost's tools,
 `drush droost:tool <id> '<json>'` runs one (the same ids, write gates and
 ledger row the MCP tools had), `drush droost:brief` prints the site's facts,
 and `drush droost:workflow:*` drives a run; `vendor/bin/droost-workflow`
-does the same with no site. A command boots the code on disk every time,
+does the same with no site. What is about code, not the running site
+(symbols, the code graph, lexical search, wiki pages, module docs,
+deprecations), `vendor/bin/droost <tool>` answers with no Drupal at all, from
+droost's code index; it writes the same ledger row, so a plan that looked
+through it is a plan that looked. On DDEV run it as `ddev exec
+vendor/bin/droost`, so one side writes the ledger. A command boots the code on disk every time,
 which ended a family of findings that came from one long-lived process
 (classes loaded once, config written from stale classes, a server that died
 mid-run). Playwright's own MCP server is the browser tier and stays.

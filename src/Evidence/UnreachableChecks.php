@@ -58,7 +58,8 @@ final class UnreachableChecks implements CheckAdjudicatorInterface {
         'This repository holds a site, and a site may contribute checks — a '
         . 'ticket id, a transition, notes written back. This surface cannot ask '
         . 'them: the standalone binary boots no Drupal, so any check a module '
-        . 'contributes went unasked for this phase. Advance through '
+        . 'contributes went unasked for this phase (the library\'s own, '
+        . 'plan_grounded among them, were asked). Advance through '
         . '`drush droost:workflow:run` to have them adjudicated.',
       ),
     ];

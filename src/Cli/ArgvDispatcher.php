@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Cli;
 
+use Droost\Workflow\Evidence\CheckAdjudicators;
 use Droost\Workflow\Evidence\UnreachableChecks;
 use Droost\Workflow\Baseline\BaselineError;
 use Droost\Workflow\Config\ConfigError;
@@ -1954,7 +1955,9 @@ final class ArgvDispatcher {
       NULL,
       $catalog['gates'],
       $catalog['source'],
-      new UnreachableChecks($hasSite),
+      // The library's own checks (plan_grounded) are asked here as on drush;
+      // only what a module contributes needs a booted site (F-276).
+      CheckAdjudicators::withLibraryChecks(new UnreachableChecks($hasSite)),
       $this->workItemSource($projectRoot),
       $this->relayFor($projectRoot),
     );

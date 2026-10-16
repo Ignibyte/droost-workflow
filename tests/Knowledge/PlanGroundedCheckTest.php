@@ -1,0 +1,171 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Droost\Workflow\Tests\Knowledge;
+
+use Droost\Workflow\Cli\ArgvDispatcher;
+use Droost\Workflow\Evidence\CheckRecord;
+use Droost\Workflow\Evidence\CheckState;
+use Droost\Workflow\Evidence\EvidenceStore;
+use Droost\Workflow\Evidence\Fault;
+use Droost\Workflow\Knowledge\PlanGroundedCheck;
+use Droost\Workflow\State\RunStateStore;
+use Droost\Workflow\Tests\Evidence\ReadsTheStore;
+use Droost\Workflow\Tests\WorkflowTestCase;
+
+/**
+ * Plan is held to having looked, on both doors (F-276).
+ *
+ * The check lived in droost, so only a booted Drupal asked it; the standalone
+ * binary closed plan with it recorded as skipped. It is the library's now.
+ */
+final class PlanGroundedCheckTest extends WorkflowTestCase {
+
+  use KnowledgeFixture;
+  use ReadsTheStore;
+
+  /**
+   * A project droost can be asked on, with a spec citing a file it holds.
+   *
+   * @return string
+   *   The root.
+   */
+  private function project(): string {
+    $root = $this->makeRoot();
+    $this->drupalTree($root);
+    $this->put($root, 'vendor/bin/droost', "#!/usr/bin/env php\n");
+    $this->groundedSpec($root, [['custom', 'web/modules/custom/camps/camps.info.yml']]);
+
+    return $root;
+  }
+
+  /**
+   * The check's one verdict at plan.
+   *
+   * @param string $root
+   *   The project.
+   *
+   * @return \Droost\Workflow\Evidence\CheckRecord
+   *   The record.
+   */
+  private function verdict(string $root): CheckRecord {
+    $records = (new PlanGroundedCheck())->adjudicate($root, 'plan', 'run-pg');
+    $this->assertCount(1, $records);
+    $this->assertSame('plan_grounded', $records[0]->name);
+
+    return $records[0];
+  }
+
+  /**
+   * Only plan is held, and a run with no spec is left to the engine.
+   */
+  public function testOnlyPlanWithSpecIsAsked(): void {
+    $root = $this->project();
+    $this->assertSame([], (new PlanGroundedCheck())->adjudicate($root, 'code', 'run-pg'));
+
+    unlink($root . '/droost/droost-workflow/spec-test-run.md');
+    $this->assertSame([], (new PlanGroundedCheck())->adjudicate($root, 'plan', 'run-pg'));
+  }
+
+  /**
+   * A plan that asked droost nothing is blocked, and told how to look.
+   */
+  public function testPlanThatAskedNothingIsBlocked(): void {
+    $record = $this->verdict($this->project());
+
+    $this->assertSame(CheckState::Blocked, $record->state);
+    $this->assertSame(Fault::Agent, $record->fault);
+    $this->assertStringContainsString('has not asked droost anything during plan', $record->summary);
+    $this->assertStringContainsString('vendor/bin/droost <tool>', $record->summary, 'the surface that needs no site');
+    $this->assertStringContainsString('drush droost:brief', $record->summary);
+  }
+
+  /**
+   * A plan that asked and cites what resolves is satisfied.
+   */
+  public function testPlanThatLookedIsSatisfied(): void {
+    $root = $this->project();
+    $this->ledger($root, [['tool' => 'droost_symbol', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL]]);
+
+    $record = $this->verdict($root);
+
+    $this->assertSame(CheckState::Satisfied, $record->state, $record->summary);
+    $this->assertStringContainsString('droost_symbol ×1', $record->summary);
+    $this->assertSame(PlanGroundedCheck::PROVIDER, $record->provider);
+  }
+
+  /**
+   * A refused call, another run's call, and a call made later are not looking.
+   */
+  public function testOnlyThisRunsAnsweredPlanCallsCount(): void {
+    $root = $this->project();
+    $this->ledger($root, [
+      ['tool' => 'droost_symbol', 'outcome' => 'fail', 'at' => 'x', 'run' => 'run-pg', 'phase' => 'plan'],
+      ['tool' => 'droost_search', 'outcome' => 'ok', 'at' => 'x', 'run' => 'run-other', 'phase' => 'plan'],
+      ['tool' => 'droost_entities', 'outcome' => 'ok', 'at' => 'x', 'run' => 'run-pg', 'phase' => 'code'],
+      ['tool' => 'droost_config_set', 'outcome' => 'ok', 'at' => 'x', 'run' => 'run-pg', 'phase' => 'plan'],
+    ]);
+
+    $this->assertSame(CheckState::Blocked, $this->verdict($root)->state);
+  }
+
+  /**
+   * Citations that resolve nowhere block, and the index's absence is said.
+   */
+  public function testCitationsThatResolveNowhereBlock(): void {
+    $root = $this->project();
+    $this->groundedSpec($root, [['custom', 'Drupal\camps\Invented']]);
+    $this->ledger($root, [['tool' => 'droost_search', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL]]);
+
+    $record = $this->verdict($root);
+
+    $this->assertSame(CheckState::Blocked, $record->state);
+    $this->assertStringContainsString('`Drupal\camps\Invented`', $record->summary);
+    $this->assertStringContainsString('code index is absent', $record->summary);
+  }
+
+  /**
+   * A project with no droost to ask is skipped, said, and never passed.
+   */
+  public function testNoDroostToAskIsSkipped(): void {
+    $root = $this->project();
+    unlink($root . '/vendor/bin/droost');
+
+    $record = $this->verdict($root);
+
+    $this->assertSame(CheckState::Skipped, $record->state);
+    $this->assertFalse($record->state->measured());
+    $this->assertStringContainsString('no droost to look with', $record->summary);
+  }
+
+  /**
+   * The standalone binary holds plan on it, then lets a plan that looked go.
+   */
+  public function testTheBinaryHoldsPlan(): void {
+    $root = $this->project();
+    file_put_contents($root . '/droost.workflow.yml', "preset: custom\nseekers: { on: false }\n");
+    $lines = [];
+    $sink = function (string $line) use (&$lines): void {
+      $lines[] = $line;
+    };
+    $binary = new ArgvDispatcher($sink, $sink, static fn (): string => '2026-10-15T00:00:00+00:00', static fn (): string => 'run-pg');
+
+    $binary->dispatch(['run'], $root);
+    $state = (new RunStateStore($root))->load();
+    $this->assertNotNull($state);
+    $this->assertSame('plan', $state->currentPhase?->value, 'held at plan: ' . implode("\n", $lines));
+    $row = $this->storeRow(
+      (new EvidenceStore($root))->connection(),
+      "SELECT state, provider FROM check_result WHERE kind = 'check' AND name = 'plan_grounded' ORDER BY id DESC LIMIT 1",
+    );
+    $this->assertSame(['state' => 'blocked', 'provider' => 'droost/workflow'], $row);
+
+    $this->ledger($root, [
+      ['tool' => 'droost_graph', 'outcome' => 'ok', 'at' => 'x', 'run' => 'run-pg', 'phase' => 'plan'],
+    ]);
+    $binary->dispatch(['run'], $root);
+    $this->assertSame('code', (new RunStateStore($root))->load()?->currentPhase?->value, implode("\n", $lines));
+  }
+
+}
