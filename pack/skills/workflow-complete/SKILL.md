@@ -150,8 +150,9 @@ Then present, in order:
 - the diff — what changed, file by file;
 - the realized plan against the original acceptance criteria, naming any
   criterion that was not met — and the `Verified By` column filled for every
-  row, which the engine checks before this phase's gates run (an empty cell
-  is a refusal, not a warning; `manual — <reason>` is printed as manual);
+  row. A criterion with no recorded proof is reported unproven, never as
+  passed, and the seeker's ninth lens holds it at HIGH; `manual — <reason>`
+  is printed as manual;
 - the seeker ledger — findings and how each was resolved or carried, and
   the observations routed to follow-up;
 - which browser tier verified the work (`playwright-mcp`, `native`, or
