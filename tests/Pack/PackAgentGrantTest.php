@@ -15,8 +15,9 @@ use PHPUnit\Framework\TestCase;
  * the run's tool ledger (F-75). droost is reached by command now
  * (`vendor/bin/droost <id> '<json>'` for the code, `drush droost:tool <id>
  * '<json>'` for the live site), so an agent whose brief names a droost tool
- * must hold Bash and say which command, and no agent is granted a droost MCP
- * tool that no longer exists.
+ * must hold Bash and say which command. A subagent is never granted a droost
+ * MCP tool: droost's server is optional (`--no-mcp`), and a command is there
+ * on every host.
  */
 final class PackAgentGrantTest extends TestCase {
 
@@ -32,7 +33,7 @@ final class PackAgentGrantTest extends TestCase {
       $this->assertSame(1, preg_match('/^tools:\s*(.+)$/m', $text, $grant), basename($file) . ' declares a grant');
       $granted = array_map('trim', explode(',', $grant[1]));
       foreach ($granted as $tool) {
-        $this->assertStringStartsNotWith('mcp__droost__', $tool, sprintf('%s is granted %s, and droost serves no MCP tools', basename($file), $tool));
+        $this->assertStringStartsNotWith('mcp__droost__', $tool, sprintf('%s is granted %s: the pack\'s subagents reach droost by command, which every host has, never through a server the project may not wire', basename($file), $tool));
       }
       preg_match_all('/`(droost_[a-z_]+)`/', $text, $named);
       $names = array_values(array_intersect(array_unique($named[1]), PackManifest::CITABLE_TOOLS));

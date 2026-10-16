@@ -7,8 +7,13 @@ unavailable.
 
 ## How to call it
 
-droost is reached by command, and there are two: one for the code, one for
-the live site.
+droost's tools are reachable two ways, and they are the same tools with the
+same record: **through MCP**, when the project's editor config names droost's
+server (`mcp__droost__<id>`), or **by command**. Use whichever your host
+offers. Each MCP call runs the same command underneath, as a fresh process,
+so an answer always comes from the code on disk.
+
+By command there are two: one for the code, one for the live site.
 
 ```bash
 vendor/bin/droost                                        # the code: every tool, one line each
@@ -29,7 +34,7 @@ tool that writes. It needs a site that boots.
 On DDEV, run both in the container: `ddev exec vendor/bin/droost …` and
 `ddev drush droost:tool …`. Each prints the tool's answer as JSON and exits
 1 when the tool says no. Every call is recorded in the run's tool-call
-ledger, whichever command made it, and plan reads that ledger.
+ledger, whichever door made it, and plan reads that ledger.
 
 ## What needs what
 

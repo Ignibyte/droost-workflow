@@ -7121,7 +7121,7 @@ function unresolved_checks(string $root, string $stateDir, mixed $runId, string 
  */
 function guard_nudge_notes(): array {
   return [
-    'ground' => 'droost: look before you spec. `drush droost:brief` gives the site\'s facts, and `vendor/bin/droost droost_search`, `droost_symbol`, `droost_wiki` and the other knowledge tools (`ddev exec vendor/bin/droost …` on DDEV; no site needed) find the code and pages that already cover what this plan touches. The spec\'s `## Grounding` cites what you found; plan does not close until its citations resolve and droost was asked. How you build is your choice.',
+    'ground' => 'droost: look before you spec. `drush droost:brief` gives the site\'s facts, and `vendor/bin/droost droost_search`, `droost_symbol`, `droost_wiki` and the other knowledge tools (or droost\'s MCP tools, when the project wires its server; `ddev exec vendor/bin/droost …` on DDEV; no site needed) find the code and pages that already cover what this plan touches. The spec\'s `## Grounding` cites what you found; plan does not close until its citations resolve and droost was asked. How you build is your choice.',
     'traverse' => 'droost: droost knows this codebase first-hand, core and contrib included. `vendor/bin/droost droost_symbol` says where a class or hook lives and what calls it, `droost_graph` what depends on what, `droost_module_docs` what an installed module gives you, `droost_wiki` how this project is put together, and `droost_search` finds this site\'s code by words. Reading files works too; asking is faster, and it is recorded.',
   ];
 }

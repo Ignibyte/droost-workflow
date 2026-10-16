@@ -1070,21 +1070,29 @@ could not perform. Everything else — which gates ran, their verdicts, the
 phase, the advance decision — is identical, because both surfaces call one
 facade and differ only in which site driver they inject.
 
-## Reaching droost: commands, not MCP (0.15)
+## Reaching droost: commands, and MCP as a second door
 
-droost is reached by command. `drush droost:tool` lists droost's tools,
-`drush droost:tool <id> '<json>'` runs one (the same ids, write gates and
-ledger row the MCP tools had), `drush droost:brief` prints the site's facts,
-and `drush droost:workflow:*` drives a run; `vendor/bin/droost-workflow`
-does the same with no site. What is about code, not the running site
-(symbols, the code graph, lexical search, wiki pages, module docs,
-deprecations), `vendor/bin/droost <tool>` answers with no Drupal at all, from
-droost's code index; it writes the same ledger row, so a plan that looked
-through it is a plan that looked. On DDEV run it as `ddev exec
-vendor/bin/droost`, so one side writes the ledger. A command boots the code
-on disk every time, which ended a family of findings that came from one long-lived process
-(classes loaded once, config written from stale classes, a server that died
-mid-run). Playwright's own MCP server is the browser tier and stays.
+droost is reached two ways, with the same tools, the same write gates and the
+same ledger row:
+
+- **By command.** `vendor/bin/droost <tool> '<json>'` answers about the code
+  (symbols, the code graph, lexical search, wiki pages, module docs,
+  deprecations) with no Drupal at all, from droost's code index, so it
+  answers while the site is broken. `drush droost:tool <tool> '<json>'`
+  answers about the live site. `drush droost:brief` prints the site's facts,
+  and `drush droost:workflow:*` drives a run (`vendor/bin/droost-workflow`
+  does the same with no site). On DDEV run them in the container (`ddev exec
+  vendor/bin/droost`), so one side writes the ledger.
+- **Through MCP** (droost 2.0.x, 2026-10-16): droost's server
+  (`vendor/bin/droost-mcp`, which `drush droost:install` wires unless told
+  `--no-mcp`) lists both sets of tools. It runs each call as the same command,
+  in a fresh process.
+
+The server holds no Drupal. 0.15 removed a server that held one booted kernel
+for a whole session. That process was a family of findings: classes loaded
+once, config written from stale classes, a server that died mid-run. Each
+answer now boots the code on disk. Playwright's own MCP server is the browser
+tier, and stays.
 
 ## Requirements
 
