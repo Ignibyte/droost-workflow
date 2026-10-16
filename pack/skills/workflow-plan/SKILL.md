@@ -33,18 +33,20 @@ content model, the themes, and the site's house rules. It is facts, not a way
 to build. How you build is yours to decide; the house rules are what the
 gates and the seeker hold the result to.
 
-**How to call droost.** droost is reached by command. `drush droost:tool`
-lists every tool, `drush droost:tool <id> help` shows one tool's arguments,
-and `drush droost:tool <id> '<json>'` runs it:
+**How to call droost.** Two commands. `vendor/bin/droost` answers about the
+code and boots no Drupal; `drush droost:tool` answers about the live site.
+Either lists its tools with no argument, shows one with `<id> help`, and runs
+one with `<id> '<json>'`:
 
 ```bash
-drush droost:tool droost_search '{"query":"rink listing"}'
-drush droost:tool droost_symbol '{"name":"NodeType"}'
+vendor/bin/droost droost_search '{"query":"rink listing"}'     # lexical: names and wiki text
+vendor/bin/droost droost_symbol '{"name":"NodeType"}'
+drush droost:tool droost_entities '{"entity_type":"node"}'     # the live content model
 ```
 
-On DDEV from the host, prefix `ddev`. Each call boots the site, so ask what
-you need in as few calls as you can. Every call is recorded in the run's
-tool-call ledger.
+On DDEV, run both in the container (`ddev exec vendor/bin/droost …`, `ddev
+drush …`). Every call is recorded in the run's tool-call ledger, and plan
+does not close until that ledger shows you looked (`plan_grounded`).
 
 **Look first, propose second — and RECORD IT.** The most expensive mistake in
 this phase is describing a site that does not exist: a content type already

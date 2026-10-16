@@ -88,7 +88,8 @@ after the plan had already grounded could not attribute any of that work
    from the `run.json` that now exists. The spec file exists BEFORE code
    does, at every level of the dial. Plan does not close until the spec's
    `## Grounding` cites what resolves and the run has asked droost's
-   knowledge (`drush droost:brief`, then `drush droost:tool <id> '<json>'`):
+   knowledge (`drush droost:brief`, then `vendor/bin/droost <id> '<json>'` for
+   the code and `drush droost:tool <id> '<json>'` for the live site):
    the `plan_grounded` check. While the run is in plan the guard
    permits writes only under `droost/droost-workflow/` — the spec is plan's
    artefact; project files wait for code.

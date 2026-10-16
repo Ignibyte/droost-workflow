@@ -1081,8 +1081,8 @@ does the same with no site. What is about code, not the running site
 deprecations), `vendor/bin/droost <tool>` answers with no Drupal at all, from
 droost's code index; it writes the same ledger row, so a plan that looked
 through it is a plan that looked. On DDEV run it as `ddev exec
-vendor/bin/droost`, so one side writes the ledger. A command boots the code on disk every time,
-which ended a family of findings that came from one long-lived process
+vendor/bin/droost`, so one side writes the ledger. A command boots the code
+on disk every time, which ended a family of findings that came from one long-lived process
 (classes loaded once, config written from stale classes, a server that died
 mid-run). Playwright's own MCP server is the browser tier and stays.
 

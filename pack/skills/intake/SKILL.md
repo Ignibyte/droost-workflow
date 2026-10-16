@@ -160,8 +160,9 @@ construct duplicates one that exists and none breaks the site's house rules:
 
 - `drush droost:brief` — the site's case (Canvas, SDC, code components), its
   modules, its content model and its house rules.
-- `drush droost:tool droost_entities '{}'` and `droost_module_docs` — what
-  already exists and what an installed module already gives you.
+- `drush droost:tool droost_entities '{}'` and `vendor/bin/droost
+  droost_module_docs` — what already exists and what an installed module
+  already gives you.
 - `vendor/bin/droost-workflow rules` — the house rules alone: each rung's
   work is held to them, by a gate or by the seeker.
 

@@ -7,45 +7,54 @@ unavailable.
 
 ## How to call it
 
-droost is reached by command, through drush:
+droost is reached by command, and there are two: one for the code, one for
+the live site.
 
 ```bash
-drush droost:tool                                       # every tool, one line each
-drush droost:tool droost_search help                    # one tool's arguments
-drush droost:tool droost_search '{"query":"rink"}'      # run it: JSON in, JSON out
-drush droost:brief                                      # the site's facts
+vendor/bin/droost                                        # the code: every tool, one line each
+vendor/bin/droost droost_symbol '{"name":"NodeType"}'    # run one: JSON in, JSON out
+drush droost:tool                                        # the live site: every tool, one line each
+drush droost:tool droost_entities help                   # one tool's arguments (`<id> help`, either command)
+drush droost:brief                                       # the site's facts and house rules
 ```
 
-On DDEV from the host, prefix `ddev` (`ddev drush droost:tool …`). Each call
-boots the site, so ask for what you need in as few calls as you can. A call
-prints the tool's answer as JSON and exits 1 when the tool says no. Every
-call is recorded in the run's tool-call ledger, whichever way you made it.
+`vendor/bin/droost` answers about the code: symbols, the code graph,
+lexical search, wiki pages, module docs, deprecations, and the last brief.
+It boots no Drupal. It reads the code index droost writes and the files on
+disk, so it answers while the site is broken, which is when you most need
+it. `drush droost:tool` answers about the running site: entities, fields,
+routes, services, config, views, the database, semantic search, and every
+tool that writes. It needs a site that boots.
 
-## The one thing to understand: no site, no droost
+On DDEV, run both in the container: `ddev exec vendor/bin/droost …` and
+`ddev drush droost:tool …`. Each prints the tool's answer as JSON and exits
+1 when the tool says no. Every call is recorded in the run's tool-call
+ledger, whichever command made it, and plan reads that ledger.
 
-**Every droost tool needs a booted site. All of them, without exception.**
+## What needs what
 
-They are Drupal plugins run by drush against the site. There is no subset
-that works on a plain checkout — not even the scaffolding tools, whose
-underlying generators are Drupal-free but which are only *reachable* through
-a booted site.
+- **`drush droost:tool` needs a booted site.** Its tools are Drupal plugins
+  run against the site.
+- **`vendor/bin/droost` needs the code index**, which a site writes
+  (`drush droost:search:index`). On a checkout that has never had a site,
+  there is no index, and it says so rather than answering empty.
 
-So on a checkout with no site, you do not have a reduced droost. You have
-none. Plan without grounding, build by hand, and be explicit in every
-artefact about which of your foundations you could not check.
-
-This is worth stating plainly because the opposite assumption is the easy
-one to make, and it produces exactly the failure this workflow exists to
-prevent: an agent that believes it verified something it never could.
+So on a checkout with no site and no index, you have no droost. Plan without
+grounding, build by hand, and be explicit in every artefact about which of
+your foundations you could not check. This is worth stating plainly because
+the opposite assumption is the easy one to make, and it produces exactly the
+failure this workflow exists to prevent: an agent that believes it verified
+something it never could.
 
 ## When a call fails because the site did
 
 A `ddev snapshot restore`, a `ddev restart`, a failed module install or a
 fatal in a plugin you just wrote can leave the site unable to boot. Then
-every droost call fails the same way, with the site's error. Fix the site
-(read `drush watchdog:show`, or the fatal drush prints), then call again.
-Nothing is repeated for you, so read the state before repeating a call that
-writes.
+every `drush droost:tool` call fails the same way, with the site's error.
+`vendor/bin/droost` still answers about the code: use it to find what broke.
+Fix the site (read `drush watchdog:show`, or the fatal drush prints), then
+call again. Nothing is repeated for you, so read the state before repeating
+a call that writes.
 
 ## What droost_verify actually does
 
@@ -76,10 +85,12 @@ result that is easy to misread:
 
 **1. Some tools need an index that may never have been built.**
 `droost_capabilities` and `droost_architecture` fail cleanly and tell you to
-run `drush droost:brain:build`. `droost_search` does not fail — it returns
-**empty**, which reads exactly like "this project has no documentation". If a
-search comes back empty, check whether `drush droost:search:index` was ever
-run before you conclude anything from it.
+run `drush droost:brain:build`. `vendor/bin/droost` fails when there is no
+code index and tells you to run `drush droost:search:index`. `drush
+droost:tool droost_search` (semantic) can return **empty** when its vectors
+were never built, which reads exactly like "this project has no
+documentation". If a search comes back empty, check whether the index was
+ever built before you conclude anything from it.
 
 **2. Every write tool is switched off until the site opts in.**
 `droost_scaffold`, `droost_structure_create`, the entity writers and
@@ -91,8 +102,8 @@ stop.
 
 **3. Some tools live in submodules that may not be installed.** The brain,
 codebase search and the wiki ship in droost core — so `droost_capabilities`,
-`droost_architecture`, `droost_symbol`, `droost_graph`, `droost_search` and
-the wiki tools are there whenever droost is. What genuinely may be absent
+`droost_architecture`, `droost_search`, the wiki tools and every
+`vendor/bin/droost` tool are there whenever droost is. What genuinely may be absent
 are the backend-bridging submodules — Canvas, Devel and AI tooling. A
 perfectly healthy site can be missing any of those; `drush droost:tool`
 lists only what this site has.

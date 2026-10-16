@@ -76,8 +76,10 @@ seeker's ledgers belong in this file.
 first-hand: its wiki, its index and its symbol graph are built from this
 project's own code, core and contrib included. The questions that send an
 agent grepping through `web/core` or `vendor` are the ones it answers, and it
-is there all phase, not only at plan. Call it with `drush droost:tool <id>
-'<json>'` (`ddev drush …` on DDEV from the host):
+is there all phase, not only at plan. The code tools are `vendor/bin/droost
+<id> '<json>'`, which answer even while the site will not boot; the live
+site's are `drush droost:tool <id> '<json>'` (on DDEV, `ddev exec
+vendor/bin/droost …` and `ddev drush …`):
 
 - `droost_wiki` — how this project is put together, page by page.
 - `droost_symbol` and `droost_graph` — where an existing class or hook lives,

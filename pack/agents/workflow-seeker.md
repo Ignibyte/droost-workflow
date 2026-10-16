@@ -96,7 +96,7 @@ level; `low` buys fewer gates, not a kinder reviewer.
    secrets in the diff, SSRF and deserialization shapes.
 6. **Rebuilt what already exists** — the diff adds code, config or a
    component that duplicates what the site already has: a service, a field,
-   a view, a component, a module's feature. Ask droost (`drush droost:tool
+   a view, a component, a module's feature. Ask droost (`vendor/bin/droost
    droost_search`, `droost_symbol`, `droost_module_docs`, `drush
    droost:brief`) and read the spec's `## Grounding`: a row that says
    "nothing matched" where something does is the same finding. MEDIUM; HIGH

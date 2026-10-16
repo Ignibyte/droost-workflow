@@ -12,10 +12,11 @@ use PHPUnit\Framework\TestCase;
  *
  * The researcher's brief once named five droost tools while its `tools:` line
  * granted none of them, so it could call none, and its grounding never reached
- * the run's tool ledger (F-75). droost is reached by command now (`drush
- * droost:tool <id> '<json>'`), so an agent whose brief names a droost tool
- * must hold Bash, and no agent is granted a droost MCP tool that no longer
- * exists.
+ * the run's tool ledger (F-75). droost is reached by command now
+ * (`vendor/bin/droost <id> '<json>'` for the code, `drush droost:tool <id>
+ * '<json>'` for the live site), so an agent whose brief names a droost tool
+ * must hold Bash and say which command, and no agent is granted a droost MCP
+ * tool that no longer exists.
  */
 final class PackAgentGrantTest extends TestCase {
 
@@ -42,10 +43,10 @@ final class PackAgentGrantTest extends TestCase {
       $this->assertContains(
         'Bash',
         $granted,
-        sprintf('%s tells the agent to use %s, which runs through drush, and does not grant Bash', basename($file), implode(', ', $names)),
+        sprintf('%s tells the agent to use %s, which runs by command, and does not grant Bash', basename($file), implode(', ', $names)),
       );
-      $this->assertStringContainsString(
-        'droost:tool',
+      $this->assertMatchesRegularExpression(
+        '#vendor/bin/droost\b|droost:tool#',
         $text,
         sprintf('%s names droost tools and never says how to call them', basename($file)),
       );
