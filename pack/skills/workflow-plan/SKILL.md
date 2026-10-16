@@ -43,7 +43,7 @@ with `<id> '<json>'`:
 ```bash
 vendor/bin/droost droost_search '{"query":"rink listing"}'     # lexical: names and wiki text
 vendor/bin/droost droost_symbol '{"name":"NodeType"}'
-drush droost:tool droost_entities '{"entity_type":"node"}'     # the live content model
+drush droost:tool droost_entities '{"entity_type_id":"node"}'  # the live content model
 ```
 
 On DDEV, run both in the container (`ddev exec vendor/bin/droost …`, `ddev

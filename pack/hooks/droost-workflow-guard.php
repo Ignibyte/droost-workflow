@@ -350,20 +350,6 @@ $recordCall = static function () use ($root, $stateDir): void {
   if (is_string($ledger) && $ledger !== '') {
     $row['ledger'] = $ledger;
   }
-  // WHICH GENERATORS THIS COMMAND RAN, when it was allowed to run. droost's
-  // grounding_check asks the diary whether a file the run added came from
-  // the surface that makes it, and a `drush generate` left no other trace:
-  // the scaffold ledger holds droost's blueprints only, and the tool-call
-  // ledger holds MCP tools. Only an allowed command counts, and only one
-  // that writes (not `--dry-run`, not `--help`). Absent, not empty, when
-  // there is nothing to say, so every older row reads the same.
-  $command = $GLOBALS['workflow_guard_command'] ?? '';
-  if ($row['verdict'] === 'allow' && is_string($command) && $command !== '') {
-    $generated = operator_commands_generators($command);
-    if ($generated !== []) {
-      $row['generated'] = $generated;
-    }
-  }
   $line = json_encode($row, JSON_UNESCAPED_SLASHES);
   if ($line === FALSE) {
     return;
@@ -421,10 +407,7 @@ $toolName = $payload['tool_name'] ?? $payload['tool'] ?? NULL;
 $GLOBALS['workflow_guard_tool'] = is_string($toolName) && $toolName !== ''
   ? substr($toolName, 0, 120)
   : NULL;
-// The shell command, kept for the diary: which `drush generate` an ALLOWED
-// command ran is evidence droost's grounding_check reads (below, at the row).
 $guardInput = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
-$GLOBALS['workflow_guard_command'] = is_string($guardInput['command'] ?? NULL) ? $guardInput['command'] : '';
 
 // RECORD MODE ENDS HERE, and ending here is the whole design (F-37).
 //
@@ -3422,27 +3405,6 @@ function operator_commands_substitution_spans(string $command): array {
 }
 
 /**
- * The command line with every substitution blanked, offsets kept.
- *
- * For the questions that belong to this line's own words, such as whether it
- * pipes into an interpreter. A pipe inside `$( … )` belongs to the command in
- * the substitution, which is tokenised and judged on its own.
- *
- * @param string $command
- *   The command line.
- *
- * @return string
- *   The same text, each substitution replaced by spaces.
- */
-function operator_commands_without_substitutions(string $command): string {
-  foreach (array_reverse(operator_commands_substitution_spans($command)[1]) as [$start, $end]) {
-    $command = substr_replace($command, str_repeat(' ', $end - $start), $start, $end - $start);
-  }
-
-  return $command;
-}
-
-/**
  * Where the `)` closing the `(` at an offset sits, as the shell reads it.
  *
  * Quotes and nested parentheses inside are honoured, so `$(python3 -c
@@ -3496,191 +3458,6 @@ function operator_commands_closing_paren(string $command, int $open): int {
   }
 
   return $length;
-}
-
-/**
- * The drush generators a command runs for real, in order.
- *
- * `drush generate <name>`, `drush gen <name>` and every spelling the
- * tokeniser already unwraps (`ddev drush`, `vendor/bin/drush`, `ddev exec
- * "…"`, `bash -c '…'`). A run that only looks — `--dry-run`, `--help`, `-h`,
- * or no generator named, which lists them — writes nothing and is not
- * recorded: the ledger is evidence that a file came from a generator, and a
- * dry run is not.
- *
- * A call to a shell function the same command defines runs the function's
- * body with the call's words as its arguments (F-242): P8 run 15's agent ran
- * four generators as `G(){ ddev drush generate "$@" 2>&1 | grep …; }` and
- * then `G plugin:condition …`, and the ledger named none of them, so
- * grounding_check recorded two files as made another way than droost
- * advised.
- *
- * @param string $command
- *   The shell command as the agent sent it.
- * @param int $depth
- *   How many function calls deep this reading is, so a function that calls
- *   itself ends.
- * @param array<string, string> $outer
- *   The functions the line around a body defines, which the body may call.
- *
- * @return list<string>
- *   The generator names, each once.
- */
-function operator_commands_generators(string $command, int $depth = 0, array $outer = []): array {
-  $names = [];
-  // A definition runs nothing: its body is read only where it is called, so
-  // the line is read with each definition cut out.
-  $calls = $command;
-  $functions = $depth < 3 ? operator_commands_shell_functions($command, $calls) + $outer : [];
-  foreach (operator_commands_invocations(operator_commands_scan_text($calls)) as $tokens) {
-    $words = array_values(array_map(
-      static fn (string $token): string => ltrim($token, "\x01"),
-      array_filter(operator_commands_unwrapped($tokens), static fn (string $token): bool => !str_starts_with($token, "\x01")),
-    ));
-    if (isset($functions[$words[0] ?? ''])) {
-      $body = operator_commands_function_call($functions[$words[0]], array_slice($words, 1));
-      foreach (operator_commands_generators($body, $depth + 1, $functions) as $name) {
-        if (!in_array($name, $names, TRUE)) {
-          $names[] = $name;
-        }
-      }
-      continue;
-    }
-    // The command is drush, or `ddev drush`: a drush named anywhere else on
-    // the line is an argument (`echo drush generate module`).
-    $at = basename($words[0] ?? '') === 'ddev' ? 1 : 0;
-    if (!in_array(basename($words[$at] ?? ''), ['drush', 'drush.php'], TRUE)
-      || !in_array($words[$at + 1] ?? '', ['generate', 'gen'], TRUE)) {
-      continue;
-    }
-    $rest = array_slice($words, $at + 2);
-    if (operator_commands_flagged($rest, ['--dry-run', '--help', '-h'])) {
-      continue;
-    }
-    // The generator is the first word that is neither a flag nor the value of
-    // one written apart from it (`-a my_module`). None named is the
-    // listing, which writes nothing.
-    $takesValue = FALSE;
-    foreach ($rest as $arg) {
-      if ($takesValue) {
-        $takesValue = FALSE;
-        continue;
-      }
-      if (in_array($arg, ['-a', '--answer', '-d', '--destination', '--directory'], TRUE)) {
-        $takesValue = TRUE;
-        continue;
-      }
-      if (str_starts_with($arg, '-')) {
-        continue;
-      }
-      // `list` and `help` are the console's own commands, not generators.
-      if (preg_match('/^[a-z][\w.:-]*$/', $arg) === 1 && !in_array($arg, ['list', 'help'], TRUE) && !in_array($arg, $names, TRUE)) {
-        $names[] = $arg;
-      }
-      break;
-    }
-  }
-
-  return $names;
-}
-
-/**
- * The shell functions a command defines, by name, each to its body's text.
- *
- * `name() { … }`, `name(){ …; }` and `function name { … }`, the body taken to
- * its matching brace, quotes kept.
- *
- * @param string $command
- *   The shell command.
- * @param string|null $rest
- *   Set to the command with each definition cut out, `;` in its place.
- *
- * @return array<string, string>
- *   Name => body.
- */
-function operator_commands_shell_functions(string $command, ?string &$rest = NULL): array {
-  $rest = $command;
-  $functions = [];
-  $spans = [];
-  $pattern = '/(?:^|[\s;&|(])(?:function\s+([A-Za-z_][\w-]*)\s*(?:\(\s*\))?|([A-Za-z_][\w-]*)\s*\(\s*\))\s*\{/';
-  if (preg_match_all($pattern, $command, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) < 1) {
-    return [];
-  }
-  foreach ($matches as $match) {
-    $name = $match[1][0] !== '' ? $match[1][0] : ($match[2][0] ?? '');
-    if ($name === '') {
-      continue;
-    }
-    $open = $match[0][1] + strlen($match[0][0]);
-    $depth = 1;
-    $quote = '';
-    $length = strlen($command);
-    for ($i = $open; $i < $length; $i++) {
-      $char = $command[$i];
-      if ($quote === '\'') {
-        if ($char === '\'') {
-          $quote = '';
-        }
-        continue;
-      }
-      if ($char === '\\' && $i + 1 < $length) {
-        $i++;
-        continue;
-      }
-      if ($quote === '"') {
-        if ($char === '"') {
-          $quote = '';
-        }
-        continue;
-      }
-      if ($char === '\'' || $char === '"') {
-        $quote = $char;
-        continue;
-      }
-      if ($char === '{') {
-        $depth++;
-      }
-      elseif ($char === '}' && --$depth === 0) {
-        $functions[$name] = substr($command, $open, $i - $open);
-        $spans[] = [$match[0][1] + (preg_match('/^[\s;&|(]/', $match[0][0]) === 1 ? 1 : 0), $i];
-        break;
-      }
-    }
-  }
-  foreach (array_reverse($spans) as [$start, $end]) {
-    $rest = substr($rest, 0, max(0, $start)) . ';' . substr($rest, $end + 1);
-  }
-
-  return $functions;
-}
-
-/**
- * A function's body as one call runs it: its arguments put in.
- *
- * `"$@"`, `$@`, `"$*"` and `$*` become every argument and `$1` to `$9` one,
- * each argument single-quoted as the call's words were split.
- *
- * @param string $body
- *   The function's body.
- * @param list<string> $arguments
- *   The call's words after the name.
- *
- * @return string
- *   The body to read.
- */
-function operator_commands_function_call(string $body, array $arguments): string {
-  $quoted = array_map(static fn (string $word): string => "'" . str_replace("'", "'\\''", $word) . "'", $arguments);
-  $body = (string) preg_replace_callback(
-    '/"\$\{?[@*]\}?"|\$\{?[@*]\}?/',
-    static fn (): string => implode(' ', $quoted),
-    $body,
-  );
-
-  return (string) preg_replace_callback(
-    '/"\$\{?([1-9])\}?"|\$\{?([1-9])\}?/',
-    static fn (array $m): string => $quoted[(int) ($m[1] !== '' ? $m[1] : $m[2]) - 1] ?? '',
-    $body,
-  );
 }
 
 /**
@@ -7338,7 +7115,9 @@ function guard_nudge(string $directory, string $tool, array $input, array $respo
     return NULL;
   }
   $path = is_string($input['file_path'] ?? NULL) ? $input['file_path'] : '';
-  if (preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/tmp-spec-[^/]+\.md$#', $path) === 1) {
+  // The spec at every level: `tmp-spec-<slug>.md` at low and medium, and
+  // `spec-<slug>.md` at high and above (S5-5).
+  if (preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/(tmp-)?spec(-[^/]+)?\.md$#', $path) === 1) {
     if (guard_nudge_grounded($directory, $run)) {
       return NULL;
     }

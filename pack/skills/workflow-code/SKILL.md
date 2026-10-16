@@ -162,8 +162,8 @@ on this site) and `rules.house`, each with an id and its judge.
   tree with `droost_canvas_tree_set`. `droost_canvas` lists what can be
   placed, a View's block display among them
   (`block.views_block.<view>-<display>`).
-- **An entity's own page:** its full view mode, composed with
-  `droost_display_compose`, its fields bound to the theme's components.
+- **An entity's own page:** its full view mode, its fields bound to the
+  theme's components.
 
 ## Exit gate
 

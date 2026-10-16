@@ -54,7 +54,7 @@ export const KNOWLEDGE_TOOLS = [
 // Where a search walks code that is not the project's own.
 const FOREIGN_PATH = /(^|\/)(web\/core|core|vendor|(web\/)?(modules|themes|profiles)\/contrib)(\/|$)/
 const SEARCH_HEAD = /^(?:\S*\/)?(grep|egrep|fgrep|rg|ag|ack|find|fd|tree)$/
-const SPEC_FILE = /(^|\/)droost\/droost-workflow\/tmp-spec-[^/]+\.md$/
+const SPEC_FILE = /(^|\/)(droost\/droost-workflow|\.droost-workflow)\/(tmp-)?spec(-[^/]+)?\.md$/
 
 /**
  * Why a tool call is one of the agent's routes to loading a mod, or null.

@@ -148,6 +148,8 @@ final class GuardNudgeTest extends WorkflowTestCase {
     $this->assertNotNull($note);
     $this->assertStringContainsString('drush droost:brief', $note);
     $this->assertNull($this->nudge($root, 'Edit', $spec), 'not every edit');
+    $full = $this->project('plan');
+    $this->assertNotNull($this->nudge($full, 'Write', ['file_path' => $full . '/droost/droost-workflow/spec-t1.md']), 'the full spec at high and above is a spec too (S5-5)');
 
     $looked = $this->project('plan');
     file_put_contents(

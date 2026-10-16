@@ -270,16 +270,20 @@ seekers: { on: true, rounds: 1 }
 # House rules: how THIS site is built, held by a gate or by the seeker.
 # droost prescribes no way to build; a site's own rules say what shape the
 # result must take. Each rule has an id, its text, and its judge:
-#   gate    checked mechanically: the composition gate (a page's owner) or
-#           sdc_markup (new markup outside an SDC component's directory)
+#   gate    checked mechanically by the house_rules gate, through either
+#           check: sdc_markup (new markup outside an SDC component's
+#           directory) or cmd: your own command, handed the files the run
+#           changed (narrowed by files: globs; exit 0 holds the rule;
+#           timeout: seconds); mode: report (default), block or off
 #   seeker  read against the diff by the seeker (its lens 8); a break is HIGH
 # An exception is the operator's to grant, recorded in the spec. To make the
 # rules binding, hold on HIGH: `seekers: { holds: high, at_complete: true }`.
 # `vendor/bin/droost-workflow rules` prints the resolved rules. For example:
 # rules:
 #   house:
-#     - { id: HR1, rule: "New markup lives in an SDC component", judge: gate }
+#     - { id: HR1, rule: "New markup lives in an SDC component", judge: gate, check: sdc_markup }
 #     - { id: HR2, rule: "A landing page is a Canvas page, one component per section", judge: seeker }
+#     - { id: HR3, rule: "No direct database queries", judge: gate, cmd: "! grep -n 'Drupal::database'", files: "*.{php,module}", mode: block }
 
 # How many times a failing gate may drive the feedback loop before the run
 # fails. 0 means a gate gets one attempt and no retry. The seeker hold is

@@ -34,6 +34,7 @@ test('the project\'s own code, and reading one file, are not', () => {
 
 test('the spec is recognised by its place', () => {
   assert.equal(isSpec('/var/www/html/droost/droost-workflow/tmp-spec-t1.md'), true)
+  assert.equal(isSpec('/var/www/html/droost/droost-workflow/spec-t1.md'), true, 'the full spec at high and above (S5-5)')
   assert.equal(isSpec('droost/droost-workflow/history/run-1.spec.md'), false)
 })
 
