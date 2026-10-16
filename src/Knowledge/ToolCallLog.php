@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Knowledge;
 
-use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\State\RunStateStore;
 
 /**
@@ -92,16 +91,10 @@ final class ToolCallLog {
     catch (\Throwable) {
       // Bookkeeping never breaks the thing it books.
     }
-    // The same line into the queryable store. Both are written: the JSONL is
-    // readable with `jq` by anyone, and survives a store that will not open.
-    if ($run['id'] !== NULL) {
-      try {
-        (new EvidenceStore($projectRoot))->recordToolCall($run['id'], $run['phase'], $tool, $outcome);
-      }
-      catch (\Throwable) {
-        // As above.
-      }
-    }
+    // The file is the one ledger. The evidence recorder moves this run's rows
+    // into the store when it records a phase (EvidenceRecorder); a second
+    // writer here made the store hold calls twice and lose others, since the
+    // importer counts what is already there (S4-6).
   }
 
   /**
@@ -111,9 +104,7 @@ final class ToolCallLog {
    *   The repository root.
    * @param string|null $runId
    *   A run to filter by. With one, rows made under ANOTHER run are skipped;
-   *   rows made under no run are kept (see the class docblock). A file from
-   *   before rows carried a run is returned whole, since nothing in it can be
-   *   attributed and refusing it would report a run that asked nothing.
+   *   rows made under no run are kept (see the class docblock).
    *
    * @return list<array{tool: string, outcome: string, at: string, run: string|null, phase: string|null}>
    *   The calls.
@@ -132,7 +123,6 @@ final class ToolCallLog {
         continue;
       }
       $calls = [];
-      $attributed = FALSE;
       foreach (preg_split('/\R/', $raw) ?: [] as $line) {
         $line = trim($line);
         if ($line === '') {
@@ -142,9 +132,6 @@ final class ToolCallLog {
         if (!is_array($decoded) || !isset($decoded['tool']) || !is_string($decoded['tool'])) {
           continue;
         }
-        if (array_key_exists('run', $decoded)) {
-          $attributed = TRUE;
-        }
         $calls[] = [
           'tool' => $decoded['tool'],
           'outcome' => is_string($decoded['outcome'] ?? NULL) ? $decoded['outcome'] : 'ok',
@@ -153,7 +140,7 @@ final class ToolCallLog {
           'phase' => is_string($decoded['phase'] ?? NULL) ? $decoded['phase'] : NULL,
         ];
       }
-      if ($runId !== NULL && $attributed) {
+      if ($runId !== NULL) {
         $calls = array_values(array_filter(
           $calls,
           static fn (array $call): bool => $call['run'] === $runId || $call['run'] === NULL,

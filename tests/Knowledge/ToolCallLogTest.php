@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Knowledge;
 
-use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Knowledge\ToolCallLog;
 use Droost\Workflow\Tests\Evidence\ReadsTheStore;
 use Droost\Workflow\Tests\WorkflowTestCase;
@@ -40,11 +39,9 @@ final class ToolCallLogTest extends WorkflowTestCase {
       [$rows[1]['run'], $rows[1]['phase'], $rows[1]['detail']],
     );
 
-    $mirrored = $this->storeRows(
-      (new EvidenceStore($root))->connection(),
-      'SELECT run_id, phase, tool, outcome FROM tool_call',
-    );
-    $this->assertSame([['run_id' => 'run-1', 'phase' => 'plan', 'tool' => 'droost_graph', 'outcome' => 'fail']], $mirrored);
+    // The file is the one ledger: the store is filled by the evidence
+    // recorder, never here (S4-6).
+    $this->assertFileDoesNotExist($root . '/droost/droost-workflow/evidence.sqlite');
   }
 
   /**

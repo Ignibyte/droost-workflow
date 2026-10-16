@@ -638,15 +638,21 @@ complete: phpcs, phpstan, eslint, stylelint, prettier, phpunit, mutation, playwr
 
 Plan runs no gate — there is no code yet to measure. One check holds it,
 `plan_grounded`: plan waits until the spec's `## Grounding` cites what the
-site and its code really hold, and droost's knowledge (the brief, the
-codegraph, search, the wiki, introspection) was asked during plan. It is this
+site and its code really hold, and droost's knowledge (the codegraph, search,
+the wiki, introspection) was asked during plan. The brief alone is not
+looking, and nor is a table of `none:` claims: at least one citation must name
+something that exists (a class, a file, a wiki page; never a directory or the
+run's own spec), and a `none:` claim counts only while the code index can be
+asked. It is this
 library's (`PlanGroundedCheck`), so both doors ask it the same way: it reads
 the tool-call ledger and resolves citations from droost's code index
 (`<state dir>/code-index.sqlite`) and the files, none of which needs Drupal.
 Until 0.16 it was droost's, and a broken site let the standalone binary close
 plan with it recorded as skipped (F-276). A project with no droost to ask
-(no `vendor/bin/droost`, no `vendor/bin/drush`, no index) records it as
-skipped, with that reason. droost forces the agent to LOOK; it never says how to
+(no `vendor/bin/droost`, no index; drush alone is not droost) records it as
+skipped, with that reason, and one whose droost sits a directory down (a
+site in `site/`) is blocked as the environment's, since its calls land in a
+ledger this run cannot attribute. droost forces the agent to LOOK; it never says how to
 build (owner, 2026-10-15: "as models get better they dont need to ask they
 need you to build rules around your code"). The site's own rules are what
 the work is held to: a page rule in `rules:` is reported by default and

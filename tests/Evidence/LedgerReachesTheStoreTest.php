@@ -11,6 +11,7 @@ use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\PhaseReport;
+use Droost\Workflow\Knowledge\ToolCallLog;
 use Droost\Workflow\State\RunState;
 use PHPUnit\Framework\TestCase;
 
@@ -187,15 +188,33 @@ final class LedgerReachesTheStoreTest extends TestCase {
   }
 
   /**
-   * A file written before rows carried a run is taken whole, as before.
+   * Calls made before the run opened, and one during it, each land once.
    *
-   * A site mid-upgrade has a ledger nothing can attribute; refusing it would
-   * report the run as having asked the codebase nothing, which is the exact
-   * lie §4a was written to stop. The rule is the presence of the key on ANY
-   * row: once one row names a run, the rows that do not are calls made with
-   * no run open, and are nobody's.
+   * The store had two writers: ToolCallLog wrote a row directly while a run
+   * was open, and this importer counted the store's rows as if they were the
+   * file's. Two calls before the run opened and one in plan left the store
+   * holding `symbol, wiki, symbol`: `droost_search` lost and `droost_symbol`
+   * doubled (S4-6). The importer is the one writer now.
    */
-  public function testLegacyFileWithNoRunOnAnyRowIsTakenWhole(): void {
+  public function testCallsBeforeAndDuringTheRunLandOnceEach(): void {
+    ToolCallLog::append($this->root, 'droost_search', 'ok');
+    ToolCallLog::append($this->root, 'droost_wiki', 'ok');
+    $run = (string) json_encode(['run_id' => 'r1', 'current_phase' => 'plan']);
+    file_put_contents($this->root . '/droost/droost-workflow/run.json', $run);
+    ToolCallLog::append($this->root, 'droost_symbol', 'ok');
+
+    $this->record('plan');
+    $this->record('plan');
+
+    $rows = $this->toolCalls();
+    $this->assertSame(['droost_search', 'droost_symbol', 'droost_wiki'], array_column($rows, 'tool'));
+    $this->assertSame(['plan', 'plan', 'plan'], array_column($rows, 'phase'));
+  }
+
+  /**
+   * A row with no run key is a call made with no run open: this run's.
+   */
+  public function testRowsWithNoRunAreThisRunsPreOpenCalls(): void {
     $this->ledger([
       [
         'tool' => 'droost_doctor',

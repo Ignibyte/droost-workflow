@@ -85,7 +85,8 @@ final class GuardLibraryCodeTest extends WorkflowTestCase {
    */
   public function testNoLiveRunNoWall(): void {
     $root = $this->liveRoot();
-    file_put_contents($root . '/droost/droost-workflow/run.json', (string) json_encode(['run_id' => 'r', 'current_phase' => NULL]));
+    $finished = (string) json_encode(['run_id' => 'r', 'current_phase' => NULL]);
+    file_put_contents($root . '/droost/droost-workflow/run.json', $finished);
     [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => 'php -r \'require "vendor/autoload.php"; var_dump(class_exists("Droost\\\\Workflow\\\\State\\\\RunState"));\'']]);
 
     $this->assertSame(0, $exit, $stderr);

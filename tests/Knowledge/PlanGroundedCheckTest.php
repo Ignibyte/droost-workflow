@@ -92,7 +92,80 @@ final class PlanGroundedCheckTest extends WorkflowTestCase {
 
     $this->assertSame(CheckState::Satisfied, $record->state, $record->summary);
     $this->assertStringContainsString('droost_symbol ×1', $record->summary);
+    $this->assertStringContainsString('the code index is absent', $record->summary, 'the index status is said');
     $this->assertSame(PlanGroundedCheck::PROVIDER, $record->provider);
+  }
+
+  /**
+   * The brief alone is not looking (S4-2).
+   */
+  public function testTheBriefAloneIsNotLooking(): void {
+    $root = $this->project();
+    $this->ledger($root, [['tool' => 'droost_brief', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL]]);
+
+    $record = $this->verdict($root);
+
+    $this->assertSame(CheckState::Blocked, $record->state);
+    $this->assertStringContainsString('asked droost nothing else', $record->summary);
+  }
+
+  /**
+   * Citations that are only `none:` claims are not looking (S4-2).
+   */
+  public function testOnlyNegativeCitationsAreNotLooking(): void {
+    $root = $this->project();
+    $this->codeIndex($root, [], []);
+    $this->groundedSpec($root, [['custom', 'none: QzxvMadeUp']]);
+    $this->ledger($root, [['tool' => 'droost_search', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL]]);
+
+    $record = $this->verdict($root);
+
+    $this->assertSame(CheckState::Blocked, $record->state, $record->summary);
+    $this->assertStringContainsString('resolves on any site', $record->summary);
+  }
+
+  /**
+   * A directory, or the spec itself, is no citation (S4-2).
+   */
+  public function testDirectoriesAndTheSpecAreNoCitation(): void {
+    $root = $this->project();
+    $this->groundedSpec($root, [
+      ['custom', './'],
+      ['custom', 'web/modules/'],
+      ['custom', 'droost/droost-workflow/spec-test-run.md'],
+    ]);
+    $this->ledger($root, [['tool' => 'droost_search', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL]]);
+
+    $this->assertSame(CheckState::Blocked, $this->verdict($root)->state);
+  }
+
+  /**
+   * Drush is no evidence of droost (S4-3).
+   */
+  public function testDrushAloneIsNoDroost(): void {
+    $root = $this->project();
+    unlink($root . '/vendor/bin/droost');
+    $this->put($root, 'vendor/bin/drush', "#!/usr/bin/env php\n");
+
+    $record = $this->verdict($root);
+
+    $this->assertSame(CheckState::Skipped, $record->state);
+    $this->assertSame(Fault::None, $record->fault);
+  }
+
+  /**
+   * Droost one directory down is the environment's to settle (S4-11).
+   */
+  public function testDroostOneLevelDownIsSaid(): void {
+    $root = $this->project();
+    unlink($root . '/vendor/bin/droost');
+    $this->put($root, 'site/vendor/bin/droost', "#!/usr/bin/env php\n");
+
+    $record = $this->verdict($root);
+
+    $this->assertSame(CheckState::Blocked, $record->state);
+    $this->assertSame(Fault::Environment, $record->fault);
+    $this->assertStringContainsString('installed in `site/`', $record->summary);
   }
 
   /**

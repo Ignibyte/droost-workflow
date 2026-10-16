@@ -54,10 +54,60 @@ final class CitationResolverTest extends WorkflowTestCase {
       'missing.md' => NULL,
       '../../etc/passwd' => NULL,
       'web/../../../etc/hosts' => NULL,
+      // S4-2: what exists by construction is no evidence of looking.
+      './' => NULL,
+      'web/modules/' => NULL,
+      'droost/droost-workflow/spec-test-run.md' => NULL,
+      'droost/droost-workflow/code-index.sqlite' => NULL,
+      // S4-10: a namespace that climbs out of the project.
+      'Drupal\camps\..\..\..\..\Outside' => NULL,
     ];
     foreach ($expected as $cite => $store) {
       $this->assertSame($store, $resolver->resolveStore($cite, $root, $docroot, $prefix), $cite);
     }
+  }
+
+  /**
+   * A `none:` claim cannot resolve while the index cannot be asked.
+   */
+  public function testNoneNeedsAnIndex(): void {
+    $root = $this->makeRoot();
+    $this->drupalTree($root);
+    $docroot = CitationResolver::docroot($root);
+    $prefix = CitationResolver::docrootPrefix($root, $docroot);
+
+    $this->assertNull((new CitationResolver())->resolveStore('none: QzxvMadeUp', $root, $docroot, $prefix), 'no index: a made-up name must not "re-run empty"');
+
+    $this->codeIndex($root, [], []);
+    $this->assertSame(CitationResolver::ABSENT, (new CitationResolver())->resolveStore('none: QzxvMadeUp', $root, $docroot, $prefix));
+  }
+
+  /**
+   * A `none:` claim is not a positive citation.
+   */
+  public function testPositiveCitationsLeaveOutNegatives(): void {
+    $root = $this->makeRoot();
+    $this->drupalTree($root);
+    $this->codeIndex($root, [], []);
+    $spec = $this->groundedSpec($root, [['custom', 'none: QzxvMadeUp'], ['core', 'Drupal\Core\Entity\EntityBase']]);
+
+    $citations = (new CitationResolver())->citations($root, $spec);
+
+    $this->assertSame(['none: QzxvMadeUp', 'Drupal\Core\Entity\EntityBase'], $citations['resolved']);
+    $this->assertSame(['Drupal\Core\Entity\EntityBase'], $citations['positive']);
+  }
+
+  /**
+   * The Composer map above the project is never read (S4-14).
+   */
+  public function testComposerMapAboveTheProjectIsNotRead(): void {
+    $outer = $this->makeRoot();
+    $root = $outer . '/project';
+    mkdir($root, 0755, TRUE);
+    $this->put($outer, 'vendor/composer/autoload_psr4.php', '<?php return [\'Outer\\\\\' => [\'' . $outer . '/lib\']];');
+    $this->put($outer, 'lib/Thing.php', "<?php\n");
+
+    $this->assertNull((new CitationResolver())->resolveStore('Outer\Thing', $root, $root, ''));
   }
 
   /**

@@ -20,11 +20,14 @@ use Droost\Workflow\State\RunStateStore;
  * hold, and each is evidence the agent cannot type:
  *
  *   - the spec's `## Grounding` cites what resolves here (CitationResolver:
- *     the code index and the files), one citation at least and one for each
- *     tier the table claims;
+ *     the code index and the files), one citation for each tier the table
+ *     claims, and at least one that names something that EXISTS: a `none:`
+ *     claim alone resolves on any site, so it cannot be the whole of a
+ *     plan's looking (S4-2);
  *   - the tool-call ledger shows this run called one of droost's knowledge
  *     tools during plan (EvaluationReport::KNOWLEDGE_TOOLS, so the record and
- *     this check count the same calls).
+ *     this check count the same calls), and one other than `droost_brief`:
+ *     reading the site's summary is not looking anything up.
  *
  * It says nothing about how to build, and nothing it reads can.
  *
@@ -34,13 +37,17 @@ use Droost\Workflow\State\RunStateStore;
  * skipped (F-276). Nothing here needs Drupal: the ledger and the index are
  * files, and `vendor/bin/droost` answers the code questions with no site.
  *
- * Where it applies: a run with a spec, on a project where droost can be
- * asked at all, which is a `vendor/bin/droost` or `vendor/bin/drush` (at the
- * root or one directory down, a site in `site/`) or a code index already
- * written. A project with none of those has nothing to look with, and a
- * check it could never satisfy would wedge every run: there it is recorded
- * as Skipped, with that reason, which no reader can mistake for a pass. With
- * no spec it records nothing: the engine already holds plan for that.
+ * Where it applies: a run with a spec, on a project where droost is
+ * installed (`vendor/bin/droost`, which drupal/droost ships) or has written
+ * its code index. drush alone is not droost: a Drupal site that uses this
+ * library without drupal/droost has nothing to look with, and a check it
+ * could never satisfy would wedge every run (S4-3). There it is recorded as
+ * Skipped, with that reason, which no reader can mistake for a pass. A
+ * project whose droost sits one directory down (a site in `site/`) keeps its
+ * ledger there, where this run cannot attribute it: that is said, as the
+ * environment's to settle, rather than read as an agent that never looked
+ * (S4-11). With no spec it records nothing: the engine already holds plan for
+ * that.
  */
 final class PlanGroundedCheck implements CheckAdjudicatorInterface {
 
@@ -74,22 +81,36 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
     if ($spec === NULL) {
       return [];
     }
-    if (!self::reachable($root)) {
+    $where = self::droostAt($root);
+    if ($where === NULL) {
       return [
         $this->record(
           CheckState::Skipped,
           Fault::None,
-          'not asked: this project has no droost to look with (no vendor/bin/droost, no vendor/bin/drush, no code index), so a plan cannot be held to having looked. Install drupal/droost to have it asked',
+          'not asked: this project has no droost to look with (no vendor/bin/droost, no code index), so a plan cannot be held to having looked. Install drupal/droost to have it asked',
+        ),
+      ];
+    }
+    if ($where !== '') {
+      return [
+        $this->record(
+          CheckState::Blocked,
+          Fault::Environment,
+          sprintf('droost is installed in `%s/`, not at the repository root where this run is, so the calls it records (in `%s/%s/`) cannot be told apart from another run\'s. Run the workflow from `%s/`, or install droost at the root; the OPERATOR may lift this block for a run that looked by other means', $where, $where, RunStateStore::STATE_DIR, $where),
         ),
       ];
     }
 
     $asked = self::knowledgeCalls($root, $runId);
+    $looked = array_values(array_filter($asked, static fn (array $call): bool => $call['tool'] !== 'droost_brief'));
     $citations = ($this->resolver ?? new CitationResolver())->citations($root, $spec);
 
     // Every reason at once (F-128): a run told one, fixing it and only then
     // meeting the next, spends an attempt per reason.
     $why = [];
+    if ($asked !== [] && $looked === []) {
+      $why[] = 'the run read `drush droost:brief` and asked droost nothing else. The brief is the site\'s summary; looking is asking about what this plan touches: `vendor/bin/droost droost_search`, `droost_symbol`, `droost_graph`, `droost_wiki` or `droost_module_docs` for the code, `drush droost:tool droost_entities` or `droost_routes` for the live site';
+    }
     if ($asked === []) {
       $why[] = sprintf(
         'the run has not asked droost anything during plan. Read `drush droost:brief` for the site\'s facts, then ask droost about what this plan touches: the code with `vendor/bin/droost <tool> \'<json>\'` (on DDEV, `ddev exec vendor/bin/droost`), which needs no running site, and the live site with `drush droost:tool <tool> \'<json>\'`. Its knowledge tools are %s; `vendor/bin/droost` and `drush droost:tool` each list theirs. Each call is recorded, and that record is what this check reads',
@@ -109,6 +130,13 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
         basename($spec),
         $citations['unresolved'] === [] ? ' (its Evidence column is empty)' : ' (tried: ' . implode(', ', array_map(static fn (string $c): string => '`' . $c . '`', $citations['unresolved'])) . ')',
         $citations['index'] === 'ready' ? '' : sprintf(' (droost\'s code index is %s, so only the files were asked)', $citations['index']),
+      );
+    }
+    elseif ($citations['positive'] === []) {
+      $why[] = sprintf(
+        'every citation %s\'s Grounding resolves is a `none:` claim, and a claim that something is absent resolves on any site. Cite at least one thing droost showed you that exists: a class, a file, a wiki page%s',
+        basename($spec),
+        $citations['index'] === 'ready' ? '' : sprintf(' (droost\'s code index is %s, so a `none:` claim cannot be checked at all)', $citations['index']),
       );
     }
     elseif ($citations['uncited_tiers'] !== []) {
@@ -136,11 +164,12 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
         CheckState::Satisfied,
         Fault::None,
         sprintf(
-          'plan looked: %d knowledge call(s) this run (%s), and %d Grounding citation(s) resolve%s',
+          'plan looked: %d knowledge call(s) this run (%s), and %d Grounding citation(s) resolve%s; the code index is %s',
           count($asked),
           implode(', ', array_map(static fn (string $tool, int $n): string => $tool . ' ×' . $n, array_keys($tools), $tools)),
           count($citations['resolved']),
           $citations['unresolved'] === [] ? '' : sprintf(' (%d more do not, reported by grounding_check)', count($citations['unresolved'])),
+          $citations['index'],
         ),
       ),
     ];
@@ -164,21 +193,27 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
   }
 
   /**
-   * Whether droost can be asked on this project at all.
+   * Where droost is installed, relative to the repository root.
+   *
+   * `vendor/bin/droost` is what drupal/droost ships; drush is every Drupal
+   * site's, droost or not, and is no evidence of droost (S4-3).
    *
    * @param string $root
    *   The repository root.
    *
-   * @return bool
-   *   TRUE when a droost surface or its index is there.
+   * @return string|null
+   *   '' at the root (or a code index there), the directory one level down
+   *   that holds it, or NULL when droost is not installed.
    */
-  private static function reachable(string $root): bool {
-    if (is_file(CodeIndex::path($root))) {
-      return TRUE;
+  public static function droostAt(string $root): ?string {
+    if (is_file(CodeIndex::path($root)) || is_file($root . '/vendor/bin/droost') || is_dir($root . '/vendor/drupal/droost')) {
+      return '';
     }
-    $surfaces = glob($root . '/{,*/}vendor/bin/{droost,drush}', GLOB_BRACE) ?: [];
+    foreach (glob($root . '/*/vendor/bin/droost') ?: [] as $found) {
+      return basename(dirname($found, 3));
+    }
 
-    return $surfaces !== [];
+    return NULL;
   }
 
   /**

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Droost\Workflow\Knowledge;
 
 use Droost\Workflow\Spec\SpecContract;
+use Droost\Workflow\State\RunStateStore;
 use Symfony\Component\Yaml\Yaml;
 
 /**
@@ -15,11 +16,15 @@ use Symfony\Component\Yaml\Yaml;
  * something this repository holds confirms it, and the FIRST store that
  * answers is reported, so the record says how far the lookup had to go:
  *
- *   - `none: x`: nothing in the symbol index and nothing on disk is `x`;
+ *   - `none: x`: nothing in the symbol index and nothing on disk is `x`,
+ *     and only while the index can be asked (with none, every made-up name
+ *     would "re-run empty");
  *   - a qualified class: the symbol index, then where PSR-4 puts its file
- *     (an extension's `src/`, core's `lib/`, the project's Composer map);
- *   - a path: the index's file manifest, then the disk under the docroot or
- *     the project root, never outside them;
+ *     (an extension's `src/`, core's `lib/`, the project's Composer map),
+ *     inside the project, never through a `..` segment;
+ *   - a path: the index's file manifest, then a FILE on disk under the
+ *     docroot or the project root, never a directory, never the run's own
+ *     state (its spec included), never outside them;
  *   - `page.md` or `wiki:page.md`: a page of the project's wiki;
  *   - a bare name: the symbol index (a short class name or a module).
  *
@@ -29,6 +34,11 @@ use Symfony\Component\Yaml\Yaml;
  * kinds, core included) and the site's own autoloader.
  */
 class CitationResolver {
+
+  /**
+   * The store a `none:` claim resolves against: a negative, not a thing.
+   */
+  public const ABSENT = 'absent (re-run empty)';
 
   /**
    * The indexes opened, by project root.
@@ -55,30 +65,43 @@ class CitationResolver {
    * @param string $docroot
    *   Drupal's docroot, absolute; '' finds it (see docroot()).
    *
-   * @return array{table: bool, resolved: list<string>, unresolved: list<string>, uncited_tiers: list<string>, index: string}
+   * @return array{table: bool, resolved: list<string>, positive: list<string>, unresolved: list<string>, uncited_tiers: list<string>, index: string}
    *   Whether the spec carries a grounding table, the citations that
-   *   resolved and those that did not, each tier the table claims with
-   *   nothing resolving for it, and the code index's status (`ready`,
-   *   `absent`, or why it could not be read).
+   *   resolved, those of them that name something that exists (every one
+   *   but a `none:` claim), those that did not resolve, each tier the table
+   *   claims with nothing resolving for it, and the code index's status
+   *   (`ready`, `absent`, or why it could not be read).
    */
   public function citations(string $projectRoot, string $spec, string $docroot = ''): array {
     $index = $this->index($projectRoot)->status;
     $grounding = SpecContract::grounding($projectRoot, $spec);
     if ($grounding === NULL) {
-      return ['table' => FALSE, 'resolved' => [], 'unresolved' => [], 'uncited_tiers' => [], 'index' => $index];
+      return [
+        'table' => FALSE,
+        'resolved' => [],
+        'positive' => [],
+        'unresolved' => [],
+        'uncited_tiers' => [],
+        'index' => $index,
+      ];
     }
     $docroot = $docroot !== '' ? $docroot : self::docroot($projectRoot);
     $prefix = self::docrootPrefix($projectRoot, $docroot);
     $resolved = [];
+    $positive = [];
     $unresolved = [];
     $citedTiers = [];
     foreach ($grounding['evidence'] as $row) {
       $cite = trim($row['cite'], " `");
-      if ($this->resolveStore($cite, $projectRoot, $docroot, $prefix) === NULL) {
+      $store = $this->resolveStore($cite, $projectRoot, $docroot, $prefix);
+      if ($store === NULL) {
         $unresolved[] = $cite;
         continue;
       }
       $resolved[] = $cite;
+      if ($store !== self::ABSENT) {
+        $positive[] = $cite;
+      }
       if ($row['tier'] !== '') {
         $citedTiers[$row['tier']] = TRUE;
       }
@@ -93,6 +116,7 @@ class CitationResolver {
     return [
       'table' => TRUE,
       'resolved' => $resolved,
+      'positive' => $positive,
       'unresolved' => $unresolved,
       'uncited_tiers' => array_values(array_map('strval', array_keys(array_diff_key($claimed, $citedTiers)))),
       'index' => $index,
@@ -125,16 +149,26 @@ class CitationResolver {
     // proving a duplicate was not about to be built, so it has to be
     // checkable. The disk counts too.
     if (preg_match('/^none:\s*(.+)$/i', $cite, $m) === 1) {
+      // Only an index that can be asked can say a thing is absent: with none,
+      // every made-up name "re-ran empty" and a negative claim resolved by
+      // construction.
+      if (!$index->ready()) {
+        return NULL;
+      }
       $needle = trim($m[1], " `");
       $empty = $index->symbolMatches($needle) === 0
         && $this->noneMatches($needle) === 0
         && !self::noneOnDisk($needle, $projectRoot, $docroot, $prefix);
 
-      return $empty ? 'absent (re-run empty)' : NULL;
+      return $empty ? self::ABSENT : NULL;
     }
 
-    // A class, interface, trait or enum.
+    // A class, interface, trait or enum. A `.` or `..` segment is a path
+    // climbing out of the namespace, never a class.
     if (str_contains($cite, '\\')) {
+      if (preg_match('/(^|\\\\)\.{1,2}(\\\\|$)/', $cite) === 1) {
+        return NULL;
+      }
       if ($index->symbolMatches($cite) > 0) {
         return 'symbol graph';
       }
@@ -144,11 +178,11 @@ class CitationResolver {
       }
       // `Drupal\<extension>\…` lives where PSR-4 says, enabled or not: the
       // module the code phase has just written is not enabled yet.
-      if (self::psr4File($cite, $docroot) !== NULL) {
+      if (self::inside(self::psr4File($cite, $docroot), $projectRoot, $docroot)) {
         return 'filesystem (psr-4)';
       }
 
-      return self::composerFile($cite, $projectRoot, $docroot) !== NULL ? 'filesystem (composer)' : NULL;
+      return self::inside(self::composerFile($cite, $projectRoot, $docroot), $projectRoot, $docroot) ? 'filesystem (composer)' : NULL;
     }
 
     // A file. The index stores docroot-relative paths, and the citation may
@@ -159,7 +193,7 @@ class CitationResolver {
       if ($index->indexedFile($relative)) {
         return 'search index';
       }
-      if (self::onDisk($relative, $projectRoot, $docroot)) {
+      if (self::fileOnDisk($relative, $projectRoot, $docroot)) {
         return 'filesystem';
       }
 
@@ -442,7 +476,11 @@ class CitationResolver {
    *   The file, or NULL.
    */
   private static function composerFile(string $fqcn, string $projectRoot, string $docroot): ?string {
-    $roots = array_unique(array_filter([rtrim($projectRoot, '/'), $docroot !== '' ? dirname(rtrim($docroot, '/')) : '']));
+    // The project's map, and the docroot's parent's when that is inside the
+    // project (a `site/` layout); never a directory above the project.
+    $project = rtrim($projectRoot, '/');
+    $parent = $docroot !== '' ? dirname(rtrim($docroot, '/')) : '';
+    $roots = array_unique(array_filter([$project, str_starts_with($parent . '/', $project . '/') ? $parent : '']));
     foreach ($roots as $root) {
       $map = $root . '/vendor/composer/autoload_psr4.php';
       if (!is_file($map)) {
@@ -471,6 +509,74 @@ class CitationResolver {
     }
 
     return NULL;
+  }
+
+  /**
+   * A FILE a citation names, inside the project and outside the run's state.
+   *
+   * A directory (`./`, `modules/`), the project root, the state directory and
+   * the spec itself all exist by construction, so citing them proved nothing
+   * was looked up (S4-2). Only a file counts, and none of the run's own.
+   *
+   * @param string $relative
+   *   Docroot-relative, no leading slash.
+   * @param string $projectRoot
+   *   The repository root.
+   * @param string $docroot
+   *   The docroot, or ''.
+   *
+   * @return bool
+   *   TRUE for a file there that is evidence.
+   */
+  private static function fileOnDisk(string $relative, string $projectRoot, string $docroot): bool {
+    if (!self::onDisk($relative, $projectRoot, $docroot)) {
+      return FALSE;
+    }
+    $project = realpath(rtrim($projectRoot, '/'));
+    foreach (array_filter([$docroot !== '' ? realpath(rtrim($docroot, '/')) : FALSE, $project]) as $root) {
+      $real = realpath($root . '/' . $relative);
+      if ($real === FALSE || !is_file($real)) {
+        continue;
+      }
+      foreach ([RunStateStore::STATE_DIR, RunStateStore::LEGACY_STATE_DIR] as $state) {
+        if ($project !== FALSE && str_starts_with($real, $project . '/' . $state . '/')) {
+          return FALSE;
+        }
+      }
+      return TRUE;
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Whether a file a class citation resolved to is inside the project.
+   *
+   * @param string|null $file
+   *   The file, or NULL.
+   * @param string $projectRoot
+   *   The repository root.
+   * @param string $docroot
+   *   The docroot, or ''.
+   *
+   * @return bool
+   *   TRUE when it is a file inside the project or the docroot.
+   */
+  private static function inside(?string $file, string $projectRoot, string $docroot): bool {
+    if ($file === NULL) {
+      return FALSE;
+    }
+    $real = realpath($file);
+    if ($real === FALSE || !is_file($real)) {
+      return FALSE;
+    }
+    foreach (array_filter([realpath(rtrim($projectRoot, '/')), $docroot !== '' ? realpath(rtrim($docroot, '/')) : FALSE]) as $bound) {
+      if (str_starts_with($real, $bound . '/')) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
   /**
