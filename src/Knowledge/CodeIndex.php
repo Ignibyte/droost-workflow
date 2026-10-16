@@ -77,7 +77,22 @@ final class CodeIndex {
    *   The index.
    */
   public static function open(string $projectRoot): self {
-    $path = self::path($projectRoot);
+    return self::openFile(self::path($projectRoot));
+  }
+
+  /**
+   * Opens an index file read-only, or says why there is none.
+   *
+   * For a writer that keeps its index somewhere else than the project's
+   * state directory (droost's test sites do).
+   *
+   * @param string $path
+   *   The index file, absolute.
+   *
+   * @return self
+   *   The index.
+   */
+  public static function openFile(string $path): self {
     if (!is_file($path)) {
       return new self(NULL, 'absent');
     }
