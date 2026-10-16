@@ -116,10 +116,6 @@ YAML;
       $work->fields['fix_version'],
       'format defaults to text',
     );
-    // A writeback target that names a mapped field resolves to its id; one
-    // that does not is returned as written.
-    $this->assertSame('customfield_10001', $work->fieldId('developer_notes'));
-    $this->assertSame('description', $work->fieldId('description'));
     // Status carries the whole block, so the wiring reads in a diff.
     $array = $work->toArray();
     $this->assertSame(['prefixes' => $work->branchPrefixes, 'base' => 'development'], $array['branch']);

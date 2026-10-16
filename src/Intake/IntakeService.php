@@ -93,16 +93,6 @@ final class IntakeService {
   }
 
   /**
-   * The store.
-   *
-   * @return \Droost\Workflow\Intake\IntakeStore
-   *   The store.
-   */
-  public function store(): IntakeStore {
-    return $this->store;
-  }
-
-  /**
    * The open intake, or NULL.
    *
    * @return \Droost\Workflow\Intake\IntakeState|null

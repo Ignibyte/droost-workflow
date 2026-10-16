@@ -46,27 +46,13 @@ class ModeTest extends WorkflowTestCase {
   }
 
   /**
-   * Legacy names are identifiable, so a surface can say so.
-   */
-  public function testLegacyNamesAreIdentifiable(): void {
-    $this->assertTrue(Mode::isLegacyName('automated'));
-    $this->assertTrue(Mode::isLegacyName('pair'));
-    $this->assertFalse(Mode::isLegacyName('agentic'));
-    $this->assertFalse(Mode::isLegacyName('solo'));
-  }
-
-  /**
-   * The advice list and the tolerated list are deliberately different.
+   * The advice list names only the canonical modes.
    *
    * An error message that listed everything parseable would tell a reader to
-   * write a name we are trying to retire.
+   * write a name we are trying to retire; the legacy names still resolve.
    */
-  public function testNamesAdviseWhileAcceptedTolerates(): void {
+  public function testNamesAdviseOnlyCanonicalModes(): void {
     $this->assertSame(['agentic', 'interactive'], Mode::names());
-    $this->assertSame(
-      ['agentic', 'interactive', 'automated', 'pair'],
-      Mode::accepted(),
-    );
   }
 
   /**

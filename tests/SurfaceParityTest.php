@@ -153,7 +153,7 @@ class SurfaceParityTest extends WorkflowTestCase {
     $outcome = $facade->run($root);
 
     $this->assertNotNull($outcome->report);
-    $skipped = $outcome->report->skipped();
+    $skipped = $outcome->report->withStatus(GateStatus::SkippedNoSite);
     $this->assertCount(2, $skipped);
     $this->assertSame(
       ['rendered_check', 'config_clean'],

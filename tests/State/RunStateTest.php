@@ -135,7 +135,6 @@ class RunStateTest extends TestCase {
   ): void {
     $state = $this->begin()->withPhaseStatus(Phase::Plan, $status);
 
-    $this->assertFalse($state->canAdvanceTo(Phase::Code));
     $this->expectException(\InvalidArgumentException::class);
     $this->expectExceptionMessage('Cannot advance away from "plan"');
     $state->advanceTo(Phase::Code);
@@ -164,7 +163,6 @@ class RunStateTest extends TestCase {
       ->withPhaseStatus(Phase::Plan, PhaseStatus::Failed)
       ->withPhaseStatus(Phase::Plan, PhaseStatus::Active);
 
-    $this->assertTrue($state->canAdvanceTo(Phase::Code));
     $this->assertSame(
       PhaseStatus::Passed,
       $state->advanceTo(Phase::Code)->statusOf(Phase::Plan),
@@ -191,7 +189,6 @@ class RunStateTest extends TestCase {
       $state = $state->advanceTo(Phase::canonical()[(int) array_search($next, Phase::canonical(), TRUE) + 1]);
     }
 
-    $this->assertFalse($state->canAdvanceTo($to));
     $this->expectException(\InvalidArgumentException::class);
     $this->expectExceptionMessage('phases run once, in order');
     $state->advanceTo($to);
@@ -229,7 +226,6 @@ class RunStateTest extends TestCase {
       NULL,
     );
 
-    $this->assertFalse($ended->canAdvanceTo(Phase::Complete));
     $this->expectException(\InvalidArgumentException::class);
     $this->expectExceptionMessage('This run has ended');
     $ended->advanceTo(Phase::Complete);
@@ -256,7 +252,6 @@ class RunStateTest extends TestCase {
       Phase::Plan,
     );
 
-    $this->assertFalse($state->canAdvanceTo(Phase::Test));
     $this->expectException(\InvalidArgumentException::class);
     $this->expectExceptionMessage('does not execute the "test" phase');
     $state->advanceTo(Phase::Test);

@@ -56,9 +56,9 @@ final class SpecFreezeTest extends TestCase {
   /**
    * The code phase adding its grounding rows is legal.
    *
-   * Not merely legal — REQUIRED: `groundingMissing` refuses the code phase
-   * without rows tagged `code`. Freezing grounding whole made those rows
-   * simultaneously mandatory and forbidden.
+   * Not merely legal — expected: the `grounding` observation says when the
+   * code phase added no rows tagged `code`. Freezing grounding whole made
+   * those rows simultaneously asked for and forbidden.
    */
   public function testCodeMayAddItsGroundingRows(): void {
     $grown = str_replace(
@@ -74,8 +74,8 @@ final class SpecFreezeTest extends TestCase {
   /**
    * The test phase filling `Verified By` is legal.
    *
-   * Also required: `criteriaUnverified` refuses to gate complete while a cell
-   * is empty. Freezing the criteria row whole made the fill forbidden.
+   * Also expected: the `criteria_verified` observation names an empty cell at
+   * complete. Freezing the criteria row whole made the fill forbidden.
    */
   public function testTestMayFillTheVerifiedByColumn(): void {
     $filled = str_replace(
@@ -225,14 +225,6 @@ none — fixture
 
     $this->assertNotSame($two, $swapped, 'the fixture really did reorder');
     $this->assertSame([], SpecFreeze::breaches($swapped, $two));
-  }
-
-  /**
-   * A run that recorded nothing is not retroactively in breach.
-   */
-  public function testNothingRecordedMeansNothingToBreach(): void {
-    $this->assertTrue(SpecFreeze::intact($this->spec(), NULL));
-    $this->assertTrue(SpecFreeze::intact($this->spec(), ''));
   }
 
   /**

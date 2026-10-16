@@ -45,7 +45,7 @@ class WorkflowFacadeRetryTest extends WorkflowTestCase {
     // Invocation 2 — code: phpcs fails, budget 0 < 1, one attempt counted.
     $second = $this->facade($executor)->run($root);
     $this->assertSame(Outcome::Failed, $second->outcome);
-    $this->assertFalse($second->exhausted());
+    $this->assertFalse($second->state->retries()['exhausted']);
     $this->assertSame(['phpcs' => 1], $second->state->feedbackAttempts);
     $this->assertSame(1, $executor->executions['phpcs']);
     // The `remaining` count is INVOCATIONS still available, not `max - spent`.
@@ -53,7 +53,7 @@ class WorkflowFacadeRetryTest extends WorkflowTestCase {
     // is not exhausted, and invocation 3 below WILL execute phpcs (and could
     // pass) — so a gate at spent == max still has its terminal run left, and
     // `max - spent` (= 0 here) read as "will not run again" a run too early.
-    $this->assertFalse($second->exhausted());
+    $this->assertFalse($second->state->retries()['exhausted']);
     $this->assertSame(
       [
         'attempts' => ['phpcs' => 1],
@@ -68,7 +68,7 @@ class WorkflowFacadeRetryTest extends WorkflowTestCase {
     // phase is terminally failed, recorded as such on disk.
     $third = $this->facade($executor)->run($root);
     $this->assertSame(Outcome::Failed, $third->outcome);
-    $this->assertTrue($third->exhausted());
+    $this->assertTrue($third->state->retries()['exhausted']);
     $this->assertSame(2, $executor->executions['phpcs']);
     $reloaded = (new RunStateStore($root))->load();
     $this->assertNotNull($reloaded);
@@ -78,7 +78,7 @@ class WorkflowFacadeRetryTest extends WorkflowTestCase {
     // terminal run silently restarted would be the retry bound un-enforced.
     $fourth = $this->facade($executor)->run($root);
     $this->assertSame(Outcome::Failed, $fourth->outcome);
-    $this->assertTrue($fourth->exhausted());
+    $this->assertTrue($fourth->state->retries()['exhausted']);
     $this->assertNull($fourth->report);
     $this->assertSame(
       2,

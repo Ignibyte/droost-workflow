@@ -454,9 +454,9 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
    *   test -> failed   type_coverage  = blocked (phpunit measured nothing)
    *   test -> failed   ... forever, and no budget spent
    *
-   * With no legal exit. `EvidenceStore::ranTests()` reads phpunit, playwright,
-   * coverage and mutation, and `low` turns all four off — so the list is empty
-   * BY CONSTRUCTION and no test name can ever satisfy it. `declareChanges()`
+   * With no legal exit. `EvidenceStore::ranTests()` read phpunit, playwright,
+   * coverage and mutation, and `low` turns all four off — so the list was empty
+   * BY CONSTRUCTION and no test name could ever satisfy it. `declareChanges()`
    * refuses an empty declaration, so a declared test can be replaced but never
    * withdrawn.
    *

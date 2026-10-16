@@ -843,40 +843,6 @@ final class ModeEngine {
   }
 
   /**
-   * The per-gate callback a caller may pass through to the runner.
-   *
-   * Exposed so a surface can watch gates finish without reaching past this
-   * class into the runner.
-   *
-   * @param callable(\Droost\Workflow\Gate\GateResult): void $watcher
-   *   Called once per gate.
-   * @param \Droost\Workflow\State\RunState $state
-   *   The run.
-   * @param \Droost\Workflow\Config\Phase $phase
-   *   The phase.
-   * @param string $projectRoot
-   *   The repository.
-   *
-   * @return \Droost\Workflow\Gate\PhaseReport
-   *   The report.
-   */
-  public function observe(
-    callable $watcher,
-    RunState $state,
-    Phase $phase,
-    string $projectRoot,
-  ): PhaseReport {
-    return $this->runner->run(
-      $state,
-      $phase,
-      $projectRoot,
-      static function (GateResult $result) use ($watcher): void {
-        $watcher($result);
-      },
-    );
-  }
-
-  /**
    * Builds the conversation a phase holds for in interactive mode.
    *
    * Interactive mode exists because a yes/no at a phase boundary is the

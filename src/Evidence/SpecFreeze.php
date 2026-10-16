@@ -19,10 +19,10 @@ namespace Droost\Workflow\Evidence;
  * the workflow itself requires later phases to write here, and a freeze that
  * could not tell a mandated write from a cheat would deadlock every run:
  *
- *   * the code phase MUST add grounding rows tagged `code`, or
- *     `groundingMissing` refuses it;
- *   * the test phase MUST fill the `Verified By` column, or
- *     `criteriaUnverified` refuses complete;
+ *   * the code phase adds grounding rows tagged `code`, and the `grounding`
+ *     observation says when it has not;
+ *   * the test phase fills the `Verified By` column, and the
+ *     `criteria_verified` observation names an empty cell at complete;
  *   * complete MUST append `## Realized`, or `hasRealizedCapture` refuses it.
  *
  * A whole-section hash makes each of those simultaneously required and
@@ -210,22 +210,6 @@ final class SpecFreeze {
     }
 
     return $items;
-  }
-
-  /**
-   * Whether a spec still carries the contract the plan recorded.
-   *
-   * @param string $text
-   *   The spec as it stands now.
-   * @param string|null $frozenText
-   *   The spec as it was frozen, or NULL when nothing was recorded.
-   *
-   * @return bool
-   *   TRUE when intact, and when there is nothing to check against: a run that
-   *   predates the freeze is not retroactively in breach.
-   */
-  public static function intact(string $text, ?string $frozenText): bool {
-    return $frozenText === NULL || $frozenText === '' || self::breaches($text, $frozenText) === [];
   }
 
   /**

@@ -209,7 +209,7 @@ class GateRunnerTest extends WorkflowTestCase {
     // its own skip comes from the executor finding no drush — see
     // ShellGateExecutorTest — so the fake executor here runs it like any other.
     $this->assertCount(16, $report->results);
-    $this->assertCount(4, $report->skipped());
+    $this->assertCount(4, $report->withStatus(GateStatus::SkippedNoSite));
   }
 
   /**
@@ -292,7 +292,7 @@ class GateRunnerTest extends WorkflowTestCase {
       '/tmp',
     );
 
-    $skipped = $report->skipped();
+    $skipped = $report->withStatus(GateStatus::SkippedNoSite);
     $this->assertCount(2, $skipped);
     $this->assertSame(
       ['rendered_check', 'config_clean'],

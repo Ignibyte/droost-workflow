@@ -689,7 +689,7 @@ final class RunState {
    *
    * @throws \InvalidArgumentException
    *   When the transition is not one a run may make. Every case is a caller
-   *   error; use canAdvanceTo() to ask first.
+   *   error.
    */
   public function advanceTo(Phase $to): self {
     if (!array_key_exists($to->value, $this->phases)) {
@@ -914,24 +914,6 @@ final class RunState {
       seekerAtComplete: $this->seekerAtComplete,
       preexisting: $this->preexisting,
     );
-  }
-
-  /**
-   * Whether advanceTo() would be accepted.
-   *
-   * @param \Droost\Workflow\Config\Phase $to
-   *   The phase to enter.
-   *
-   * @return bool
-   *   TRUE when the transition is legal.
-   */
-  public function canAdvanceTo(Phase $to): bool {
-    if (!array_key_exists($to->value, $this->phases)
-      || $this->currentPhase === NULL
-      || !$this->isLaterThanCurrent($to)) {
-      return FALSE;
-    }
-    return $this->phases[$this->currentPhase->value] === PhaseStatus::Active;
   }
 
   /**

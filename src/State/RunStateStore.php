@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\State;
 
-use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Support\DataError;
 use Droost\Workflow\Support\TypedArray;
 
@@ -394,31 +393,6 @@ final class RunStateStore {
         'could not replace the state file',
       );
     }
-  }
-
-  /**
-   * Advances a run to a later phase and records it.
-   *
-   * @param \Droost\Workflow\State\RunState $state
-   *   The run.
-   * @param \Droost\Workflow\Config\Phase $to
-   *   The phase to enter.
-   *
-   * @return \Droost\Workflow\State\RunState
-   *   The advanced run, already persisted.
-   *
-   * @throws \Droost\Workflow\State\StateError
-   *   When the advanced state cannot be written.
-   * @throws \InvalidArgumentException
-   *   When the transition itself is illegal — see RunState::advanceTo(). This
-   *   is declared rather than converted: it is a caller error, not a storage
-   *   failure, and a caller who catches only StateError should not have it
-   *   quietly reclassified as one. Ask RunState::canAdvanceTo() first.
-   */
-  public function advance(RunState $state, Phase $to): RunState {
-    $advanced = $state->advanceTo($to);
-    $this->save($advanced);
-    return $advanced;
   }
 
 }

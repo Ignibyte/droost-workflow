@@ -157,7 +157,7 @@ class TestLoopTest extends WorkflowTestCase {
 
     $this->assertSame(Outcome::Failed, $failed->outcome);
     $this->assertSame(PhaseStatus::Failed, $failed->state->statusOf(Phase::Test));
-    $this->assertTrue($failed->exhausted(), 'terminal: a retry in place would test a fix code never measured');
+    $this->assertTrue($failed->state->retries()['exhausted'], 'terminal: a retry in place would test a fix code never measured');
     $this->assertFileDoesNotExist($root . '/docs/tickets');
   }
 

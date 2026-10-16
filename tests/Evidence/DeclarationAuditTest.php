@@ -100,7 +100,7 @@ final class DeclarationAuditTest extends TestCase {
    * A declared test is RECORDED, because droost cannot see which tests ran.
    *
    * This check used to block, and could not be satisfied by any real test name.
-   * `ranTests()` returns the test gates' summary and invocation strings, and
+   * `ranTests()` returned the test gates' summary and invocation strings, and
    * neither ever contains a test name: a passing phpunit gate stores "phpunit
    * passed — 3 test(s), 7 assertion(s)" and an argv with no filter and no path.
    * A substring search over those could only fail on a real name and succeed on
@@ -142,12 +142,6 @@ final class DeclarationAuditTest extends TestCase {
         'and the promise itself is on the record',
       );
     }
-
-    $this->assertSame(
-      [],
-      (new DeclarationAudit([], ['RinkTest'], []))->missingTests(),
-      'nothing is reported missing, because nothing here can tell',
-    );
   }
 
   /**

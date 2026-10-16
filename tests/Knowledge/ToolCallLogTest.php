@@ -60,7 +60,6 @@ final class ToolCallLogTest extends WorkflowTestCase {
 
     $this->assertSame(['droost_symbol', 'droost_graph'], array_column(ToolCallLog::read($root, 'run-1'), 'tool'));
     $this->assertCount(3, ToolCallLog::read($root));
-    $this->assertSame(['droost_symbol' => 1, 'droost_graph' => 1], ToolCallLog::tally($root, 'run-1'));
   }
 
   /**

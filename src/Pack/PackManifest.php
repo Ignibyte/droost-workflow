@@ -187,16 +187,6 @@ final class PackManifest {
   ];
 
   /**
-   * Every droost identifier a pack file may name, of either kind.
-   *
-   * @return list<string>
-   *   Tool ids and module names.
-   */
-  public static function citableIdentifiers(): array {
-    return [...self::CITABLE_TOOLS, ...self::CITABLE_MODULES];
-  }
-
-  /**
    * The directories under a project root that this package owns.
    *
    * Derived from FILES so the two cannot disagree.

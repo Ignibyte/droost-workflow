@@ -95,7 +95,7 @@ class RunStateStoreTest extends WorkflowTestCase {
   public function testSeparateProcessResumesAtPersistedPhase(): void {
     $root = $this->makeRoot();
     $store = new RunStateStore($root);
-    $store->advance($this->buildRun('fresh'), Phase::Code);
+    $store->save($this->buildRun('fresh')->advanceTo(Phase::Code));
 
     $resumed = (new RunStateStore($root))->load();
 

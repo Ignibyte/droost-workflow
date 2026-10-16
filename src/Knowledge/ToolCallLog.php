@@ -167,27 +167,6 @@ final class ToolCallLog {
   }
 
   /**
-   * How many times each tool was called.
-   *
-   * @param string $projectRoot
-   *   The repository root.
-   * @param string|null $runId
-   *   A run to count for; see read().
-   *
-   * @return array<string, int>
-   *   Tool id to call count, highest first.
-   */
-  public static function tally(string $projectRoot, ?string $runId = NULL): array {
-    $tally = [];
-    foreach (self::read($projectRoot, $runId) as $call) {
-      $tally[$call['tool']] = ($tally[$call['tool']] ?? 0) + 1;
-    }
-    arsort($tally);
-
-    return $tally;
-  }
-
-  /**
    * The run open in this project right now, or its absence.
    *
    * @param string $projectRoot

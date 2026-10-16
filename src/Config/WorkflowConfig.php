@@ -888,19 +888,6 @@ final class WorkflowConfig {
   }
 
   /**
-   * Whether this run executes a phase.
-   *
-   * @param \Droost\Workflow\Config\Phase $phase
-   *   The phase.
-   *
-   * @return bool
-   *   TRUE when configured.
-   */
-  public function hasPhase(Phase $phase): bool {
-    return in_array($phase, $this->phases, TRUE);
-  }
-
-  /**
    * Every gate's resolved levers as plain data.
    *
    * This is what a run records and a report renders, so that "which levers

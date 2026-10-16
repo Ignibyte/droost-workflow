@@ -30,13 +30,6 @@ use Symfony\Component\HttpKernel\HttpKernelInterface;
 final class BootedSiteDriver implements SiteDriverInterface {
 
   /**
-   * The routes checked when a repo names none.
-   *
-   * @var list<string>
-   */
-  public const DEFAULT_ROUTES = [RenderedRoutes::DEFAULT];
-
-  /**
    * Constructs a BootedSiteDriver.
    *
    * @param \Symfony\Component\HttpKernel\HttpKernelInterface $kernel

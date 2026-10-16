@@ -85,21 +85,13 @@ final class ClaudeModTest extends WorkflowTestCase {
   }
 
   /**
-   * The operator's commands and an organization's settings name the mod.
+   * The operator is handed the commands that install the mod.
    */
   public function testTheOperatorIsHandedTheCommands(): void {
     $this->assertSame([
       'claude plugin marketplace add ./.claude/droost-plugins --scope project',
       'claude plugin install droost-guard@droost --scope project',
     ], ClaudeMod::hostCommands());
-    $managed = json_decode(ClaudeMod::managedSettings('/opt/droost/claude-plugins'), TRUE);
-    $this->assertIsArray($managed);
-    $this->assertSame(['droost-guard@droost', 'sec-default@builtin'], $managed['prependPlugins']);
-    $market = $managed['extraKnownMarketplaces'];
-    $this->assertIsArray($market);
-    $this->assertIsArray($market['droost']);
-    $this->assertIsArray($market['droost']['source']);
-    $this->assertSame('/opt/droost/claude-plugins', $market['droost']['source']['path']);
   }
 
   /**

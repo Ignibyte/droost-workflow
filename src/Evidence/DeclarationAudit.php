@@ -61,8 +61,8 @@ final class DeclarationAudit {
   /**
    * The gates a test can be observed running through.
    *
-   * `EvidenceStore::ranTests()` reads these four and nothing else, so a level
-   * that turns all four off leaves "which tests ran" with no possible answer.
+   * Only these four can show a test running, so a level that turns all four
+   * off leaves "which tests ran" with no possible answer.
    */
   private const array TEST_GATES = ['phpunit', 'playwright', 'coverage', 'mutation'];
 
@@ -313,41 +313,6 @@ final class DeclarationAudit {
   }
 
   /**
-   * Tests the plan promised that nothing ran.
-   *
-   * @return list<string>
-   *   The missing tests.
-   */
-  public function missingTests(): array {
-    // DELIBERATELY EMPTY, and the emptiness is the honest answer.
-    //
-    // This used to substring-search the test gates' summary and invocation for
-    // each declared name. Neither string ever contains a test name: a passing
-    // phpunit gate stores "phpunit passed — 3 test(s), 7 assertion(s)" and an
-    // argv with no filter and no path. So the search could only ever fail on a
-    // real name and succeed on an accident:
-    //
-    //     --tests=WidgetTest::testReturns   blocked, forever, zero budget spent
-    //     --tests=WidgetTest                blocked, forever
-    //     --tests=phpunit                   advanced immediately
-    //     --tests=test                      advanced, on a flag name
-    //
-    // An agent naming its tests honestly was wedged at every level above `low`;
-    // an agent naming a meaningless word walked through. That is the exact
-    // inversion this class's docblock says it exists to prevent, shipped inside
-    // the class itself — and the shipped worked example in
-    // `pack/skills/workflow-plan/SKILL.md` is the trigger.
-    //
-    // droost cannot currently observe WHICH tests ran, so it must not pretend
-    // to. The declaration is still recorded and still shown; the test gate's
-    // own verdict — did the suite pass, how many tests — is in §4 and is real.
-    // Making this answerable needs the phpunit gate to emit JUnit XML and the
-    // executor to read the class and method names out of it; until it does, a
-    // promise droost cannot check is a promise droost records.
-    return [];
-  }
-
-  /**
    * As many of a path list as a sentence can carry, and how many there were.
    *
    * @param list<string> $paths
@@ -373,10 +338,11 @@ final class DeclarationAudit {
    * Scope is a code-phase question: did you build what you said you would.
    * Coverage is a test-phase question: did you run what you said you would.
    * Asking the second one at code makes it unanswerable — no test-shaped gate
-   * runs at code, so `ranTests()` is empty BY CONSTRUCTION, every promised test
-   * reads as never run, and the phase can never pass. The plan brief instructs
-   * the declaration that then makes the run impossible, which is exactly the
-   * shape of the SpecFreeze deadlock this project already shipped once.
+   * runs at code, so the record of tests run is empty BY CONSTRUCTION, every
+   * promised test reads as never run, and the phase can never pass. The plan
+   * brief instructs the declaration that then makes the run impossible, which
+   * is exactly the shape of the SpecFreeze deadlock this project already
+   * shipped once.
    *
    * @param string|null $phase
    *   The phase being audited, or NULL for every check at once (tests).
@@ -614,8 +580,8 @@ final class DeclarationAudit {
       }
     }
     if ($this->declaredTests !== [] && $coverageIsDue) {
-      // `ranTests()` reads phpunit, playwright, coverage and mutation and
-      // nothing else. Turn all four off — which `low` does — and that list is
+      // Only phpunit, playwright, coverage and mutation show tests running.
+      // Turn all four off — which `low` does — and that record is
       // empty BY CONSTRUCTION, so every declared test reads as "never run" and
       // the phase can never advance. An agent that named its tests honestly was
       // wedged forever while one that named none walked through: the same

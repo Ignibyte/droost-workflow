@@ -120,7 +120,7 @@ class ModeEngineTest extends WorkflowTestCase {
       self::NOW,
     );
 
-    $this->assertTrue($outcome->isPaused());
+    $this->assertTrue($outcome->outcome === Outcome::Paused);
     $this->assertNotNull($outcome->state->awaiting);
     $this->assertNotNull($outcome->question);
     $this->assertSame(Phase::Plan, $outcome->question->phase);
@@ -176,14 +176,14 @@ class ModeEngineTest extends WorkflowTestCase {
 
     $outcome = $engine->runPhase($this->begin(['mode' => 'pair']), Phase::Plan, $this->root, self::NOW);
 
-    $this->assertTrue($outcome->isPaused(), 'a throwing sink does not end the phase');
+    $this->assertTrue($outcome->outcome === Outcome::Paused, 'a throwing sink does not end the phase');
     $this->assertSame(['persist', 'emit'], $sink->order, 'the pause is written before the sink is called');
     $this->assertCount(1, $saved);
     $this->assertNotNull($saved[0]->awaiting, 'what was written is the paused run');
 
     // Re-entered, the run re-presents: saved again first, the throw caught.
     $again = $engine->runPhase($outcome->state, Phase::Plan, $this->root, self::NOW);
-    $this->assertTrue($again->isPaused());
+    $this->assertTrue($again->outcome === Outcome::Paused);
     $this->assertSame(['persist', 'emit', 'persist', 'emit'], $sink->order);
   }
 
@@ -217,7 +217,7 @@ class ModeEngineTest extends WorkflowTestCase {
       self::NOW,
     );
 
-    $this->assertTrue($second->isPaused());
+    $this->assertTrue($second->outcome === Outcome::Paused);
     $this->assertSame($ranOnce, $executor->count, 'gates ran a second time');
     $this->assertSame($first->state->awaiting, $second->state->awaiting);
     $this->assertCount(2, $sink->emitted, 'the question is re-presented');
@@ -420,7 +420,7 @@ class ModeEngineTest extends WorkflowTestCase {
       ['phpcs' => 1, 'phpstan' => 1],
       $first->state->feedbackAttempts,
     );
-    $this->assertFalse($first->exhausted());
+    $this->assertFalse($first->state->retries()['exhausted']);
 
     $second = $engine->runPhase($first->state, Phase::Code, $this->root, self::NOW);
     $this->assertSame(Outcome::Failed, $second->outcome);
@@ -428,7 +428,7 @@ class ModeEngineTest extends WorkflowTestCase {
       ['phpcs' => 2, 'phpstan' => 2],
       $second->state->feedbackAttempts,
     );
-    $this->assertFalse($second->exhausted());
+    $this->assertFalse($second->state->retries()['exhausted']);
 
     $third = $engine->runPhase($second->state, Phase::Code, $this->root, self::NOW);
     $this->assertSame(Outcome::Failed, $third->outcome);
@@ -442,7 +442,7 @@ class ModeEngineTest extends WorkflowTestCase {
       PhaseStatus::Failed,
       $third->state->statusOf(Phase::Code),
     );
-    $this->assertTrue($third->exhausted());
+    $this->assertTrue($third->state->retries()['exhausted']);
   }
 
   /**
@@ -467,7 +467,7 @@ class ModeEngineTest extends WorkflowTestCase {
       PhaseStatus::Failed,
       $outcome->state->statusOf(Phase::Code),
     );
-    $this->assertTrue($outcome->exhausted());
+    $this->assertTrue($outcome->state->retries()['exhausted']);
   }
 
   /**

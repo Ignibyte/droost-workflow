@@ -79,20 +79,6 @@ final class PhaseReport {
   }
 
   /**
-   * The gates that could not run for want of a site.
-   *
-   * Exposed as its own method because every surface has to show these, and a
-   * surface that has to remember to look for them is a surface that will
-   * eventually forget.
-   *
-   * @return list<\Droost\Workflow\Gate\GateResult>
-   *   The skipped results.
-   */
-  public function skipped(): array {
-    return $this->withStatus(GateStatus::SkippedNoSite);
-  }
-
-  /**
    * A count per status, for a summary line.
    *
    * A labelled pass (the gate ran and examined nothing: no file it reads

@@ -367,23 +367,6 @@ final class WorkItemSettings {
   }
 
   /**
-   * The tracker id a writeback target resolves to, when it names a field.
-   *
-   * `writeback.dev_notes_field: developer_notes` → `customfield_10001` when
-   * `fields.developer_notes.id` is that; an unmapped name is returned as it
-   * is, so a provider can still treat it as a literal field name.
-   *
-   * @param string $target
-   *   A writeback value.
-   *
-   * @return string
-   *   The mapped id, or the value itself.
-   */
-  public function fieldId(string $target): string {
-    return $this->fields[$target]['id'] ?? $target;
-  }
-
-  /**
    * This block as a plain array, for status reporting.
    *
    * @return array<string, mixed>

@@ -174,7 +174,7 @@ class PackContentLintTest extends TestCase {
       foreach (array_unique($matches[0]) as $identifier) {
         // Tools and modules both match droost_*; both vocabularies are real
         // and both are checked, so naming either wrongly still fails.
-        if (!in_array($identifier, PackManifest::citableIdentifiers(), TRUE)) {
+        if (!in_array($identifier, [...PackManifest::CITABLE_TOOLS, ...PackManifest::CITABLE_MODULES], TRUE)) {
           $unknown[] = $relative . ': ' . $identifier;
         }
       }

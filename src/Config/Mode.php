@@ -59,19 +59,6 @@ enum Mode: string {
   }
 
   /**
-   * Whether a name is one of the accepted-but-superseded spellings.
-   *
-   * @param string $name
-   *   The name as written.
-   *
-   * @return bool
-   *   TRUE when the name resolved through an alias.
-   */
-  public static function isLegacyName(string $name): bool {
-    return isset(self::ALIASES[$name]);
-  }
-
-  /**
    * The mode names a config file should use.
    *
    * Canonical only. This feeds error messages, so it names what to write
@@ -82,16 +69,6 @@ enum Mode: string {
    */
   public static function names(): array {
     return array_map(static fn (self $m): string => $m->value, self::cases());
-  }
-
-  /**
-   * Every name that parses, canonical and legacy alike.
-   *
-   * @return list<string>
-   *   Canonical names first, then the accepted aliases.
-   */
-  public static function accepted(): array {
-    return [...self::names(), ...array_keys(self::ALIASES)];
   }
 
   /**

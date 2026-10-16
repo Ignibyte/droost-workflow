@@ -192,26 +192,4 @@ final class ClaudeMod {
     ];
   }
 
-  /**
-   * The managed settings that run the mod ahead of every user's mod.
-   *
-   * A repository cannot set these; an organization can (`prependPlugins`
-   * reads managed settings only). Printed, never written.
-   *
-   * @param string $absoluteDirectory
-   *   Where the organization keeps the marketplace, by absolute path.
-   *
-   * @return string
-   *   The JSON to merge into managed-settings.json.
-   */
-  public static function managedSettings(string $absoluteDirectory): string {
-    return (string) json_encode([
-      'extraKnownMarketplaces' => [
-        self::SHARED => ['source' => ['source' => 'directory', 'path' => $absoluteDirectory]],
-      ],
-      'enabledPlugins' => [self::PLUGIN => TRUE],
-      'prependPlugins' => [self::PLUGIN, 'sec-default@builtin'],
-    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-  }
-
 }

@@ -77,12 +77,12 @@ final class GuardIntakeTest extends WorkflowTestCase {
     $this->assertFileDoesNotExist($root . '/droost/droost-workflow/' . IntakeStore::ANSWERS_FILE);
 
     [$root, $id] = $this->intake();
-    $service = new IntakeService($root);
-    $state = $service->store()->load();
+    $store = new IntakeStore($root);
+    $state = $store->load();
     $this->assertNotNull($state);
-    $service->store()->save($state->abandoned('test', '2026-10-08T00:00:00+00:00'));
+    $store->save($state->abandoned('test', '2026-10-08T00:00:00+00:00'));
     $this->guard($root, 'answers', $this->asked(['Shall I commit?' => 'Yes']));
-    $this->assertSame([], $service->store()->answers($id), 'a closed intake records nothing');
+    $this->assertSame([], $store->answers($id), 'a closed intake records nothing');
   }
 
   /**

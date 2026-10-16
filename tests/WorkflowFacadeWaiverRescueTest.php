@@ -46,7 +46,7 @@ class WorkflowFacadeWaiverRescueTest extends WorkflowTestCase {
     // Code: eslint fails with no retry budget — terminal at once.
     $failed = $this->facade($executor)->run($root);
     $this->assertSame(Outcome::Failed, $failed->outcome);
-    $this->assertTrue($failed->exhausted());
+    $this->assertTrue($failed->state->retries()['exhausted']);
     $reloaded = (new RunStateStore($root))->load();
     $this->assertNotNull($reloaded);
     $this->assertSame(PhaseStatus::Failed, $reloaded->statusOf(Phase::Code));
@@ -69,7 +69,7 @@ class WorkflowFacadeWaiverRescueTest extends WorkflowTestCase {
     $this->facade($executor)->waiveGate($root, 'eslint', 'linter false positive on vendored fixture; verified by hand');
     $rescued = $this->facade($executor)->run($root);
     $this->assertSame(Outcome::Advanced, $rescued->outcome);
-    $this->assertFalse($rescued->exhausted());
+    $this->assertFalse($rescued->state->retries()['exhausted']);
     $this->assertSame('test', $rescued->state->currentPhase?->value);
     $this->assertNotNull($rescued->report);
     $eslint = NULL;

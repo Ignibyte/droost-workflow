@@ -82,7 +82,7 @@ class PhaseReportTest extends TestCase {
     // A skip is always visible, whatever it is paired with.
     $skips = (int) ($first === GateStatus::SkippedNoSite)
       + (int) ($second === GateStatus::SkippedNoSite);
-    $this->assertCount($skips, $report->skipped());
+    $this->assertCount($skips, $report->withStatus(GateStatus::SkippedNoSite));
   }
 
   /**

@@ -40,6 +40,13 @@ use PHPUnit\Framework\Attributes\DataProvider;
 #[CoversClass(IntakeTables::class)]
 final class IntakeTest extends WorkflowTestCase {
 
+  /**
+   * Each service complete() made, and its project.
+   *
+   * @var \WeakMap<\Droost\Workflow\Intake\IntakeService, string>|null
+   */
+  private ?\WeakMap $roots = NULL;
+
   private const MODEL = <<<'MD'
 # Harbor Books — content model
 
@@ -106,7 +113,7 @@ MD;
    */
   public function testUnrecordedAuditFails(): void {
     [, $service] = $this->complete();
-    $store = $service->store();
+    $store = $this->store($service);
     $state = $store->load();
     $this->assertNotNull($state);
     $store->save(new IntakeState($state->id, $state->status, $state->request, $state->source, $state->openedAt));
@@ -151,9 +158,9 @@ MD;
       'notFound' => FALSE,
     ];
     file_put_contents($root . '/droost/intake/audit.json', (string) json_encode($audit, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $state = $service->store()->load();
+    $state = $this->store($service)->load();
     $this->assertNotNull($state);
-    $service->store()->save($state->withAudit((string) hash_file('sha256', $root . '/droost/intake/audit.json'), '2026-10-08T00:04:00+00:00'));
+    $this->store($service)->save($state->withAudit((string) hash_file('sha256', $root . '/droost/intake/audit.json'), '2026-10-08T00:04:00+00:00'));
     $this->assertFinding($service, 'coverage', 'route /events/poetry-night is not decided');
 
     $this->rewrite($root, 'model.md', "- /events — the events listing\n", "- /events — the events listing\n- /events/:id — an event's page\n");
@@ -257,8 +264,8 @@ MD;
     $approved = $service->approve('terminal');
     $this->assertSame(IntakeState::APPROVED, $approved->status);
     $this->assertArrayHasKey('model.md', $approved->digest);
-    $this->assertFileDoesNotExist($service->store()->stateDir() . '/tool-calls.jsonl', 'the intake\'s knowledge calls are not the first run\'s');
-    $this->assertFileExists($service->store()->stateDir() . '/history/' . $approved->id . '.tool-calls.jsonl');
+    $this->assertFileDoesNotExist($this->store($service)->stateDir() . '/tool-calls.jsonl', 'the intake\'s knowledge calls are not the first run\'s');
+    $this->assertFileExists($this->store($service)->stateDir() . '/history/' . $approved->id . '.tool-calls.jsonl');
 
     $this->facade()->run($root);
     $this->assertFileExists((new RunStateStore($root))->path());
@@ -278,7 +285,7 @@ MD;
       $this->assertStringContainsString('not ready to approve', $e->getMessage());
       $this->assertStringContainsString('[answered] Q1 has no answer on record', $e->getMessage());
     }
-    $this->assertTrue($service->store()->load()?->isOpen());
+    $this->assertTrue($this->store($service)->load()?->isOpen());
   }
 
   /**
@@ -311,7 +318,7 @@ MD;
     $this->assertSame(IntakeState::ABANDONED, $closed->status);
     $this->assertSame('the owner chose another design', $closed->reason);
     $types = [];
-    foreach ((new RunEventLog($service->store()->stateDir()))->read() as $event) {
+    foreach ((new RunEventLog($this->store($service)->stateDir()))->read() as $event) {
       $types[] = $event->type;
     }
     $this->assertSame(['intake.opened', 'intake.abandoned'], $types);
@@ -325,9 +332,9 @@ MD;
    */
   public function testTheAgentApprovesOnTheHumansYes(): void {
     [$root, $service] = $this->complete();
-    $state = $service->store()->load();
+    $state = $this->store($service)->load();
     $this->assertNotNull($state);
-    $service->store()->appendAnswer($state->id, 'Approve this roadmap?', 'Approve', 'AskUserQuestion', '2026-10-08T00:05:00+00:00');
+    $this->store($service)->appendAnswer($state->id, 'Approve this roadmap?', 'Approve', 'AskUserQuestion', '2026-10-08T00:05:00+00:00');
     $lines = [];
     $sink = function (string $line) use (&$lines): void {
       $lines[] = $line;
@@ -335,9 +342,9 @@ MD;
     $clock = static fn (): string => '2026-10-08T00:00:00+00:00';
     $code = (new ArgvDispatcher($sink, $sink, $clock, static fn (): string => 'run-x'))->dispatch(['intake', 'approve'], $root);
     $this->assertSame(ArgvDispatcher::EXIT_OK, $code, implode("\n", $lines));
-    $this->assertSame(IntakeState::APPROVED, $service->store()->load()?->status);
+    $this->assertSame(IntakeState::APPROVED, $this->store($service)->load()?->status);
     $approved = NULL;
-    foreach ((new RunEventLog($service->store()->stateDir()))->read() as $event) {
+    foreach ((new RunEventLog($this->store($service)->stateDir()))->read() as $event) {
       if ($event->type === 'intake.approved') {
         $approved = $event->payload;
       }
@@ -541,7 +548,7 @@ MD;
     catch (IntakeError $e) {
       $this->assertStringContainsString('--via is terminal or cockpit, not "agent"', $e->getMessage());
     }
-    $this->assertCount(1, $service->store()->records($this->loaded($service)->id), 'nothing was recorded');
+    $this->assertCount(1, $this->store($service)->records($this->loaded($service)->id), 'nothing was recorded');
   }
 
   /**
@@ -552,16 +559,16 @@ MD;
     $id = $this->loaded($service)->id;
     $this->assertApprovalRefused($service, 'no yes is on record');
     foreach (['Not yet', 'Approve? No.', 'Yes, but change rung 3', 'Approve with changes'] as $n => $answer) {
-      $service->store()->appendAnswer($id, 'Approve this roadmap?', $answer, 'cockpit', '2026-10-08T00:0' . $n . ':00+00:00');
+      $this->store($service)->appendAnswer($id, 'Approve this roadmap?', $answer, 'cockpit', '2026-10-08T00:0' . $n . ':00+00:00');
       $this->assertApprovalRefused($service, 'answered "' . $answer . '" to "Approve this roadmap?", which is not a yes');
     }
 
     // A question that only mentions approval is not the roadmap's approval.
     $this->rewrite($root, 'questions.md', '| Q1 | Who edits the events? | Staff editors | Staff editors | human |', "| Q1 | Who edits the events? | Staff editors | Staff editors | human |\n| Q2 | Do posts need approval before publishing? | No | Yes | human |");
-    $service->store()->appendAnswer($id, 'Do posts need approval before publishing?', 'Yes', 'cockpit', '2026-10-08T00:05:00+00:00');
+    $this->store($service)->appendAnswer($id, 'Do posts need approval before publishing?', 'Yes', 'cockpit', '2026-10-08T00:05:00+00:00');
     $this->assertApprovalRefused($service, 'answered "Approve with changes"');
 
-    $service->store()->appendAnswer($id, 'approve this roadmap', 'Approve (Recommended)', 'cockpit', '2026-10-08T00:06:00+00:00');
+    $this->store($service)->appendAnswer($id, 'approve this roadmap', 'Approve (Recommended)', 'cockpit', '2026-10-08T00:06:00+00:00');
     $this->assertSame(IntakeState::APPROVED, $service->approve('agent')->status, 'the latest answer is a yes');
     $this->assertSame([], $this->loaded($service)->pending);
   }
@@ -662,7 +669,7 @@ MD;
    */
   public function testAnOlderStateFileLoads(): void {
     [, $service] = $this->complete();
-    $path = $service->store()->stateDir() . '/intake.json';
+    $path = $this->store($service)->stateDir() . '/intake.json';
     $data = json_decode((string) file_get_contents($path), TRUE);
     $this->assertIsArray($data);
     unset($data['pending']);
@@ -683,7 +690,7 @@ MD;
     $code = $cli->dispatch(['intake', 'answer', '--via', 'cockpit', 'Who edits the events?', 'Me'], $root);
     $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code);
     $this->assertStringContainsString('with its "=": "--via" is not one', implode("\n", $lines));
-    $this->assertCount(1, $service->store()->records($this->loaded($service)->id), 'nothing was recorded');
+    $this->assertCount(1, $this->store($service)->records($this->loaded($service)->id), 'nothing was recorded');
   }
 
   /**
@@ -741,7 +748,7 @@ MD;
    *   The service.
    */
   private function yes(IntakeService $service): void {
-    $service->store()->appendAnswer($this->loaded($service)->id, 'Approve this roadmap?', 'Approve', 'terminal', '2026-10-08T00:09:00+00:00');
+    $this->store($service)->appendAnswer($this->loaded($service)->id, 'Approve this roadmap?', 'Approve', 'terminal', '2026-10-08T00:09:00+00:00');
   }
 
   /**
@@ -775,7 +782,7 @@ MD;
    *   The state.
    */
   private function loaded(IntakeService $service): IntakeState {
-    $state = $service->store()->load();
+    $state = $this->store($service)->load();
     $this->assertNotNull($state);
     return $state;
   }
@@ -790,7 +797,7 @@ MD;
    *   The row.
    */
   private function lastRecord(IntakeService $service): array {
-    $records = $service->store()->records($this->loaded($service)->id);
+    $records = $this->store($service)->records($this->loaded($service)->id);
     $this->assertNotSame([], $records);
     return $records[count($records) - 1];
   }
@@ -808,12 +815,27 @@ MD;
    */
   private function payloads(IntakeService $service, string $type): array {
     $out = [];
-    foreach ((new RunEventLog($service->store()->stateDir()))->read() as $event) {
+    foreach ((new RunEventLog($this->store($service)->stateDir()))->read() as $event) {
       if ($event->type === $type) {
         $out[] = $event->payload;
       }
     }
     return $out;
+  }
+
+  /**
+   * The intake's store, read from the project's files as every surface does.
+   *
+   * @param \Droost\Workflow\Intake\IntakeService $service
+   *   A service complete() made.
+   *
+   * @return \Droost\Workflow\Intake\IntakeStore
+   *   The store.
+   */
+  private function store(IntakeService $service): IntakeStore {
+    $root = $this->roots[$service] ?? NULL;
+    $this->assertIsString($root, 'the service came from complete()');
+    return new IntakeStore($root);
   }
 
   /**
@@ -825,17 +847,19 @@ MD;
   private function complete(): array {
     $root = $this->makeRootWithConfig("preset: custom\nmode: interactive\nseekers:\n  on: false\n");
     $service = new IntakeService($root, static fn (): string => '2026-10-08T00:00:00+00:00');
+    $this->roots ??= new \WeakMap();
+    $this->roots[$service] = $root;
     $state = $service->start('hey build me a site, no mistakes, off this html', 'src/harbor');
     $dir = $root . '/droost/intake';
     copy(__DIR__ . '/fixtures/audit.json', $dir . '/audit.json');
-    $service->store()->save($state->withAudit((string) hash_file('sha256', $dir . '/audit.json'), '2026-10-08T00:01:00+00:00'));
+    $this->store($service)->save($state->withAudit((string) hash_file('sha256', $dir . '/audit.json'), '2026-10-08T00:01:00+00:00'));
     file_put_contents($dir . '/model.md', self::MODEL . "\n");
     file_put_contents($dir . '/roadmap.md', self::ROADMAP . "\n");
     file_put_contents($dir . '/questions.md', self::QUESTIONS . "\n");
     foreach (['R1', 'R2', 'R3'] as $ticket) {
       file_put_contents($dir . '/tickets/' . $ticket . '.md', "# {$ticket}\n");
     }
-    $service->store()->appendAnswer($state->id, 'Who edits the events?', 'Staff editors', 'AskUserQuestion', '2026-10-08T00:02:00+00:00');
+    $this->store($service)->appendAnswer($state->id, 'Who edits the events?', 'Staff editors', 'AskUserQuestion', '2026-10-08T00:02:00+00:00');
     $this->looked($root);
     return [$root, $service];
   }

@@ -37,25 +37,4 @@ final class EvidenceError extends \RuntimeException {
     ));
   }
 
-  /**
-   * The store is newer than this build knows how to write.
-   *
-   * @param int $found
-   *   The schema version on disk.
-   * @param int $known
-   *   The schema version this build writes.
-   *
-   * @return self
-   *   The error.
-   */
-  public static function fromTheFuture(int $found, int $known): self {
-    return new self(sprintf(
-      'The evidence store is at schema %d and this droost writes %d. It was '
-      . 'written by a newer droost; upgrade rather than downgrading the store, '
-      . 'which would drop columns holding a previous run\'s evidence.',
-      $found,
-      $known,
-    ));
-  }
-
 }

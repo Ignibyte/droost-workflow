@@ -6,7 +6,6 @@ namespace Droost\Workflow\Mode;
 
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\PhaseReport;
-use Droost\Workflow\State\PhaseStatus;
 use Droost\Workflow\State\RunState;
 
 /**
@@ -50,33 +49,6 @@ final class RunOutcome {
     public readonly array $blocked = [],
     public readonly array $deferred = [],
   ) {}
-
-  /**
-   * Whether the run is waiting for an answer.
-   *
-   * @return bool
-   *   TRUE when paused.
-   */
-  public function isPaused(): bool {
-    return $this->outcome === Outcome::Paused;
-  }
-
-  /**
-   * Whether the current phase has spent its retry budget and stopped.
-   *
-   * The one bit that separates "failed, fix it and invoke run again" from
-   * "failed, and run will now refuse". Exit codes cannot carry it — both
-   * cases exit non-zero so scripts stay simple — so it lives in the
-   * envelope.
-   *
-   * @return bool
-   *   TRUE when the current phase is terminally failed.
-   */
-  public function exhausted(): bool {
-    $phase = $this->state->currentPhase;
-    return $phase !== NULL
-      && $this->state->statusOf($phase) === PhaseStatus::Failed;
-  }
 
   /**
    * The phase report, with what a failed gate that parsed nothing said.
