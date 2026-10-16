@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Config;
 
+use Droost\Workflow\Driver\RenderedRoutes;
 use Droost\Workflow\Support\DataError;
 use Droost\Workflow\Support\TypedArray;
 
@@ -219,7 +220,7 @@ final class GateSettings {
       'timeout' => 'seconds',
     ],
     'coverage' => ['min' => 'percent', 'root' => 'string', 'timeout' => 'seconds'],
-    'rendered_check' => ['routes' => 'string'],
+    'rendered_check' => ['routes' => 'routes'],
     'config_clean' => [],
     // `strict_citations` restores the old behaviour, in which a single
     // Evidence cell the site's stores could not resolve failed the whole
@@ -671,6 +672,7 @@ final class GateSettings {
       'paths' => $this->readPaths($node, $option),
       'flag' => $node->bool($option),
       'reuse' => $this->readReuse($node, $option),
+      'routes' => $this->readRoutes($node, $option),
       default => $this->readToolArgument($node, $option),
     };
   }
@@ -699,6 +701,53 @@ final class GateSettings {
       ));
     }
 
+    return $value;
+  }
+
+  /**
+   * Reads rendered_check's routes: paths, each with the status it must answer.
+   *
+   * `/user/login,/admin/reports@403,/admin/portal@302`: the same shape the
+   * README documents and RenderedRoutes parses. Before 0.18.2 the validator
+   * took only a plain argument, so a route a login gate redirects could not
+   * be declared in the lever at all (F-299).
+   *
+   * @param \Droost\Workflow\Support\TypedArray $node
+   *   The gate's node.
+   * @param string $option
+   *   The option name.
+   *
+   * @return string
+   *   The value.
+   *
+   * @throws \Droost\Workflow\Support\DataError
+   *   When a route is not a path, traverses, or names a status a route cannot
+   *   be declared to answer.
+   */
+  private function readRoutes(TypedArray $node, string $option): string {
+    $value = $node->string($option);
+    $routes = array_values(array_filter(array_map('trim', explode(',', $value)), static fn (string $r): bool => $r !== ''));
+    foreach ($routes === [] ? [''] : $routes as $route) {
+      $path = $route;
+      if (preg_match('#^(.*)@(\d{3})$#', $route, $m) === 1) {
+        $path = $m[1];
+        if (!RenderedRoutes::declarable((int) $m[2])) {
+          throw new DataError($node->path($option), sprintf(
+            '%s: "%s" names %s, and a route may be declared to answer 200, 401, 403 or a redirect (301, 302, 303, 307, 308)',
+            $node->path($option),
+            $route,
+            $m[2],
+          ));
+        }
+      }
+      if ($path === '' || self::traverses($path) || preg_match(self::TOOL_ARGUMENT, $path) !== 1) {
+        throw new DataError($node->path($option), sprintf(
+          '%s must list paths, each optionally with the status it must answer (`/admin/reports@403`, `/portal@302`), using only letters, digits, and the characters _ - . / — got "%s"',
+          $node->path($option),
+          $value,
+        ));
+      }
+    }
     return $value;
   }
 
