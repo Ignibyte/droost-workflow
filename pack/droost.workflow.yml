@@ -248,7 +248,7 @@ gates:
 # coupling the change breaks, weak tests, security smells, rebuilding what
 # exists, discipline defeats, and this site's house rules (below). On by
 # default and highly recommended. WHAT it looks at is not configurable (the
-# one-hop blast radius and the eight lenses are the pattern, not a per-repo
+# one-hop blast radius and the nine lenses are the pattern, not a per-repo
 # choice — a reviewer you can remap is a reviewer you can negotiate with).
 # HOW MANY TIMES it looks, and what holds the run, is yours:
 #   holds: critical | high | medium | none   which open findings hold the run

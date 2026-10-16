@@ -217,10 +217,23 @@ Then produce the spec:
    the plan.
 
 5. **Acceptance criteria in EARS form** — "When <trigger>, the <system> shall
-   <observable response>", one observable behaviour per row, each with a way
-   to check it. A criterion nobody can check is not a criterion. Give the
-   table a `Verified By` column NOW, left empty: the test phase fills it with
-   the test that proves each row.
+   <observable response>", one observable behaviour per row. A criterion
+   nobody can check is not a criterion. **The table is code's to-do list**:
+   code works through it row by row, checking each as it goes, so give every
+   row a `Check` saying how:
+
+   - `rendered`: the default for anything on a page. Fetch the page and
+     read it (`curl -sL <site>/<route>`), and run `drush
+     droost:workflow:render-probe <route>` to see whether it renders
+     cleanly. No browser.
+   - `browser`: only where a page must be driven (a click, a form,
+     JavaScript): the run's browser and a snapshot.
+   - `test`: its own test, written in code and run on its own.
+   - `command`: a drush or shell command, and the output to expect.
+   - `manual`: a human looks; say why nothing else can.
+
+   Give the table a `Verified By` column NOW, left empty: test fills it with
+   the test that proves each row at sign-off.
 
    **DECLARE EACH ONE, once the run exists.** The table is for a human; the
    engine counts rows:

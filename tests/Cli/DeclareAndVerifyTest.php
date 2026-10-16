@@ -43,6 +43,35 @@ final class DeclareAndVerifyTest extends WorkflowTestCase {
   }
 
   /**
+   * The criteria verb shows each criterion, checked or not, and when.
+   *
+   * It is what the seeker reads to judge the code phase's criterion loop.
+   */
+  public function testCriteriaShowWhatWasCheckedAndWhen(): void {
+    $root = $this->openRun();
+    $this->cli($root, ['declare-criterion', 'AC-1', 'every published rink is listed']);
+    $this->cli($root, ['declare-criterion', 'AC-2', 'an unpublished rink is not']);
+    $this->cli($root, ['verify-criterion', 'AC-1', 'curl /rinks shows all six']);
+
+    [$code, $out] = $this->cli($root, ['criteria']);
+    $this->assertSame(0, $code);
+    $this->assertStringContainsString('AC-1  every published rink is listed  [checked 2026-09-18T10:00:00+00:00', $out);
+    $this->assertStringContainsString('curl /rinks shows all six]', $out);
+    $this->assertStringContainsString('AC-2  an unpublished rink is not  [not checked]', $out);
+
+    [$code, $json] = $this->cli($root, ['criteria', '--json']);
+    $this->assertSame(0, $code);
+    $data = json_decode($json, TRUE);
+    $this->assertIsArray($data);
+    $criteria = $data['criteria'] ?? NULL;
+    $this->assertIsArray($criteria);
+    $this->assertSame(['AC-1', 'AC-2'], array_column($criteria, 'ref'));
+    $second = $criteria[1] ?? NULL;
+    $this->assertIsArray($second);
+    $this->assertNull($second['verified_at']);
+  }
+
+  /**
    * A page is declared with what its main content is and what builds it.
    *
    * Owner, 2026-10-02: the composition gate reads the site's real owner

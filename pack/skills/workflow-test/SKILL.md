@@ -159,20 +159,25 @@ throws away.
 - `native` — the same, through the editor's own browser.
 - `none` — fine. The spec below does not need a browser of yours.
 
-**Record what proves each criterion**, one call per criterion, as you prove
-it:
+**Code checked each criterion; test is the sign-off.** Code worked through
+the acceptance criteria and recorded what showed each (`vendor/bin/droost-workflow
+criteria` lists them, with when). Here the suite runs once, as the official
+check, and you do not repeat code's checks. A criterion whose test fails here
+goes back to code by name: fix it there, check it again, record it again.
+
+A criterion code never checked is the seeker's HIGH finding. If you prove one
+here, record it the same way:
 
 ```bash
-vendor/bin/droost-workflow verify-criterion AC-1 "RinkListTest::testEveryPublished"
 vendor/bin/droost-workflow verify-criterion AC-2 "manual — checked at 390px"
 ```
 
 `manual` is a legitimate answer and is reported as manual, never as passed —
 a human looked is a different claim from a test proves. What you name is
-recorded, not judged: whether the test is real is the suite's business, and
-whether you declared the proof is this record's. A ref nobody declared at
-plan is refused, because a criterion written after the fact to fit what
-passed is the one thing this record cannot survive.
+recorded, not judged here: the seeker judges whether it shows the criterion
+met. A ref nobody declared at plan is refused, because a criterion written
+after the fact to fit what passed is the one thing this record cannot
+survive.
 
 When a gate fails, enter a bounded feedback loop: read the finding, fix the
 cause, invoke `run` again. **The engine counts the attempts** — each blocking

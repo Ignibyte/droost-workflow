@@ -78,7 +78,7 @@ Nothing else thins with the dial. Dead code, drift, coupling, security,
 rebuilt-what-exists and the house rules are graded identically at every
 level; `low` buys fewer gates, not a kinder reviewer.
 
-## The eight lenses — cover every one, inside the scope contract
+## The nine lenses — cover every one, inside the scope contract
 
 1. **Dead or unreachable new code** — added code nothing calls; conditions
    that cannot be true; parameters never used; commented-out blocks shipped.
@@ -138,6 +138,25 @@ level; `low` buys fewer gates, not a kinder reviewer.
    in the spec with no operator behind it) is no exception: the break is
    HIGH. A site with no `rules.house` has nothing here; say so in one line,
    not as a finding.
+9. **Criteria checked** — code works through the spec's acceptance criteria
+   and records what showed each one met. Run `vendor/bin/droost-workflow
+   criteria` (it needs no site): each criterion, its proof, and when it was
+   recorded. Then judge every criterion:
+   - **checked at all?** A criterion with no proof is a finding;
+   - **checked after the last edit that could break it?** Compare the
+     proof's time with the diff's history (`git log -p` over the files that
+     build the criterion's page or behaviour). A proof older than such an
+     edit is stale;
+   - **does the proof show it?** The test named must exist and assert the
+     criterion. A fetched page or a snapshot must be of the criterion's route
+     and show what the criterion says. `manual` needs a reason nothing else
+     could check it.
+
+   A missing, stale or hollow proof is **HIGH**, citing the criterion's ref in
+   the Finding cell (`AC-2: …`). How the agent checked is its choice, and
+   checks beyond the criteria are fine; what is not fine is a criterion
+   nobody showed met. A spec with no criteria is plan's failure, not yours:
+   say so in one line.
 
 ## The ledger — the EXACT format the engine parses
 

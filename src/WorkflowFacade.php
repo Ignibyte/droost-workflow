@@ -1637,6 +1637,21 @@ final class WorkflowFacade {
   }
 
   /**
+   * The open run's criteria, each with its latest proof and when.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return list<array{ref: string, statement: string, verified_by: string|null, verified_at: string|null, phase: string, revisions: int}>
+   *   The criteria, in the order they were declared.
+   */
+  public function criteria(string $projectRoot): array {
+    $state = $this->requireRun(new RunStateStore($projectRoot));
+
+    return (new EvidenceStore($projectRoot))->specCriteria($state->runId);
+  }
+
+  /**
    * Declares an acceptance criterion, or restates one.
    *
    * @param string $projectRoot

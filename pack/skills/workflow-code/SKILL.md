@@ -72,6 +72,44 @@ seeker's ledgers belong in this file.
 
 ## Work
 
+### Work through the acceptance criteria, checking as you go
+
+**The spec's acceptance criteria are this phase's to-do list.** Put them in
+your task list, then work through them, one at a time or a few together:
+
+1. **Build it.**
+2. **Check it**, the way its `Check` column says, or another way that shows
+   it better. How you check is yours to choose; that you check is not:
+   - `rendered`: fetch the page and read it, `curl -sL <site>/<route>`
+     (`ddev describe` gives the site's URL), and `drush
+     droost:workflow:render-probe <route>` to see that it renders cleanly. No
+     browser needed, and it costs little.
+   - `browser`: open it in the run's browser (Playwright's MCP server, or
+     your editor's) and take a snapshot; for clicks, forms and JavaScript.
+   - `test`: write the criterion's test now, and run that file alone
+     (`node_modules/.bin/playwright test tests/e2e/x.spec.ts`, `phpunit
+     --filter …`).
+   - `command`: run it and compare what it prints.
+3. **Record what showed it**, the moment it does:
+   ```bash
+   vendor/bin/droost-workflow verify-criterion AC-1 "curl /rinks lists all six published rinks"
+   vendor/bin/droost-workflow verify-criterion AC-3 "tests/e2e/rinks.spec.ts passes"
+   ```
+   `vendor/bin/droost-workflow criteria` shows what is checked and when.
+4. **Move on.** A check that fails is fixed now, not left for test.
+
+Check more than the criteria whenever it helps; nothing limits you to them.
+
+**Before you leave code, re-check what you broke.** A later edit can undo
+an earlier criterion. Check again, and record it again, every criterion an
+edit since its check could have touched.
+
+**The seeker reads this.** It compares each criterion's proof with the run's
+edits. A criterion with no check, one checked before an edit that could break
+it, or a proof that does not show the criterion met (a test that does not test
+it, a page that does not show it) is a **HIGH** finding. Test then runs the
+suite once, as the sign-off: it is not where you find out.
+
 **Ask droost rather than walk the tree.** droost knows this codebase
 first-hand: its wiki, its index and its symbol graph are built from this
 project's own code, core and contrib included. The questions that send an

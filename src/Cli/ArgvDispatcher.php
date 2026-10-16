@@ -237,6 +237,7 @@ final class ArgvDispatcher {
         'declare-route' => $this->declareRoute($projectRoot, $argv),
         'declare-criterion' => $this->declareCriterion($projectRoot, $argv),
         'verify-criterion' => $this->verifyCriterion($projectRoot, $argv),
+        'criteria' => $this->criteria($projectRoot, $argv),
         'declare-note' => $this->declareNote($projectRoot, $argv),
         'reset' => $this->reset($projectRoot, $argv),
         'baseline' => $this->baseline($projectRoot, $argv),
@@ -846,6 +847,45 @@ final class ArgvDispatcher {
     }
     $this->facade($projectRoot)->declareCriterion($projectRoot, $ref, $statement);
     $this->say('criterion: ' . $ref);
+
+    return self::EXIT_OK;
+  }
+
+  /**
+   * Prints the run's criteria with their proofs: `criteria [--json]`.
+   *
+   * What the seeker reads to judge whether each criterion was checked, and
+   * when: a proof is the agent's own record, and its time is what a later
+   * edit is compared with.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The verb's arguments.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function criteria(string $projectRoot, array $argv): int {
+    $criteria = $this->facade($projectRoot)->criteria($projectRoot);
+    if (in_array('--json', $argv, TRUE)) {
+      $this->say($this->encode(['criteria' => $criteria]));
+      return self::EXIT_OK;
+    }
+    if ($criteria === []) {
+      $this->say('No criterion is declared for this run.');
+      return self::EXIT_OK;
+    }
+    foreach ($criteria as $criterion) {
+      $this->say(sprintf(
+        '%s  %s%s',
+        $criterion['ref'],
+        $criterion['statement'],
+        $criterion['verified_by'] === NULL
+          ? '  [not checked]'
+          : sprintf('  [checked %s, in %s: %s]', $criterion['verified_at'] ?? '?', $criterion['phase'], $criterion['verified_by']),
+      ));
+    }
 
     return self::EXIT_OK;
   }
@@ -1790,6 +1830,8 @@ final class ArgvDispatcher {
                        DROPS any verification, because a criterion rewritten
                        to fit what passed is the one thing this record cannot
                        survive
+      criteria         the run's criteria and what proved each, with when
+                       (`--json` for data): what the seeker reads
       verify-criterion record what proves one: `verify-criterion AC-1
                        "RinkListTest::testEveryPublished"`. Refused when no
                        such criterion was declared, which is the only refusal
