@@ -3878,7 +3878,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       }
     }
     $verb = strtolower(basename($plain[0] ?? ''));
-    $sub = strtolower($plain[1] ?? '');
+    $sub = $verb === 'git' ? guard_git_subcommand($plain) : strtolower($plain[1] ?? '');
     // The parity runner as a DDEV site runs it, in the container: `ddev exec
     // vendor/bin/droost-parity judge …` is how the gate invokes it, and the
     // agent copies that (F-151). Only the parity rules below look past the
@@ -4205,6 +4205,8 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       // expand it, landed on the lever file, and a search of vendor/ for
       // PHP files was refused as editing the dial.
       || ($verb === 'find' && !find_action_writes($plain))
+      // `awk` READS unless its program writes (F-300).
+      || awk_only_reads($plain)
       // The parity gate's own reader (F-151). `judge` reads the reference and
       // the site and writes only its verdict, to stdout; P6 run 22's agent
       // named the reference to it, was refused as if writing it, and built
@@ -4534,9 +4536,10 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
  * droost/baseline/ | head` beside its `git diff` (F-292). Keeping the files
  * from plain readers protected nothing, since `git show
  * HEAD:droost/baseline/…` already prints them, so any reader may name the
- * baseline when nothing on it writes and no pipe on the line hands what it
- * prints to anything but a reader: `git ls-files droost/baseline | xargs rm`
- * reads with git and deletes through the pipe. Everything else still meets
+ * baseline when nothing on it writes and what a command naming it prints is
+ * piped only to readers, down the chain: `git ls-files droost/baseline |
+ * xargs rm` reads with git and deletes through the pipe. A pipe that never
+ * carries the baseline is not asked (F-300). Everything else still meets
  * the wall, a command string sent to another shell included (`tmux send-keys
  * "… droost/baseline …"` types into a pane that may run it).
  *
@@ -4554,7 +4557,21 @@ function baseline_only_read(array $invocations, array $pipes): bool {
     $text = (string) preg_replace('/(^|\s)--(?:ignore|exclude|exclude-dir|ignore-dir)=\S+/', '$1', $text);
     return preg_match('#(^|[\s\'"=/])droost/baseline(/|\s|$)#', $text) === 1;
   };
-  foreach ($pipes as [, $consumer]) {
+  // What a pipe hands on from a command that names the baseline names it
+  // too, down the whole chain. Every pipe on the line was asked, so a `git
+  // show HEAD:$f | prettier --check` in a loop before an `ls droost/baseline/`
+  // was refused for the prettier that never saw it (F-300).
+  $handed = [];
+  do {
+    $grew = FALSE;
+    foreach ($pipes as [$producer, $consumer]) {
+      if (($names($producer) || in_array($producer, $handed, TRUE)) && !in_array($consumer, $handed, TRUE)) {
+        $handed[] = $consumer;
+        $grew = TRUE;
+      }
+    }
+  } while ($grew);
+  foreach ($handed as $consumer) {
     if (!baseline_reader($consumer)) {
       return FALSE;
     }
@@ -4572,9 +4589,9 @@ function baseline_only_read(array $invocations, array $pipes): bool {
  *
  * Narrower than the operand tier's readers on purpose. `git add` and `git
  * commit` stage and record and are not here; nor is `sed`, whose program
- * writes through `w`; nor a `git` with options before its subcommand, since
- * `-c core.fsmonitor=…` runs a program on `git status`; nor `rg --pre`,
- * which runs one per file.
+ * writes through `w`; nor a `git` with options before its subcommand other
+ * than `-C <dir>` and `--no-pager`, since `-c core.fsmonitor=…` runs a
+ * program on `git status`; nor `rg --pre`, which runs one per file.
  *
  * @param list<string> $tokens
  *   One command, as tokenised.
@@ -4601,15 +4618,91 @@ function baseline_reader(array $tokens): bool {
     }
   }
   if ($verb === 'git') {
-    return in_array(strtolower(ltrim($plain[1] ?? '', "\x01")), ['status', 'diff', 'log', 'show', 'ls-files', 'blame'], TRUE);
+    return in_array(guard_git_subcommand($plain), ['status', 'diff', 'log', 'show', 'ls-files', 'blame'], TRUE);
   }
   if ($verb === 'find') {
     return !find_action_writes($plain);
+  }
+  if (awk_only_reads($plain)) {
+    return TRUE;
   }
   // Text filters write only through `-o`/`--output`, refused above. Without
   // them, a `done | sort` anywhere on the line was refused as editing the
   // baseline the same line listed (F-292).
   return $verb !== 'sed' && in_array($verb, [...guard_reading_verbs(), 'sort', 'cut', 'tr', 'column', 'nl', 'tac'], TRUE);
+}
+
+/**
+ * Git's subcommand, past the options that only say where and how to print.
+ *
+ * `git -C <dir> diff --stat HEAD -- droost.workflow.yml` read `-C` as the
+ * subcommand, so a seeker's tamper check of the lever file was judged an
+ * edit of it, twice in one inspection (F-300). `-C <dir>`, `--no-pager`,
+ * `-P` and `--no-optional-locks` are passed over; any other option is
+ * returned as it stands, so `-c core.fsmonitor=…`, which runs a program,
+ * names no reading subcommand.
+ *
+ * @param list<string> $plain
+ *   The unwrapped command, `git` first.
+ *
+ * @return string
+ *   The subcommand, lowercased, or the first option it does not pass over.
+ */
+function guard_git_subcommand(array $plain): string {
+  for ($i = 1, $n = count($plain); $i < $n; $i++) {
+    $word = ltrim($plain[$i], "\x01");
+    if ($word === '-C') {
+      $i++;
+      continue;
+    }
+    if (!in_array($word, ['--no-pager', '-P', '--no-optional-locks'], TRUE)) {
+      return strtolower($word);
+    }
+  }
+  return '';
+}
+
+/**
+ * Whether an awk command only reads its files.
+ *
+ * An awk range over an archived spec, `awk '/^## Grounding/,/^## Realized/'
+ * history/<run>.spec.md`, was judged a forged entry in the archive, since
+ * awk was no reader (F-300). Awk writes through its program (`print >`,
+ * `print |`, `system()`, a command piped to `getline`) or in place (gawk's
+ * `-i inplace`), so it reads only when its program is on the line and has
+ * no `>`, `|` or `system`, and no option loads code or a library: `-f`,
+ * `-i`, `-E`, `-l` and their long forms refuse. A comparison spelled `>`
+ * is refused with the writes it cannot be told from.
+ *
+ * @param list<string> $plain
+ *   The unwrapped command.
+ *
+ * @return bool
+ *   TRUE for an awk whose program only reads.
+ */
+function awk_only_reads(array $plain): bool {
+  if (!in_array(strtolower(basename(ltrim($plain[0] ?? '', "\x01"))), ['awk', 'gawk', 'mawk', 'nawk'], TRUE)) {
+    return FALSE;
+  }
+  $program = NULL;
+  for ($i = 1, $n = count($plain); $i < $n && $program === NULL; $i++) {
+    $word = $plain[$i];
+    if (str_starts_with($word, "\x01")) {
+      continue;
+    }
+    if (in_array($word, ['-F', '-v'], TRUE)) {
+      $i++;
+      continue;
+    }
+    if (preg_match('/^-(F|v).+/', $word) === 1 || $word === '--') {
+      continue;
+    }
+    if (str_starts_with($word, '-')) {
+      return FALSE;
+    }
+    $program = $word;
+  }
+  return $program !== NULL && preg_match('/[>|]|\bsystem\b/', $program) !== 1;
 }
 
 /**

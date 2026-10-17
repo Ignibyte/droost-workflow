@@ -105,6 +105,47 @@ final class GuardReadOnlyReviewerTest extends WorkflowTestCase {
   }
 
   /**
+   * The next run's reads of the baseline, the lever file and the archive.
+   *
+   * Spelled as the run spelled them (F-300). A pipe elsewhere on the line
+   * (`git show | prettier`) walled the baseline listed after it; `git -C
+   * <dir>` read `-C` as git's subcommand, so the lever file a status names
+   * was judged written; and an `awk` range over an archived spec was judged
+   * a forged entry.
+   */
+  public function testTheNextRunsReadsPass(): void {
+    $root = $this->rootInRun();
+    foreach ([
+      'for f in docs/README.md docs/GUIDE.md; do git show HEAD:$f | node_modules/.bin/prettier --stdin-filepath $f --check >/dev/null 2>&1 && echo "HEAD clean: $f" || echo "HEAD already unformatted: $f"; done; ls droost/baseline/; grep -l "README.md\\|GUIDE" droost/baseline/* 2>/dev/null',
+      'grep -nE "seeker|base_commit|base\\"" droost/droost-workflow/run.json | head; echo ---; grep -nE "^\\s*(preset|seekers|holds|at_complete|on):?" droost.workflow.yml | head -20; echo ---; git -C ' . $root . ' status --short -- droost.workflow.yml .eslintrc.json .prettierrc* .semgrepignore .snyk .gitleaksignore playwright.config.* phpcs.xml.dist phpstan.neon*; echo "lever/config status above (empty = unchanged)"',
+      'git -C ' . $root . ' diff --stat HEAD -- droost.workflow.yml .eslintrc.json .semgrepignore .snyk .gitleaksignore phpcs.xml.dist; echo "exit=$?"; git -C ' . $root . ' log -1 --format=\'%H %cI\' 40c3428',
+      "awk '/^## Grounding/,/^## Realized/' droost/droost-workflow/history/run-96507f1e60f4.spec.md | head -90",
+      "awk -F: -v n=3 'NR <= n { print \$1 }' droost/droost-workflow/run.json",
+      'git --no-pager -C . log -p -- droost.workflow.yml droost/baseline',
+    ] as $command) {
+      [$exit, , $stderr] = $this->attempt($root, $command);
+      $this->assertSame(0, $exit, $command . ': ' . $stderr);
+    }
+    foreach ([
+      'git -C . checkout -- droost.workflow.yml',
+      'git -C . diff --output=droost.workflow.yml',
+      "git -C . -c core.fsmonitor='rm -rf x' status droost.workflow.yml",
+      'git -C . restore droost/baseline',
+      'git show HEAD:a | sort; ls droost/baseline | xargs rm',
+      'ls droost/baseline | sort | xargs rm',
+      'git show HEAD:a | cat; cat droost/baseline/manifest.json | tee droost/baseline/x',
+      "awk '{ print > \"droost/droost-workflow/history/run-96507f1e60f4.spec.md\" }' droost/droost-workflow/history/run-96507f1e60f4.spec.md",
+      "awk '{ print | \"sh\" }' droost/droost-workflow/history/run-96507f1e60f4.spec.md",
+      "awk 'BEGIN { system(\"rm droost.workflow.yml\") }' droost.workflow.yml",
+      "awk -i inplace '{ print }' droost/droost-workflow/history/run-96507f1e60f4.spec.md",
+      "awk -f prog.awk droost/droost-workflow/history/run-96507f1e60f4.spec.md",
+    ] as $command) {
+      [$exit] = $this->attempt($root, $command);
+      $this->assertSame(2, $exit, $command);
+    }
+  }
+
+  /**
    * A `find` with `-o` is a search, and a non-reader's refusal says why.
    */
   public function testFindOrIsNotWriting(): void {
@@ -190,13 +231,14 @@ final class GuardReadOnlyReviewerTest extends WorkflowTestCase {
    */
   private function rootInRun(): string {
     $root = $this->makeRoot();
-    foreach (['droost/droost-workflow', 'droost/baseline', 'vendor/droost/workflow/src/Gate', '.claude/hooks'] as $directory) {
+    foreach (['droost/droost-workflow/history', 'droost/baseline', 'vendor/droost/workflow/src/Gate', '.claude/hooks'] as $directory) {
       mkdir($root . '/' . $directory, 0755, TRUE);
     }
     file_put_contents($root . '/vendor/droost/workflow/src/Gate/ShellGateExecutor.php', "<?php\n");
     file_put_contents($root . '/droost.workflow.yml', "preset: custom\n");
     file_put_contents($root . '/.claude/hooks/droost-workflow-guard.php', "<?php\n");
     file_put_contents($root . '/droost/baseline/manifest.json', "{}\n");
+    file_put_contents($root . '/droost/droost-workflow/history/run-96507f1e60f4.spec.md', "## Grounding\n");
     file_put_contents($root . '/droost/droost-workflow/run.json', (string) json_encode([
       'run_id' => 'run-emt421',
       'current_phase' => 'code',
