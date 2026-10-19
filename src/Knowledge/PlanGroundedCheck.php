@@ -62,6 +62,20 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
   public const PROVIDER = 'droost/workflow';
 
   /**
+   * The knowledge commands plan must consult, every run (owner, 2026-10-19).
+   *
+   * The wiki (what the site's code and its contrib are) and the tree (how
+   * the code is laid out): the two looks every plan rests on, forced here
+   * and taught by the skills that ship with them.
+   */
+  public const REQUIRED = ['code:wiki', 'code:tree'];
+
+  /**
+   * The calls that read the site's summary rather than look.
+   */
+  private const SUMMARY = ['brief'];
+
+  /**
    * Constructs a PlanGroundedCheck.
    *
    * @param \Droost\Workflow\Knowledge\CitationResolver|null $resolver
@@ -87,7 +101,7 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
         $this->record(
           CheckState::Skipped,
           Fault::None,
-          'not asked: this project has no droost to look with (no vendor/bin/droost, no code index), so a plan cannot be held to having looked. Install drupal/droost to have it asked',
+          'not asked: this project has no droost to look with (no vendor/bin/droost, no tools/droost/vendor/bin/droost, no code index), so a plan cannot be held to having looked. Install droost (`composer install -d tools/droost`) to have it asked',
         ),
       ];
     }
@@ -102,19 +116,20 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
     }
 
     $asked = self::knowledgeCalls($root, $runId);
-    $looked = array_values(array_filter($asked, static fn (array $call): bool => $call['tool'] !== 'droost_brief'));
+    $looked = array_values(array_filter($asked, static fn (array $call): bool => !in_array($call['tool'], self::SUMMARY, TRUE)));
+    $missing = array_values(array_diff(self::REQUIRED, array_column($asked, 'tool')));
     $citations = ($this->resolver ?? new CitationResolver())->citations($root, $spec);
 
     // Every reason at once (F-128): a run told one, fixing it and only then
     // meeting the next, spends an attempt per reason.
     $why = [];
     if ($asked !== [] && $looked === []) {
-      $why[] = 'the run read `drush droost:brief` and asked droost nothing else. The brief is the site\'s summary; looking is asking about what this plan touches: `vendor/bin/droost droost_search`, `droost_symbol`, `droost_graph`, `droost_wiki` or `droost_module_docs` for the code, `drush droost:tool droost_entities` or `droost_routes` for the live site';
+      $why[] = 'the run read `droost brief` and asked droost nothing else. The brief is the site\'s summary; looking is asking about what this plan touches';
     }
-    if ($asked === []) {
+    if ($missing !== []) {
       $why[] = sprintf(
-        'the run has not asked droost anything during plan. Read `drush droost:brief` for the site\'s facts, then ask droost about what this plan touches: the code with `vendor/bin/droost <tool> \'<json>\'` (on DDEV, `ddev exec vendor/bin/droost`), which needs no running site, and the live site with `drush droost:tool <tool> \'<json>\'`. Its knowledge tools are %s; `vendor/bin/droost` and `drush droost:tool` each list theirs. Each call is recorded, and that record is what this check reads',
-        implode(', ', array_map(static fn (string $tool): string => '`' . $tool . '`', EvaluationReport::KNOWLEDGE_TOOLS)),
+        'plan has not consulted %s this run. Every plan consults the wiki (`droost code:wiki`, the site\'s code and its contrib modules and themes) and the tree (`droost code:tree [module]`, how the code is laid out) before it is written; `droost search:arch <query>` finds the documentation in between. Each call is recorded by droost itself, and that record is what this check reads',
+        implode(' and ', array_map(static fn (string $command): string => '`droost ' . $command . '`', $missing)),
       );
     }
     if (!$citations['table']) {
@@ -206,7 +221,9 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
    *   that holds it, or NULL when droost is not installed.
    */
   public static function droostAt(string $root): ?string {
-    if (is_file(CodeIndex::path($root)) || is_file($root . '/vendor/bin/droost') || is_dir($root . '/vendor/drupal/droost')) {
+    if (is_file(CodeIndex::path($root))
+      || is_file($root . '/vendor/bin/droost')
+      || is_file($root . '/tools/droost/vendor/bin/droost')) {
       return '';
     }
     foreach (glob($root . '/*/vendor/bin/droost') ?: [] as $found) {

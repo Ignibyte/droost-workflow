@@ -25,59 +25,35 @@ against.
 
 ## Work
 
-**Read the brief first.** `drush droost:brief` (on DDEV from the host,
-`ddev drush droost:brief`) prints this site's facts: Drupal and PHP versions,
-the site's case (`none`, `sdc` or `code` — whether Canvas is there and what
-its components are made of), the enabled custom and contrib modules, the
-content model, the themes, and the site's house rules. It is facts, not a way
-to build. How you build is yours to decide; the house rules are what the
-gates and the seeker hold the result to.
-
-**How to call droost.** Through MCP when the project wires droost's server
-(`mcp__droost__<id>`), or by command, with the same tools and the same record.
-By command there are two: `vendor/bin/droost` answers about the code and
-boots no Drupal; `drush droost:tool` answers about the live site. Either
-lists its tools with no argument, shows one with `<id> help`, and runs one
-with `<id> '<json>'`:
+**Consult the wiki and the tree, every plan.** droost answers from this
+project's files and its code index, with no running site:
 
 ```bash
-vendor/bin/droost droost_search '{"query":"rink listing"}'     # lexical: names and wiki text
-vendor/bin/droost droost_symbol '{"name":"NodeType"}'
-drush droost:tool droost_entities '{"entity_type_id":"node"}'  # the live content model
+droost code:wiki                    # how the site is put together, and every contrib module and theme it installs
+droost code:wiki <page>             # one page
+droost code:tree [module|path]      # the code's layout: files, classes, hooks, services, routes
+droost search:arch "<query>"        # the documentation: wiki pages, READMEs, module descriptions
 ```
 
-On DDEV, run both in the container (`ddev exec vendor/bin/droost …`, `ddev
-drush …`). Every call, through either door, is recorded in the run's
-tool-call ledger, and plan does not close until that ledger shows you looked
-(`plan_grounded`).
+`droost brief` prints the site's facts and its house rules; `droost
+code:symbol`, `code:graph`, `code:docs`, `code:deprecations` and `search:code`
+answer the narrower questions. Each is a knowledge call the ledger counts:
+`code:wiki`, `code:tree`, `search:arch`, `code:symbol`, `code:graph`,
+`code:docs`, `code:deprecations`, `search:code` and `brief`. (Installed in its own vendor directory, the
+command is `tools/droost/vendor/bin/droost`.) It is knowledge, not a way to
+build: how you build is yours to decide, and the house rules are what the
+gates and the seeker hold the result to.
 
 **Look first, propose second — and RECORD IT.** The most expensive mistake in
 this phase is describing a site that does not exist: a content type already
 there under another name, a route that is taken, a field you were about to
-duplicate. droost's index, its symbol graph and its wiki are built from this
-project's own code, core and contrib included, so asking is faster than
-walking the tree. These are the questions it answers, and each counts as a
-knowledge call:
-
-- `droost_brief` — the site's facts, as above.
-- `droost_wiki` — how this project is put together and how it documents
-  itself, its pages, whether they are still true, and the factsheet that
-  grounds a new one. On a site with no code of its own yet, it says so.
-- `droost_search` — what this codebase says, lexically and (if indexed)
-  semantically.
-- `droost_symbol` and `droost_graph` — a class, its callers and what it calls.
-- `droost_deprecations` — what not to reach for.
-- `droost_module_docs` — what an installed module already gives you.
-- `droost_capabilities` — what this site can actually do right now.
-- `droost_architecture` — how it is put together.
-- `droost_entities` and `droost_routes` — what already exists.
-- `droost_services` and `droost_db_schema` — the services and the tables
-  that exist, with a renamed service's modern name.
+duplicate, a contrib module that already does the job. Every droost call is
+recorded by droost itself in the run's tool-call ledger.
 
 **Plan does not close until it has looked.** The `plan_grounded` check holds
-the plan phase until the spec's `## Grounding` section cites things that
-resolve on this site, and the ledger shows droost's knowledge was asked during
-plan. It forces looking. It never says how to build.
+the plan phase until the ledger shows a `droost code:wiki` and a `droost
+code:tree` call this run, and the spec's `## Grounding` section cites things
+that resolve on this site. It forces looking. It never says how to build.
 
 Write a `## Grounding` section, one row per lookup: it is the record of what
 you asked and what came back.
@@ -372,8 +348,8 @@ acceptance criterion is observable. If you cannot say how a criterion would be
 checked, rewrite it until you can.
 
 The engine runs no shell gates at this phase. It runs one check,
-`plan_grounded`: plan waits until the spec's Grounding citations resolve and
-the ledger shows droost's knowledge was asked during plan. Static analysis
+`plan_grounded`: plan waits until the ledger shows `droost code:wiki` and
+`droost code:tree` were consulted and the spec's Grounding citations resolve. Static analysis
 first fires at code, on code that exists.
 
 In pair mode the run pauses here and asks before continuing — even though no
@@ -382,9 +358,10 @@ understood the request wrong.
 
 ## Without a site
 
-Every droost tool above reaches a running Drupal site through drush. With no
-site — a plain checkout, or one that is mid-build — none of them answer, and
-`plan_grounded` cannot see a knowledge call.
+droost reads the project's files and its code index, so it answers with the
+site down. What it cannot tell you is the running site's state: the active
+configuration, the content, what a page renders today. Ask the site for those
+yourself (drush), or:
 
 Say so in the spec. Write what you could not verify as an explicit
 assumption, so the code phase knows which of its foundations are guesses.

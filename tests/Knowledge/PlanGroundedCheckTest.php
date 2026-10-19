@@ -77,9 +77,8 @@ final class PlanGroundedCheckTest extends WorkflowTestCase {
 
     $this->assertSame(CheckState::Blocked, $record->state);
     $this->assertSame(Fault::Agent, $record->fault);
-    $this->assertStringContainsString('has not asked droost anything during plan', $record->summary);
-    $this->assertStringContainsString('vendor/bin/droost <tool>', $record->summary, 'the surface that needs no site');
-    $this->assertStringContainsString('drush droost:brief', $record->summary);
+    $this->assertStringContainsString('has not consulted `droost code:wiki` and `droost code:tree`', $record->summary);
+    $this->assertStringContainsString('droost search:arch', $record->summary, 'and where the documentation is found');
   }
 
   /**
@@ -87,27 +86,15 @@ final class PlanGroundedCheckTest extends WorkflowTestCase {
    */
   public function testPlanThatLookedIsSatisfied(): void {
     $root = $this->project();
-    $this->ledger($root, [['tool' => 'droost_symbol', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL]]);
+    $this->ledger($root, self::looked());
 
     $record = $this->verdict($root);
 
     $this->assertSame(CheckState::Satisfied, $record->state, $record->summary);
-    $this->assertStringContainsString('droost_symbol ×1', $record->summary);
+    $this->assertStringContainsString('code:wiki ×1', $record->summary);
+    $this->assertStringContainsString('code:tree ×1', $record->summary);
     $this->assertStringContainsString('the code index is absent', $record->summary, 'the index status is said');
     $this->assertSame(PlanGroundedCheck::PROVIDER, $record->provider);
-  }
-
-  /**
-   * The brief alone is not looking (S4-2).
-   */
-  public function testTheBriefAloneIsNotLooking(): void {
-    $root = $this->project();
-    $this->ledger($root, [['tool' => 'droost_brief', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL]]);
-
-    $record = $this->verdict($root);
-
-    $this->assertSame(CheckState::Blocked, $record->state);
-    $this->assertStringContainsString('asked droost nothing else', $record->summary);
   }
 
   /**
@@ -236,10 +223,67 @@ final class PlanGroundedCheckTest extends WorkflowTestCase {
     $this->assertSame(['state' => 'blocked', 'provider' => 'droost/workflow'], $row);
 
     $this->ledger($root, [
-      ['tool' => 'droost_graph', 'outcome' => 'ok', 'at' => 'x', 'run' => 'run-pg', 'phase' => 'plan'],
+      ['tool' => 'code:wiki', 'outcome' => 'ok', 'at' => 'x', 'run' => 'run-pg', 'phase' => 'plan'],
+      ['tool' => 'code:tree', 'outcome' => 'ok', 'at' => 'x', 'run' => 'run-pg', 'phase' => 'plan'],
     ]);
     $binary->dispatch(['run'], $root);
     $this->assertSame('code', (new RunStateStore($root))->load()?->currentPhase?->value, implode("\n", $lines));
+  }
+
+  /**
+   * The wiki without the tree, or the tree without the wiki, is not enough.
+   */
+  public function testBothKnowledgeCommandsAreRequired(): void {
+    foreach (['code:wiki' => 'code:tree', 'code:tree' => 'code:wiki'] as $asked => $missing) {
+      $root = $this->project();
+      $this->ledger($root, [
+        ['tool' => $asked, 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL],
+        ['tool' => 'code:symbol', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL],
+      ]);
+
+      $record = $this->verdict($root);
+
+      $this->assertSame(CheckState::Blocked, $record->state, $asked);
+      $this->assertStringContainsString('has not consulted `droost ' . $missing . '`', $record->summary);
+      $this->assertStringNotContainsString('`droost ' . $asked . '` and', $record->summary, 'only the one missing is named');
+    }
+  }
+
+  /**
+   * The new brief alone is not looking either.
+   */
+  public function testTheBriefCommandAloneIsNotLooking(): void {
+    $root = $this->project();
+    $this->ledger($root, [['tool' => 'brief', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL]]);
+
+    $record = $this->verdict($root);
+
+    $this->assertSame(CheckState::Blocked, $record->state);
+    $this->assertStringContainsString('asked droost nothing else', $record->summary);
+  }
+
+  /**
+   * Droost installed in its own vendor directory is droost at the root.
+   */
+  public function testToolsDroostIsAtTheRoot(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/tools/droost/vendor/bin', 0755, TRUE);
+    touch($root . '/tools/droost/vendor/bin/droost');
+    $this->assertSame('', PlanGroundedCheck::droostAt($root));
+  }
+
+  /**
+   * A ledger that consulted both, and looked at a symbol.
+   *
+   * @return list<array<string, string|null>>
+   *   The rows.
+   */
+  private static function looked(): array {
+    return [
+      ['tool' => 'code:wiki', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL],
+      ['tool' => 'code:tree', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL],
+      ['tool' => 'code:symbol', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL],
+    ];
   }
 
 }

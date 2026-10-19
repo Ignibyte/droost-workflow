@@ -663,8 +663,8 @@ class PackContentLintTest extends TestCase {
     $this->assertIsString($template);
     $this->assertSame(1, preg_match('/^\| \*\*Knowledge calls\*\* \(([^)]*)\)/m', $template, $row), 'the template has a Knowledge calls row');
 
-    preg_match_all('/`([a-z_]+)`/', $row[1], $names);
-    $listed = array_map(static fn (string $name): string => 'droost_' . $name, $names[1]);
+    preg_match_all('/`([a-z_:]+)`/', $row[1], $names);
+    $listed = $names[1];
     sort($listed);
     $counted = EvaluationReport::KNOWLEDGE_TOOLS;
     sort($counted);
