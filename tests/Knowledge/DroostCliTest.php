@@ -282,6 +282,24 @@ final class DroostCliTest extends TestCase {
   }
 
   /**
+   * Init removes the module's retired commands, and only droost's own (F-305).
+   */
+  public function testInitRemovesTheModulesRetiredCommandsOnly(): void {
+    $this->put($this->root, '.claude/commands/droost/init.md', "---\ntitle: Droost — finish setup on a project someone else wired\npurpose: x\n---\n\nRun drush droost:install.\n");
+    $this->put($this->root, '.claude/commands/droost/upgrade.md', "---\ntitle: Droost — guided upgrade\n---\n");
+    $this->put($this->root, '.claude/commands/droost/configure.md', "---\ntitle: My own configure\n---\n");
+    $this->put($this->root, '.claude/commands/droost/work.md', "---\ntitle: Work a ticket\n---\n");
+
+    $this->assertSame(0, $this->droost(['init']));
+
+    $this->assertFileDoesNotExist($this->root . '/.claude/commands/droost/init.md');
+    $this->assertFileDoesNotExist($this->root . '/.claude/commands/droost/upgrade.md');
+    $this->assertFileExists($this->root . '/.claude/commands/droost/configure.md', 'a command a person wrote at that path stays');
+    $this->assertFileExists($this->root . '/.claude/commands/droost/work.md', 'another package\'s command stays');
+    $this->assertStringContainsString('removed .claude/commands/droost/init.md', implode("\n", $this->out));
+  }
+
+  /**
    * Init writes droost's block and removes an old droost MCP entry.
    */
   public function testInitWritesTheBlockAndNoMcp(): void {

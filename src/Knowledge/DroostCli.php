@@ -558,13 +558,52 @@ final class DroostCli {
     foreach ($result->written as $path) {
       ($this->out)('wrote ' . $path);
     }
-    foreach ($result->removed as $path) {
+    foreach ([...$result->removed, ...self::removeRetiredCommands($root)] as $path) {
       ($this->out)('removed ' . $path);
     }
     foreach ($result->warnings as $warning) {
       ($this->err)('warning: ' . $warning);
     }
     return self::EXIT_OK;
+  }
+
+  /**
+   * The slash commands drupal/droost installed, by file and the title it gave.
+   *
+   * They drove the module's own installers, which went with it. Nothing
+   * installs these commands now, and nothing removed them, so a project
+   * upgraded from the module kept three commands that called a door droost no
+   * longer has (F-305).
+   */
+  private const array RETIRED_COMMANDS = [
+    '.claude/commands/droost/init.md' => 'Droost — finish setup on a project someone else wired',
+    '.claude/commands/droost/upgrade.md' => 'Droost — guided upgrade',
+    '.claude/commands/droost/configure.md' => 'Droost — guided configuration',
+  ];
+
+  /**
+   * Removes the retired module commands that are still droost's own.
+   *
+   * Only a file whose frontmatter title is the one droost wrote: a command a
+   * person wrote at the same path is theirs, and stays.
+   *
+   * @param string $root
+   *   The project root.
+   *
+   * @return list<string>
+   *   The project-relative paths removed.
+   */
+  private static function removeRetiredCommands(string $root): array {
+    $removed = [];
+    foreach (self::RETIRED_COMMANDS as $relative => $title) {
+      $path = $root . '/' . $relative;
+      $text = is_file($path) ? (string) @file_get_contents($path, FALSE, NULL, 0, 4096) : '';
+      if ($text !== '' && preg_match('/^title:\s*' . preg_quote($title, '/') . '\s*$/m', $text) === 1 && @unlink($path)) {
+        $removed[] = $relative;
+      }
+    }
+
+    return $removed;
   }
 
   /**
