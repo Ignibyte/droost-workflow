@@ -73,14 +73,20 @@ final class Migrate {
     }
 
     $embeddings = [];
-    foreach (['embedding_endpoint' => 'endpoint', 'embedding_model' => 'model', 'embedding_format' => 'format'] as $from => $to) {
+    $mapping = [
+      'embedding_endpoint' => 'endpoint',
+      'embedding_model' => 'model',
+      'embedding_format' => 'format',
+      'dimension' => 'dimension',
+    ];
+    foreach ($mapping as $from => $to) {
       $value = $this->settings->exportedValue('droost.search.settings', $from);
       if ($value !== '') {
         $embeddings[$to] = $value;
       }
     }
     if (isset($embeddings['endpoint']) && !array_key_exists('search', $parsed)) {
-      $append .= "\n# From the exported droost.search.settings (droost migrate). An API key is\n# never copied here: this file is committed.\nsearch:\n  embeddings:\n";
+      $append .= "\n# From the exported droost.search.settings (droost migrate). An API key is\n# never copied here: this file is committed. If the endpoint needs one, put it\n# in an environment variable and name it: api_key_env: <VARIABLE>.\nsearch:\n  embeddings:\n";
       foreach ($embeddings as $key => $value) {
         $append .= sprintf("    %s: %s\n", $key, Yaml::dump($value));
       }

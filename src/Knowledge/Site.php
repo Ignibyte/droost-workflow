@@ -11,6 +11,7 @@ use Droost\Engine\Support\CoreVersion;
 use Droost\Engine\Wiki\BundleReader;
 use Droost\Engine\Wiki\Okf\FrontmatterParser;
 use Droost\Workflow\Config\StoragePaths;
+use Droost\Workflow\Knowledge\Embedding\HttpEmbeddingBackend;
 
 /**
  * What the knowledge commands read: the project's files and its code index.
@@ -35,6 +36,11 @@ final class Site {
    * The inventory, once built.
    */
   private ?ExtensionInventory $inventory = NULL;
+
+  /**
+   * The embeddings backend, once built or given.
+   */
+  private ?HttpEmbeddingBackend $embeddings = NULL;
 
   /**
    * Constructs a Site.
@@ -153,6 +159,30 @@ final class Site {
    */
   public function inventory(): ExtensionInventory {
     return $this->inventory ??= new ExtensionInventory($this->settings);
+  }
+
+  /**
+   * The embeddings backend droost.yml's `search.embeddings` names.
+   *
+   * @return \Droost\Workflow\Knowledge\Embedding\HttpEmbeddingBackend
+   *   The backend; check isConfigured() and isAvailable().
+   */
+  public function embeddings(): HttpEmbeddingBackend {
+    return $this->embeddings ??= new HttpEmbeddingBackend($this->settings->embeddings());
+  }
+
+  /**
+   * Uses a given embeddings backend: a test's, with its own transport.
+   *
+   * @param \Droost\Workflow\Knowledge\Embedding\HttpEmbeddingBackend $backend
+   *   The backend.
+   *
+   * @return $this
+   *   This site.
+   */
+  public function useEmbeddings(HttpEmbeddingBackend $backend): self {
+    $this->embeddings = $backend;
+    return $this;
   }
 
   /**

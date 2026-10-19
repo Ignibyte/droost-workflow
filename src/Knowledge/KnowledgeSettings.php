@@ -69,15 +69,42 @@ final class KnowledgeSettings {
    *   The directory.
    */
   public function wikiDir(): string {
+    $path = $this->wikiConfiguredPath();
+    return str_starts_with($path, '/') ? $path : $this->projectRoot . '/' . $path;
+  }
+
+  /**
+   * The wiki's directory as configured, for reports: relative unless set so.
+   *
+   * @return string
+   *   The configured path, or droost/wiki.
+   */
+  public function wikiConfiguredPath(): string {
     $wiki = $this->config['wiki'] ?? NULL;
     $path = is_array($wiki) && is_string($wiki['path'] ?? NULL) ? trim($wiki['path']) : '';
     if ($path === '') {
       $path = $this->exportedValue('droost.wiki.settings', 'path');
     }
-    if ($path === '') {
-      $path = self::DEFAULT_WIKI;
+    return $path === '' ? self::DEFAULT_WIKI : $path;
+  }
+
+  /**
+   * Which contrib modules the wiki owes a page.
+   *
+   * `wiki.contrib_scope: all` in the project's configuration (or the
+   * exported droost.wiki.settings), else `reached`: those the project's own
+   * code reaches.
+   *
+   * @return string
+   *   `all` or `reached`.
+   */
+  public function wikiContribScope(): string {
+    $wiki = $this->config['wiki'] ?? NULL;
+    $scope = is_array($wiki) && is_string($wiki['contrib_scope'] ?? NULL) ? trim($wiki['contrib_scope']) : '';
+    if ($scope === '') {
+      $scope = $this->exportedValue('droost.wiki.settings', 'contrib_scope');
     }
-    return str_starts_with($path, '/') ? $path : $this->projectRoot . '/' . $path;
+    return $scope === 'all' ? 'all' : 'reached';
   }
 
   /**
@@ -155,7 +182,7 @@ final class KnowledgeSettings {
       return '';
     }
     $value = is_array($parsed) ? ($parsed[$key] ?? NULL) : NULL;
-    return is_string($value) ? trim($value) : '';
+    return is_string($value) || is_int($value) || is_float($value) ? trim((string) $value) : '';
   }
 
   /**

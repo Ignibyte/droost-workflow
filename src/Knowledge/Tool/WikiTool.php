@@ -21,7 +21,7 @@ final class WikiTool extends ToolBase {
   /**
    * {@inheritdoc}
    */
-  public const string DESCRIPTION = 'The codebase wiki and an inventory of every installed module and theme. With no argument it lists both; "page" reads one ("camps", "inventory/views" for an installed module or theme, "inventory" for all of them); "query" searches both. The inventory is generated from composer.lock, each extension\'s info/routing/services/permissions YAML, and the exported core.extension.yml (enabled as of the last export). Read-only.';
+  public const string DESCRIPTION = 'The codebase wiki and an inventory of every installed module and theme. With no argument it lists both; "page" reads one ("camps", "inventory/views" for an installed module or theme, "inventory" for all of them); "query" searches both. The inventory is generated from composer.lock, each extension\'s info/routing/services/permissions YAML, and the exported core.extension.yml (enabled as of the last export). Read-only. Two subcommands: `droost code:wiki status [--json] [--strict]` reports each managed page fresh, stale, orphaned or invalid against the sources it records (the wiki_fresh gate\'s measurement; exit 0 fresh, 1 not, 3 when it could not run); `droost code:wiki stamp <page>|--all-stale [--dry-run]` re-records a stale page\'s source hashes once you have re-read it and it is still accurate. droost writes no page prose: there is no AI page generator, so a page is written by the agent or a person.';
 
   /**
    * {@inheritdoc}
