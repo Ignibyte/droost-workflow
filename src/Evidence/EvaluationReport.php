@@ -1630,9 +1630,8 @@ final class EvaluationReport {
     if ($routes === [] && $criteria === [] && $notes === []) {
       return $heading
         . "**This run declared nothing through the tools.** Its structure, if\n"
-        . "it has any, was read out of the spec document — so `rendered_check`\n"
-        . "rendered whatever `## Routes` could be parsed into (§4's row says\n"
-        . "`spec-parsed` where that happened), and the criteria count in §5\n"
+        . "it has any, was read out of the spec document — so its routes are\n"
+        . "whatever `## Routes` could be parsed into, and the criteria count in §5\n"
         . "came from a markdown table. That is the pre-0.9.4 path and it still\n"
         . "works; it is also the path on which every stoppage of the Part 3\n"
         . "series was the shape of a document rather than the state of the\n"

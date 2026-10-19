@@ -116,7 +116,7 @@ MD;
     $state = $store->load();
     $this->assertNotNull($state);
     $store->save(new IntakeState($state->id, $state->status, $state->request, $state->source, $state->openedAt));
-    $this->assertFinding($service, 'files', 'not written by `droost-workflow intake audit`');
+    $this->assertFinding($service, 'files', 'not written by `droost workflow:intake audit`');
   }
 
   /**

@@ -1466,8 +1466,8 @@ final class WorkflowFacade {
   /**
    * Declares a route this ticket's change serves.
    *
-   * The tool-call half of the redesign: `rendered_check` renders rows, not a
-   * markdown section. `## Routes` stays in the spec for a human, and nothing
+   * The tool-call half of the redesign: what reads a run's routes reads rows,
+   * not a markdown section. `## Routes` stays in the spec for a human, and nothing
    * mechanical depends on where it sits or whether the writer fenced it.
    *
    * @param string $projectRoot

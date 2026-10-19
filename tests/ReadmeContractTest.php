@@ -62,7 +62,7 @@ class ReadmeContractTest extends WorkflowTestCase {
     try {
       WorkflowConfig::fromArray(
         ['gates' => ['phpstain' => ['on' => TRUE]]],
-        'droost.workflow.yml',
+        'droost/droost.yml',
       );
       $this->fail('Expected a ConfigError.');
     }

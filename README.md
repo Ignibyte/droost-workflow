@@ -1,45 +1,83 @@
-# Droost Workflow
+# droost
 
 [![ci](https://github.com/Ignibyte/droost-workflow/actions/workflows/ci.yml/badge.svg)](https://github.com/Ignibyte/droost-workflow/actions/workflows/ci.yml)
 [![Packagist](https://img.shields.io/packagist/v/droost/workflow)](https://packagist.org/packages/droost/workflow)
 [![PHP](https://img.shields.io/badge/php-%5E8.3-8892BF)](composer.json)
 [![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)](LICENSE)
 
-The phased, gated pipeline an agent runs to build or change a Drupal site:
+One command, `droost`, for an agent building or changing a Drupal site: what
+the codebase holds, and the phased, gated run the work goes through.
 
 ```
 plan → code → test → complete
 ```
 
-Each phase has an entry and an exit gate. Pass, and the run advances; fail, and
-it enters a bounded feedback loop or stops. What "pass" means is configured per
-repo, in one version-controlled file.
+- **Knowledge.** `droost code:wiki` (the wiki, and every installed contrib
+  module and theme), `droost code:tree` (the code's structure) and `droost
+  search:arch` (the documentation, as plain text), with `code:symbol`,
+  `code:graph`, `search:code`, `code:docs`, `code:deprecations` and `brief`
+  for the narrower questions. Read from the project's files and its code
+  index: no Drupal is booted, drush is never called, and it answers while
+  the site is broken.
+- **The run.** Each phase has an entry and an exit gate. Pass, and the run
+  advances; fail, and it enters a bounded feedback loop or stops. Plan does
+  not close until the run has consulted `code:wiki` and `code:tree`. What
+  "pass" means is configured per project, in `droost/droost.yml`.
+- **The guard.** A harness hook that holds the agent to the run: it refuses
+  out-of-phase edits, the operator's commands from the agent's shell, and
+  edits to the rules the run is held to. Claude Code today.
 
-Droost Workflow is the **methodology** layer. Where
-[droost](https://www.drupal.org/project/droost) is what an agent *knows* about
-Drupal, this is how it *works*: the same pipeline, the same levers, whether it
-runs against a live site or from a plain checkout with no site at all.
+droost is a framework-free PHP package (`droost/workflow`), installed in its
+own vendor directory. It is not a Drupal module and needs none. Clean-room
+GPL.
 
-Clean-room GPL. A sibling of, not a fork of, any proprietary pipeline.
+## Install
 
-## Status
+```bash
+mkdir -p tools/droost
+composer require -d tools/droost droost/workflow
+tools/droost/vendor/bin/droost init       # the pack, the guard's hooks, AGENTS.md, droost/droost.yml
+tools/droost/vendor/bin/droost code:index # the code index the knowledge commands read
+```
 
-Built ticket by ticket, and past its skeleton:
+`tools/droost/composer.json` is a Composer project of its own, so the site's
+dependency tree can break without taking droost with it, and droost cannot
+load Drupal by accident. On DDEV run it in the container (`ddev exec
+tools/droost/vendor/bin/droost …`). A project that kept the earlier root
+`droost.workflow.yml` runs `droost migrate`, which moves it to
+`droost/droost.yml` and carries the wiki and embedding settings over from the
+exported configuration.
 
-| Step | What | State |
-|---|---|---|
-| P6.1 | Config spine — the lever file, presets, run state | **shipped** |
-| P6.2 | The five phases as a `.claude/` pack | **shipped** |
-| P6.3 | Gate runner + honest degradation | **shipped** |
-| P6.4 | Agentic / interactive modes and the mid-run swap | **shipped** |
-| P6.5 | The drush live-site surface and the standalone CLI | **shipped** |
-| P6.6 | The MCP surface (optional submodule) | **retired 0.15**: droost is reached through drush |
-| — | Hardening: the phase→gate map, engine-counted retries, a coverage gate that can pass | **shipped** |
-| — | `droost/workflow` published on Packagist | **this release** |
+## The droost command
+
+```
+droost                      every command, one line each
+droost <command> help       one command's arguments
+```
+
+| Command | What it answers |
+|---|---|
+| `code:wiki [page]` | the wiki (`droost/wiki`), and a page per installed contrib module and theme: its version (`composer.lock`), what it needs and provides (its YAML), whether the last configuration export enabled it. `code:wiki status` checks each page against its sources (the `wiki_fresh` gate); `code:wiki stamp` re-records a page's source hashes |
+| `code:tree [module\|path]` | modules and themes, their files, classes, functions and methods, and each module's hooks, services and routes |
+| `search:arch <words>` | plain text over the documentation: the wiki, the inventory, each extension's README and docs |
+| `code:symbol <name>` | where a class, interface, trait, function or method is defined |
+| `code:graph <symbol>` | what it calls, what calls it, what it injects and implements (`service:<id>`, `route:<name>`, `hook:<name>` too) |
+| `search:code <query>` | symbol names and wiki text, lexically; the nearest code chunks too when `search.embeddings` names an endpoint |
+| `code:docs`, `code:deprecations` | module documentation; Drupal core's deprecations, offline |
+| `brief` | the project in one answer, from its files |
+| `code:index [--full]` | builds or refreshes the code index |
+| `workflow:<verb>` | the run: `workflow:run`, `workflow:status`, `workflow:criteria`, … (below) |
+| `init`, `migrate`, `doctor` | install, move an old lever file, report what droost can see |
+| `guard <verb>` | the guard a harness's hooks call; not for typing |
+
+Every knowledge call writes a row to the run's tool-call ledger, written by
+droost itself: `plan_grounded` reads it, so a call the agent only describes
+is not a call. `bin/droost-workflow` still answers for one release and names
+the `droost workflow:<verb>` it stands for.
 
 ## The lever file
 
-A single repo-root file, `droost.workflow.yml`, is the source of truth:
+One file, `droost/droost.yml`, is the source of truth:
 
 ```yaml
 mode: agentic                   # agentic | interactive
@@ -67,27 +105,38 @@ gates:
   playwright:     { on: true, required: true }   # a committed spec, at every level
   parity:         { on: true }                 # the site against its source's captured pages
   coverage:       { on: false, min: 0 }
-  rendered_check: { on: true }                 # artifacts are truth
-  config_clean:   { on: true }                 # a fresh cex produces zero diff (mode: report = advisory)
   wiki_fresh:     { on: true }                 # the project's own docs still match the code: fails on a page whose sources the run changed; one found stale is named (scope: all holds every page)
   # every gate also takes mode: block | report — report records a failure and
   # advances (on the mandatory trio, only at preset: custom)
-  # custom:                                    # your own commands as gates
-  #   semgrep: { on: true, phase: code, cmd: "semgrep scan --error --quiet" }
-  #   suite:   { on: true, phase: test, cmd: "bin/gate.sh FULL", timeout: 900 }
-  # contributed:                               # gates enabled MODULES declare (module:<id>)
-  #   snyk: { mode: block }                    # on and mode only; the rest is the module's
-# baseline: { on: false }                      # strict mode: ignore a committed droost/baseline/
+  # The project's own gates: a file (run:) or one shell line (cmd:).
+  # gitleaks: { phase: code, run: droost/gates/gitleaks.php, mode: block }
+  # suite:    { phase: test, cmd: "bin/gate.sh FULL", timeout: 900 }
+# hooks: { run_start: droost/hooks/notify.php }  # told about the run's events
+# walls:                                         # asked before a tool call; may refuse it
+#   tracker_writes: { tools: "^mcp__atlassian__create", run: droost/walls/tracker-writes.php }
+# operator_only: [droost/bin/tracker-writes]     # the guard refuses these from the agent's shell
+# baseline: { on: false }                        # strict mode: ignore a committed droost/baseline/
 max_gate_retries: 2
 ```
 
-**It is a file, not Drupal configuration**, for four reasons: the agent must be
-able to read its own levers while the site is mid-build or broken; a plain
-Claude Code or Codex user reads the same file with no site at all; it is dev
-tooling and belongs with the code it gates; and it belongs in review, where
-loosening a gate shows up as a diff. (What each host does and does not get
-from `init` is set out under Install — the enforcement hook is Claude Code's
-alone, and that is a limitation, not a detail.)
+**It is a file, not site configuration**, for four reasons: the agent must be
+able to read its own levers while the site is mid-build or broken; every
+agent harness reads the same file with no site at all; it is dev tooling and
+belongs with the code it gates; and it belongs in review, where loosening a
+gate shows up as a diff. During a run the guard refuses edits to it, and to
+the gate, hook and wall files it names. (What each host does and does not get
+from `init` is set out under The guard — the enforcement hook is Claude
+Code's alone, and that is a limitation, not a detail.)
+
+Beside the levers, `droost/droost.yml` holds droost's own settings: where its
+two stores live (`storage: { index: …, evidence: … }`, by default in
+`droost/droost-workflow/`), the wiki (`wiki: { path: droost/wiki,
+contrib_scope: reached | all }`) and semantic search (`search: { embeddings:
+{ endpoint, model, format, dimension, api_key_env, scope } }`; the key is
+read from the environment variable `api_key_env` names, and a key written in
+this committed file is refused). Top-level keys droost does not know, such as
+a project's own `acme:` block, are left alone; a near-miss of a key it
+does know is refused by name.
 
 ### Presets — one dial for how hard the workflow verifies
 
@@ -102,7 +151,7 @@ know. Consent (the write wall, `require_run`) is not in a preset at all.
 | Level | Verification |
 |---|---|
 | **`low`** | basic static checks (phpcs, phpstan 1); **no tests**; the browser check; no wiki. Seeker off, enforcement `soft`. The one level whose base turns a mandatory gate off — allowed here and only here, because `preset: low` is one loud reviewable line, never the default; the gate is recorded `off`, never `passed`. |
-| **`medium`** | the mandatory trio with phpstan 2, the rendered check, a shorter EARS spec, docs in chat. From here up phpunit carries **`in_diff`**: a run that changes a class under `src/` must change a phpunit test too, or the test phase blocks (`tests_in_diff`); a test droost's scaffold wrote and nobody changed does not count. And `wiki_fresh` carries **`cover_diff`**: a custom module or theme the run changed must have a wiki page, or the gate fails. (Formerly `light`, plus both.) |
+| **`medium`** | the mandatory trio with phpstan 2, a shorter EARS spec, docs in chat. From here up phpunit carries **`in_diff`**: a run that changes a class under `src/` must change a phpunit test too, or the test phase blocks (`tests_in_diff`); a test droost's scaffold wrote and nobody changed does not count. And `wiki_fresh` carries **`cover_diff`**: a custom module or theme the run changed must have a wiki page, or the gate fails. (Formerly `light`, plus both.) |
 | **`high`** | solid static analysis + unit tests (phpstan 6), no slow tiers; enforcement `hard`. (The shipped `custom` gate set, named on the dial, plus `in_diff` and `cover_diff`.) |
 | **`xhigh`** | + coverage and mutation at 60, the front-end trio, phpstan 8. |
 | **`max`** | everything on, strict — phpstan max, mutation 80, coverage 80 — and tests **required to exist**: `phpunit` and `playwright` carry `required: true`, so a missing or empty suite is a *failure*, not a labelled pass. (Formerly `factory`, plus `required`.) |
@@ -121,7 +170,7 @@ The reason rides as the result's `skip_reason`, and every run envelope
 carries `preset`, the level the run was held to: "no phpunit result" is
 readable as a failure or as a `low` run that never asked for one.
 
-**Moving the dial is one command** — `drush droost:workflow:effort <level>`
+**Moving the dial is one command** — `droost workflow:effort <level>`
 rewrites the `preset:` line, proves the file still loads (rolling back if
 not), names the canonical level an alias resolved to, and lists the gate
 switches the file still spells out (each overrides the dial). It is the
@@ -136,8 +185,6 @@ room to `max` and the first run met 26 legacy phpstan errors), and an agent
 can ground the level it proposes. A real move prints the same list after it
 lands; an empty list on a move says why (every touched gate is spelled out in
 the file).
-`drush droost:workflow:install --preset=<level>` writes a fresh file at a
-level, carrying tuning only (the measured paths) so the level actually drives.
 
 **The trio follows the pair.** From `xhigh` up the level turns `eslint`,
 `stylelint` and `prettier` on, and each is scoped by its own `paths`. Given
@@ -155,7 +202,7 @@ it blocks like a missing tool, and it is never counted as findings —
 
 **A waiver can reopen a terminally failed phase.** When a gate spends the
 retry budget, `run` refuses and the record says why; recovery used to be
-`reset` alone. Now the operator's `drush droost:workflow:gate-waive <gate>
+`reset` alone. Now the operator's `droost workflow:gate-waive <gate>
 "<reason>"` — signed from a terminal, refused from the agent's shell — also
 reopens the phase when it covers every gate that killed it: the phase runs
 again with those gates recorded as **waived**, never passed, and the reason
@@ -217,7 +264,7 @@ the hooks down. Outside an active run the phase hooks have no opinion — but
 the key is absent), nudged once (`soft`), or allowed (`off`). A finished or
 failed run counts as no active run — the record is history, not a licence —
 and the way past the wall is to start a run, or an operator-granted bypass
-(`drush droost:workflow:bypass "<why>"`, cleared with `--off`), never the
+(`droost workflow:bypass "<why>"`, cleared with `--off`), never the
 agent's own hand. You may pair factory gates with `enforcement: off`; not
 advised, but the lever file is a reviewable diff, and a visible loosening is
 the honest way to allow it.
@@ -303,7 +350,7 @@ Three details worth knowing:
   that has said nothing has not opted out of anything — tests-must-exist
   included, since 2.0. This is deliberately
   one rule rather than three: an earlier revision defaulted a file that exists
-  to `custom`, which meant `touch droost.workflow.yml` turned mutation,
+  to `custom`, which meant creating an empty lever file turned mutation,
   playwright and coverage off and dropped PHPStan from max to 6, silently. If
   you want the gentler set, name it — `preset: custom` — so the choice is
   visible in a diff.
@@ -326,20 +373,8 @@ Most gates carry their thresholds inline — `phpcs.standard`,
 a tool also takes `timeout` (seconds) before the executor kills it and
 reports "could not run"; the default is 600, and `xhigh`/`max` give
 mutation 1800 and coverage 900 because infection over one kernel-test-heavy
-module already outruns ten minutes. One is easy to miss:
-`rendered_check.routes` is a comma-separated list of internal paths the
-live surface renders (`routes: "/,/pricing"`); omitted, it renders `/`.
-The render is an anonymous visitor's, so a page only some users may see is
-listed with the refusal it must give, `/admin/reports@403`, and a run
-declares one with `declare-route /admin/reports --status=403`; the gate then
-checks that it refuses, and a declared refusal that renders fails as public.
-On a Drupal site the render happens in a **fresh drush process**
-(`droost:workflow:render-probe`, answering in the gate result's own JSON),
-never inside the process running the gates: round 30 watched an in-process
-sub-request throw three times from a long-lived process while every fresh
-process rendered the same route fine, so the render leaves the process
-the way `wiki_fresh` always has. The option vocabulary is closed per gate —
-anything else is refused by name.
+module already outruns ten minutes. The option vocabulary is closed per
+gate — anything else is refused by name.
 
 **Every gate has a second switch after `on`: `mode`.** `block` (the default,
 and the only behaviour that existed before) fails the phase on a blocking
@@ -359,15 +394,15 @@ this month. The baseline is the operator's snapshot of that debt, written
 once from a terminal, committed beside the lever file in `droost/baseline/`:
 
 ```bash
-drush droost:workflow:baseline --measure    # the bill: what each gate would inherit (read-only)
-drush droost:workflow:baseline              # write it (operator terminal); commit droost/baseline/
-drush droost:workflow:baseline --refresh    # re-measure: paid-off debt drops, growth is refused
-drush droost:workflow:baseline --refresh --grow --reason="legacy import"   # accept more, on record
-vendor/bin/droost-workflow baseline [--status|--measure|--refresh …]         # the same, standalone
+droost workflow:baseline --measure    # the bill: what each gate would inherit (read-only)
+droost workflow:baseline              # write it (operator terminal); commit droost/baseline/
+droost workflow:baseline --refresh    # re-measure: paid-off debt drops, growth is refused
+droost workflow:baseline --refresh --grow --reason="legacy import"   # accept more, on record
+droost workflow:baseline --status     # what is recorded (read-only)
 ```
 
 From then on a consulting gate — phpcs, phpstan, eslint, stylelint, prettier,
-coverage, mutation, config_clean — answers two questions. **Inherited** is a
+coverage, mutation — answers two questions. **Inherited** is a
 finding the baseline records: reported, counted, never failing. **New** is
 everything else, and fails as before. The line reads `passed — 0 new, 123
 inherited`, never a bare pass. A finding is keyed by file, rule, message and
@@ -385,67 +420,45 @@ and the agent's editor from touching the directory; the seeker names any
 move a defeat. `baseline: { on: false }` in the lever file is strict mode,
 one visible line. Design: `docs/design-adoption-baseline.md`.
 
-### Contributed gates
+### The project's own gates, hooks and walls
 
-A module can contribute a gate the way it contributes a Drush command: a
-`#[DroostGate]` plugin (droost's `droost_workflow` submodule defines the type)
-declaring the command, the phases, a default mode and — required — a sentence
-saying what its verdict means. Enable the module and `module:<id>` joins every
-run at those phases, on by default, with the module recorded as provenance and
-the sentence repeated on a failure. `droost_snyk` is the reference: `snyk
-test` at code and test, report mode, until the site says otherwise:
+A project adds rules of its own as files in `droost/`, named in
+`droost/droost.yml`. Each runs as its own process from the project root,
+never inside droost, so a fatal error cannot take the run with it, a timeout
+can be enforced, and the file cannot reach the run's state. A PHP file runs
+under `php`; anything else is executed.
 
-```yaml
-gates:
-  contributed:
-    snyk: { mode: block }     # or { on: false }
-```
+| Kind | Declared as | Gets on stdin | Its answer |
+|---|---|---|---|
+| **gate** — a check at a phase | `gates.<id>: { run: droost/gates/<file>, phase: code \| test \| "code,test", mode: block \| report, timeout: <s> }`, or `cmd: "<one shell line>"` in place of `run:` | the run's JSON: `project_root`, `run_id`, `phase`, the changed files; `DROOST_PROJECT_ROOT` and `DROOST_GATE` in the environment | exit 0 passed, 1 failed, stdout its report; **anything else — a missing file, a crash, a timeout, exit 3 — is recorded as did not run, never as passed** |
+| **wall** — asked before a tool call | `walls.<id>: { tools: <regex over the tool's name>, run: droost/walls/<file> }` | `tool`, `tool_name`, `input`, `project_root` | exit 0 allows, exit 2 refuses with the reason on stderr; a wall that crashes, is missing or times out (10 s) refuses — its silence is never consent |
+| **hook** — told about the run | `hooks: { run_start \| phase_begin \| phase_end \| run_complete: droost/hooks/<file> }` | the event | recorded in `hook-calls.jsonl`; a hook never holds the run |
+| **operator-only script** | `operator_only: [droost/bin/<script>]` | — | the guard refuses it from the agent's shell, as it refuses `droost workflow:bypass` |
 
-Those two keys are all the lever file may set on a contributed gate — the
-command, phases and verdict are the module's contract, a different scan is a
-`gates.custom` entry. The dial never moves a contributed gate. Design:
-`docs/design-contributed-gates.md`.
+**The rules are frozen.** A run records every gate, hook and wall file's hash
+when it begins (`rule_files` in `run.json`), and names a gate file that
+changed since at its gate. While the run is open the guard refuses writes to
+`droost/droost.yml`, `droost/gates/`, `droost/hooks/`, `droost/walls/` and
+`droost/agents.md`. **Trust is review**: only files committed in the
+repository run, and droost fetches nothing.
 
-Every door sees the same set. The drush commands read the site's catalog
-directly; the standalone `droost-workflow` binary boots no
-Drupal, so it asks `vendor/bin/drush droost:workflow:catalog` before it
-resolves a lever. Status says which it was — `levers.contributed_source` —
-and when there is no drush, or the site cannot answer, it says the set was
-resolved from the lever file alone rather than presenting the shorter set as
-the whole (a run begun on that surface in the first live round was held to
-fewer gates than the same run through drush, and nothing said so). And a run
-that WAS begun blind — the binary run on a host where drush cannot reach the
-site — catches up: the first surface that can see the catalog weaves the
-missing gates into the run's record at the phase it is about to run, they run
-from then on (in the strict flow complete re-runs everything, so no run
-finishes without them; in the fast flow a late gate whose declared phases are
-all behind the run is woven into complete, so it still runs once),
-and the record says so — `run.contributed_source` names the door that began
-it, `run.late_woven` names each gate and the phase it joined at.
-
-A run begun on a door that DID see the catalog agreed to the gates it saw.
-A gate a module declares after that does not join it: each phase the gate
-declares reports it `off — declared after this run began`, and the next run
-takes it. And a contributed gate's command is frozen when the run takes the
-gate, like every lever, so a run cannot loosen the gate it is held to by
-editing the plugin that declares it; when the module's command has changed
-since, the gate's summary names both, and the next run runs the new one.
+`droost/agents.md` is the project's own text for the AGENTS block: `init`
+carries it beneath droost's paragraphs, so every agent reads it.
 
 A gate's verdict can be steered by a file the run changes: its config, its
-ignore or policy file. The built-in gates know theirs; a contributed gate
-declares them (`steers: ['.snyk']` on `#[DroostGate]`), a custom one takes
+ignore or policy file. The built-in gates know theirs; a project gate takes
 `steered_by: <path>,<name>`, and snyk, gitleaks, semgrep, trivy and rector
 are known by id. When the run changed one, the gate's summary says
 `[steered by config this run changed: …]`, and the seeker reads an ignore
 the spec does not record as the developer's decision as a discipline
-finding.
+finding. In the strict flow, complete re-runs every gate the run holds, the
+project's included: it is the last wall before the run is recorded complete.
+`droost workflow:evidence --full` prints each gate's output whole (up to the
+16 KB kept) where the report otherwise cuts it at 2,000 characters.
 
-In the strict flow, complete re-runs every gate the run holds, contributed
-gates included, whatever phases they declare: it is the last wall before the
-run is recorded complete. A failing contributed gate's output reaches the
-record as findings, a row per line of plain output or per object in a JSON
-report's lists, and `evidence --full` prints each gate's output whole (up to
-the 16 KB kept) where the report otherwise cuts it at 2,000 characters.
+A check that needs the running site is a project gate that asks it:
+`config_clean: { phase: test, cmd: "drush config:status --format=json" }`.
+droost itself never does.
 
 ### House rules — the site's own, held by a gate or the seeker
 
@@ -479,17 +492,17 @@ of two things:
 A break fails the gate at `mode: block`, or is recorded beside a passing
 phase at `report` (the default). A rule only judgment can read is the
 seeker's: it runs
-`droost-workflow rules`, checks the diff against each, cites the id in every
+`droost workflow:rules`, checks the diff against each, cites the id in every
 finding, and grades a break HIGH unless the spec records an exception the
 operator approved; `seekers.holds: high` makes that hold the run. The page
-rules (`rules.<kind>`: which owner builds each kind of page) are held the
-same way by the composition gate, with `mode: block` to fail on a break.
-`droost-workflow rules` prints what the open run is held to.
+rules (`rules.<kind>`: which owner builds each kind of page) are read the
+same way, by the seeker, against the owner each declared route names.
+`droost workflow:rules` prints what the open run is held to.
 
 ### Work-item project config
 
 The optional `work_item:` block is the project config of a tracker bridge
-(droost_jira and its kin). The engine never consumes it — it stays
+(a project's own Jira layer and its kin). The engine never consumes it — it stays
 framework-free and knows nothing of Jira — except for the one provider it
 builds in, `markdown` (below, "Tickets (solo mode)"). It parses and validates the
 block so a typo surfaces in review rather than at the first write, and
@@ -524,7 +537,7 @@ team's business, never this block's — every write it describes stays gated.
 
 ### Tickets (solo mode)
 
-With droost and droost_workflow alone, tickets are markdown files in the repo,
+With droost alone, tickets are markdown files in the repo,
 read through a `WorkItemSourceInterface`. `work_item.provider: markdown` turns it on;
 any other provider keeps the block's metadata-only meaning:
 
@@ -619,7 +632,7 @@ quietly disabled and a report that says everything passed. So every unknown
 setting, gate, option, phase, mode and preset is refused by name:
 
 ```
-droost.workflow.yml: unknown gate "phpstain" (known: phpcs, phpstan, eslint,
+droost/droost.yml: unknown gate "phpstain" (known: phpcs, phpstan, eslint,
 stylelint, prettier, phpunit, mutation, playwright, parity, coverage,
 house_rules, wiki_fresh)
 ```
@@ -637,49 +650,36 @@ complete: phpcs, phpstan, eslint, stylelint, prettier, phpunit, mutation, playwr
 ```
 
 Plan runs no gate — there is no code yet to measure. One check holds it,
-`plan_grounded`: plan waits until the spec's `## Grounding` cites what the
-site and its code really hold, and droost's knowledge (the codegraph, search,
-the wiki, introspection) was asked during plan. The brief alone is not
-looking, and nor is a table of `none:` claims: at least one citation must name
-something that exists (a class, a file, a wiki page; never a directory or the
-run's own spec), and a `none:` claim counts only while the code index can be
-asked. It is this
-library's (`PlanGroundedCheck`), so both doors ask it the same way: it reads
-the tool-call ledger and resolves citations from droost's code index
-(`<state dir>/code-index.sqlite`) and the files, none of which needs Drupal.
-Until 0.16 it was droost's, and a broken site let the standalone binary close
-plan with it recorded as skipped (F-276). A project with no droost to ask
-(no `vendor/bin/droost`, no index; drush alone is not droost) records it as
-skipped, with that reason, and one whose droost sits a directory down (a
-site in `site/`) is blocked as the environment's, since its calls land in a
-ledger this run cannot attribute. droost forces the agent to LOOK; it never says how to
-build (owner, 2026-10-15: "as models get better they dont need to ask they
-need you to build rules around your code"). The site's own rules are what
-the work is held to: a page rule in `rules:` is reported by default and
-fails `composition_check` at `mode: block`, a house rule (`rules.house`) is
-checked on the diff by `house_rules` when a gate judges it and by the seeker
-when judgment does, and a record that is false always fails, such as a page
-declared as one owner and served by another. Code gates the diff with
-static analysis, and `config_clean` asks the booted site whether a fresh
-`drush config:export` would change the tracked tree: Drupal compares
-configuration as data, so a hand-written file that imports fine can still
-diverge from the canonical serialization, and the divergence surfaces later
-as a noisy re-export burying real changes. Zero diff, against a target git
-can see, is the passing state. Test runs the functional gates, and re-runs
+`plan_grounded`: plan waits until the run's tool-call ledger shows a `droost
+code:wiki` and a `droost code:tree` call since the run began (owner,
+2026-10-19), and the spec's `## Grounding` cites what the project and its
+code really hold. `brief` alone is not looking, and nor is a table of `none:`
+claims: at least one citation must name something that exists (a class, a
+file, a wiki page; never a directory or the run's own spec), and a `none:`
+claim counts only while the code index can be asked. It reads the ledger and
+resolves citations from droost's code index and the files, none of which
+needs Drupal. droost forces the agent to LOOK; it never says how to build
+(owner, 2026-10-15: "as models get better they dont need to ask they need
+you to build rules around your code"). The site's own rules are what the
+work is held to: a house rule (`rules.house`) is checked on the diff by
+`house_rules` when a gate judges it and by the seeker when judgment does,
+and a page rule in `rules:` is read by the seeker against the owner each
+declared route names. Code gates the diff with static analysis. Test runs
+the functional gates, and re-runs
 the static ones over the tests it has just written — a suite whose own source
 would not pass code's standards is not a suite whose green anyone should
 believe. Complete opens by capturing
 what was built — the documentation work that was its own phase until 0.4 —
-and then re-runs the full enabled set as the terminal safety net, custom
-gates included, so every other enabled gate is met at least twice: once at
+and then re-runs the full enabled set as the terminal safety net, the
+project's own gates included, so every other enabled gate is met at least twice: once at
 its own phase, once at the end.
 
 That is the **strict** flow, which `high` and the levels above it run. Since
 0.11 `low` and `medium` run the **fast** flow (`flow: fast | strict`, a lever
 the level defaults): each gate runs once, at the phase that owns it. Code
 runs the analysers and the unit tests (phpunit, mutation and coverage where
-on), test runs playwright, parity, the rendered check and config_clean, and
-complete runs no gate but `wiki_fresh` on the documentation it writes. A run
+on), test runs playwright, parity and the house rules, and complete runs no
+gate but `wiki_fresh` on the documentation it writes. A run
 freezes its flow's table as `phase_gates` when it begins. The same two
 levels default `scope: ticket` on phpcs, phpstan, phpunit and playwright: the
 analysers read the files the run changed, and the suites run the test files
@@ -687,17 +687,17 @@ it added or changed, the Playwright CLI handed those specs. `scope: full` runs
 a gate's whole set. A scoped row says so ("ticket scope: 2 file(s) this run
 changed, not the full suite"), and a required suite the ticket gave no test
 to run fails. At `low` the browser gate also takes `reuse: recorded`:
-`droost-workflow specs`, run at test, runs the ticket's specs exactly as the
+`droost workflow:specs`, run at test, runs the ticket's specs exactly as the
 gate would and records the result against a fingerprint of the tree, and the
 test phase then takes that record rather than running the suite a second
 time. The row says so ("recorded at …, on this tree: not run again"). An edit
 after the recording, a tool that could not run, or a level at `reuse: never`
 (every level above low) runs the suite. What is taken is always droost's own
-run of the tool, never an account of one. `droost-workflow gate [--json]
+run of the tool, never an account of one. `droost workflow:gate [--json]
 [--phase=code|test|complete] [--base=<ref>]` (0.14.17) runs one phase's
 gates, test by default, with no run at all: the lever file frozen as a run
 would freeze it, nothing kept (no run opened, no evidence written, no retry
-spent), and a site gate with no site skipped. A ticket-scoped gate reads what
+spent). A ticket-scoped gate reads what
 changed since `--base` (a landing's pre-merge commit), or its full set without
 one. It exits 0 when no gate blocks, 1 when one does, and 2 when refused: while
 the project's run is at test, or for a base that names no commit. `--json`
@@ -707,8 +707,9 @@ reported. P6 run 23 measured
 what the strict flow costs at the bottom of the dial: its 279-test browser
 suite ran three times in 86 minutes, for a ticket whose own tests were two
 files. `wiki_fresh` is due only here, and only here
-CAN it be true: it asks the site whether the project's own documentation
-still matches the code, and complete is the phase that just wrote it. A
+CAN it be true: it asks `droost code:wiki status` whether the project's own
+documentation still matches the code, and complete is the phase that just
+wrote it. A
 stale page is read as fact, which is worse than no page.
 
 ## Promise against proof: the criteria table
@@ -741,7 +742,7 @@ envelope: `{outcome, current_phase, report, awaiting, retries, loop}`, where
 `retries.exhausted` separates "fix it and run again" from "this run is
 over". Exit codes stay simple — paused is not failed, and both kinds of
 failure exit non-zero. Recovery from a terminal failure is deliberate:
-`vendor/bin/droost-workflow reset` (or `drush droost:workflow:reset`)
+`droost workflow:reset`
 archives the record to `droost/droost-workflow/history/` and clears the way —
 the same verb that closes out a COMPLETED run, whose record also persists
 until reset.
@@ -782,11 +783,11 @@ intake: the `intake` skill (`/droost:workflow:intake`), with the human, and noth
 built until they approve.
 
 ```
-droost-workflow intake start --request="<the human's words>" --source=<path|URL>
-droost-workflow intake audit --url=<where the source is served> --files=<its folder>
-droost-workflow intake check
-droost-workflow intake ask --file=<the batch, in droost/intake/>   # a host with no AskUserQuestion
-droost-workflow intake approve          # once the human has said yes
+droost workflow:intake start --request="<the human's words>" --source=<path|URL>
+droost workflow:intake audit --url=<where the source is served> --files=<its folder>
+droost workflow:intake check
+droost workflow:intake ask --file=<the batch, in droost/intake/>   # a host with no AskUserQuestion
+droost workflow:intake approve          # once the human has said yes
 ```
 
 - **`droost-source`** (`vendor/bin/droost-source`, Node, the project's own
@@ -866,7 +867,7 @@ of its own, never `passed`.
 
 Beside `run.json`, the engine keeps `events.jsonl`: an append-only log of every
 state change it persists, one JSON event per line, written after the save. It
-is the record a relay or a dashboard reads (`droost-workflow events
+is the record a relay or a dashboard reads (`droost workflow:events
 [--after=<seq>]` prints it), and it works with nothing else installed:
 
 ```json
@@ -909,202 +910,111 @@ state directory, which `init` keeps out of version control, as it does
 
 ## The pack
 
-The phases ship as a `.claude/` pack — eight skills (the three entry verbs
-`workflow-start`, `workflow-continue` and `workflow-status`, one skill per
-phase, and `intake`), four slash commands that are one-paragraph pointers to
-the verb skills (`/droost:workflow:start`, `/droost:workflow:continue`,
-`/droost:workflow:status`, `/droost:workflow:intake` — Claude Code's way in; every other host reads the
+`droost init` installs the phases as a `.claude/` pack: eleven skills (the
+three entry verbs `workflow-start`, `workflow-continue` and `workflow-status`,
+one per phase, `intake`, and one per knowledge command: `droost-code-wiki`,
+`droost-code-tree`, `droost-search-arch`), four slash commands that are
+one-paragraph pointers to the verb skills (`/droost:workflow:start`,
+`/droost:workflow:continue`, `/droost:workflow:status`,
+`/droost:workflow:intake` — Claude Code's way in; every other host reads the
 skill itself, which is why the procedure lives there and not in the
 command), five agents (the plan researcher and spec-writer, the adversarial
 `workflow-seeker`, the one-finding-at-a-time `workflow-bug-fixer`, and
 `droost-debugger`, which flips xdebug on for a stubborn failure and back off
-after), and a shared partial on using droost. Installing it into a repo
-writes:
+after), and a shared partial on using droost. It writes:
 
 ```
 .claude/skills/workflow-{start,continue,status}/SKILL.md
 .claude/skills/workflow-{plan,code,test,complete}/SKILL.md
 .claude/skills/intake/SKILL.md
+.claude/skills/droost-{code-wiki,code-tree,search-arch}/SKILL.md
 .claude/commands/droost/workflow/{start,continue,status,intake}.md
 .claude/agents/workflow-{researcher,spec-writer,seeker,bug-fixer}.md
 .claude/agents/droost-debugger.md
-.claude/hooks/droost-workflow-guard.php
 .claude/partials/droost-usage.md
 .claude/templates/evaluation.md
-droost.workflow.yml          # only if you don't already have one
+.claude/settings.json        # the guard's hook entries, merged in
+AGENTS.md                    # droost's blocks, created when absent
+droost/droost.yml            # only if you don't already have one
 ```
 
-Each phase skill states four things: its entry gate, the work, its exit gate,
-and **what it can and cannot check without a booted site**. That last section
-is the point. Nearly every droost tool needs a running site, so a CLI run has
-real blind spots — and a run that hides them produces a report nobody should
-trust.
+The workflow forces the consult; the knowledge skills say how. Each phase
+skill states its entry gate, the work, its exit gate, and **what it can and
+cannot check without a running site**: droost reads files, so it answers with
+the site down, but the site's content, active configuration and rendered
+pages are not droost's to read, and a run that hides that produces a report
+nobody should trust.
 
-The guard hook is the one host-specific piece — the table under Install says
-what a host without it loses: it is a Claude Code pre-tool hook, and it
-refuses the operator's commands from the agent's shell, plus any
-agent edit under `droost/baseline/`, under `droost/droost-workflow/`, or to the
-guard itself. There are five, and each is a loosening somebody has to own:
+**Ownership is explicit.** Every directory the pack owns gets a
+`.droost-workflow-pack` marker. Re-running `init` refreshes those
+directories and nothing else; a directory without the marker belongs to you
+and is refused rather than overwritten. Your `droost/droost.yml` is never
+refreshed at all — it is version-controlled intent you wrote. `.claude/settings.json`
+is merged (an existing file keeps everything else it holds; one that cannot
+be parsed is refused, not replaced), and the state directory's ignore lines
+are appended to `.gitignore` if they are not already there.
 
-Each verb has TWO spellings — the drush one and the standalone binary's — and
-the guard refuses both. It has to: `droost-workflow bypass "x"` and
-`drush droost:workflow:bypass "x"` are the same act, and a wall that knows only
-one of them is not a wall. The refusal names the spelling that was used, so the
-command it hands the operator is one they can actually run.
+## The guard, and each harness's shim
+
+The guard is droost's code and ships in the package; it is never copied into
+the project. Each agent harness's hook configuration gets one line per
+event, calling the guard from where the package is installed. For Claude
+Code, `init` writes eight entries into `.claude/settings.json` (PreToolUse
+on Edit/Write, on Bash and on `mcp__.*`; PostToolUse for the nudge, for
+Agent/Task and for AskUserQuestion; Stop; SubagentStop), each running
+`php <package>/bin/droost-guard <verb> --harness=claude` (`droost guard
+<verb>` is the same guard). Before a tool call it applies droost's rules and
+the project's walls; after an event it runs the project's hooks.
+
+It refuses, from the agent: out-of-phase edits while a run is open
+(`enforcement`), custom-code edits with no run at all (`require_run`), edits
+to the run's record, the evidence store, the baseline, the lever file and the
+project's rule files during a run, and edits to its own wiring
+(`.claude/settings.json`) and to the package (`tools/droost/`) at any time.
+And it refuses the operator's commands from the agent's shell, in every
+spelling (`droost workflow:<verb>` from any install path, the retired
+`droost-workflow <verb>`, and drush's), naming back the one used:
 
 | Refused from the agent's shell | What is still the agent's to run |
 |---|---|
-| `droost:workflow:gate-waive`, `droost-workflow gate-waive` | — nothing; a waiver is always the operator's |
-| `droost:workflow:baseline`, `droost-workflow baseline` (writing) | `--status` and `--measure`, which only read |
-| `droost:workflow:bypass`, `droost-workflow bypass` | `bypass --off`, which tightens |
-| `droost:workflow:effort <level>`, `droost-workflow effort <level>` | bare `effort` (reports) and `effort <level> --preview` (prices it) |
-| arming a write gate — `droost:gate allow_* on`, or the `config:set droost.settings allow_* true` form | disarming the same gate, which tightens |
-| `droost-workflow ticket move <id> <state>` | `ticket list`, `ticket show` and `ticket new` (a follow-up, filed in backlog) |
-| `droost:workflow:intake abandon`, `intake answer` (and `droost-workflow intake …`) | `intake start`, `intake audit`, `intake check`, `intake status`, `intake ask`, and `intake approve` once the human has said yes; asking the human through AskUserQuestion, whose answers the guard records |
+| `droost workflow:gate-waive` | — nothing; a waiver is always the operator's |
+| `droost workflow:baseline` (writing) | `--status` and `--measure`, which only read |
+| `droost workflow:bypass` | `bypass --off`, which tightens |
+| `droost workflow:effort <level>` | bare `effort` (reports) and `effort <level> --preview` (prices it) |
+| `droost workflow:ticket move <id> <state>` | `ticket list`, `ticket show` and `ticket new` (a follow-up, filed in backlog) |
+| arming a write gate on a site still running droost's retired Drupal module (`droost:gate allow_* on`, or `config:set droost.settings allow_* true`) | disarming the same gate, which tightens |
+| `droost workflow:intake abandon`, `intake answer` | `intake start`, `intake audit`, `intake check`, `intake status`, `intake ask`, and `intake approve` once the human has said yes; asking the human through AskUserQuestion, whose answers the guard records |
+| a script `operator_only` names | — |
 
 The pattern is the same in each row: the reading and the tightening are the
 agent's, the loosening is not. An agent that needs one proposes it — the
 refusal prints the exact command to hand over, and the operator runs it in a
 terminal of their own, outside the agent's session. Not with Claude Code's
 `!`: it runs a command with no terminal, so the command refuses it as it
-refuses the agent (F-256). On a host without pre-tool hooks the status document's
-run half says so — `enforcement.effective: advisory` — because the gates still
-hold the run server-side but nothing stops an out-of-phase edit, and a report
-must not claim a discipline the host never had.
+refuses the agent (F-256).
 
-**Ownership is explicit.** Every directory the pack owns gets a
-`.droost-workflow-pack` marker. Re-running the installer refreshes those
-directories and nothing else; a directory without the marker belongs to you
-and is refused rather than overwritten. Your `droost.workflow.yml` is never
-refreshed at all — it is version-controlled intent you wrote, and resetting
-your gates on an unrelated re-install would be an unpleasant surprise.
-
-Two files outside the pack are touched, and only additively: the hook
-entries are **merged** into `.claude/settings.json` (an existing file keeps
-everything else it holds; one that cannot be parsed is refused, not
-replaced), and the run-state directory's ignore lines are **appended** to
-`.gitignore` if they are not already there. Both are edited in place rather
-than announced in init's file tally, so `git diff` after an install is where
-you see them.
-
-## Install
-
-**This package is a framework-free PHP library.** It requires no Drupal, and
-it is the whole standalone surface:
-
-```bash
-composer require --dev droost/workflow
-vendor/bin/droost-workflow init      # writes the pack + a default lever file
-```
-
-### What `init` writes, and for which host
-
-Be precise about this, because "host-agnostic" is easy to claim and was
-overstated here until 2026-09-15. Two of the three surfaces are genuinely
-host-neutral; the third is Claude Code's, and there is no second
-implementation of it.
-
-| What | Who reads it |
-|---|---|
-| `AGENTS.md` — the pipeline's own block: that a run comes before a write, and that the discipline is enforced | **every host.** The cross-tool convention. `init` CREATES the file when a project has none, because an installed pipeline no agent is told about is the failure this block exists to prevent |
-| `droost.workflow.yml` — the levers | **every host**, and a person. A file rather than site config partly so a reader with no site can see what a run is held to |
-| `vendor/bin/droost-workflow` — the verbs, including the operator's three | **every host.** Anything that can run a command can drive a run |
-| `.claude/skills/workflow-*` — the phase procedures | Claude Code loads them by name; **any host can read them as prose**, and they are written to be read that way, which is why the procedure lives in the skill and not in the slash command |
-| `.claude/commands/droost/workflow/*` — three one-paragraph pointers | **Claude Code only** |
-| `.claude/hooks/droost-workflow-guard.php` + its `settings.json` wiring | **Claude Code only.** This is the enforcement, and it has no equivalent anywhere else |
-
-So a Codex or "other" user gets the doctrine, the levers, the CLI and the
-skills as readable prose — and **not** the enforcement. `declare-tasks
-codex|other|none` records which host is driving, and on a host with no
-pre-tool hook the status document says `enforcement.effective: advisory` in as
-many words: the gates still hold the run, because the engine runs them, but
-nothing stops an out-of-phase edit. A report must not claim a discipline the
-host never had.
-
-Porting the guard is the only work that would change that row, and nobody has
-done it. Said plainly here so the gap is a known limitation rather than
-something a reader discovers by reading `PackManifest`.
-
-**The Drupal surface ships with droost, not here.** `drupal/droost`'s
-`droost_workflow` submodule supplies the two things that genuinely need a
-booted site — the `drush droost:workflow:*` commands and the checks that read
-the site (the rendered check, the composition gate). Enable
-it and you get both; the pipeline underneath is this library either way.
-
-That split is P6.7 in droost's roadmap, and the reason is delivery rather than
-capability: a Drupal site builder does not install contrib from a git remote,
-and a plain Claude Code or Codex user does not want an AI work pipeline
-delivered as a Drupal module. Nothing about the pipeline changed.
-
-The lever file's `preset` is a scalar (`preset: custom`) — there is no
-`presets:` block to configure; a preset is a base the `gates:` entries
-overlay.
-
-## Two surfaces, one pipeline
-
-The same run, the same levers, the same report — whether or not there is a
-site.
-
-```bash
-# Standalone. Any Drupal repo, no booted site, nothing running.
-vendor/bin/droost-workflow init
-vendor/bin/droost-workflow status
-vendor/bin/droost-workflow run
-vendor/bin/droost-workflow reset      # archive a finished run, start clean
-vendor/bin/droost-workflow baseline --measure   # the inherited-debt bill; a bare `baseline` writes it
-
-# Against a live site.
-drush droost:workflow:status
-drush droost:workflow:run
-drush droost:workflow:answer "yes, continue"
-drush droost:workflow:swap agentic
-drush droost:workflow:reset
-drush droost:workflow:baseline --measure        # the same bill, config_clean included
-```
-
-The only thing that differs is what the site-dependent gates can say. Verified
-on a real Drupal 11.4.4 site:
-
-| Surface | `rendered_check` |
-|---|---|
-| live (drush) | **passed** — "1 route(s) rendered", a real render of `/` in a fresh drush process |
-| standalone | **skipped, no site** — with the reason recorded |
-
-That difference is the entire point. The CLI surface is not a degraded live
-run pretending otherwise; it is a run that tells you exactly which checks it
-could not perform. Everything else — which gates ran, their verdicts, the
-phase, the advance decision — is identical, because both surfaces call one
-facade and differ only in which site driver they inject.
-
-## Reaching droost: commands, and MCP as a second door
-
-droost is reached two ways, with the same tools, the same write gates and the
-same ledger row:
-
-- **By command.** `vendor/bin/droost <tool> '<json>'` answers about the code
-  (symbols, the code graph, lexical search, wiki pages, module docs,
-  deprecations) with no Drupal at all, from droost's code index, so it
-  answers while the site is broken. `drush droost:tool <tool> '<json>'`
-  answers about the live site. `drush droost:brief` prints the site's facts,
-  and `drush droost:workflow:*` drives a run (`vendor/bin/droost-workflow`
-  does the same with no site). On DDEV run them in the container (`ddev exec
-  vendor/bin/droost`), so one side writes the ledger.
-- **Through MCP** (droost 2.0.x, 2026-10-16): droost's server
-  (`vendor/bin/droost-mcp`, which `drush droost:install` wires unless told
-  `--no-mcp`) lists both sets of tools. It runs each call as the same command,
-  in a fresh process.
-
-The server holds no Drupal. 0.15 removed a server that held one booted kernel
-for a whole session. That process was a family of findings: classes loaded
-once, config written from stale classes, a server that died mid-run. Each
-answer now boots the code on disk. Playwright's own MCP server is the browser
-tier, and stays.
+**Which harnesses are forced.** A harness is forced only when its hooks can
+refuse a tool call before it runs, and only Claude Code has a shim today.
+`init` writes droost's AGENTS.md block, and the pointer files of the
+harnesses it finds (`--harness=all` for every one it knows: Claude Code,
+Codex, opencode, Gemini, Qwen), so every host gets the doctrine, the
+levers, the command and the skills as readable prose — and not the
+enforcement. `declare-tasks codex|other|none` records which host is driving,
+and on a host with no shim the status document says `enforcement.effective:
+advisory` in as many words: the gates still hold the run, because the engine
+runs them, but nothing stops an out-of-phase edit. A report must not claim a
+discipline the host never had. The guard's rules are written against
+droost's own events (a file write, a shell command, a tool call, a stop, a
+subagent), with a translator per harness, so a second shim is a translator
+and its probe, not a second guard.
 
 ## Requirements
 
-PHP 8.3+. The engine's only runtime dependency is `symfony/yaml` — no Drupal
-bootstrap is required to read config or run state, which is what lets the same
-code serve both surfaces.
+PHP 8.3+ with `pdo_sqlite`. Runtime dependencies: `symfony/yaml` and
+`droost/engine` (the code index, the wiki and search cores, the harness
+installers), which brings `nikic/php-parser` and `symfony/process`. No Drupal
+bootstrap is needed for anything: the levers, the run state, the code index
+and the wiki are files.
 
 ## Development
 

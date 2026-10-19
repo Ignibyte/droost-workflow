@@ -77,8 +77,8 @@ final class SpecFreeze {
    * column a later gate judges is one a later phase may legitimately have to
    * correct, because the gate's own refusal tells it to.
    *
-   * `Verified By` the test phase is REQUIRED to fill. `Evidence` is resolved by
-   * grounding_check at code, and its refusal reads "Cite a class this site
+   * `Verified By` the test phase is REQUIRED to fill. `Evidence` was resolved
+   * again at code by a site gate whose refusal read "Cite a class this site
    * actually has ... or `none: <query>`" — an instruction to edit the cell. The
    * plan gate checks only that answers are non-blank and all three tiers
    * appear; it never looks at a citation. So freezing that cell protected

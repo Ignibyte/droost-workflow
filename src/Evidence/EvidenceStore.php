@@ -1412,8 +1412,8 @@ final class EvidenceStore {
    * The gates that cannot show a measurement, through nothing the agent did.
    *
    * Two ways in, and they were found one at a time. A site gate on the
-   * standalone binary is ON and unreachable — no booted site, so
-   * `rendered_check` and its kin record `skipped` — which wedged the test phase
+   * standalone binary was ON and unreachable — no booted site, so the
+   * page-rendering gate and its kin recorded `skipped` — which wedged the test phase
    * forever for anyone following the plan skill's own `--type=theme` example.
    *
    * And a WAIVED gate, which is worse, because the waiver is the operator's
@@ -1844,8 +1844,8 @@ final class EvidenceStore {
    * Declares a route this ticket's change serves.
    *
    * Written by a TOOL CALL, never parsed out of a document. `## Routes` is
-   * still in the spec for a human to read; this is what `rendered_check`
-   * renders, and the difference is that a row has no shape to get wrong.
+   * still in the spec for a human to read; this is what the seeker, the
+   * browser check and the report read, and a row has no shape to get wrong.
    * Part 3 lost two runs to a route list written inside a fence, which is
    * the natural markdown for "one per line" and declared nothing (F-34).
    *

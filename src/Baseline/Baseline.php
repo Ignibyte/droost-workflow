@@ -16,10 +16,10 @@ final class Baseline {
    * The gates whose verdict consults a baseline.
    *
    * The static and front-end tools partition their findings; phpstan carries
-   * its native baseline; the two metric gates have a floor; config_clean has
-   * a drift snapshot (read by the site driver). phpunit, playwright,
-   * rendered_check and wiki_fresh get none: a failing suite is broken, not
-   * inherited (design §9).
+   * its native baseline; the two metric gates have a floor; a config drift
+   * snapshot is still read from a baseline that has one. phpunit, playwright
+   * and wiki_fresh get none: a failing suite is broken, not inherited
+   * (design §9).
    */
   public const CONSULTING = [
     'phpcs',

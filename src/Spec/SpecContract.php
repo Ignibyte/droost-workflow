@@ -416,7 +416,7 @@ final class SpecContract {
   }
 
   /**
-   * The routes the spec declares for rendered_check to render.
+   * The routes the spec declares, when the run declared none as rows.
    *
    * Reads the section under `## Routes`. A route is the first `/`-prefixed
    * token on a list item or table row — backticks stripped, so `- /camps —

@@ -1,5 +1,14 @@
 # Droost Workflow — design sketch (Track F)
 
+> **History note (2026-10-19).** This is the design record as it was written.
+> droost has since left Drupal: the lever file is `droost/droost.yml`, every
+> `drush droost:workflow:<verb>` and `droost-workflow <verb>` is `droost
+> workflow:<verb>`, the four in-process site gates (`rendered_check`,
+> `config_clean`, `grounding_check`, `composition_check`) and the
+> module-contributed gates are gone, and a project's own gates, hooks and
+> walls are files in `droost/` (README, "The project's own gates, hooks and
+> walls"). Where this record and the README disagree, the README is current.
+
 The open-source, **agent-first** work pipeline the Druplit worker (and any droost surface)
 runs to build or change a Drupal site. A **clean-room sibling** of a proprietary enterprise pipeline
 — same structural DNA (phased · gated · EARS-grounded · droost-powered), rebuilt for an
