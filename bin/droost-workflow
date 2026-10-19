@@ -59,4 +59,11 @@ $dispatcher = new ArgvDispatcher(
   static fn (): string => 'run-' . bin2hex(random_bytes(6)),
 );
 
+// `droost workflow:<verb>` is the name now; this one keeps working. The
+// note goes to stderr, so a caller parsing stdout reads the same as before.
+$verb = $argv[1] ?? '';
+if ($verb !== '' && !str_starts_with($verb, '-') && $verb !== 'help') {
+  fwrite(STDERR, sprintf("droost-workflow is now `droost workflow:%s`.\n", $verb));
+}
+
 exit($dispatcher->dispatch(array_slice($argv, 1), $root));
