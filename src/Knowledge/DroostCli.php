@@ -231,6 +231,19 @@ final class DroostCli {
         ? $this->wikiStatus(array_values(array_slice($rest, 1)))
         : $this->wikiStamp(array_values(array_slice($rest, 1)));
     }
+    // The project commands answer help, and refuse what they do not take,
+    // before they act: `droost migrate --help` once MOVED the lever file
+    // (F-307, EMT-422).
+    if (isset(self::otherCommands()[$command])) {
+      if (array_intersect(array_map(static fn (string $word): string => strtolower(trim($word)), $rest), ['help', '--help', '-h']) !== []) {
+        ($this->out)(sprintf('droost %s: %s', $command, self::otherCommands()[$command]));
+        return self::EXIT_OK;
+      }
+      if (in_array($command, ['migrate', 'doctor'], TRUE) && $rest !== []) {
+        ($this->err)(sprintf('droost %s takes no arguments (got: %s). `droost %s help` says what it does.', $command, implode(' ', $rest), $command));
+        return self::EXIT_USAGE;
+      }
+    }
     return match ($command) {
       'code:index' => $this->index($rest),
       'init' => $this->init($rest),

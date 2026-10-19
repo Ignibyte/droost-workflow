@@ -282,6 +282,25 @@ final class DroostCliTest extends TestCase {
   }
 
   /**
+   * Help on a project command prints, and never acts (F-307).
+   */
+  public function testProjectCommandsAnswerHelpBeforeActing(): void {
+    unlink($this->root . '/droost/droost.yml');
+    $this->put($this->root, 'droost.workflow.yml', "preset: low\n");
+    foreach (['--help', 'help', '-h'] as $word) {
+      $this->out = [];
+      $this->assertSame(0, $this->droost(['migrate', $word]));
+      $this->assertStringStartsWith('droost migrate: ', implode("\n", $this->out));
+      $this->assertFileExists($this->root . '/droost.workflow.yml', 'help moved nothing');
+    }
+    $this->assertSame(0, $this->droost(['init', 'help']));
+    $this->assertSame(0, $this->droost(['doctor', '--help']));
+    $this->assertSame(0, $this->droost(['code:index', '-h']));
+    $this->assertSame(2, $this->droost(['migrate', '--dry-run']), 'an argument it does not take is refused, not ignored');
+    $this->assertFileExists($this->root . '/droost.workflow.yml');
+  }
+
+  /**
    * Init removes the module's retired commands, and only droost's own (F-305).
    */
   public function testInitRemovesTheModulesRetiredCommandsOnly(): void {
