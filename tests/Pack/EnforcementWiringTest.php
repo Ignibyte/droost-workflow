@@ -291,6 +291,9 @@ final class EnforcementWiringTest extends WorkflowTestCase {
     // undeclared scope with no waiver. A walk found it as the wall between a
     // completed ticket and the next one.
     $this->assertStringContainsString(".phpunit.result.cache\n", $contents);
+    // droost's own vendor directory: `composer install -d tools/droost` fills
+    // it, and without the line a `git add -A` commits droost, guard and all.
+    $this->assertStringContainsString("tools/droost/vendor/\n", $contents);
 
     $second = $materializer->init($root);
     $this->assertContains('.gitignore', $second->kept, 'a no-op re-init changes nothing');

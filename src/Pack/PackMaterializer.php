@@ -497,7 +497,7 @@ final class PackMaterializer {
     // waiver, on the SECOND ticket in a repo. The product wrote the file; the
     // agent paid for it. `NEVER_CREEP` stops it blocking a run; this stops it
     // reaching a review at all.
-    $addition = "# Droost workflow run state, specs and gate caches (droost/workflow init).\n"
+    $addition = "# droost: run state, specs, its own vendor directory and gate caches (droost init).\n"
       . implode("\n", $wanted) . "\n";
     $contents = $existing === ''
       ? $addition
@@ -511,7 +511,11 @@ final class PackMaterializer {
   /**
    * The lines `init` keeps in .gitignore.
    *
-   * The state directory, and the caches the GATES write. phpunit drops
+   * The state directory, droost's own vendor directory, and the caches the
+   * GATES write. `tools/droost/vendor/` is what `composer install -d
+   * tools/droost` fills (its composer.json and lock are committed, as any
+   * project's are); without the line, a `git add -A` committed the whole of
+   * droost into the project, guard and all (2026-10-19). phpunit drops
    * `.phpunit.result.cache` on every run; without a line here it lands in the
    * diff, where the declaration audit charged it to the agent as undeclared
    * scope — `Fault::Agent`, "There is no waiver for it" — on the second ticket
@@ -526,6 +530,7 @@ final class PackMaterializer {
   private static function gitignoreEntries(string $stateDir): array {
     return [
       $stateDir . '/',
+      'tools/droost/vendor/',
       '.phpunit.result.cache',
       '.phpunit.cache/',
       '.phpcs-cache',
