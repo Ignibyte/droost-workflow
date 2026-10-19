@@ -233,9 +233,10 @@ final class DroostCli {
     }
     // The project commands answer help, and refuse what they do not take,
     // before they act: `droost migrate --help` once MOVED the lever file
-    // (F-307, EMT-422).
+    // (F-310, found by the first subject's migration).
     if (isset(self::otherCommands()[$command])) {
-      if (array_intersect(array_map(static fn (string $word): string => strtolower(trim($word)), $rest), ['help', '--help', '-h']) !== []) {
+      $words = array_map(static fn (string $word): string => strtolower(trim($word)), $rest);
+      if (array_intersect($words, ['help', '--help', '-h']) !== []) {
         ($this->out)(sprintf('droost %s: %s', $command, self::otherCommands()[$command]));
         return self::EXIT_OK;
       }

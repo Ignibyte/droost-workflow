@@ -282,7 +282,7 @@ final class DroostCliTest extends TestCase {
   }
 
   /**
-   * Help on a project command prints, and never acts (F-307).
+   * Help on a project command prints, and never acts (F-310).
    */
   public function testProjectCommandsAnswerHelpBeforeActing(): void {
     unlink($this->root . '/droost/droost.yml');
