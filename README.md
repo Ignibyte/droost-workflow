@@ -35,10 +35,16 @@ GPL.
 
 ```bash
 mkdir -p tools/droost
+composer config -d tools/droost platform.php 8.3.0   # the PHP droost runs under (the site's, e.g. the web container's)
 composer require -d tools/droost droost/workflow
 tools/droost/vendor/bin/droost init       # the pack, the guard's hooks, AGENTS.md, droost/droost.yml
 tools/droost/vendor/bin/droost code:index # the code index the knowledge commands read
 ```
+
+**Pin the platform to the PHP droost will run under.** Installed on a host
+with a newer PHP than the site's container, Composer otherwise resolves
+dependencies the container cannot load (a host on 8.4 chose symfony/yaml 8,
+and droost died in the 8.3 container at Composer's platform check).
 
 `tools/droost/composer.json` is a Composer project of its own, so the site's
 dependency tree can break without taking droost with it, and droost cannot
