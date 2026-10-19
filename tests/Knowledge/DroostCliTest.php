@@ -9,6 +9,7 @@ use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Knowledge\CodeIndex;
 use Droost\Workflow\Knowledge\DroostCli;
+use Droost\Workflow\Knowledge\HarnessSetup;
 use Droost\Workflow\Knowledge\KnowledgeSettings;
 use Droost\Workflow\Knowledge\ProjectLocator;
 use Droost\Workflow\Knowledge\ToolCallLog;
@@ -298,6 +299,18 @@ final class DroostCliTest extends TestCase {
     $this->assertSame(0, $this->droost(['code:index', '-h']));
     $this->assertSame(2, $this->droost(['migrate', '--dry-run']), 'an argument it does not take is refused, not ignored');
     $this->assertFileExists($this->root . '/droost.workflow.yml');
+  }
+
+  /**
+   * The AGENTS heading names the site's PHP, never the PHP running init.
+   */
+  public function testAgentsHeadingNamesTheSitesPhp(): void {
+    $this->put($this->root, '.ddev/config.yaml', "name: x\nphp_version: \"8.3\"\n");
+    $this->assertSame('8.3', HarnessSetup::sitePhp($this->root));
+    $this->put($this->root, 'composer.json', (string) json_encode(['config' => ['platform' => ['php' => '8.3.30']]]));
+    $this->assertSame('8.3.30', HarnessSetup::sitePhp($this->root), 'the platform pin first');
+    $this->assertSame(0, $this->droost(['init']));
+    $this->assertStringContainsString(', PHP 8.3.30', (string) file_get_contents($this->root . '/AGENTS.md'));
   }
 
   /**

@@ -83,15 +83,49 @@ final class HarnessSetup {
   public function install(string $root, string $selection, string $coreVersion): InstallResult {
     $installers = $this->installers($coreVersion);
     $chosen = $this->select($installers, $selection, $root);
+    $php = self::sitePhp($root);
     $header = $coreVersion === ''
-      ? sprintf("# Droost — Drupal version unknown, PHP %s\n\n", PHP_VERSION)
-      : sprintf("# Droost — Drupal %s, PHP %s\n\n", $coreVersion, PHP_VERSION);
+      ? sprintf("# Droost — Drupal version unknown, PHP %s\n\n", $php)
+      : sprintf("# Droost — Drupal %s, PHP %s\n\n", $coreVersion, $php);
     $context = new InstallContext($header . self::DIRECTIVE, NULL);
     $result = new InstallResult();
     foreach ($chosen as $installer) {
       $installer->install($root, $context, $result);
     }
     return $result;
+  }
+
+  /**
+   * The site's PHP, as its files declare it; never the PHP running init.
+   *
+   * Init runs on the host or in the container, and stamped whichever PHP ran
+   * it: a host's 8.4 over a site that runs 8.3 (F-312). In order: Composer's
+   * platform pin, DDEV's php_version, Composer's php requirement.
+   *
+   * @param string $root
+   *   The project root.
+   *
+   * @return string
+   *   The version, a constraint, or 'unknown'.
+   */
+  public static function sitePhp(string $root): string {
+    $composer = json_decode((string) @file_get_contents($root . '/composer.json'), TRUE);
+    $composer = is_array($composer) ? $composer : [];
+    $config = is_array($composer['config'] ?? NULL) ? $composer['config'] : [];
+    $platform = is_array($config['platform'] ?? NULL) ? ($config['platform']['php'] ?? NULL) : NULL;
+    if (is_string($platform) && trim($platform) !== '') {
+      return trim($platform);
+    }
+    $ddev = (string) @file_get_contents($root . '/.ddev/config.yaml');
+    if (preg_match('/^php_version:\s*["\']?([0-9.]+)["\']?\s*$/m', $ddev, $m) === 1) {
+      return $m[1];
+    }
+    $required = is_array($composer['require'] ?? NULL) ? ($composer['require']['php'] ?? NULL) : NULL;
+    if (is_string($required) && trim($required) !== '') {
+      return trim($required);
+    }
+
+    return 'unknown';
   }
 
   /**
