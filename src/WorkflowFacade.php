@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow;
 
+use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Config\RuleFiles;
 use Droost\Workflow\Driver\RenderedRoutes;
 use Droost\Workflow\Baseline\BaselineError;
@@ -1708,6 +1709,9 @@ final class WorkflowFacade {
    *   The phase whose gates run.
    * @param string|null $base
    *   A ref to read "what changed" from, as a run's base commit; NULL for none.
+   * @param list<string> $skip
+   *   Gates to leave out: each reads off, "left out on the command line", and
+   *   never runs.
    *
    * @return array{phase: string, preset: string, base: string|null, passed: bool, gates: list<array{gate: string, status: string, outcome: string, summary: string, exit_code: int|null, duration_ms: int|null}>}
    *   Each gate's result, and whether none of them blocks.
@@ -1720,7 +1724,7 @@ final class WorkflowFacade {
    * @throws \InvalidArgumentException
    *   When the base names no commit in this repository.
    */
-  public function gates(string $projectRoot, Phase $phase = Phase::Test, ?string $base = NULL): array {
+  public function gates(string $projectRoot, Phase $phase = Phase::Test, ?string $base = NULL, array $skip = []): array {
     $store = new RunStateStore($projectRoot);
     $open = $store->load();
     if ($open !== NULL && $open->currentPhase === Phase::Test) {
@@ -1751,7 +1755,35 @@ final class WorkflowFacade {
         : NULL,
       RuleFiles::hash($projectRoot, $config),
     );
-    $report = (new GateRunner($this->executor, $this->vcs))
+    // A gate left out on the command line never runs and reads off, with the
+    // reason: a run-less check drives every gate for real (the browser suite
+    // against the site included), and a pre-flight may not want that.
+    $executor = $skip === [] ? $this->executor : new class($this->executor, $skip) implements GateExecutorInterface {
+
+      /**
+       * Wraps the executor.
+       *
+       * @param \Droost\Workflow\Gate\GateExecutorInterface $inner
+       *   The executor that runs every gate not left out.
+       * @param list<string> $skip
+       *   The gates left out.
+       */
+      public function __construct(
+        private readonly GateExecutorInterface $inner,
+        private readonly array $skip,
+      ) {}
+
+      /**
+       * {@inheritdoc}
+       */
+      public function execute(GateSettings $gate, string $projectRoot): GateResult {
+        return in_array($gate->name, $this->skip, TRUE)
+          ? GateResult::off($gate->name, 'left out on the command line (gate --skip), not run')
+          : $this->inner->execute($gate, $projectRoot);
+      }
+
+    };
+    $report = (new GateRunner($executor, $this->vcs))
       ->run($state, $phase, $projectRoot, NULL, NULL, FALSE);
 
     $gates = [];

@@ -1003,9 +1003,13 @@ final class ArgvDispatcher {
     $json = FALSE;
     $phase = Phase::Test;
     $base = NULL;
+    $skip = [];
     foreach (array_slice($argv, 1) as $argument) {
       if ($argument === '--json') {
         $json = TRUE;
+      }
+      elseif (str_starts_with($argument, '--skip=')) {
+        $skip = array_values(array_filter(array_map('trim', explode(',', substr($argument, 7)))));
       }
       elseif (str_starts_with($argument, '--base=')) {
         $base = substr($argument, 7);
@@ -1019,11 +1023,22 @@ final class ArgvDispatcher {
         }
       }
       else {
-        $this->fail(sprintf('gate: unknown argument "%s" (accepted: --json, --phase=<phase>, --base=<ref>).', $argument));
+        $this->fail(sprintf('gate: unknown argument "%s" (accepted: --json, --phase=<phase>, --base=<ref>, --skip=<gate,…>).', $argument));
         return self::EXIT_USAGE;
       }
     }
-    $result = $this->facade($projectRoot)->gates($projectRoot, $phase, $base);
+    // Nothing is recorded, but every gate runs for real: say so where it
+    // reaches the site (a browser suite can leave state behind), before it
+    // does.
+    $browser = WorkflowConfig::load($projectRoot)->resolvedGates()['playwright'] ?? NULL;
+    if ($phase !== Phase::Code && !in_array('playwright', $skip, TRUE) && is_array($browser) && ($browser['on'] ?? FALSE) === TRUE) {
+      $this->fail(sprintf(
+        'gate: playwright runs the browser suite against the site at %s%s. Nothing is recorded, but the suite runs for real; --skip=playwright leaves it out.',
+        $phase->value,
+        $base === NULL ? ' (with no --base the scope is unknown, so the WHOLE suite)' : '',
+      ));
+    }
+    $result = $this->facade($projectRoot)->gates($projectRoot, $phase, $base, $skip);
     if ($json) {
       $this->say($this->encode($result));
     }
