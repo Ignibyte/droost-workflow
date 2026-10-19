@@ -225,7 +225,7 @@ final class ArgvDispatcher {
         'run' => $this->run($projectRoot, $argv),
         'answer' => $this->answer($projectRoot, $argv),
         'swap' => $this->swap($projectRoot, $argv),
-        'seeker-report' => $this->seekerReport($projectRoot),
+        'seeker-report' => $this->seekerReport($projectRoot, $argv),
         'declare-browser' => $this->declareBrowser($projectRoot, $argv),
         'declare-tasks' => $this->declareTasks($projectRoot, $argv),
         'declare-changes' => $this->declareChanges($projectRoot, $argv),
@@ -749,30 +749,82 @@ final class ArgvDispatcher {
   }
 
   /**
-   * Records a seeker inspection from the ledger on standard input.
+   * Records a seeker inspection: from a file named, or from standard input.
+   *
+   * `seeker-report <spec-or-section.md>` reads the file, and the ledger is its
+   * LAST `## Seeker Inspection` section. With no file it reads stdin, and
+   * refuses rather than waits when stdin is a terminal: given a file it once
+   * ignored, it blocked on an open stdin for good (F-318).
    *
    * @param string $projectRoot
    *   The repository.
+   * @param list<string> $argv
+   *   The verb's arguments: an optional file.
    *
    * @return int
    *   The exit code.
    */
-  private function seekerReport(string $projectRoot): int {
-    $text = $this->in !== NULL
-      ? ($this->in)()
-      : (string) stream_get_contents(\STDIN);
-    if (trim($text) === '') {
-      $this->fail(
-        'seeker-report reads the ledger from stdin: '
-        . 'droost workflow:seeker-report < section.md',
-      );
+  private function seekerReport(string $projectRoot, array $argv = []): int {
+    $usage = 'seeker-report reads the ledger from a file or from stdin: '
+      . 'droost workflow:seeker-report droost/droost-workflow/spec-<slug>.md, or '
+      . 'droost workflow:seeker-report < section.md';
+    $files = array_values(array_filter(array_slice($argv, 1), static fn (string $word): bool => !str_starts_with($word, '--')));
+    if (count($files) > 1) {
+      $this->fail($usage . ' (one file).');
       return self::EXIT_USAGE;
     }
-    $record = $this->facade($projectRoot)->recordSeeker($projectRoot, $text);
+    if ($files !== []) {
+      $path = str_starts_with($files[0], '/') ? $files[0] : rtrim($projectRoot, '/') . '/' . $files[0];
+      $text = is_file($path) ? (string) @file_get_contents($path) : '';
+      if ($text === '') {
+        $this->fail(sprintf('seeker-report: %s is not a readable file. %s', $files[0], $usage));
+        return self::EXIT_USAGE;
+      }
+    }
+    elseif ($this->in !== NULL) {
+      $text = ($this->in)();
+    }
+    elseif (function_exists('posix_isatty') && @posix_isatty(\STDIN)) {
+      $this->fail($usage . ' (stdin is a terminal, so there is nothing to read).');
+      return self::EXIT_USAGE;
+    }
+    else {
+      $text = (string) stream_get_contents(\STDIN);
+    }
+    if (trim($text) === '') {
+      $this->fail($usage);
+      return self::EXIT_USAGE;
+    }
+    $facade = $this->facade($projectRoot);
+    $before = self::awaiting($facade->status($projectRoot));
+    $record = $facade->recordSeeker($projectRoot, $text);
     $this->say($this->encode($record));
+    // A run paused at a hold is released by a new inspection: the next
+    // `run` re-runs the phase's gates and holds again. Say so, rather than
+    // leave `answer` to report that nothing is waiting (F-319).
+    $after = self::awaiting($facade->status($projectRoot));
+    if ($before !== NULL && $after === NULL) {
+      $this->fail('seeker-report: the run was paused, waiting for an answer; recording the inspection released that hold. `droost workflow:run` re-runs the phase\'s gates and holds again.');
+    }
     // Recording findings is a SUCCESSFUL report — the run's advance is
     // where a dirty inspection bites, not here.
     return self::EXIT_OK;
+  }
+
+  /**
+   * What a status report's run is waiting on, or NULL when it waits on nothing.
+   *
+   * @param array<string, mixed> $status
+   *   The facade's status.
+   *
+   * @return array<mixed>|null
+   *   The awaiting record.
+   */
+  private static function awaiting(array $status): ?array {
+    $run = $status['run'] ?? NULL;
+    $awaiting = is_array($run) ? ($run['awaiting'] ?? NULL) : NULL;
+
+    return is_array($awaiting) ? $awaiting : NULL;
   }
 
   /**
