@@ -102,17 +102,13 @@ final class CustomGatesTest extends TestCase {
    */
   public static function invalidEntries(): array {
     return [
-      'missing on' => [
-        ['phase' => 'code', 'cmd' => 'true'],
-        'custom gate "broken": "on" is required',
-      ],
       'missing phase' => [
         ['on' => TRUE, 'cmd' => 'true'],
         'custom gate "broken": "phase" is required',
       ],
       'missing cmd' => [
         ['on' => TRUE, 'phase' => 'code'],
-        'custom gate "broken": "cmd" is required',
+        'custom gate "broken": exactly one of "cmd" (a one-line command) or "run" (a file the gate runs) is required',
       ],
       'complete is not a placement' => [
         ['on' => TRUE, 'phase' => 'complete', 'cmd' => 'true'],

@@ -1531,9 +1531,9 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
-   * No drush means no site to ask, not a broken environment.
+   * No droost means nothing to ask, not a broken environment.
    *
-   * `wiki_fresh` runs `drush droost:wiki:status`. On a checkout with no drush
+   * `wiki_fresh` runs `droost code:wiki status`. On a checkout with no droost
    * it reported `error-tool-missing`, which BLOCKS — at `complete`, the last
    * phase, with levers frozen since `begin` so turning it off no longer helps.
    * The only way out was `reset --force` and redoing three phases, so no
@@ -1545,11 +1545,12 @@ class ShellGateExecutorTest extends WorkflowTestCase {
    * same wall, moved onto the surface a real run uses. Both halves are asserted
    * here so neither can come back.
    */
-  public function testWikiFreshSkipsWithoutDrushAndRunsWithIt(): void {
+  public function testWikiFreshSkipsWithoutDroostAndRunsWithIt(): void {
     $bare = $this->makeRoot();
     $executor = new ShellGateExecutor(
       static fn (array $argv): array => [0, '', ''],
       static fn (): int => 0,
+      droost: $bare . '/no/such/droost',
     );
 
     $absent = $executor->execute(new GateSettings('wiki_fresh', TRUE), $bare);
@@ -1581,35 +1582,24 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
-   * A drush that cannot bootstrap is no site either.
+   * The wiki command that could not run is not run, never a pass.
    *
-   * The missing-binary branch answered only "drush is absent". Most Drupal
-   * checkouts have `vendor/bin/drush` whether or not a site is bootable, and
-   * there it exits 1 with:
-   *
-   *     PHP Fatal error: Uncaught AssertionError:
-   *     assert($this->bootstrap instanceof DrupalBoot8)
-   *
-   * recorded as `failed` — blocking, at the last phase, on a surface that has
-   * no site to give it. Same absence, two spellings, and only one was answered;
-   * a walk found the second one the day the first was fixed.
+   * Exit 3 is the command saying it could not read the project: the gate
+   * records that with the command's own reason, and the phase may advance
+   * over it as it may over any gate that did not run.
    */
-  public function testWikiFreshSkipsWhenDrushCannotBootstrap(): void {
+  public function testWikiFreshCouldNotRunIsNotRun(): void {
     $root = $this->rootWithBinaries(['droost']);
     $executor = new ShellGateExecutor(
-      static fn (array $argv): array => [
-        1,
-        '',
-        'PHP Fatal error:  Uncaught AssertionError: assert($this->bootstrap '
-        . 'instanceof DrupalBoot8) in .../drush/src/Boot/BootstrapManager.php:119',
-      ],
+      static fn (array $argv): array => [3, '', "the code index cannot be opened\n"],
       static fn (): int => 0,
     );
 
     $result = $executor->execute(new GateSettings('wiki_fresh', TRUE), $root);
 
     $this->assertSame(GateStatus::SkippedNoSite, $result->status);
-    $this->assertFalse($result->status->blocksAdvance());
+    $this->assertFalse($result->status->isPass());
+    $this->assertStringContainsString('the code index cannot be opened', (string) $result->skipReason);
   }
 
   /**

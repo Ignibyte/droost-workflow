@@ -14,6 +14,7 @@ use Droost\Workflow\Config\ConfigLocator;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\PresetResolver;
+use Droost\Workflow\Config\RuleFiles;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\Evidence\EvidenceStore;
@@ -148,6 +149,20 @@ final class GateRunner {
       }
       else {
         [$levers, $drift] = $this->withLiveTuning($name, $levers, $live[$name] ?? NULL);
+        // A PROJECT'S GATE FILE is told which run is asking: its id, the
+        // phase, the base commit and what the run changed, on stdin.
+        $ruleFile = GateSettings::isCustom($name) && is_string($levers['run'] ?? NULL) ? $levers['run'] : NULL;
+        if ($ruleFile !== NULL) {
+          if ($this->vcs !== NULL && $state->baseCommit !== NULL) {
+            $changed ??= $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot);
+          }
+          $levers['context'] = (string) json_encode([
+            'run_id' => $state->runId,
+            'phase' => $phase->value,
+            'base_commit' => $state->baseCommit,
+            'changed_files' => $changed,
+          ], JSON_UNESCAPED_SLASHES);
+        }
         // TICKET SCOPE (0.11): the gate is handed what this run changed, which
         // only the runner can ask the repository for. A run with no base
         // commit, or no repository, cannot say; the executor then runs the
@@ -188,6 +203,15 @@ final class GateRunner {
           ),
         ));
         $result = $this->steeredByTheRun($name, $levers, $state, $projectRoot, $result, $changed);
+        // The file this gate runs is not the one the run froze at begin: the
+        // verdict stands, and says so, so no reader takes it for the rule the
+        // run agreed to (the guard refuses the edit during a run; this is the
+        // record for a change that came another way).
+        if ($ruleFile !== NULL && RuleFiles::changed($projectRoot, $state->ruleFiles, $ruleFile)) {
+          $result = $result->withSummary(
+            rtrim($result->summary, '. ') . sprintf(' [its file %s changed since this run began: this verdict is the changed file\'s, not the one the run agreed to]', $ruleFile),
+          );
+        }
         $result = $this->outsideTheDiff($state, $projectRoot, $result, $changed);
         if ($drift !== []) {
           // Through the one helper that carries every field: the positional

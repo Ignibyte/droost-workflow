@@ -50,7 +50,15 @@ final class WorkflowConfig {
     'max_loops',
     'follow_ups',
     'rules',
+    'hooks',
+    'walls',
+    'operator_only',
   ];
+
+  /**
+   * The run's lifecycle events a project hook may be told about.
+   */
+  public const HOOK_EVENTS = ['run_start', 'phase_begin', 'phase_end', 'run_complete'];
 
   /**
    * Each level's loop budget (owner, 2026-09-29).
@@ -170,6 +178,15 @@ final class WorkflowConfig {
    *   Which open seeker findings hold the run: critical, medium or none.
    * @param bool $seekerAtComplete
    *   Whether complete needs an inspection of its own.
+   * @param array<string, string> $hooks
+   *   The project's hook files, by lifecycle event (HOOK_EVENTS): each told
+   *   about the event, none able to hold the run.
+   * @param array<string, array{tools: string, run: string}> $walls
+   *   The project's walls, by id: a regex over a tool's name, and the file
+   *   asked before a matching call, which may refuse it.
+   * @param list<string> $operatorOnly
+   *   Project scripts only the OPERATOR runs: the guard refuses them from the
+   *   agent's shell, as it refuses bypass and gate-waive.
    */
   private function __construct(
     public readonly Mode $mode,
@@ -192,6 +209,9 @@ final class WorkflowConfig {
     private readonly ?BuildRules $rules = NULL,
     public readonly string $seekerHolds = 'none',
     public readonly bool $seekerAtComplete = FALSE,
+    public readonly array $hooks = [],
+    public readonly array $walls = [],
+    public readonly array $operatorOnly = [],
   ) {}
 
   /**
@@ -447,6 +467,9 @@ final class WorkflowConfig {
         $root->has('rules') ? BuildRules::read($root->child('rules'), $source) : BuildRules::none(),
         self::readSeekerHolds($root, $source, self::defaultSeekerHolds($base->name)),
         self::readSeekerAtComplete($root),
+        self::readHooks($root, $source),
+        self::readWalls($root, $source),
+        self::readOperatorOnly($root, $source),
       );
     }
     catch (DataError $e) {
@@ -484,6 +507,108 @@ final class WorkflowConfig {
     }
 
     return preg_match('/^[a-z][a-z0-9_]*$/', $key) === 1;
+  }
+
+  /**
+   * Reads the project's hook files, by lifecycle event.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   *
+   * @return array<string, string>
+   *   Event => project-relative file.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When an event is unknown or a file is not a project path.
+   */
+  private static function readHooks(TypedArray $root, string $source): array {
+    $node = $root->optionalChild('hooks');
+    if ($node === NULL) {
+      return [];
+    }
+    $hooks = [];
+    foreach ($node->keys() as $event) {
+      if (!in_array($event, self::HOOK_EVENTS, TRUE)) {
+        throw ConfigError::unknownSetting($source, 'hooks.' . $event, self::HOOK_EVENTS);
+      }
+      $hooks[$event] = GateSettings::readRuleFile($node, $event, $source, 'hooks.' . $event);
+    }
+    return $hooks;
+  }
+
+  /**
+   * Reads the project's walls: a tool-name regex and a file each.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   *
+   * @return array<string, array{tools: string, run: string}>
+   *   Wall id => its regex and file.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When a wall is malformed: a bad id, a regex that does not compile, a
+   *   file outside the project, or an option it does not take.
+   */
+  private static function readWalls(TypedArray $root, string $source): array {
+    $node = $root->optionalChild('walls');
+    if ($node === NULL) {
+      return [];
+    }
+    $walls = [];
+    foreach ($node->keys() as $id) {
+      if (preg_match('#^[a-z0-9][a-z0-9_-]*$#', $id) !== 1) {
+        throw ConfigError::invalidCustomGate($source, 'walls.' . $id, 'a wall id is lowercase letters, digits, "_" and "-"');
+      }
+      $wall = $node->child($id);
+      foreach ($wall->keys() as $key) {
+        if (!in_array($key, ['tools', 'run'], TRUE)) {
+          throw ConfigError::invalidCustomGate($source, 'walls.' . $id, sprintf('unknown option "%s" (accepted: tools, run)', $key));
+        }
+      }
+      $tools = $wall->string('tools');
+      // Delimited here, once, the way the guard compiles it: a regex that
+      // does not compile is a wall that never matches, which is no wall.
+      if (trim($tools) === '' || @preg_match('#' . str_replace('#', '\\#', $tools) . '#', '') === FALSE) {
+        throw ConfigError::invalidCustomGate($source, 'walls.' . $id, sprintf('tools must be a regular expression over a tool\'s name; "%s" does not compile', $tools));
+      }
+      $walls[$id] = [
+        'tools' => $tools,
+        'run' => GateSettings::readRuleFile($wall, 'run', $source, 'walls.' . $id),
+      ];
+    }
+    return $walls;
+  }
+
+  /**
+   * Reads the project scripts only the operator runs.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   *
+   * @return list<string>
+   *   Project-relative script paths.
+   *
+   * @throws \Droost\Workflow\Support\DataError
+   *   When the value is not a list of strings.
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When an entry is not a project path.
+   */
+  private static function readOperatorOnly(TypedArray $root, string $source): array {
+    if (!$root->has('operator_only')) {
+      return [];
+    }
+    $node = $root->child('operator_only');
+    $paths = [];
+    foreach ($node->keys() as $index) {
+      $paths[] = GateSettings::readRuleFile($node, (string) $index, $source, 'operator_only');
+    }
+    return array_values(array_unique($paths));
   }
 
   /**
@@ -1377,6 +1502,15 @@ final class WorkflowConfig {
       // that still names them is told, once, where each went, and loads: a
       // lever file is version-controlled intent, and refusing it would stop
       // every run in a project that has not moved yet.
+      // A PROJECT'S OWN GATE, by its own name: an entry that carries `run`
+      // (a file) or `cmd` (one line) is a gate the project declares, the same
+      // as one under `custom:`. A retired name used this way is the project
+      // taking the gate back as its own (`config_clean: { cmd: … }`).
+      $own = $node->child($name);
+      if (!in_array($name, GateSettings::KNOWN_GATES, TRUE) && ($own->has('run') || $own->has('cmd'))) {
+        $gates[GateSettings::CUSTOM_PREFIX . $name] = GateSettings::customFromNode($name, $own, $source);
+        continue;
+      }
       if (isset(GateSettings::RETIRED_GATES[$name])) {
         $deprecations[] = ConfigError::retiredGateNotice($source, $name, GateSettings::RETIRED_GATES[$name]);
         continue;

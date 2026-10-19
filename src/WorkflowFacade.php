@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow;
 
+use Droost\Workflow\Config\RuleFiles;
 use Droost\Workflow\Driver\RenderedRoutes;
 use Droost\Workflow\Baseline\BaselineError;
 use Droost\Workflow\Baseline\BaselineStore;
@@ -252,6 +253,11 @@ final class WorkflowFacade {
         // Whether a committed adoption baseline is honoured (strict mode when
         // FALSE). What it holds is the `baseline` block below.
         'baseline' => $config->baseline,
+        // The project's own rules (droost/droost.yml): hook files by event,
+        // walls by id, and the scripts only the operator runs.
+        'hooks' => $config->hooks,
+        'walls' => $config->walls,
+        'operator_only' => $config->operatorOnly,
       ],
       // The adoption baseline: present or not, honoured or not, what each
       // gate inherits — so "why did phpstan pass over 123 errors" is
@@ -683,6 +689,7 @@ final class WorkflowFacade {
         is_array($parity) && ($parity['on'] ?? FALSE) === TRUE
           ? ParityReference::digest($projectRoot, ParityReference::directory($parity['reference'] ?? NULL))
           : NULL,
+        RuleFiles::hash($projectRoot, $config),
       );
       if ($item !== NULL) {
         $state = $state->withWorkItem($item->binding());
@@ -1719,6 +1726,7 @@ final class WorkflowFacade {
       is_array($parity) && ($parity['on'] ?? FALSE) === TRUE
         ? ParityReference::digest($projectRoot, ParityReference::directory($parity['reference'] ?? NULL))
         : NULL,
+      RuleFiles::hash($projectRoot, $config),
     );
     $report = (new GateRunner($this->executor, $this->vcs))
       ->run($state, $phase, $projectRoot, NULL, NULL, FALSE);

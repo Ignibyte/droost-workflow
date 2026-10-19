@@ -123,6 +123,11 @@ final class GateSettings {
   private const CUSTOM_NAME = '#^[a-z0-9][a-z0-9_-]*$#';
 
   /**
+   * The options a project's own gate accepts.
+   */
+  public const CUSTOM_OPTIONS = ['on', 'phase', 'cmd', 'run', 'mode', 'timeout', 'steered_by'];
+
+  /**
    * The phases a custom gate may attach to.
    *
    * Complete is deliberately absent as a choice: every enabled gate re-runs
@@ -348,20 +353,22 @@ final class GateSettings {
         self::CUSTOM_NAME,
       ));
     }
-    foreach (['on', 'phase', 'cmd'] as $required) {
-      if (!$node->has($required)) {
-        throw ConfigError::invalidCustomGate($source, $key, sprintf(
-          '"%s" is required — a custom gate has no preset base, so nothing '
-          . 'about it is inferred',
-          $required,
-        ));
-      }
+    // A project's gate names a phase and exactly one of `cmd` (one shell
+    // line) or `run` (a file under the project, run as its own process with
+    // the run's JSON on stdin). `on` is optional and true when omitted:
+    // declaring the gate is the opt-in.
+    if (!$node->has('phase')) {
+      throw ConfigError::invalidCustomGate($source, $key, '"phase" is required — a project\'s gate has no preset base, so nothing about it is inferred');
+    }
+    if ($node->has('cmd') === $node->has('run')) {
+      throw ConfigError::invalidCustomGate($source, $key, 'exactly one of "cmd" (a one-line command) or "run" (a file the gate runs) is required');
     }
     foreach ($node->keys() as $given) {
-      if (!in_array($given, ['on', 'phase', 'cmd', 'mode', 'timeout', 'steered_by'], TRUE)) {
+      if (!in_array($given, self::CUSTOM_OPTIONS, TRUE)) {
         throw ConfigError::invalidCustomGate($source, $key, sprintf(
-          'unknown option "%s" (accepted: on, phase, cmd, mode, timeout, steered_by)',
+          'unknown option "%s" (accepted: %s)',
           $given,
+          implode(', ', self::CUSTOM_OPTIONS),
         ));
       }
     }
@@ -392,24 +399,26 @@ final class GateSettings {
         implode(', ', self::CUSTOM_PHASES),
       ));
     }
-    $phase = implode(',', $phases);
-    $cmd = $node->string('cmd');
-    // The command is the repo's own, reviewed in the same diff as every
-    // other lever — the constraint here is shape, not trust: one line,
-    // printable, non-empty.
-    if (trim($cmd) === ''
-      || str_contains($cmd, "\n")
-      || str_contains($cmd, "\0")) {
-      throw ConfigError::invalidCustomGate(
-        $source,
-        $key,
-        'cmd must be a non-empty single-line command',
-      );
+    $options = ['phase' => implode(',', $phases)];
+    if ($node->has('run')) {
+      $options['run'] = self::readRuleFile($node, 'run', $source, $key);
     }
-    $options = [
-      'cmd' => $cmd,
-      'phase' => $phase,
-    ];
+    else {
+      $cmd = $node->string('cmd');
+      // The command is the repo's own, reviewed in the same diff as every
+      // other lever — the constraint here is shape, not trust: one line,
+      // printable, non-empty.
+      if (trim($cmd) === ''
+        || str_contains($cmd, "\n")
+        || str_contains($cmd, "\0")) {
+        throw ConfigError::invalidCustomGate(
+          $source,
+          $key,
+          'cmd must be a non-empty single-line command',
+        );
+      }
+      $options['cmd'] = $cmd;
+    }
     // `mode` is optional here because block is every gate's default; only
     // `report` is recorded, so an unchanged file resolves to unchanged levers.
     if ($node->has('mode') && self::readModeWord($node) === 'report') {
@@ -426,7 +435,49 @@ final class GateSettings {
     if ($node->has('steered_by')) {
       $options['steered_by'] = implode(',', array_filter(array_map('trim', explode(',', $node->string('steered_by')))));
     }
-    return new self(self::CUSTOM_PREFIX . $key, $node->bool('on'), $options);
+    return new self(self::CUSTOM_PREFIX . $key, $node->optionalBool('on', TRUE), $options);
+  }
+
+  /**
+   * Reads a rule file's path: a file in the project, named relative to it.
+   *
+   * Only files committed in the repository run: review is the trust model,
+   * so a path outside the project, or one that climbs out of it, is refused
+   * by its shape before anything could run it.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $node
+   *   The mapping holding the path.
+   * @param string $option
+   *   The key.
+   * @param string $source
+   *   The document label.
+   * @param string $owner
+   *   The gate, hook or wall the file belongs to, for the message.
+   *
+   * @return string
+   *   The path, normalised (no leading `./`).
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When the path is absolute, climbs, or is not one printable line.
+   */
+  public static function readRuleFile(TypedArray $node, string $option, string $source, string $owner): string {
+    $path = trim($node->string($option));
+    while (str_starts_with($path, './')) {
+      $path = substr($path, 2);
+    }
+    if ($path === ''
+      || str_starts_with($path, '/')
+      || str_starts_with($path, '~')
+      || preg_match('#(^|/)\.\.(/|$)#', $path) === 1
+      || preg_match('#^[A-Za-z0-9_./-]+$#', $path) !== 1) {
+      throw ConfigError::invalidCustomGate($source, $owner, sprintf(
+        '%s must name a file in the project, relative to its root, using letters, digits and _ . / - only (e.g. droost/gates/scan.php) — got "%s"',
+        $option,
+        $node->string($option),
+      ));
+    }
+
+    return $path;
   }
 
   /**
