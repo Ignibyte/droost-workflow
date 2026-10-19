@@ -58,6 +58,8 @@ final class RunReportTest extends TestCase {
         'seeker' => ['status' => 'clean', 'critical' => 0, 'medium' => 0, 'low' => 0, 'self_reviewed' => TRUE],
         'seeker_history' => [['status' => 'found', 'medium' => 1], ['status' => 'clean']],
         'awaiting' => ['question' => 'Ship it?'],
+        'answered' => 4,
+        'released' => 1,
       ],
     ], ['active' => TRUE, 'reason' => 'a hotfix']));
 
@@ -73,6 +75,7 @@ final class RunReportTest extends TestCase {
     $this->assertStringContainsString('SELF-REVIEWED, not independent', $lines);
     $this->assertStringContainsString('across 2 inspection(s)', $lines);
     $this->assertStringContainsString('droost workflow:answer', $lines);
+    $this->assertStringContainsString('check-ins answered: 4 · 1 released unanswered', $lines);
     $this->assertStringContainsString('require_run bypass: ACTIVE — a hotfix', $lines);
   }
 

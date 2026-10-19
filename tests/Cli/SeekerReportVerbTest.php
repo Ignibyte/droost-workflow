@@ -67,6 +67,12 @@ final class SeekerReportVerbTest extends WorkflowTestCase {
     $this->assertSame(ArgvDispatcher::EXIT_OK, $code, $out);
     $this->assertNull((new RunStateStore($root))->load()->awaiting ?? NULL, 'the inspection released the hold');
     $this->assertStringContainsString('recording the inspection released that hold', $out);
+
+    // The released hold is counted as released, never as answered (F-321).
+    $run = $this->facade()->status($root)['run'];
+    $this->assertIsArray($run);
+    $this->assertSame(1, $run['answered'], 'the plan check-in, answered');
+    $this->assertSame(1, $run['released'], 'the code hold, released unanswered');
   }
 
   /**

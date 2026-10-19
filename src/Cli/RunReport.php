@@ -74,8 +74,13 @@ final class RunReport {
       $lines[] = '  ? ' . self::str($run['awaiting']['question'] ?? NULL);
       $lines[] = '  waiting — answer with: droost workflow:answer "<answer>"';
     }
-    if (self::int($run['answered'] ?? 0) > 0) {
-      $lines[] = sprintf('  check-ins answered: %d', self::int($run['answered'] ?? 0));
+    $released = self::int($run['released'] ?? 0);
+    if (self::int($run['answered'] ?? 0) > 0 || $released > 0) {
+      $lines[] = sprintf(
+        '  check-ins answered: %d%s',
+        self::int($run['answered'] ?? 0),
+        $released > 0 ? sprintf(' · %d released unanswered (a later step went on before anyone answered)', $released) : '',
+      );
     }
     if (($bypass['active'] ?? FALSE) === TRUE) {
       $lines[] = '  • require_run bypass: ACTIVE — ' . self::str($bypass['reason'] ?? NULL, '');

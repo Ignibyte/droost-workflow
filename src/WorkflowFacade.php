@@ -358,7 +358,11 @@ final class WorkflowFacade {
       // Same method as the envelope, not a second copy of the arithmetic.
       'retries' => $state->retries(),
       'awaiting' => $question?->toArray(),
-      'answered' => count($state->qaHistory),
+      // A check-in a later step released before anyone answered it is not an
+      // answered one: counting every exchange read 5 answered for a run that
+      // answered 4 and had one released by a seeker report (F-321).
+      'answered' => count(array_filter($state->qaHistory, static fn (mixed $q): bool => is_array($q) && ($q['answer'] ?? NULL) !== NULL)),
+      'released' => count(array_filter($state->qaHistory, static fn (mixed $q): bool => is_array($q) && ($q['answer'] ?? NULL) === NULL)),
     ];
     return $status;
   }
