@@ -46,54 +46,6 @@ final class GateRemedy {
   ];
 
   /**
-   * A gate reached a site driver that cannot run it.
-   *
-   * There is nothing to install here, which is exactly what the default
-   * "install %s" remedy would have told the reader to go and do.
-   *
-   * @param string $gate
-   *   The gate name.
-   *
-   * @return string
-   *   The remedy.
-   */
-  public static function wrongDriver(string $gate): string {
-    return sprintf(
-      'The %1$s gate is on, and this site has no driver that implements it — '
-      . 'a configuration gap rather than a missing package, so there is '
-      . 'nothing for `composer require` to fetch. Either the module that '
-      . 'provides %1$s is not enabled on this site, or the gate is switched '
-      . 'on in droost.workflow.yml for a project whose driver cannot run it. '
-      . 'Both are the OPERATOR\'s call: enable the provider, or set '
-      . '`gates.%1$s.on: false`.',
-      $gate,
-    );
-  }
-
-  /**
-   * The drush binary a rendered check needs is not there, or will not run.
-   *
-   * @param string $relative
-   *   Where the driver looked, relative to the project root.
-   *
-   * @return string
-   *   The remedy.
-   */
-  public static function drush(string $relative): string {
-    return sprintf(
-      'rendered_check asks a Drupal site to render its own routes, so it '
-      . 'needs a drush it can execute. It looked for `%s` under the project '
-      . 'root and could not run it. Ask the OPERATOR to install drush '
-      . '(`composer require --dev drush/drush`), or — if drush lives '
-      . 'elsewhere here — to point the gate at it; `ls -l %s` says which of '
-      . 'the two it is. If this project has no site to render, '
-      . '`gates.rendered_check.on: false` in droost.workflow.yml.',
-      $relative,
-      $relative,
-    );
-  }
-
-  /**
    * What makes a gate that examined nothing examine something.
    *
    * TWO THINGS WERE WRONG WITH THE ONE SENTENCE THIS REPLACES, and both were
@@ -101,7 +53,7 @@ final class GateRemedy {
    *
    * It named `gates.<gate>.paths` whatever the gate was. Only phpcs, phpstan,
    * eslint, stylelint and prettier have that lever; `WorkType::mustMeasure()`
-   * also names phpunit, config_clean and rendered_check, which do not. Writing
+   * also names phpunit, which does not. Writing
    * the key anyway does not fail quietly — `WorkflowConfig::load()` refuses
    * the whole file, so an operator who does as they are told ends up with
    * every droost-workflow command printing `gate "phpunit" has no option
@@ -129,17 +81,8 @@ final class GateRemedy {
         . 'the suite names a directory that holds none (`vendor/bin/phpunit '
         . '--list-tests` says what it can see), or there are no tests yet — '
         . 'and writing them is the work, not a setting.',
-      'config_clean' => 'config_clean has no levers at all: it asks a Drupal '
-        . 'site whether its exported configuration still matches the database. '
-        . 'It measured nothing because there was no site to ask. Run the phase '
-        . 'where the site is, or — if this project exports no configuration — '
-        . 'ask the OPERATOR for `gates.config_clean.on: false`.',
-      'rendered_check' => 'rendered_check has no `paths` lever; it renders the '
-        . 'routes `gates.rendered_check.routes` names, and it needs a site to '
-        . 'render them on. Name the routes in droost.workflow.yml and run the '
-        . 'phase where the site is.',
       default => sprintf(
-        'Point %1$s at the code: set `gates.%1$s.paths` in droost.workflow.yml, '
+        'Point %1$s at the code: set `gates.%1$s.paths` in droost/droost.yml, '
         . 'or give %1$s its own %2$s — a tool\'s own config names its own '
         . 'paths and outranks the lever. Then run the phase again.',
         $gate,

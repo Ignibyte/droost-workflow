@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Pack;
 
+use Droost\Workflow\Tests\Levers;
 use Droost\Workflow\Tests\WorkflowTestCase;
 
 /**
@@ -850,7 +851,7 @@ final class ShellSurfaceTest extends WorkflowTestCase {
    */
   public function testCasePatternsAreNotCommands(): void {
     $root = $this->lab();
-    file_put_contents($root . '/droost.workflow.yml', "preset: low\n");
+    file_put_contents(Levers::path($root), "preset: low\n");
     mkdir($root . '/bin', 0755, TRUE);
     file_put_contents($root . '/bin/confine.sh', "#!/usr/bin/env bash\n# the target's dir, never its template store\n"
       . "case \"\$real\" in\n  \"\$inst\"/*) ;;\n  /a | /b) echo ok ;;\n  *) echo \"outside '\$inst'\" >&2; exit 2 ;;\nesac\n");
@@ -1722,7 +1723,7 @@ final class ShellSurfaceTest extends WorkflowTestCase {
    */
   public function testTheFinishedRunStopsEnforcingItself(): void {
     $root = $this->lab();
-    file_put_contents($root . '/droost.workflow.yml', "preset: high\n");
+    file_put_contents(Levers::path($root), "preset: high\n");
     $record = $root . '/droost/droost-workflow/run.json';
 
     // While the run is live, the lever file is the operator's.

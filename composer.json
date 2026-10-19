@@ -60,6 +60,7 @@
     "bin": [
         "bin/droost",
         "bin/droost-workflow",
+        "bin/droost-guard",
         "bin/droost-parity",
         "bin/droost-source"
     ],

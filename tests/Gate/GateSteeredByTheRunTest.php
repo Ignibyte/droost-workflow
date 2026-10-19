@@ -11,7 +11,6 @@ use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\Vcs\VcsInterface;
@@ -43,13 +42,9 @@ final class GateSteeredByTheRunTest extends WorkflowTestCase {
   }
 
   /**
-   * A gate that did not run read nothing, and a lost diff names nothing.
+   * A lost diff names nothing.
    */
   public function testNothingIsNamedWhenTheGateDidNotRunOrTheDiffWasUnread(): void {
-    $results = $this->resultsAt(['.stylelintrc.json']);
-    $this->assertSame(GateStatus::SkippedNoSite, $results['config_clean']->status);
-    $this->assertSame([], $results['config_clean']->steeredBy);
-
     $unread = $this->resultsAt(NULL);
     $this->assertSame([], $unread['stylelint']->steeredBy);
     $this->assertStringNotContainsString('steered by', $unread['stylelint']->summary);
@@ -66,14 +61,14 @@ final class GateSteeredByTheRunTest extends WorkflowTestCase {
    */
   private function resultsAt(?array $changed): array {
     $root = $this->makeRootWithConfig("preset: xhigh\n");
-    $runner = new GateRunner($this->passingExecutor(), new NullSiteDriver(), $this->vcs($changed));
+    $runner = new GateRunner($this->passingExecutor(), $this->vcs($changed));
     $state = RunState::begin('run-1', '2026-09-23T00:00:00+00:00', WorkflowConfig::load($root), 'abc', NULL);
 
     $results = [];
     foreach ($runner->run($state, Phase::Complete, $root)->results as $result) {
       $results[$result->gate] = $result;
     }
-    foreach (['stylelint', 'phpunit', 'mutation', 'phpcs', 'config_clean'] as $due) {
+    foreach (['stylelint', 'phpunit', 'mutation', 'phpcs'] as $due) {
       $this->assertArrayHasKey($due, $results, $due . ' is due at complete on xhigh');
     }
     return $results;

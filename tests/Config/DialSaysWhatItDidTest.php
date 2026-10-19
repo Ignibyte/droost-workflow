@@ -6,6 +6,7 @@ namespace Droost\Workflow\Tests\Config;
 
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Pack\PackMaterializer;
+use Droost\Workflow\Tests\Levers;
 use Droost\Workflow\Tests\WorkflowTestCase;
 
 /**
@@ -39,7 +40,7 @@ final class DialSaysWhatItDidTest extends WorkflowTestCase {
   public function testTurningTheDialOnInitsFileSaysWhatItDidNotReach(): void {
     $root = $this->makeRoot();
     (new PackMaterializer())->init($root);
-    $file = $root . '/droost.workflow.yml';
+    $file = Levers::path($root);
     $written = (string) file_get_contents($file);
     $this->assertStringContainsString('preset: custom', $written, 'init writes the dial at custom');
     file_put_contents($file, str_replace('preset: custom', 'preset: max', $written));
@@ -72,7 +73,7 @@ final class DialSaysWhatItDidTest extends WorkflowTestCase {
   public function testTheOverrideTheNoticeDescribesIsReal(): void {
     $spelledOut = $this->makeRoot();
     (new PackMaterializer())->init($spelledOut);
-    $file = $spelledOut . '/droost.workflow.yml';
+    $file = Levers::path($spelledOut);
     file_put_contents(
       $file,
       str_replace('preset: custom', 'preset: max', (string) file_get_contents($file)),
@@ -80,7 +81,7 @@ final class DialSaysWhatItDidTest extends WorkflowTestCase {
     $overridden = WorkflowConfig::load($spelledOut);
 
     $bare = $this->makeRoot();
-    file_put_contents($bare . '/droost.workflow.yml', "preset: max\n");
+    file_put_contents(Levers::path($bare), "preset: max\n");
     $dial = WorkflowConfig::load($bare);
 
     $this->assertSame('max', $overridden->preset);
@@ -115,12 +116,12 @@ final class DialSaysWhatItDidTest extends WorkflowTestCase {
     $bare = $this->makeRoot();
     mkdir($bare . '/web/core/lib', 0755, TRUE);
     file_put_contents($bare . '/web/core/lib/Drupal.php', "<?php\n");
-    file_put_contents($bare . '/droost.workflow.yml', "preset: max\n");
+    file_put_contents(Levers::path($bare), "preset: max\n");
     $this->assertSame([], WorkflowConfig::load($bare)->deprecations, 'a preset alone is silent');
 
     $tuned = $this->makeRoot();
     file_put_contents(
-      $tuned . '/droost.workflow.yml',
+      Levers::path($tuned),
       "preset: high\ngates:\n  phpstan: { level: 9 }\n  phpcs: { standard: PSR12 }\n",
     );
     $this->assertSame(
@@ -144,7 +145,7 @@ final class DialSaysWhatItDidTest extends WorkflowTestCase {
     mkdir($divergent . '/web/core/lib', 0755, TRUE);
     file_put_contents($divergent . '/web/core/lib/Drupal.php', "<?php\n");
     file_put_contents(
-      $divergent . '/droost.workflow.yml',
+      Levers::path($divergent),
       "preset: custom\nenforcement: hard\nseekers: { on: false }\n"
       . "gates:\n  wiki_fresh: { on: false }\n",
     );
@@ -164,7 +165,7 @@ final class DialSaysWhatItDidTest extends WorkflowTestCase {
   public function testLooseningUnderNamedLevelsIsReported(): void {
     $root = $this->makeRoot();
     file_put_contents(
-      $root . '/droost.workflow.yml',
+      Levers::path($root),
       "preset: high\nenforcement: off\nseekers: { on: false }\n",
     );
 
@@ -182,7 +183,7 @@ final class DialSaysWhatItDidTest extends WorkflowTestCase {
    */
   public function testLoosenedGateOptionIsNamedAndTightenedOneIsNot(): void {
     $root = $this->makeRoot();
-    file_put_contents($root . '/droost.workflow.yml', "preset: max\ngates:\n  phpstan: { level: 1 }\n  phpcs: { standard: Drupal }\n  coverage: { min: 10 }\n");
+    file_put_contents(Levers::path($root), "preset: max\ngates:\n  phpstan: { level: 1 }\n  phpcs: { standard: Drupal }\n  coverage: { min: 10 }\n");
     $notice = implode(' ', WorkflowConfig::load($root)->deprecations);
 
     $this->assertStringContainsString('gates.phpstan.level (max says max, this file says 1)', $notice);
@@ -190,11 +191,11 @@ final class DialSaysWhatItDidTest extends WorkflowTestCase {
     $this->assertStringContainsString('gates.coverage.min (max says 80, this file says 10)', $notice);
 
     $tighter = $this->makeRoot();
-    file_put_contents($tighter . '/droost.workflow.yml', "preset: low\ngates:\n  phpstan: { level: 9, paths: web/modules/custom }\n  phpcs: { standard: 'Drupal,DrupalPractice,Custom' }\n");
+    file_put_contents(Levers::path($tighter), "preset: low\ngates:\n  phpstan: { level: 9, paths: web/modules/custom }\n  phpcs: { standard: 'Drupal,DrupalPractice,Custom' }\n");
     $this->assertSame([], WorkflowConfig::load($tighter)->deprecations, 'a tighter level, an added standard and a path set are tuning, not loosening');
 
     $swapped = $this->makeRoot();
-    file_put_contents($swapped . '/droost.workflow.yml', "preset: max\ngates:\n  phpcs: { standard: PSR12 }\n");
+    file_put_contents(Levers::path($swapped), "preset: max\ngates:\n  phpcs: { standard: PSR12 }\n");
     $this->assertSame([], WorkflowConfig::load($swapped)->deprecations, 'a different standard is a different choice, not less of the same one');
   }
 

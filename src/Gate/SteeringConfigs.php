@@ -169,7 +169,7 @@ final class SteeringConfigs {
    *   TRUE when the gate reads it.
    */
   private static function steersDeclaringGate(string $gate, array $levers, string $path): bool {
-    if (!GateSettings::isContributed($gate) && !GateSettings::isCustom($gate)) {
+    if (!GateSettings::isCustom($gate)) {
       return FALSE;
     }
     $id = substr($gate, (int) strpos($gate, ':') + 1);

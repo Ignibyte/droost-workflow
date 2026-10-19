@@ -65,16 +65,4 @@ final class GateTimeoutTest extends TestCase {
     ], 'droost.workflow.yml');
   }
 
-  /**
-   * The gates the site driver answers spawn nothing and take no timeout.
-   */
-  public function testSiteDriverGatesTakeNoTimeout(): void {
-    $this->expectException(ConfigError::class);
-    $this->expectExceptionMessage('gate "rendered_check" has no option "timeout"');
-    WorkflowConfig::fromArray([
-      'preset' => 'max',
-      'gates' => ['rendered_check' => ['timeout' => 30]],
-    ], 'droost.workflow.yml');
-  }
-
 }

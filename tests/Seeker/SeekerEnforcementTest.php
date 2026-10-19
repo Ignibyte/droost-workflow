@@ -11,7 +11,6 @@ use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Seeker\SeekerError;
@@ -384,7 +383,6 @@ final class SeekerEnforcementTest extends WorkflowTestCase {
     };
     return new WorkflowFacade(
       $gates,
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       fn (): string => $this->clock(),
       static fn (): string => 'run-seeker',

@@ -10,7 +10,6 @@ use Droost\Workflow\Event\NullWorkflowListener;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\PendingQuestion;
 use Droost\Workflow\Mode\QuestionSinkInterface;
@@ -337,7 +336,6 @@ final class WorkflowFacadeEventsTest extends WorkflowTestCase {
     };
     $facade = new WorkflowFacade(
       $this->allGatesPass(),
-      new NullSiteDriver(),
       $throwing,
       static fn (): string => '2026-09-03T12:00:00+00:00',
       static fn (): string => 'run-sink',
@@ -391,7 +389,6 @@ final class WorkflowFacadeEventsTest extends WorkflowTestCase {
   ): WorkflowFacade {
     return new WorkflowFacade(
       $executor,
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       static fn (): string => '2026-09-03T12:00:00+00:00',
       static fn (): string => 'run-events',

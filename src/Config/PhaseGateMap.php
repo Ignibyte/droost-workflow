@@ -56,10 +56,6 @@ final class PhaseGateMap {
 
   /**
    * The fast flow: each gate at the phase that owns it, once.
-   *
-   * The config_clean gate runs at test as well as code: it spawns nothing,
-   * and the test phase is where a fix made while the browser suite ran would
-   * otherwise change config nobody checked.
    */
   public const FAST = [
     'plan' => [],
@@ -72,17 +68,11 @@ final class PhaseGateMap {
       'phpunit',
       'mutation',
       'coverage',
-      'config_clean',
-      'grounding_check',
-      // What builds each page is decided in code, so it is judged there.
-      'composition_check',
       'house_rules',
     ],
     'test' => [
       'playwright',
       'parity',
-      'rendered_check',
-      'config_clean',
       // The site's own rules hold over what test adds too (S4-9): a fix made
       // while the suite ran is code no later phase reads in the fast flow.
       'house_rules',
@@ -108,13 +98,6 @@ final class PhaseGateMap {
       'eslint',
       'stylelint',
       'prettier',
-      'config_clean',
-      // The code phase is where grounding citations are first resolvable:
-      // plan WROTE the rows, code has just put the thing it grounded against
-      // on disk. Resolving here means a citation to a symbol that does not
-      // exist fails while the phase that invented it is still open.
-      'grounding_check',
-      'composition_check',
       'house_rules',
     ],
     'test' => [
@@ -140,8 +123,6 @@ final class PhaseGateMap {
       'playwright',
       'parity',
       'coverage',
-      'rendered_check',
-      'config_clean',
     ],
     'complete' => [
       'phpcs',
@@ -154,10 +135,6 @@ final class PhaseGateMap {
       'playwright',
       'parity',
       'coverage',
-      'rendered_check',
-      'config_clean',
-      'grounding_check',
-      'composition_check',
       'house_rules',
       'wiki_fresh',
     ],

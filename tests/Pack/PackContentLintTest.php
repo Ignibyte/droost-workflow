@@ -62,7 +62,9 @@ class PackContentLintTest extends TestCase {
       if (in_array($file->getFilename(), self::OS_ARTIFACTS, TRUE)) {
         continue;
       }
-      if ($relative !== PackManifest::CONFIG_FILE) {
+      // The lever template is written once, and the guard is never copied:
+      // each runs from the pack (droost off Drupal, 2026-10-19).
+      if ($relative !== PackManifest::CONFIG_TEMPLATE && $relative !== PackManifest::GUARD) {
         $onDisk[] = $relative;
       }
     }
@@ -408,8 +410,9 @@ class PackContentLintTest extends TestCase {
   public function testShippedLeverFileResolvesToCustom(): void {
     $root = sys_get_temp_dir() . '/dwf-pack-lint-' . bin2hex(random_bytes(6));
     mkdir($root, 0755, TRUE);
+    mkdir($root . '/droost', 0755, TRUE);
     copy(
-      $this->packDir() . '/' . PackManifest::CONFIG_FILE,
+      $this->packDir() . '/' . PackManifest::CONFIG_TEMPLATE,
       $root . '/' . PackManifest::CONFIG_FILE,
     );
 
@@ -425,6 +428,7 @@ class PackContentLintTest extends TestCase {
     }
     finally {
       unlink($root . '/' . PackManifest::CONFIG_FILE);
+      rmdir($root . '/droost');
       rmdir($root);
     }
   }
@@ -436,7 +440,7 @@ class PackContentLintTest extends TestCase {
    *   Pack-relative paths.
    */
   private function allPackFiles(): array {
-    return [...array_keys(PackManifest::FILES), PackManifest::CONFIG_FILE];
+    return [...array_keys(PackManifest::FILES), PackManifest::CONFIG_TEMPLATE];
   }
 
   /**
@@ -545,7 +549,7 @@ class PackContentLintTest extends TestCase {
     $trees = explode('|', $m[1]);
     $this->assertContains('profiles', $trees, 'profiles/custom is the one that was missing');
 
-    $levers = (string) file_get_contents($this->packDir() . '/' . PackManifest::CONFIG_FILE);
+    $levers = (string) file_get_contents($this->packDir() . '/' . PackManifest::CONFIG_TEMPLATE);
     $section = strstr($levers, '# require_run:');
     $this->assertIsString($section, 'the lever file must document require_run');
     $section = substr($section, 0, (int) strpos($section, "\nrequire_run:"));
@@ -659,8 +663,8 @@ class PackContentLintTest extends TestCase {
     $this->assertIsString($template);
     $this->assertSame(1, preg_match('/^\| \*\*Knowledge calls\*\* \(([^)]*)\)/m', $template, $row), 'the template has a Knowledge calls row');
 
-    preg_match_all('/`([a-z_]+)`/', $row[1], $names);
-    $listed = array_map(static fn (string $name): string => 'droost_' . $name, $names[1]);
+    preg_match_all('/`([a-z_:]+)`/', $row[1], $names);
+    $listed = $names[1];
     sort($listed);
     $counted = EvaluationReport::KNOWLEDGE_TOOLS;
     sort($counted);

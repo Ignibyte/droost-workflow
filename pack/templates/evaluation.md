@@ -177,7 +177,7 @@ jq -r 'select(.outcome=="fail") | .tool' droost/droost-workflow/tool-calls.jsonl
 |---|---|---|
 | Total calls | | |
 | Distinct tools | | |
-| **Knowledge calls** (`search`, `symbol`, `graph`, `module_docs`, `deprecations`, `entities`, `routes`, `capabilities`, `architecture`, `services`, `db_schema`, `wiki`, `brief`) | | **zero here means the run never asked the codebase anything**, whatever its grounding table says; at plan, `plan_grounded` holds a run that asked nothing |
+| **Knowledge calls** (`code:wiki`, `code:tree`, `search:arch`, `code:symbol`, `code:graph`, `code:docs`, `code:deprecations`, `search:code`, `brief`) | | **zero here means the run never asked the codebase anything**, whatever its grounding table says; at plan, `plan_grounded` holds a run that asked nothing |
 | Write/scaffold calls (`scaffold`, `structure_create`, `config_set`, `entity_create`, `views_compose`) | | |
 | Refusals (`outcome: fail`) | | each one is a gate that was off, or an argument that was wrong |
 

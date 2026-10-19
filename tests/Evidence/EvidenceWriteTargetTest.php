@@ -8,7 +8,6 @@ use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\WorkflowFacade;
@@ -93,7 +92,6 @@ final class EvidenceWriteTargetTest extends WorkflowTestCase {
   private function facade(GateExecutorInterface $executor): WorkflowFacade {
     return new WorkflowFacade(
       $executor,
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       static fn (): string => '2026-08-26T12:00:00+00:00',
       static fn (): string => 'run-evidence-target',

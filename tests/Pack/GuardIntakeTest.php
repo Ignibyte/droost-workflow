@@ -175,7 +175,7 @@ final class GuardIntakeTest extends WorkflowTestCase {
           continue;
         }
         foreach (is_array($entry['hooks'] ?? NULL) ? $entry['hooks'] : [] as $hook) {
-          if (is_array($hook) && is_string($hook['command'] ?? NULL) && str_ends_with($hook['command'], ' answers')) {
+          if (is_array($hook) && is_string($hook['command'] ?? NULL) && str_ends_with($hook['command'], ' answers --harness=claude')) {
             $found[] = [$event, $entry['matcher'] ?? NULL];
           }
         }

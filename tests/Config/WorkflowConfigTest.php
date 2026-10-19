@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Config;
 
+use Droost\Workflow\Tests\Levers;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\Config\ConfigError;
 use Droost\Workflow\Support\DataError;
@@ -347,7 +348,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
     string $expected,
   ): void {
     $root = $this->makeRoot();
-    $path = $root . '/droost.workflow.yml';
+    $path = Levers::path($root);
     match ($kind) {
       'directory' => mkdir($path, 0755),
       'dangling symlink' => symlink($root . '/gone', $path),
@@ -414,14 +415,15 @@ class WorkflowConfigTest extends WorkflowTestCase {
         ['gate' => []],
         'droost.workflow.yml: unknown setting "gate" (known: mode, phases, '
         . 'preset, gates, max_gate_retries, enforcement, require_run, seekers, '
-        . 'work_item, baseline, custom_code, flow, max_loops, follow_ups, rules)',
+        . 'work_item, baseline, custom_code, flow, max_loops, follow_ups, rules, '
+        . 'hooks, walls, operator_only)',
       ],
       'unknown gate' => [
         ['gates' => ['phpstain' => ['on' => TRUE]]],
         'droost.workflow.yml: unknown gate "phpstain" (known: phpcs, phpstan, '
         . 'eslint, stylelint, prettier, phpunit, mutation, playwright, parity, '
         . 'coverage, '
-        . 'rendered_check, config_clean, grounding_check, composition_check, house_rules, wiki_fresh)',
+        . 'house_rules, wiki_fresh)',
       ],
       'unknown gate option' => [
         ['gates' => ['phpcs' => ['levl' => 1]]],
@@ -431,10 +433,6 @@ class WorkflowConfigTest extends WorkflowTestCase {
       'option on a gate with none' => [
         ['gates' => ['phpunit' => ['min' => 1]]],
         'droost.workflow.yml: gate "phpunit" has no option "min" (accepts: on, required, in_diff, root, scope, timeout, mode)',
-      ],
-      'grounding takes the strictness flag and nothing else' => [
-        ['gates' => ['grounding_check' => ['unresolved' => 'block']]],
-        'droost.workflow.yml: gate "grounding_check" has no option "unresolved" (accepts: on, strict_citations, mode)',
       ],
       'unknown phase' => [
         ['phases' => ['plan', 'deploy', 'complete']],
@@ -572,7 +570,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
     }
     catch (ConfigError $e) {
       $this->assertStringNotContainsString($root, $e->getMessage());
-      $this->assertStringContainsString('droost.workflow.yml', $e->getMessage());
+      $this->assertStringContainsString('droost/droost.yml', $e->getMessage());
     }
   }
 

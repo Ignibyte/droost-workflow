@@ -14,7 +14,6 @@ use Droost\Workflow\Evidence\Fault;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Spec\SpecError;
@@ -447,7 +446,7 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
     $this->facade($executor)->run($root);
 
     // Break the lever file AFTER the run began (its levers are frozen).
-    file_put_contents($root . '/droost.workflow.yml', "presett: custom\n");
+    file_put_contents(Levers::path($root), "presett: custom\n");
 
     try {
       $this->facade($executor)->reset($root);
@@ -592,7 +591,6 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
   private function facade(GateExecutorInterface $executor): WorkflowFacade {
     return new WorkflowFacade(
       $executor,
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       static fn (): string => '2026-08-26T12:00:00+00:00',
       static fn (): string => 'run-lifecycle',

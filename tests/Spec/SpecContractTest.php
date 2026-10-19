@@ -9,12 +9,12 @@ use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Spec\SpecContract;
 use Droost\Workflow\Spec\SpecError;
 use Droost\Workflow\State\RunStateStore;
+use Droost\Workflow\Tests\Levers;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\WorkflowFacade;
 
@@ -102,7 +102,7 @@ final class SpecContractTest extends WorkflowTestCase {
    */
   public function testBareRunWithNoSpecOpensTheRunAndWaits(): void {
     $root = $this->makeRoot();
-    file_put_contents($root . '/droost.workflow.yml', "preset: custom\nseekers: { on: false }\n");
+    file_put_contents(Levers::path($root), "preset: custom\nseekers: { on: false }\n");
     $facade = $this->facadeForCli();
 
     $opened = $facade->run($root);
@@ -809,7 +809,6 @@ MD
     };
     return new WorkflowFacade(
       $executor,
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       static fn (): string => '2026-09-01T12:00:00+00:00',
       static fn (): string => 'run-spec-contract',

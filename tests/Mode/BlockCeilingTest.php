@@ -15,7 +15,6 @@ use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Config\GateSettings;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\ModeEngine;
 use Droost\Workflow\Mode\PendingQuestion;
 use Droost\Workflow\Mode\Outcome;
@@ -109,7 +108,7 @@ final class BlockCeilingTest extends TestCase {
 
     };
     $engine = new ModeEngine(
-      new GateRunner($executor, new NullSiteDriver()),
+      new GateRunner($executor),
       new RunStateOnlySink(),
     );
 

@@ -9,7 +9,6 @@ use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Tests\WorkflowTestCase;
@@ -119,7 +118,6 @@ final class ScopeBeforeJudgementTest extends WorkflowTestCase {
 
     return new WorkflowFacade(
       $executor,
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       static fn (): string => '2026-09-13T00:00:00+00:00',
       static fn (): string => 'run-scope',

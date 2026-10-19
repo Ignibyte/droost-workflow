@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Pack;
 
+use Droost\Workflow\Config\ConfigLocator;
 use Droost\Workflow\Config\PhpcsStandard;
 use Droost\Workflow\State\RunStateStore;
 use Droost\Workflow\Support\TypedArray;
@@ -141,6 +142,12 @@ final class PackMaterializer {
       ? $report->withKept(AgentsBlock::FILE)
       : $report->withWritten(AgentsBlock::FILE);
     $report = $this->wireClaudeSettings($root, $report);
+    // The copy an earlier init made, which nothing calls once the hooks name
+    // the package's guard: left behind, it would read as the enforcement
+    // while enforcing nothing.
+    if (is_file($root . '/' . PackManifest::LEGACY_GUARD)) {
+      @unlink($root . '/' . PackManifest::LEGACY_GUARD);
+    }
     return $this->ensureGitignore($root, $report);
   }
 
@@ -195,7 +202,11 @@ final class PackMaterializer {
     // reference project files from a hook; the double quotes tolerate a space
     // in the path. The guard resolves the same var internally for its run
     // state, so both the script and what it reads are project-anchored.
-    $guard = 'php "$CLAUDE_PROJECT_DIR/.claude/hooks/droost-workflow-guard.php"';
+    // THE GUARD IN THE PACKAGE (droost off Drupal, 2026-10-19): no copy in
+    // the project. Each entry calls the package's entry point and names the
+    // harness, so the guard translates the payload it was handed; the guard
+    // protects the package it runs from, run or no run.
+    $guard = 'php "' . $this->guardEntry($root) . '"';
     // Eight wirings of one script; three of them on PreToolUse with different
     // matchers, so this is a list of (event, entry) pairs and presence is
     // checked per COMMAND, not per event — an install that already carries
@@ -203,12 +214,12 @@ final class PackMaterializer {
     $wanted = [
       ['PreToolUse', [
         'matcher' => 'Edit|Write|MultiEdit|NotebookEdit',
-        'hooks' => [['type' => 'command', 'command' => $guard . ' pre-tool-use']],
+        'hooks' => [['type' => 'command', 'command' => $guard . ' pre-tool-use --harness=claude']],
       ],
       ],
       ['PreToolUse', [
         'matcher' => 'Bash',
-        'hooks' => [['type' => 'command', 'command' => $guard . ' operator-commands']],
+        'hooks' => [['type' => 'command', 'command' => $guard . ' operator-commands --harness=claude']],
       ],
       ],
       // RECORDING ONLY, and the reason it is a third registration rather
@@ -220,15 +231,17 @@ final class PackMaterializer {
       // throughout, and the step that counts those rows wedged the run.
       //
       // Widening a refusal matcher to `.*` would put every third-party tool's
-      // arguments through the file-path and shell checks. This entry cannot
-      // refuse anything: `record` returns before any branch that can.
+      // arguments through the file-path and shell checks. This entry runs
+      // none of droost's own refusals: `record` returns before them. Only a
+      // project's own walls (droost/droost.yml `walls`) can refuse here, and
+      // only the calls their `tools` regex names.
       ['PreToolUse', [
         'matcher' => 'mcp__.*',
-        'hooks' => [['type' => 'command', 'command' => $guard . ' record']],
+        'hooks' => [['type' => 'command', 'command' => $guard . ' record --harness=claude']],
       ],
       ],
       ['Stop', [
-        'hooks' => [['type' => 'command', 'command' => $guard . ' stop']],
+        'hooks' => [['type' => 'command', 'command' => $guard . ' stop --harness=claude']],
       ],
       ],
       // GUIDANCE, after the call (owner, 2026-10-02: "we guide it, not
@@ -239,7 +252,7 @@ final class PackMaterializer {
       // it. The Claude mod carries the same notes where this is absent.
       ['PostToolUse', [
         'matcher' => 'Bash|Grep|Glob|Write|Edit|MultiEdit',
-        'hooks' => [['type' => 'command', 'command' => $guard . ' nudge']],
+        'hooks' => [['type' => 'command', 'command' => $guard . ' nudge --harness=claude']],
       ],
       ],
       // The human's answers to an intake's questions, recorded as they were
@@ -251,18 +264,18 @@ final class PackMaterializer {
       // wrote. Records only; never refuses.
       ['PostToolUse', [
         'matcher' => 'Agent|Task',
-        'hooks' => [['type' => 'command', 'command' => $guard . ' dispatched']],
+        'hooks' => [['type' => 'command', 'command' => $guard . ' dispatched --harness=claude']],
       ],
       ],
       // A background subagent's RETURN (0.14.19): PostToolUse fires at its
       // launch, so the return is read where it happens. Records only.
       ['SubagentStop', [
-        'hooks' => [['type' => 'command', 'command' => $guard . ' subagent-stop']],
+        'hooks' => [['type' => 'command', 'command' => $guard . ' subagent-stop --harness=claude']],
       ],
       ],
       ['PostToolUse', [
         'matcher' => 'AskUserQuestion',
-        'hooks' => [['type' => 'command', 'command' => $guard . ' answers']],
+        'hooks' => [['type' => 'command', 'command' => $guard . ' answers --harness=claude']],
       ],
       ],
     ];
@@ -277,7 +290,7 @@ final class PackMaterializer {
       // when absent, replace when the command drifted, keep when identical —
       // which keeps a re-init idempotent and never leaves a second, dead guard
       // beside the live one (R27-F1).
-      $mode = substr($command, (int) strrpos($command, ' ') + 1);
+      $mode = (string) PackManifest::guardMode($command);
       $at = self::guardIndex($existing, $mode);
       if ($at === NULL) {
         $existing[] = $entry;
@@ -337,6 +350,32 @@ final class PackMaterializer {
   }
 
   /**
+   * The guard's entry point as a hook command names it.
+   *
+   * Anchored to `$CLAUDE_PROJECT_DIR` when the package sits inside the
+   * project (vendor/ or tools/droost/vendor/), because a hook runs from the
+   * agent's cwd and a relative path stops resolving after one `cd`; absolute
+   * when it sits outside it.
+   *
+   * @param string $root
+   *   The project root.
+   *
+   * @return string
+   *   The path, for inside double quotes.
+   */
+  private function guardEntry(string $root): string {
+    $entry = $this->packageRoot . '/' . PackManifest::GUARD_ENTRY;
+    $package = realpath($this->packageRoot);
+    $project = realpath($root);
+    if ($package !== FALSE && $project !== FALSE && str_starts_with($package . '/', $project . '/') && $package !== $project) {
+      return '$CLAUDE_PROJECT_DIR/' . trim(substr($package, strlen($project)), '/') . '/' . PackManifest::GUARD_ENTRY;
+    }
+    $real = realpath($entry);
+
+    return $real !== FALSE ? $real : $entry;
+  }
+
+  /**
    * The index of our guard entry for a mode within an event's list, or NULL.
    *
    * Identity is the guard filename plus the mode suffix (pre-tool-use |
@@ -360,8 +399,7 @@ final class PackMaterializer {
       foreach (is_array($entry['hooks'] ?? NULL) ? $entry['hooks'] : [] as $hook) {
         if (is_array($hook)
           && is_string($hook['command'] ?? NULL)
-          && str_contains($hook['command'], 'droost-workflow-guard.php')
-          && str_ends_with($hook['command'], ' ' . $mode)) {
+          && PackManifest::guardMode($hook['command']) === $mode) {
           return $i;
         }
       }
@@ -738,25 +776,31 @@ final class PackMaterializer {
     $to = $root . '/' . $destination;
 
     // Never refresh a lever file. It is version-controlled intent that
-    // somebody wrote; re-running init must not quietly reset their gates.
-    if (PackManifest::hasConfigFile($root)) {
-      return $report->withKept($destination);
+    // somebody wrote; re-running init must not quietly reset their gates. A
+    // project still on the root droost.workflow.yml keeps it, and every lever
+    // report says where it should move (ConfigLocator).
+    $existing = ConfigLocator::found($root);
+    if ($existing !== NULL) {
+      return $report->withKept($existing);
     }
 
     $from = $this->packageRoot . '/' . PackManifest::SOURCE_DIR
-      . '/' . PackManifest::CONFIG_FILE;
+      . '/' . PackManifest::CONFIG_TEMPLATE;
     if (!is_file($from)) {
       throw PackError::sourceMissing(
-        PackManifest::SOURCE_DIR . '/' . PackManifest::CONFIG_FILE,
+        PackManifest::SOURCE_DIR . '/' . PackManifest::CONFIG_TEMPLATE,
       );
     }
     $contents = file_get_contents($from);
     if ($contents === FALSE) {
       throw PackError::sourceMissing(
-        PackManifest::SOURCE_DIR . '/' . PackManifest::CONFIG_FILE,
+        PackManifest::SOURCE_DIR . '/' . PackManifest::CONFIG_TEMPLATE,
       );
     }
     $contents = self::standardThisProjectHas($root, $contents);
+    if (!is_dir(dirname($to)) && !@mkdir(dirname($to), 0755, TRUE) && !is_dir(dirname($to))) {
+      throw PackError::unwritable($destination, 'its directory could not be created');
+    }
     if (@file_put_contents($to, $contents) !== strlen($contents)) {
       throw PackError::unwritable($destination, 'the write did not complete');
     }

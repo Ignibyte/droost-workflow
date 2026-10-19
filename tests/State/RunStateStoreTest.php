@@ -315,7 +315,6 @@ class RunStateStoreTest extends WorkflowTestCase {
         'plan' => [],
         'code' => [
           'phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier',
-          'config_clean', 'grounding_check', 'composition_check',
           'house_rules',
         ],
       ],

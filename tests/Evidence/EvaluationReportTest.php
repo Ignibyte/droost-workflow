@@ -332,8 +332,8 @@ final class EvaluationReportTest extends TestCase {
    */
   public function testKnowledgeCallsAreCountedFromTheLedger(): void {
     $store = new EvidenceStore($this->root);
-    $store->recordToolCall('r1', 'plan', 'droost_symbol', 'ok');
-    $store->recordToolCall('r1', 'code', 'droost_search', 'ok');
+    $store->recordToolCall('r1', 'plan', 'code:symbol', 'ok');
+    $store->recordToolCall('r1', 'code', 'search:code', 'ok');
     $store->recordToolCall('r1', 'code', 'droost_scaffold', 'fail');
 
     $report = (new EvaluationReport($store))->render('r1');
@@ -342,7 +342,7 @@ final class EvaluationReportTest extends TestCase {
     $this->assertStringContainsString('| Total calls | 3 |', $report);
     $this->assertStringContainsString('| Distinct tools | 3 |', $report);
     $this->assertStringContainsString('| Refusals (`outcome: fail`) | 1 |', $report);
-    $this->assertStringContainsString('| `droost_search` | 1 | knowledge |', $report);
+    $this->assertStringContainsString('| `search:code` | 1 | knowledge |', $report);
     $this->assertStringContainsString('| `droost_scaffold` | 1 | — |', $report);
     $this->assertStringNotContainsString('router', strtolower((string) strstr($report, '## 4a.')), 'no router is counted: there is none (owner, 2026-10-15)');
   }
@@ -387,7 +387,7 @@ final class EvaluationReportTest extends TestCase {
       $report,
       'every name in, one knowledge call each out',
     );
-    $this->assertContains('droost_brief', EvaluationReport::KNOWLEDGE_TOOLS, 'the site brief is knowledge');
+    $this->assertContains('brief', EvaluationReport::KNOWLEDGE_TOOLS, 'the site brief is knowledge');
     foreach (EvaluationReport::KNOWLEDGE_TOOLS as $tool) {
       $this->assertStringContainsString('| `' . $tool . '` | 1 | knowledge |', $report);
     }
@@ -439,7 +439,7 @@ final class EvaluationReportTest extends TestCase {
 
     $report = (new EvaluationReport(new EvidenceStore($this->root)))->render('r1');
 
-    foreach (['eslint', 'stylelint', 'prettier', 'mutation', 'coverage', 'wiki_fresh', 'grounding_check'] as $gate) {
+    foreach (['eslint', 'stylelint', 'prettier', 'mutation', 'coverage', 'wiki_fresh', 'house_rules'] as $gate) {
       $this->assertStringContainsString(
         '| `' . $gate . '` | ' . EvaluationReport::NOT_RECORDED . ' | 0 |',
         $report,

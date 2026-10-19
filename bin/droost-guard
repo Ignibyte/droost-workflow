@@ -1,0 +1,27 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * @file
+ * The guard, as each agent harness's hook configuration calls it.
+ *
+ *   droost-guard <verb> [--harness=claude]
+ *   droost-guard guard <verb> [--harness=claude]   (as `droost guard` passes it)
+ *
+ * The guard ships in this package (pack/hooks/droost-workflow-guard.php) and
+ * is no longer copied into the project: `droost init` wires each harness's
+ * hooks to this entry point, and the guard protects the package it runs
+ * from. Every verb, exit code and refusal is the guard's own; this file only
+ * hands it its arguments.
+ */
+
+declare(strict_types=1);
+
+$given = array_slice($argv, 1);
+if (($given[0] ?? '') === 'guard') {
+  array_shift($given);
+}
+$argv = [__DIR__ . '/../pack/hooks/droost-workflow-guard.php', ...$given];
+$argc = count($argv);
+
+require __DIR__ . '/../pack/hooks/droost-workflow-guard.php';

@@ -5,11 +5,9 @@ declare(strict_types=1);
 namespace Droost\Workflow\Cli;
 
 use Droost\Workflow\Evidence\CheckAdjudicators;
-use Droost\Workflow\Evidence\UnreachableChecks;
 use Droost\Workflow\Baseline\BaselineError;
 use Droost\Workflow\Config\ConfigError;
 use Droost\Workflow\Config\Phase;
-use Droost\Workflow\Config\DrushCatalogResolver;
 use Droost\Workflow\Config\EffortSwitch;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Config\WorkItemSettings;
@@ -18,7 +16,6 @@ use Droost\Workflow\Driver\RenderedRoutes;
 use Droost\Workflow\Evidence\EvidenceError;
 use Droost\Workflow\Event\RunEventLog;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Gate\ShellGateExecutor;
 use Droost\Workflow\Intake\IntakeError;
 use Droost\Workflow\Intake\IntakeFinding;
@@ -48,10 +45,8 @@ use Droost\Workflow\WorkItem\WorkItemSources;
  * audience do not justify the dependency, and a typed error rendered to
  * stderr with a non-zero exit is the whole UX contract.
  *
- * This surface always uses NullSiteDriver, so every site-dependent gate
- * comes back "skipped, no site" with its reason attached. That is the point:
- * the CLI is not a degraded live run pretending otherwise, it is a run that
- * says exactly which checks it could not perform.
+ * droost left Drupal (2026-10-19): this is the runtime's whole surface, and
+ * no gate needs a booted site.
  */
 final class ArgvDispatcher {
 
@@ -331,7 +326,7 @@ final class ArgvDispatcher {
         || is_file($here . '/.droost-workflow/run.json')) {
         return $here;
       }
-      if ($levers === NULL && is_file($here . '/droost.workflow.yml')) {
+      if ($levers === NULL && (is_file($here . '/droost/droost.yml') || is_file($here . '/droost.workflow.yml'))) {
         $levers = $here;
       }
       // A repository boundary is a hard stop, checked AFTER the directory
@@ -1812,13 +1807,12 @@ final class ArgvDispatcher {
                        recorded by name. --type is one of code, content_model,
                        theme, content, docs, mixed and never turns a gate off;
                        it says which gates must have MEASURED something.
-      declare-route    declare a path this change serves, which is what
-                       rendered_check renders: `declare-route /rinks "the new
+      declare-route    declare a path this change serves, which the seeker,
+                       the browser suite and the record read: `declare-route /rinks "the new
                        listing"`. A page that must refuse an anonymous
                        visitor (an admin listing) takes `--status=403`, one
                        that sends them elsewhere its redirect
-                       (`--status=303`), and the gate checks exactly that
-                       answer; declaring a path again
+                       (`--status=303`); declaring a path again
                        replaces it. Repeatable and idempotent. `## Routes` stays
                        in the spec for a human; nothing mechanical reads it,
                        so a fenced list or a heading in the wrong place can no
@@ -1950,20 +1944,11 @@ final class ArgvDispatcher {
     has no lever file, so the run reports built-in defaults as though the
     project had none.
 
-    Every site-dependent gate reports "skipped, no site" here, with its
-    reason. That is deliberate: this surface tells you what it could not
-    check rather than quietly leaving it out.
     TXT);
   }
 
   /**
-   * A facade wired for the siteless surface.
-   *
-   * Siteless, not blind: the gates enabled modules contribute (D72) live in
-   * the site, so this surface asks drush for them before it resolves a single
-   * lever (R31-F3 — a run begun here was held to fewer gates than the same run
-   * through drush, and nothing said so). No drush, or a site that cannot
-   * answer, resolves to none, with the reason in `levers.contributed_source`.
+   * A facade wired for this surface: the whole runtime, with no Drupal.
    *
    * @param string $projectRoot
    *   The repository the verb acts on.
@@ -1972,16 +1957,6 @@ final class ArgvDispatcher {
    *   The facade.
    */
   private function facade(string $projectRoot): WorkflowFacade {
-    $catalog = (new DrushCatalogResolver(
-      static function (array $argv, string $cwd, int $timeout): array {
-        return CliProcess::run($argv, $cwd, $timeout);
-      },
-    ))->resolve($projectRoot);
-    // A site here means contributed checks may exist that this surface cannot
-    // ask — the binary boots no Drupal. Saying so beats recording nothing,
-    // which read downstream exactly like a run that had been asked.
-    $hasSite = is_file($projectRoot . '/vendor/bin/drush');
-
     return new WorkflowFacade(
       new ShellGateExecutor(
         static function (array $argv, string $cwd, int $timeout): array {
@@ -1989,17 +1964,13 @@ final class ArgvDispatcher {
         },
         static fn (): int => (int) (hrtime(TRUE) / 1_000_000),
       ),
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       $this->clock,
       $this->ids,
       NULL,
       NULL,
-      $catalog['gates'],
-      $catalog['source'],
-      // The library's own checks (plan_grounded) are asked here as on drush;
-      // only what a module contributes needs a booted site (F-276).
-      CheckAdjudicators::withLibraryChecks(new UnreachableChecks($hasSite)),
+      // The library's own checks (plan_grounded) are the checks there are.
+      CheckAdjudicators::withLibraryChecks(),
       $this->workItemSource($projectRoot),
       $this->relayFor($projectRoot),
     );

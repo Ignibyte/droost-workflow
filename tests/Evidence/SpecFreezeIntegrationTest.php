@@ -11,7 +11,6 @@ use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
 use Droost\Workflow\Evidence\EvidenceStore;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Tests\WorkflowTestCase;
@@ -361,7 +360,6 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     };
     $facade = new WorkflowFacade(
       $executor,
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       static fn (): string => '2026-09-13T00:00:00+00:00',
       static fn (): string => 'run-hollow',
@@ -433,7 +431,6 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
 
     return new WorkflowFacade(
       $executor,
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       static fn (): string => '2026-09-13T00:00:00+00:00',
       static fn (): string => 'run-integration',

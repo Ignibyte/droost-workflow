@@ -71,20 +71,17 @@ final class EvaluationReport {
    * droost now pins every tool its directive names to this list.
    */
   public const array KNOWLEDGE_TOOLS = [
-    'droost_search',
-    'droost_symbol',
-    'droost_graph',
-    'droost_module_docs',
-    'droost_deprecations',
-    'droost_entities',
-    'droost_routes',
-    'droost_capabilities',
-    'droost_architecture',
-    'droost_services',
-    'droost_db_schema',
-    'droost_wiki',
-    // The site's facts as the plan reads them first (2026-10-15).
-    'droost_brief',
+    // The droost command's knowledge commands (droost off Drupal,
+    // 2026-10-19): the ledger names each call by its command.
+    'code:wiki',
+    'code:tree',
+    'search:arch',
+    'code:symbol',
+    'code:graph',
+    'code:docs',
+    'code:deprecations',
+    'search:code',
+    'brief',
   ];
 
   /**

@@ -212,35 +212,39 @@ gates:
   # stylelint:      { on: true, paths: "web/themes/custom" }
   # prettier:       { on: true, paths: "web/modules/custom,web/themes/custom" }
 
-  # Artifacts are truth. On at every level of the dial, `low` included — the
-  # one check `low` keeps in its test phase: a run that stops checking whether
-  # the page renders is not light, it is blind.
+  # The project's own gates, as files or one-line commands: semgrep, gitleaks,
+  # a config check, anything. A gate is a name with `run:` (a file under
+  # droost/gates/, run as its own process with the run's JSON on stdin) or
+  # `cmd:` (one shell line). Everything is explicit (a project's gate has no
+  # preset base): `phase` (code | test, or "code,test"; the strict flow also
+  # re-runs every enabled gate at complete, the fast flow does not), `mode`
+  # (block | report) and `timeout` (seconds, default 600).
   #
-  # droost renders no page itself, so this gate is implemented by the
-  # live-site surface — which means a run with no
-  # booted site records it "skipped, no site" rather than passed. That is the
-  # intended behaviour and the reason it ships on: the gate you most want is
-  # the one whose absence must be visible in the report.
-  #
-  # It takes one option: the PROJECT'S standing paths, comma-separated.
-  #   rendered_check: { on: true, routes: "/,/pricing" }
-  # Omitted, that half is "/". The TICKET'S paths come from the run's spec —
-  # its declared routes, or its `## Routes` section — and the gate
-  # renders the union, naming each route's source in its summary. Three live
-  # rounds rendered "/" alone while the ticket's own page went unrequested.
-  rendered_check: { on: true }
-
-  # Your own commands as first-class gates — semgrep, behat, anything.
-  # Everything is explicit (a custom gate has no preset base, so nothing
-  # about it is inferred): `on`, `phase` (code | test; the strict flow also
-  # re-runs every enabled gate at complete, the fast flow does not) and a
-  # single-line `cmd`. `timeout` (seconds, default 600) is optional, and a
-  # command killed at it could not run, which is no verdict on the code. Exit
-  # zero passes; a command the shell cannot find reports tool-missing, which
-  # blocks, never passes. Uncomment to use:
+  # The verdict is the exit code: 0 passed, 1 failed, and the output is the
+  # gate's report. Anything else — a missing file, a crash, a timeout, exit 3
+  # or any other code — is recorded as NOT RUN, never as passed. The file's
+  # hash is frozen when a run begins, and the guard refuses an edit to it
+  # while a run is under way. Uncomment to use:
+  # gitleaks:     { phase: code, run: droost/gates/gitleaks.php, mode: report }
+  # config_clean: { phase: test, cmd: "drush config:status --format=json" }
+  # The older spelling under `custom:` still loads:
   # custom:
   #   semgrep: { on: true, phase: code, cmd: "semgrep scan --error --quiet" }
-  #   suite:   { on: true, phase: test, cmd: "bin/gate.sh FULL", timeout: 900 }
+
+# hooks: told about the run's events, never able to hold it. Each names a file
+# run as its own process with the event as JSON on stdin; a hook that fails is
+# recorded beside the run, and the run goes on. Events: run_start,
+# phase_begin, phase_end, run_complete.
+# hooks:
+#   run_start: droost/hooks/ticket-in-progress.php
+
+# walls: asked before a tool call, and able to refuse it. `tools` is a regex
+# over the tool's name; the file gets the call as JSON on stdin (tool,
+# tool_name, input, project_root). Exit 0 allows, exit 2 refuses with the
+# reason on stderr; a wall that crashes or times out refuses too — its silence
+# is never consent.
+# walls:
+#   tracker_writes: { tools: "^mcp__atlassian__(create|edit|transition)", run: droost/walls/tracker-writes.php }
 
 # The seeker checkpoint: an adversarial reviewer (the workflow-seeker agent)
 # inspects the run's diff after the code phase's gates pass. Gates verify

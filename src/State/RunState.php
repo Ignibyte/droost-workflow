@@ -157,16 +157,13 @@ final class RunState {
    *   turned it off. Frozen so a baseline that changes under a run is caught
    *   by every gate that consults it: the file is the operator's, written at
    *   adoption, and a mid-run edit is a defeat, never a tuning.
-   * @param array<string, string> $lateWoven
-   *   Contributed gates that joined AFTER begin, by name, with the phase at
-   *   which they joined. A run begun on a surface that could not see the
-   *   site's contributed catalog froze a shorter set; the first surface that
-   *   can see it weaves the missing gates in (R31-F3/F5), so every door is
-   *   held to the same gates — and the record says which joined late.
-   * @param string|null $contributedSource
-   *   Where the surface that BEGAN the run got its contributed gates — the
-   *   booted site's catalog, drush asked from the standalone binary, or the
-   *   reason none could be resolved. Frozen so a shorter set explains itself.
+   * @param array<string, string|null> $ruleFiles
+   *   The project's own rule files this run is held to, project-relative,
+   *   each with its sha256 at begin (NULL for a file the levers name that
+   *   was not there): the gate, hook and wall files `droost/droost.yml`
+   *   points at, and `droost/agents.md`. Frozen so a gate whose file changed
+   *   under the run names the change rather than judging by a rule the run
+   *   never agreed to.
    * @param int $seekerRounds
    *   How many seeker inspections the code phase requires, frozen at start.
    * @param array<string, mixed>|null $workItem
@@ -211,8 +208,7 @@ final class RunState {
     public readonly array $gateWaivers = [],
     public readonly ?string $baseCommit = NULL,
     public readonly ?string $baselineHash = NULL,
-    public readonly array $lateWoven = [],
-    public readonly ?string $contributedSource = NULL,
+    public readonly array $ruleFiles = [],
     /**
      * How many seeker inspections the code phase requires before it advances.
      *
@@ -279,13 +275,12 @@ final class RunState {
    *   The commit the tree is at, or NULL when unknown.
    * @param string|null $baselineHash
    *   The adoption baseline's hash to hold the run to, or NULL for none.
-   * @param string|null $contributedSource
-   *   Where this surface got the contributed gates it resolved, for the
-   *   record.
    * @param string|null $parityDigest
    *   The parity reference's digest as the run begins, frozen with the gate's
    *   levers as `reference_digest` so the gate can refuse a changed one
    *   (F-144); NULL when the gate is off.
+   * @param array<string, string|null> $ruleFiles
+   *   The project's rule files and their hashes at begin (RuleFiles::hash()).
    *
    * @return self
    *   A run positioned at its first configured phase.
@@ -296,8 +291,8 @@ final class RunState {
     WorkflowConfig $config,
     ?string $baseCommit = NULL,
     ?string $baselineHash = NULL,
-    ?string $contributedSource = NULL,
     ?string $parityDigest = NULL,
+    array $ruleFiles = [],
   ): self {
     $phases = [];
     foreach ($config->phases as $index => $phase) {
@@ -328,7 +323,7 @@ final class RunState {
       seekerRounds: $config->seekerRounds,
       baseCommit: $baseCommit,
       baselineHash: $baselineHash,
-      contributedSource: $contributedSource,
+      ruleFiles: $ruleFiles,
       loop: new LoopState(
         $config->flow,
         $config->maxLoops,
@@ -414,140 +409,6 @@ final class RunState {
   }
 
   /**
-   * What a surface blind to the catalog records as its contributed source.
-   */
-  public const CONTRIBUTED_BLIND = 'none resolved by this surface';
-
-  /**
-   * Whether the surface that began this run read the contributed catalog.
-   *
-   * A blind surface says so in its source: the facade's own sentence when
-   * it was handed no catalog, and DrushCatalogResolver's, which begins
-   * "unresolved", when drush could not answer.
-   *
-   * @return bool
-   *   FALSE for a run begun blind to it (the bare CLI) and for a record from
-   *   before the source was kept: those runs take contributed gates late.
-   */
-  public function sawContributedAtBegin(): bool {
-    return $this->contributedSource !== NULL
-      && $this->contributedSource !== self::CONTRIBUTED_BLIND
-      && !str_starts_with($this->contributedSource, 'unresolved');
-  }
-
-  /**
-   * Contributed gates joining a run that was begun without them.
-   *
-   * Only for a run begun BLIND to the catalog (the bare CLI): one begun on a
-   * surface that read it agreed to what it read, and a gate a module
-   * declares later is not added (0.14.18; a client's run took a gate added
-   * mid-run into a run that never agreed to it).
-   *
-   * The frozen-set invariant — a run is measured against exactly what its
-   * own document says — is kept by AMENDING the document, on record: each
-   * gate joins the resolved set, is placed at its declared phases from the
-   * current one onward (never into a phase already left) and at complete,
-   * where everything enabled re-runs; `late_woven` names it and the phase it
-   * joined at. So a run begun on a surface blind to the catalog cannot
-   * complete without the gates the site declared, and the report says how
-   * they got there. Gates already in the set, and names that are not
-   * contributed gates, are ignored.
-   *
-   * @param array<string, \Droost\Workflow\Config\GateSettings> $gates
-   *   The contributed gates the advancing surface resolved, by name.
-   * @param \Droost\Workflow\Config\Phase $at
-   *   The phase about to run.
-   *
-   * @return self
-   *   A new instance.
-   */
-  public function withLateContributed(array $gates, Phase $at): self {
-    if ($this->sawContributedAtBegin()) {
-      // A run begun on a surface that read the catalog agreed to the gates
-      // it read (0.14.18): a module that declares a gate later does not add
-      // it to this run. The report names it, off, at each phase it declares.
-      return $this;
-    }
-    $resolved = $this->resolvedGates;
-    $phaseGates = $this->phaseGates;
-    $late = $this->lateWoven;
-    $order = array_keys($this->phases);
-    $from = array_search($at->value, $order, TRUE);
-    foreach ($gates as $name => $gate) {
-      if (!GateSettings::isContributed($name) || array_key_exists($name, $resolved)) {
-        continue;
-      }
-      $resolved[$name] = $gate->toArray();
-      $declared = $gate->option('phase');
-      $targets = is_string($declared) ? explode(',', $declared) : [];
-      // Complete re-runs everything in the strict flow. The fast flow's
-      // complete runs no gate (F-159), so a late gate goes there only when
-      // every phase it declared is already behind the run: once, and never
-      // not at all.
-      $ahead = array_filter($targets, static function (string $target) use ($order, $from, $phaseGates): bool {
-        $index = array_search($target, $order, TRUE);
-        return $index !== FALSE && isset($phaseGates[$target]) && ($from === FALSE || $index >= $from);
-      });
-      if ($this->loop->flow === 'strict' || $ahead === []) {
-        $targets[] = Phase::Complete->value;
-      }
-      foreach (array_unique($targets) as $target) {
-        $index = array_search($target, $order, TRUE);
-        if ($index === FALSE || !isset($phaseGates[$target])) {
-          continue;
-        }
-        if ($from !== FALSE && $index < $from) {
-          // A phase already passed stays as its report recorded it.
-          continue;
-        }
-        if (!in_array($name, $phaseGates[$target], TRUE)) {
-          $phaseGates[$target][] = $name;
-        }
-      }
-      $late[$name] = $at->value;
-    }
-    if ($late === $this->lateWoven) {
-      return $this;
-    }
-    return new self(
-      $this->runId,
-      $this->startedAt,
-      $this->mode,
-      $this->modeOverride,
-      $this->preset,
-      $this->maxGateRetries,
-      $this->provenance,
-      $resolved,
-      $this->phases,
-      $this->currentPhase,
-      $this->gateResults,
-      $this->awaiting,
-      $this->qaHistory,
-      $this->feedbackAttempts,
-      $phaseGates,
-      $this->enforcement,
-      $this->seekers,
-      $this->seeker,
-      $this->browser,
-      $this->tasks,
-      $this->seekerHistory,
-      $this->specPath,
-      $this->gateWaivers,
-      $this->baseCommit,
-      $this->baselineHash,
-      $late,
-      $this->contributedSource,
-      $this->seekerRounds,
-      $this->workItem,
-      $this->loop,
-      rules: $this->rules,
-      seekerHolds: $this->seekerHolds,
-      seekerAtComplete: $this->seekerAtComplete,
-      preexisting: $this->preexisting,
-    );
-  }
-
-  /**
    * Adds each custom gate to the frozen map at its configured phase.
    *
    * The engine-owned map cannot know a repo's custom gates, so they join at
@@ -569,9 +430,9 @@ final class RunState {
    */
   private static function weaveCustomGates(array $phaseGates, array $gates, string $flow = 'strict'): array {
     foreach ($gates as $name => $gate) {
-      // Custom gates (the lever file's) and contributed gates (a module's)
-      // both declare their own phases; the engine map knows neither.
-      if (!GateSettings::isCustom($name) && !GateSettings::isContributed($name)) {
+      // A project's own gates declare their own phases; the engine map
+      // knows none of them.
+      if (!GateSettings::isCustom($name)) {
         continue;
       }
       // `phase` is one phase or a comma-separated list (GateSettings validates
@@ -904,8 +765,7 @@ final class RunState {
       $this->gateWaivers,
       $this->baseCommit,
       $this->baselineHash,
-      $this->lateWoven,
-      $this->contributedSource,
+      $this->ruleFiles,
       $this->seekerRounds,
       $this->workItem,
       $this->loop,
@@ -1052,8 +912,7 @@ final class RunState {
       $this->gateWaivers,
       $this->baseCommit,
       $this->baselineHash,
-      $this->lateWoven,
-      $this->contributedSource,
+      $this->ruleFiles,
       $this->seekerRounds,
       $this->workItem,
       $this->loop,
@@ -1102,8 +961,7 @@ final class RunState {
       $this->gateWaivers,
       $this->baseCommit,
       $this->baselineHash,
-      $this->lateWoven,
-      $this->contributedSource,
+      $this->ruleFiles,
       $this->seekerRounds,
       $this->workItem,
       $this->loop,
@@ -1235,8 +1093,7 @@ final class RunState {
       $this->gateWaivers,
       $this->baseCommit,
       $this->baselineHash,
-      $this->lateWoven,
-      $this->contributedSource,
+      $this->ruleFiles,
       $this->seekerRounds,
       $this->workItem,
       $this->loop,
@@ -1390,8 +1247,7 @@ final class RunState {
       'tasks' => $this->tasks,
       'base_commit' => $this->baseCommit,
       'baseline_hash' => $this->baselineHash,
-      'late_woven' => $this->lateWoven,
-      'contributed_source' => $this->contributedSource,
+      'rule_files' => $this->ruleFiles,
       'work_item' => $this->workItem,
       'loop' => $this->loop->toArray(),
       'rules' => $this->rules,
@@ -1492,8 +1348,10 @@ final class RunState {
       // runs were held to none, which is exactly what NULL says.
       $node->optionalString('base_commit', '') ?: NULL,
       $node->optionalString('baseline_hash', '') ?: NULL,
-      self::readLateWoven($node, $label),
-      $node->optionalString('contributed_source', '') ?: NULL,
+      // late_woven and contributed_source, on a record from before droost
+      // left Drupal, describe module gates no surface runs any more: read
+      // past, never refused.
+      self::readRuleFiles($node, $label),
       // Absent on every run.json written before the lever existed. Those
       // runs required one inspection, which is what the default says, so a
       // run mid-flight when the upgrade lands keeps its own semantics.
@@ -1541,35 +1399,34 @@ final class RunState {
   }
 
   /**
-   * Reads which contributed gates joined after begin, and where.
+   * Reads the rule files frozen at begin, and their hashes.
    *
    * @param \Droost\Workflow\Support\TypedArray $node
-   *   The run node.
+   *   The document root.
    * @param string $label
-   *   The state file's label for messages.
+   *   The document label.
    *
-   * @return array<string, string>
-   *   Gate name to the phase it joined at.
+   * @return array<string, string|null>
+   *   Project-relative path to sha256, or NULL for a file that was absent.
    *
    * @throws \Droost\Workflow\State\StateError
-   *   When an entry is not a contributed gate name mapped to a phase name.
+   *   When an entry is not a path mapped to a sha256 or null.
    */
-  private static function readLateWoven(TypedArray $node, string $label): array {
-    $woven = $node->optionalChild('late_woven');
-    if ($woven === NULL) {
+  private static function readRuleFiles(TypedArray $node, string $label): array {
+    $files = $node->optionalChild('rule_files');
+    if ($files === NULL) {
       return [];
     }
     $out = [];
-    foreach ($woven->keys() as $name) {
-      $phase = $woven->scalar($name);
-      if (!GateSettings::isContributed($name) || !is_string($phase) || Phase::tryFrom($phase) === NULL) {
+    foreach ($files->toArray() as $path => $hash) {
+      if (!is_string($path) || $path === '' || ($hash !== NULL && (!is_string($hash) || preg_match('/^[0-9a-f]{64}$/', $hash) !== 1))) {
         throw StateError::corrupt($label, sprintf(
-          'late_woven must map a module:<id> gate to a phase name; got "%s" => %s',
-          $name,
-          var_export($phase, TRUE),
+          'rule_files must map a project path to a sha256 or null; got "%s" => %s',
+          (string) $path,
+          var_export($hash, TRUE),
         ));
       }
-      $out[$name] = $phase;
+      $out[$path] = $hash;
     }
     return $out;
   }
@@ -1651,8 +1508,7 @@ final class RunState {
       $waivers,
       $this->baseCommit,
       $this->baselineHash,
-      $this->lateWoven,
-      $this->contributedSource,
+      $this->ruleFiles,
       $this->seekerRounds,
       $this->workItem,
       $this->loop,
@@ -2226,8 +2082,7 @@ final class RunState {
       $this->gateWaivers,
       $this->baseCommit,
       $this->baselineHash,
-      $this->lateWoven,
-      $this->contributedSource,
+      $this->ruleFiles,
       $this->seekerRounds,
       $workItem ?? $this->workItem,
       $loop ?? $this->loop,

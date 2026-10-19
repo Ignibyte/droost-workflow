@@ -68,8 +68,6 @@ final class BaselineWriterTest extends WorkflowTestCase {
       $measured->bill(),
     );
     $this->assertArrayHasKey('eslint', $measured->skipped, 'no eslint binary: skipped, named');
-    $this->assertArrayHasKey('config_clean', $measured->skipped);
-    $this->assertStringContainsString('no site', $measured->skipped['config_clean']);
 
     $manifest = $writer->write($root, $measured, 'max', 'abc123');
 

@@ -50,7 +50,7 @@ final class PackRemoverTest extends WorkflowTestCase {
     (new PackMaterializer())->init($root);
     $settings = $root . '/.claude/settings.json';
     $this->assertStringContainsString(
-      'droost-workflow-guard.php',
+      'droost-guard',
       (string) file_get_contents($settings),
       'the guard was wired',
     );
@@ -89,7 +89,7 @@ final class PackRemoverTest extends WorkflowTestCase {
 
     $this->assertFileExists($settings, 'the file stays: it carries the user\'s own settings');
     $body = (string) file_get_contents($settings);
-    $this->assertStringNotContainsString('droost-workflow-guard.php', $body, 'ours are gone');
+    $this->assertStringNotContainsString('droost-guard', $body, 'ours are gone');
     $this->assertStringContainsString('my-own-linter.php', $body, 'theirs is not');
     $this->assertStringContainsString('Bash(ls:*)', $body, 'and neither is anything else');
   }

@@ -8,6 +8,7 @@ use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
+use Droost\Workflow\Tests\Levers;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -399,7 +400,7 @@ final class PackGuardParityTest extends TestCase {
       mkdir($root . '/lib/sub/modules/custom/x', 0775, TRUE);
       // `require_run: off` is the discriminator: whichever side found the
       // lever file behaves differently from one that fell back to defaults.
-      file_put_contents($root . '/droost.workflow.yml', "preset: low\nrequire_run: off\n");
+      file_put_contents(Levers::path($root), "preset: low\nrequire_run: off\n");
       $shape($root);
       $cwd = $root . '/lib/sub';
 

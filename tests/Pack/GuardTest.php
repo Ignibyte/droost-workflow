@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Pack;
 
+use Droost\Workflow\Tests\Levers;
 use Droost\Workflow\Tests\WorkflowTestCase;
 
 /**
@@ -119,7 +120,7 @@ final class GuardTest extends WorkflowTestCase {
     ]);
     $this->assertSame(0, $exit, 'without the lever the wall does not know the directory');
 
-    file_put_contents($root . '/droost.workflow.yml', "require_run: hard\ncustom_code: \"modules, recipes/\"\n");
+    file_put_contents(Levers::path($root), "require_run: hard\ncustom_code: \"modules, recipes/\"\n");
     $walled = [
       'modules/droost_cockpit/src/Cockpit.php',
       $root . '/recipes/droost_cockpit/recipe.yml',
@@ -324,7 +325,7 @@ final class GuardTest extends WorkflowTestCase {
     // is the case the resolver's tie-break is actually about. The usual
     // fixture pre-creates the visible one and would hide half of this.
     $root = $this->makeRoot();
-    file_put_contents($root . '/droost.workflow.yml', "require_run: soft\n");
+    file_put_contents(Levers::path($root), "require_run: soft\n");
     [$exit, $stdout] = $this->guard($root, 'pre-tool-use', [
       'tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module'],
     ]);
@@ -358,7 +359,7 @@ final class GuardTest extends WorkflowTestCase {
    */
   public function testAlreadyHiddenProjectsKeepTheirOwnDirectory(): void {
     $root = $this->makeRoot();
-    file_put_contents($root . '/droost.workflow.yml', "require_run: soft\n");
+    file_put_contents(Levers::path($root), "require_run: soft\n");
     mkdir($root . '/.droost-workflow', 0775, TRUE);
 
     [$exit] = $this->guard($root, 'pre-tool-use', [
@@ -877,7 +878,7 @@ final class GuardTest extends WorkflowTestCase {
     $deep = $root . '/modules/custom/acme';
     mkdir($deep, 0755, TRUE);
     mkdir($root . '/decoy', 0755, TRUE);
-    file_put_contents($root . '/droost.workflow.yml', "require_run: off\n");
+    file_put_contents(Levers::path($root), "require_run: off\n");
 
     $walk = function () use ($deep): int {
       $process = proc_open(
@@ -2577,7 +2578,7 @@ final class GuardTest extends WorkflowTestCase {
    */
   public function testAnUnresolvableCdIsFollowedBySpelling(): void {
     $root = $this->rootWithRun('code', 'active', 'hard', 'agentic');
-    file_put_contents($root . '/droost.workflow.yml', "preset: low\n");
+    file_put_contents(Levers::path($root), "preset: low\n");
     foreach ([
       'ddev exec "cd /var/www/html/droost/droost-workflow && rm run.json"',
       'ddev exec "cd /var/www/html/.claude/hooks && echo x > droost-workflow-guard.php"',

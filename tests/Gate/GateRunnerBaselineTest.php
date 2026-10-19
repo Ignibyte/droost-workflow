@@ -14,7 +14,6 @@ use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Gate\PhaseReport;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
@@ -33,7 +32,7 @@ final class GateRunnerBaselineTest extends WorkflowTestCase {
     $root = $this->makeRootWithConfig("preset: max\n");
     $this->writeBaseline($root);
     $executor = $this->awareExecutor();
-    $runner = new GateRunner($executor, new NullSiteDriver(), $this->vcs(['web/x.php']));
+    $runner = new GateRunner($executor, $this->vcs(['web/x.php']));
     $state = RunState::begin('run-1', '2026-09-08T00:00:00+00:00', WorkflowConfig::load($root), 'abc', BaselineStore::hash($root));
 
     $report = $runner->run($state, Phase::Code, $root);
@@ -53,7 +52,7 @@ final class GateRunnerBaselineTest extends WorkflowTestCase {
     $config = WorkflowConfig::load($root);
     $this->assertFalse($config->baseline);
     $executor = $this->awareExecutor();
-    $runner = new GateRunner($executor, new NullSiteDriver());
+    $runner = new GateRunner($executor);
     // The facade freezes NULL when the lever is off; the runner then sees a
     // present baseline against a NULL freeze — which is exactly a change.
     $state = RunState::begin('run-1', '2026-09-08T00:00:00+00:00', $config, NULL, NULL);
@@ -74,7 +73,7 @@ final class GateRunnerBaselineTest extends WorkflowTestCase {
     $root = $this->makeRootWithConfig("preset: max\n");
     $this->writeBaseline($root);
     $executor = $this->awareExecutor();
-    $runner = new GateRunner($executor, new NullSiteDriver());
+    $runner = new GateRunner($executor);
     $state = RunState::begin('run-1', '2026-09-08T00:00:00+00:00', WorkflowConfig::load($root), NULL, BaselineStore::hash($root));
 
     // The agent "sweeps" a finding into the baseline mid-run.
@@ -99,7 +98,7 @@ final class GateRunnerBaselineTest extends WorkflowTestCase {
   public function testBaselineAddedMidRunIsChange(): void {
     $root = $this->makeRootWithConfig("preset: max\n");
     $executor = $this->awareExecutor();
-    $runner = new GateRunner($executor, new NullSiteDriver());
+    $runner = new GateRunner($executor);
     $state = RunState::begin('run-1', '2026-09-08T00:00:00+00:00', WorkflowConfig::load($root), NULL, NULL);
     $this->writeBaseline($root);
 

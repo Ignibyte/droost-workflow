@@ -35,12 +35,12 @@ final class EnforcementWiringTest extends WorkflowTestCase {
     // Every mode is wired on the guard, anchored to $CLAUDE_PROJECT_DIR so the
     // hook survives the agent's Bash tool moving its cwd out of the project
     // root (R27-F1). Asserted on the raw commands, not the escaped JSON blob.
-    $guard = 'php "$CLAUDE_PROJECT_DIR/.claude/hooks/droost-workflow-guard.php"';
+    $guard = self::guardCommand();
     $pre = self::preToolUseEntries($settings);
     $preCommands = array_column($pre, 'command');
-    $this->assertContains($guard . ' pre-tool-use', $preCommands);
-    $this->assertContains($guard . ' operator-commands', $preCommands);
-    $this->assertSame($guard . ' stop', self::firstCommand($settings, 'Stop'));
+    $this->assertContains($guard . ' pre-tool-use --harness=claude', $preCommands);
+    $this->assertContains($guard . ' operator-commands --harness=claude', $preCommands);
+    $this->assertSame($guard . ' stop --harness=claude', self::firstCommand($settings, 'Stop'));
     // The Bash guard is its own PreToolUse entry with its own matcher.
     $matchers = array_column($pre, 'matcher');
     $this->assertContains('Bash', $matchers);
@@ -88,22 +88,23 @@ final class EnforcementWiringTest extends WorkflowTestCase {
     // anchored path in place, and the recording-only MCP registration joins
     // them — three PreToolUse entries, one Stop, no duplicate and no old
     // relative path left behind (R23-F2 + R27-F1 + F-37).
-    $new = 'php "$CLAUDE_PROJECT_DIR/.claude/hooks/droost-workflow-guard.php"';
+    $new = self::guardCommand();
     $pre = self::preToolUseEntries($settings);
     $this->assertCount(3, $pre, 'edit guard upgraded, Bash guard added, MCP recorder added');
     $commands = array_column($pre, 'command');
-    $this->assertContains($new . ' pre-tool-use', $commands);
-    $this->assertContains($new . ' operator-commands', $commands);
-    $this->assertContains($new . ' record', $commands);
-    // AND IT IS THE ONLY ONE MATCHED ON MCP. A wall that ran over every
-    // third-party tool's arguments is the thing F-37's fix is avoiding; if a
-    // refusal mode ever acquires an `mcp__` matcher, this fails.
+    $this->assertContains($new . ' pre-tool-use --harness=claude', $commands);
+    $this->assertContains($new . ' operator-commands --harness=claude', $commands);
+    $this->assertContains($new . ' record --harness=claude', $commands);
+    // AND IT IS THE ONLY ONE MATCHED ON MCP. droost's own refusals running
+    // over every third-party tool's arguments is the thing F-37's fix is
+    // avoiding (a project's walls are the one exception, by their own
+    // regex); if a refusal mode ever acquires an `mcp__` matcher, this fails.
     foreach ($pre as $entry) {
       // preToolUseEntries() already narrows both keys to strings, so the
       // `?? NULL` phpstan flagged was dead — and a dead null-coalesce on a
       // key that is always present is the kind of defensive noise that hides
       // a real absence somewhere else.
-      if (str_ends_with($entry['command'], ' record')) {
+      if (str_ends_with($entry['command'], ' record --harness=claude')) {
         $this->assertSame('mcp__.*', $entry['matcher']);
       }
       else {
@@ -116,7 +117,7 @@ final class EnforcementWiringTest extends WorkflowTestCase {
     $stop = $hooks['Stop'] ?? NULL;
     $this->assertIsArray($stop);
     $this->assertCount(1, $stop, 'the stop guard is not duplicated');
-    $this->assertSame($new . ' stop', self::firstCommand($settings, 'Stop'), 'the stop guard is upgraded too');
+    $this->assertSame($new . ' stop --harness=claude', self::firstCommand($settings, 'Stop'), 'the stop guard is upgraded too');
   }
 
   /**
@@ -192,7 +193,7 @@ final class EnforcementWiringTest extends WorkflowTestCase {
 
     $written = (string) file_get_contents($root . '/.claude/settings.json');
     $this->assertStringContainsString("\n  \"permissions\": {\n    \"allow\": [\n      \"Bash(ls:*)\"", $written, 'the two-space lines stay as they were (F-155)');
-    $this->assertStringContainsString('droost-workflow-guard.php', $written);
+    $this->assertStringContainsString('droost-guard', $written);
     $this->assertDoesNotMatchRegularExpression('/^    "permissions"/m', $written);
   }
 
@@ -232,7 +233,7 @@ final class EnforcementWiringTest extends WorkflowTestCase {
     // The user's own Stop hook survives the merge, and the guard's is added in
     // the anchored form (R27-F1) — checked raw, since json_encode escapes it.
     $this->assertContains('echo mine', $commands);
-    $this->assertContains('php "$CLAUDE_PROJECT_DIR/.claude/hooks/droost-workflow-guard.php" stop', $commands);
+    $this->assertContains(self::guardCommand() . ' stop --harness=claude', $commands);
 
     $broken = $this->makeRoot();
     mkdir($broken . '/.claude', 0755, TRUE);
@@ -253,7 +254,7 @@ final class EnforcementWiringTest extends WorkflowTestCase {
     (new PackMaterializer())->init($root);
 
     $this->assertFileExists($root . '/.claude/commands/droost/workflow/continue.md');
-    $this->assertFileExists($root . '/.claude/hooks/droost-workflow-guard.php');
+    $this->assertFileDoesNotExist($root . '/.claude/hooks/droost-workflow-guard.php', 'the guard runs from the package, never a copy');
     $this->assertFileExists($root . '/.claude/agents/workflow-researcher.md');
     $this->assertSame("# Mine\n", file_get_contents($root . '/.claude/commands/mine.md'));
 
@@ -356,6 +357,17 @@ final class EnforcementWiringTest extends WorkflowTestCase {
       'and the visible dir is not added to a project that does not use it',
     );
     $this->assertStringContainsString(".phpunit.result.cache\n", $onLegacy);
+  }
+
+  /**
+   * The guard every hook calls: the package's entry point.
+   *
+   * @return string
+   *   `php "<package>/bin/droost-guard"`, as init writes it for a project
+   *   outside the package.
+   */
+  private static function guardCommand(): string {
+    return 'php "' . realpath(dirname(__DIR__, 2) . '/bin/droost-guard') . '"';
   }
 
 }

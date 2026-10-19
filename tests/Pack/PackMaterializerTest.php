@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Pack;
 
+use Droost\Workflow\Tests\Levers;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\Pack\PackError;
 use Droost\Workflow\Pack\PackManifest;
@@ -72,7 +73,7 @@ class PackMaterializerTest extends WorkflowTestCase {
   public function testInitKeepsAnExistingLeverFile(): void {
     $root = $this->makeRoot();
     $mine = "preset: fast\n";
-    file_put_contents($root . '/' . PackManifest::CONFIG_FILE, $mine);
+    file_put_contents(Levers::path($root), $mine);
 
     $report = (new PackMaterializer())->init($root);
 
