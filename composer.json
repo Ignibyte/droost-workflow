@@ -1,7 +1,7 @@
 {
     "name": "droost/workflow",
     "type": "library",
-    "description": "The phased, gated pipeline an agent runs to build or change a Drupal site: plan, code, test, document, complete. Framework-free — the Drupal surface ships with drupal/droost.",
+    "description": "droost: a Drupal codebase's knowledge read from files (code:wiki, code:tree, search:arch) and the phased, gated pipeline an agent runs to change it. Framework-free: no Drupal is booted and drush is never called.",
     "keywords": [
         "Drupal",
         "droost",
@@ -18,6 +18,7 @@
     "require": {
         "php": "^8.3",
         "ext-pdo_sqlite": "*",
+        "droost/engine": "^0.11.1",
         "symfony/yaml": "^6.4 || ^7.0 || ^8.0"
     },
     "require-dev": {
@@ -57,6 +58,7 @@
         "test": "./vendor/bin/phpunit"
     },
     "bin": [
+        "bin/droost",
         "bin/droost-workflow",
         "bin/droost-parity",
         "bin/droost-source"
