@@ -203,8 +203,9 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
   /**
    * Where droost is installed, relative to the repository root.
    *
-   * `vendor/bin/droost` is what drupal/droost ships; drush is every Drupal
-   * site's, droost or not, and is no evidence of droost (S4-3).
+   * `vendor/bin/droost` or `tools/droost/vendor/bin/droost` (droost's own
+   * vendor directory), or the code index. NULL is not "no droost" to the
+   * check (F-303): it runs inside the package that ships the commands.
    *
    * @param string $root
    *   The repository root.

@@ -18,9 +18,9 @@ use Droost\Workflow\Gate\ShellGateExecutor;
  * longer match and REFUSES to add any, unless the operator says --grow with a
  * reason, which the manifest then carries forever.
  *
- * Nothing here decides who may call it. That is the surfaces' job: the drush
- * verb demands an operator terminal and the pack guard refuses the agent's
- * shell, because a baseline the agent can write is a finding it can hide.
+ * Nothing here decides who may call it. That is the surface's job: the guard
+ * refuses `droost workflow:baseline --write` from the agent's shell, because
+ * a baseline the agent can write is a finding it can hide.
  */
 final class BaselineWriter {
 

@@ -15,9 +15,8 @@ use Symfony\Component\Yaml\Yaml;
  * versus the canonical name that is written, and how many explicit switches
  * the file's `gates:` block still carries, each of which overrides the level
  * (the standing gotcha: a file that spells out every gate changes only what
- * it leaves unsaid when the dial moves). Framework-free so the drush surface
- * can wrap it with the operator-terminal check and its printing, and so it is
- * tested here in seconds.
+ * it leaves unsaid when the dial moves). The binary wraps it with the
+ * operator-terminal check and its printing; it is tested here in seconds.
  */
 final class EffortSwitch {
 

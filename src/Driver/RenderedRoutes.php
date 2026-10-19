@@ -16,11 +16,6 @@ namespace Droost\Workflow\Driver;
 final class RenderedRoutes {
 
   /**
-   * What is rendered when nobody names anything: the front page.
-   */
-  public const DEFAULT = '/';
-
-  /**
    * The statuses a route may be declared to answer an anonymous visitor with.
    *
    * A route is expected to render (200) unless it says otherwise. An admin
@@ -53,23 +48,7 @@ final class RenderedRoutes {
   }
 
   /**
-   * A route's path and the status it must answer an anonymous visitor with.
-   *
-   * @param string $route
-   *   A route as declared: `/camps`, or `/admin/content/x@403`.
-   *
-   * @return array{path: string, status: int}
-   *   The path, and 200 unless the route names a refusal.
-   */
-  public static function expectation(string $route): array {
-    if (preg_match('/^(\/.*)@(\d{3})$/', trim($route), $m) === 1 && (int) $m[2] !== 200 && self::declarable((int) $m[2])) {
-      return ['path' => $m[1], 'status' => (int) $m[2]];
-    }
-    return ['path' => trim($route), 'status' => 200];
-  }
-
-  /**
-   * A route string carrying its expected status, as expectation() reads it.
+   * A route string carrying its expected status: `path@status`.
    *
    * @param string $path
    *   The path.

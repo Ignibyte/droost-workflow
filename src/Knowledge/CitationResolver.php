@@ -28,10 +28,10 @@ use Symfony\Component\Yaml\Yaml;
  *   - `page.md` or `wiki:page.md`: a page of the project's wiki;
  *   - a bare name: the symbol index (a short class name or a module).
  *
- * Nothing here boots Drupal, so the standalone binary and drush resolve a
- * citation the same way. droost's grounding gate extends this and adds what
- * only a booted site has, through the protected hooks: the brain (registered
- * kinds, core included) and the site's own autoloader.
+ * Nothing here boots Drupal. The protected hooks were where droost's
+ * Drupal-side grounding gate added the brain and the site's autoloader until
+ * that gate left with the module (2026-10-19); they stay as the seam a test
+ * (or a future surface) overrides.
  */
 class CitationResolver {
 

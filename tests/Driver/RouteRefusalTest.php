@@ -26,17 +26,15 @@ use Droost\Workflow\Tests\WorkflowTestCase;
 final class RouteRefusalTest extends WorkflowTestCase {
 
   /**
-   * A route string carries its expected status, and only a refusal.
+   * A route string carries its expected status, and only a declarable one.
    */
   public function testExpectationRidesOnTheRoute(): void {
-    $this->assertSame(['path' => '/camps', 'status' => 200], RenderedRoutes::expectation('/camps'));
-    $this->assertSame(['path' => '/admin/x', 'status' => 403], RenderedRoutes::expectation('/admin/x@403'));
-    $this->assertSame(['path' => '/admin/x', 'status' => 401], RenderedRoutes::expectation('/admin/x@401'));
-    $this->assertSame(['path' => '/admin/x@500', 'status' => 200], RenderedRoutes::expectation('/admin/x@500'), 'a 500 is no refusal to declare');
-    // A redirect is an answer to declare too (F-179).
-    $this->assertSame(['path' => '/account', 'status' => 303], RenderedRoutes::expectation('/account@303'));
     $this->assertSame('/admin/x@403', RenderedRoutes::withStatus('/admin/x', 403));
     $this->assertSame('/camps', RenderedRoutes::withStatus('/camps', 200));
+    $this->assertTrue(RenderedRoutes::declarable(401));
+    // A redirect is an answer to declare too (F-179).
+    $this->assertTrue(RenderedRoutes::declarable(303));
+    $this->assertFalse(RenderedRoutes::declarable(500), 'a 500 is no answer to declare');
   }
 
   /**

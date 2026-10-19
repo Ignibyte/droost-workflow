@@ -14,7 +14,7 @@ use Droost\Workflow\State\RunStateStore;
  * assessed, asked and planned by the agent in `droost/intake/`; checked; and
  * approved on the human's recorded yes to "Approve this roadmap?", whoever
  * runs it. Abandoning and recording an answer are the operator's alone:
- * the CLI and drush refuse them without a terminal, and the guard refuses
+ * the droost command refuses them without a terminal, and the guard refuses
  * them from the agent's shell. The agent asks through AskUserQuestion, or,
  * on a host without it, puts the questions on record with `ask` for the host
  * to show the human. While an intake is open no run opens, so nothing is

@@ -137,11 +137,10 @@ final class ArgvDispatcher {
       return $verb === '' ? self::EXIT_USAGE : self::EXIT_OK;
     }
 
-    // `--project` on EVERY verb, because the other two surfaces have it and
-    // this one did not. The MCP tools take a `project` argument and the drush
-    // commands a `--project` option; `bin/droost-workflow` took the working
-    // directory and nothing else, so the same instruction written once for an
-    // agent worked on two surfaces and was an unknown flag on the third.
+    // `--project` on EVERY verb. When drush and MCP were doors too (until
+    // 2026-10-19) they took one and this binary did not, so the same
+    // instruction written once for an agent was an unknown flag here; it
+    // stays, because a shell that has moved needs it.
     //
     // It also answers the moved-cwd case. An agent's shell can `cd`, and the
     // binary resolving its root from wherever the shell happens to be means the
@@ -1741,10 +1740,9 @@ final class ArgvDispatcher {
   /**
    * Whether a person is typing this into a terminal.
    *
-   * The same second line of defence the drush surface has, in the same words,
-   * because the two surfaces now offer the same three operator verbs and a
-   * rule that holds on one and not the other is not a rule. The guard hook is
-   * the first line: it refuses these verbs from the agent's Bash tool. Not
+   * The second line of defence for the three operator verbs (drush's door
+   * had the same, in the same words, until 2026-10-19). The guard hook is the
+   * first line: it refuses these verbs from the agent's Bash tool. Not
    * tamper-proof — a PTY can be faked — but it turns "the agent ran it in
    * passing" into "the agent went out of its way", which the seeker's
    * discipline lens then catches.
@@ -1957,9 +1955,8 @@ final class ArgvDispatcher {
                        (paid-off debt drops, growth is refused unless
                        --grow --reason="…"). Writing is the operator's act.
 
-    --project=<path> works on every verb and names the repository to act on,
-    the way the drush commands' --project and the MCP tools' `project`
-    argument do. Without it the working directory is the repository — which
+    --project=<path> works on every verb and names the repository to act on.
+    Without it the working directory is the repository — which
     is wrong the moment a shell has moved, and wrong quietly: a subdirectory
     has no lever file, so the run reports built-in defaults as though the
     project had none.

@@ -17,8 +17,8 @@ use Droost\Workflow\State\RunStateStore;
  *
  * It lived in droost until 2026-10-15, which a Drupal-free reader could not
  * reach: `plan_grounded` reads it, and a plan held only where Drupal boots is
- * a plan the standalone binary closed unasked (F-276). Both droost's tools,
- * run through drush, and `vendor/bin/droost`, with no Drupal, append here.
+ * a plan the standalone binary closed unasked (F-276). The droost command's
+ * knowledge calls (`code:wiki`, `code:tree`, …) append here, with no Drupal.
  *
  * Deliberately append-only, outside the run record (a run may not be open,
  * and a ledger that needed one would miss the calls made while deciding

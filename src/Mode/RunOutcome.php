@@ -93,9 +93,9 @@ final class RunOutcome {
    * The one run envelope every surface renders.
    *
    * Until this existed the same five fields were assembled three times — in
-   * the bin, the drush command and the MCP tool — which is exactly the
-   * second-implementation drift the facade exists to prevent. The surfaces
-   * differ in how they PRINT this, never in what it says.
+   * the bin, the drush command and the MCP tool, the doors before 2026-10-19
+   * — which is exactly the second-implementation drift the facade exists to
+   * prevent. A surface differs in how it PRINTS this, never in what it says.
    *
    * @return array<string, mixed>
    *   The envelope: outcome, current_phase, preset (the effort level the run

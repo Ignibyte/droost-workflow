@@ -69,12 +69,11 @@ use Droost\Workflow\WorkItem\WorkItemSourceInterface;
 /**
  * The one place a workflow run is orchestrated.
  *
- * Four fronts call this: the standalone bin, the drush commands, and two MCP
- * tools. Each of them parses input, calls a method here, and renders the
- * result — and does nothing else. That is what makes surface parity
- * architectural rather than aspirational: there is no second implementation
- * to drift, because the only difference between the surfaces is which
- * SiteDriver they inject.
+ * One front calls this since droost left Drupal (2026-10-19): the `droost`
+ * command (`droost workflow:<verb>`, and the `droost-workflow` alias), through
+ * ArgvDispatcher, which parses input, calls a method here, and renders the
+ * result — and does nothing else. A second front (Cockpit's, say) would do
+ * the same, so there is no second implementation to drift.
  *
  * This class is also where run state finally gets a production writer. Until
  * now `RunState::begin()` and `RunStateStore` were exercised only by tests,
