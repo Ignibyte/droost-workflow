@@ -162,6 +162,7 @@ final class DroostCli {
       'init' => 'Installs the workflow pack and droost\'s block in each agent harness (--harness=auto|all|<ids>).',
       'migrate' => 'Moves a root droost.workflow.yml to droost/droost.yml.',
       'doctor' => 'What droost can see of this project, row by row.',
+      'guard <verb>' => 'The guard each agent harness\'s hooks call (the same as bin/droost-guard); not for typing by hand.',
     ];
   }
 

@@ -13,6 +13,16 @@
 declare(strict_types=1);
 
 use Droost\Workflow\Cli\ArgvDispatcher;
+
+// `droost guard <verb>` is the guard, the same script bin/droost-guard runs
+// (the entry a harness's hooks call, which loads no autoloader). It reads its
+// verb from $argv and exits itself.
+if (($argv[1] ?? '') === 'guard') {
+  $argv = [__DIR__ . '/../pack/hooks/droost-workflow-guard.php', ...array_slice($argv, 2)];
+  $argc = count($argv);
+  require __DIR__ . '/../pack/hooks/droost-workflow-guard.php';
+  exit(0);
+}
 use Droost\Workflow\Knowledge\DroostCli;
 
 // The installing project's autoloader first (Composer's bin proxy names it),

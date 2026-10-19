@@ -27,14 +27,14 @@ use Symfony\Component\Yaml\Yaml;
 final class StoragePaths {
 
   /**
-   * The project's configuration file.
+   * The project's configuration file (ConfigLocator owns the rule).
    */
-  public const string CONFIG_FILE = 'droost/droost.yml';
+  public const string CONFIG_FILE = ConfigLocator::PATH;
 
   /**
    * The configuration file a project kept before droost/droost.yml.
    */
-  public const string LEGACY_CONFIG_FILE = 'droost.workflow.yml';
+  public const string LEGACY_CONFIG_FILE = ConfigLocator::LEGACY;
 
   /**
    * The code index's file name, in the state directory.
@@ -59,13 +59,10 @@ final class StoragePaths {
    *   The file, absolute.
    */
   public static function configFile(string $projectRoot): ?string {
-    $root = rtrim($projectRoot, '/');
-    foreach ([self::CONFIG_FILE, self::LEGACY_CONFIG_FILE] as $relative) {
-      if (is_file($root . '/' . $relative)) {
-        return $root . '/' . $relative;
-      }
-    }
-    return NULL;
+    // One rule for where the file is, shared with the workflow's loader and
+    // the guard, so the knowledge commands never read a different file.
+    $relative = ConfigLocator::found($projectRoot);
+    return $relative === NULL ? NULL : rtrim($projectRoot, '/') . '/' . $relative;
   }
 
   /**
