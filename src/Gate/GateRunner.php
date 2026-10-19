@@ -88,7 +88,7 @@ final class GateRunner {
    *   Called after each gate. The attach point for pair mode, which needs to
    *   act at a gate boundary without this class knowing anything about modes.
    * @param list<string>|null $only
-   *   The due gates to run, or NULL for all of them: `droost-workflow specs`
+   *   The due gates to run, or NULL for all of them: `droost workflow:specs`
    *   runs the browser gate alone, down the same path a phase does.
    * @param bool $reuse
    *   Whether a gate at `reuse: recorded` may take a recorded run. FALSE for
@@ -306,7 +306,7 @@ final class GateRunner {
       }
     }
     $before = $found === [] ? '' : sprintf(
-      '; %d page(s) were already unfresh and this run did not change their sources, so they do not fail it (refresh them with drush droost:wiki:generate, here or in a run of their own; gates.wiki_fresh.scope: all holds a run to them): %s',
+      '; %d page(s) were already unfresh and this run did not change their sources, so they do not fail it (rewrite them and `droost code:wiki stamp` them, here or in a run of their own; gates.wiki_fresh.scope: all holds a run to them): %s',
       count($found),
       implode('; ', $found),
     );
@@ -614,7 +614,7 @@ final class GateRunner {
     }
     $at = is_string($row['adjudicated_at'] ?? NULL) ? $row['adjudicated_at'] : 'an earlier moment';
     $summary = sprintf(
-      '%s [the run `droost-workflow specs` recorded at %s, on this tree: not run again]',
+      '%s [the run `droost workflow:specs` recorded at %s, on this tree: not run again]',
       rtrim(is_string($row['summary'] ?? NULL) ? $row['summary'] : '', '. '),
       $at,
     );

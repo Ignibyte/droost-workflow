@@ -49,14 +49,15 @@ final class GuardTest extends WorkflowTestCase {
    * The bypass is named on the surface the project has (F-171).
    *
    * A project with no drupal/droost has no drush, and the wall told its
-   * agent to ask the operator for `drush droost:workflow:bypass`.
+   * agent to ask the operator for `drush droost:workflow:bypass`. There is
+   * one command now, whether or not drush is there.
    */
   public function testRequireRunNamesTheSurfaceThatExists(): void {
     $root = $this->makeRoot();
     [, , $stderr] = $this->guard($root, 'pre-tool-use', [
       'tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module'],
     ]);
-    $this->assertStringContainsString('vendor/bin/droost-workflow bypass "<reason>"', $stderr);
+    $this->assertStringContainsString('droost workflow:bypass "<reason>"', $stderr);
     $this->assertStringNotContainsString('drush droost:workflow:bypass', $stderr);
 
     mkdir($root . '/vendor/bin', 0755, TRUE);
@@ -64,7 +65,8 @@ final class GuardTest extends WorkflowTestCase {
     [, , $stderr] = $this->guard($root, 'pre-tool-use', [
       'tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module'],
     ]);
-    $this->assertStringContainsString('drush droost:workflow:bypass "<reason>"', $stderr);
+    $this->assertStringContainsString('droost workflow:bypass "<reason>"', $stderr);
+    $this->assertStringNotContainsString('drush droost:workflow:bypass', $stderr, 'drush being there does not bring the retired verb back');
   }
 
   /**

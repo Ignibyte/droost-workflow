@@ -31,13 +31,13 @@ effectiveness, and whether a patch truly landed. Capture them now or lose them.
 | Install shape | — | `registry / vcs / path-repo` |
 | Package versions | `composer show -i \| grep droost` | `<each + source>` |
 | Patches in force | `composer.json` → `extra.patches` | `<each + verified on disk?>` |
-| Write gates | `drush droost:gate` | `<all seven, as the subject finds them>` |
-| Resolved levers | `vendor/bin/droost-workflow status` | `<attach JSON>` |
-| Knowledge freshness | `drush droost:doctor` | `<every row>` |
+| Resolved levers | `droost workflow:status` | `<attach JSON>` |
+| Knowledge freshness | `droost doctor` | `<every row>` |
+| Project rule files | `droost workflow:status` → `.levers.hooks`, `.walls`, `.operator_only`, and `run.json` → `rule_files` | `<each file and the hash frozen at begin>` |
 
 **Traps that have bitten here before:**
 
-- `droost:install` writes `preset: custom`, `enforcement: soft`,
+- `droost init` writes `preset: custom`, `enforcement: soft`,
   `max_gate_retries: 2`. The parser's absent-key defaults are `max`, the
   preset's, and `3`. **No installed repo sits at the documented defaults** —
   read the value, never assume it.
@@ -46,9 +46,6 @@ effectiveness, and whether a patch truly landed. Capture them now or lose them.
 - On stock Drupal CMS the composer patcher may be absent from `vendor` and
   from `allow-plugins`, so `extra.patches` is silently ignored. Verify the
   patched bytes on disk.
-- `droost:doctor` hardcodes its gates row `ok => TRUE` and excludes it from the
-  verdict. It **cannot fail** on a site where every write refuses. Read that
-  row yourself.
 
 ---
 
@@ -67,14 +64,9 @@ preset frozen into **this** run — a lever's meaning changes with it.
 | `seekers` | | | **no pre-run probe** | | | `.run.seeker_history` | |
 | `baseline` | | | `.baseline.present/honoured` | | | `.run.baseline_hash` | |
 | `work_item` | | | lever file only | | | absent from `run.json` | |
-| — **write gates** — | | | | | | | |
-| `allow_scaffold` | | | `drush droost:gate` | | | tool refusal text | |
-| `allow_config_write` | | | ″ | | | ″ | |
-| `allow_entity_write` | | | ″ | | | ″ | |
-| `allow_db_write` | | | ″ | | | ″ | |
-| `allow_module_ops` | | | ″ | | | ″ | |
-| `allow_eval` | | | ″ | | | ″ | |
-| `allow_destructive` | | | ″ | | | ″ | |
+| `walls` | | | `.levers.walls` | | | `guard-calls.jsonl` refusals citing the wall | |
+| `hooks` | | | `.levers.hooks` | | | `hook-calls.jsonl` | |
+| `operator_only` | | | `.levers.operator_only` | | | guard refusal of the script from the agent's shell | |
 | — **gates** — | | | | | | | |
 | `phpcs` | | | `.levers.gates.phpcs` | | | `gate_results` | |
 | `phpstan` | | | ″ | | | ″ | |
@@ -86,13 +78,9 @@ preset frozen into **this** run — a lever's meaning changes with it.
 | `playwright` | | | ″ | | | ″ | |
 | `parity` | | | ″ | | | ″ | |
 | `coverage` | | | ″ | | | ″ | |
-| `rendered_check` | | | ″ | | | ″ | |
-| `config_clean` | | | ″ | | | ″ | |
 | `wiki_fresh` | | | ″ | | | ″ | |
-| `grounding_check` | | | ″ | | | ″ + §4b | |
-| `composition_check` | | | ″, and `.rules` | | | ″ | |
-| `custom:*` | | | `.levers.gates.custom` | | | ″ | |
-| `module:*` | | | `.levers.contributed` | | | ″ | |
+| `house_rules` | | | ″, and `.rules` | | | ″ | |
+| project gates | | | `.levers.gates.<id>` (`run:` / `cmd:`) | | | ″, and the file's hash at begin | |
 
 **Levers that are NOT frozen into the run** — they can change under it, so
 record when you read them: `require_run` (guard re-reads raw YAML on every
@@ -108,7 +96,7 @@ A green is not a measurement. Classify every one.
 | Gate | Status | Exit | `duration_ms` | Invocation recorded | Measured anything? |
 |---|---|---|---|---|---|
 
-**Discrimination — 14 of 15 gates can report green having measured nothing:**
+**Discrimination — almost every gate can report green having measured nothing:**
 
 | Reading | Verified? |
 |---|---|
@@ -119,31 +107,29 @@ A green is not a measurement. Classify every one.
 | playwright `passed`, empty suite | no — and **unlabeled** below `max` |
 | `off — by preset <level>` | no — honest, not a pass |
 | `off — by the lever file` | no — the repo disarmed it |
-| `skipped-no-site` | no — standalone CLI, no Drupal |
-| `error-tool-missing` | no — **blocks** |
-| `error-tool-failed` | no — crashed |
+| `skipped-no-site` | no — `wiki_fresh`'s command could not run |
+| `error-tool-missing` | no — **blocks**; a project gate file that is missing or could not start |
+| `error-tool-failed` | no — crashed, timed out, or a project gate file exited anything but 0 or 1 |
 | `reported` | a finding that did not block |
 | `waived` | no — an operator overrode it |
-| grounding_check `no spec` / `no grounding table` | no — **labeled** passes, and they say so |
 
 **Asymmetries to encode in any scorer:**
 - Crash-vs-finding is mapped for **four** tools only (eslint, prettier,
-  stylelint, phpcs). For phpstan, phpunit, mutation, playwright, wiki_fresh and
-  every `custom:*`/`module:*` gate a **crash scores as a failing gate** — a
-  verdict on the code, when nothing ran.
+  stylelint, phpcs). For phpstan, phpunit, mutation and playwright a **crash
+  scores as a failing gate** — a verdict on the code, when nothing ran.
 - `stylelint` inverts the convention: exit 1 = fatal, exit 2 = findings.
-- `custom:*` and `module:*` gates **cannot be waived** and have no timeout
-  handling; a timeout scores `failed`.
+- A project gate's verdict is its exit code: 0 passed, 1 failed, anything
+  else — a crash, a timeout, exit 3 — did not run. Check its file's hash in
+  `rule_files` against the one at its gate: a changed file is named there.
 
 ---
 
 ## 4e. Read the store, not this form, where the store knows
 
 Since the evidence store landed, most of what follows is recorded rather than
-reconstructed, and `drush droost:workflow:evidence --write` renders it — or
-`vendor/bin/droost-workflow evidence --write` where there is no Drupal to boot.
-Both take the flag bare (it lands at `droost/evidence/<run>.md`) or with a path,
-and both report the path they actually wrote. Fill this
+reconstructed, and `droost workflow:evidence --write` renders it. It takes
+the flag bare (it lands at `droost/evidence/<run>.md`) or with a path, and
+reports the path it actually wrote. Fill this
 form by hand only for the parts a machine must not answer — §5, §6 and §8 —
 and for anything the store could not see.
 
@@ -178,16 +164,14 @@ jq -r 'select(.outcome=="fail") | .tool' droost/droost-workflow/tool-calls.jsonl
 | Total calls | | |
 | Distinct tools | | |
 | **Knowledge calls** (`code:wiki`, `code:tree`, `search:arch`, `code:symbol`, `code:graph`, `code:docs`, `code:deprecations`, `search:code`, `brief`) | | **zero here means the run never asked the codebase anything**, whatever its grounding table says; at plan, `plan_grounded` holds a run that asked nothing |
-| Write/scaffold calls (`scaffold`, `structure_create`, `config_set`, `entity_create`, `views_compose`) | | |
 | Refusals (`outcome: fail`) | | each one is a gate that was off, or an argument that was wrong |
 
 **How it was built.** Of the files added under `web/modules/custom` and
-`web/themes/custom`, which came from a `drush generate`, which from a droost
-write tool or blueprint, and which were typed. Nothing holds a file to one
+`web/themes/custom`, which came from a `drush generate` (recorded in
+`scaffolded.jsonl`), and which were typed. Nothing holds a file to one
 way; the row is the record of what the run chose.
 
-**House rules.** For each rule in `rules.house` (`vendor/bin/droost-workflow
-rules`): its judge, and what judged it — the gate's verdict for a `gate`
+**House rules.** For each rule in `rules.house` (`droost workflow:rules`): its judge, and what judged it — the gate's verdict for a `gate`
 rule, the seeker's finding (cited by rule id) for a `seeker` rule — and any
 exception, with the operator who approved it.
 
@@ -196,7 +180,7 @@ exception, with the operator who approved it.
 
 ## 4b. Grounding — the three tiers, and whether each was actually reached
 
-`grounding_check` is the only gate that measures the agent's own research, so
+`plan_grounded` is the only check that measures the agent's own research, so
 it is the one most worth taking apart. Two halves fail independently, and a
 pass on one tells you nothing about the other.
 
@@ -204,43 +188,32 @@ pass on one tells you nothing about the other.
 # what the spec claimed
 sed -n '/^## Grounding/,/^## /p' droost/droost-workflow/*spec-*.md
 
-# what the gate said about it
-drush droost:workflow:report | grep -A3 grounding_check
+# what the check said about it
+droost workflow:evidence | grep -A3 plan_grounded
 ```
 
 | Tier | Rows | Cited | Citations that resolved | Store that answered | Verdict |
 |---|---|---|---|---|---|
-| custom | | | | symbol graph · search index · autoloader · filesystem | |
-| contrib | | | | symbol graph · search index · autoloader · filesystem | |
-| core | | | | brain · **autoloader** — core is not an indexed scope, so a class resolves through the brain (registered kinds) or the autoloader (anything the site can load) | |
+| custom | | | | code index · PSR-4 · filesystem | |
+| contrib | | | | code index · PSR-4 · filesystem | |
+| core | | | | code index (when it holds core) · PSR-4 · filesystem | |
 
 - **A tier with rows but no resolvable citation is not grounded.** Prose in
-  `Found` is the agent's account of itself; the citation is what the site
-  confirms. The gate refuses a claimed tier that cites nothing — before that
-  rule a table with no `Evidence` column passed with "0 citation(s) resolved".
+  `Found` is the agent's account of itself; the citation is what the project
+  confirms. The check refuses a claimed tier that cites nothing, and a table
+  whose only citations are `none:` rows.
 - **`none:` rows are re-run, not read.** The most valuable row in the table is
   the one proving a duplicate was not about to be built, and it is also the
-  easiest to type without looking. Check the gate re-ran it: a `none:` claim
-  about something the site has must fail.
+  easiest to type without looking. A `none:` claim about something the code
+  index holds must fail, and needs a built index to be checked at all.
 - **Half two is the ledger, not the table.** A citation proves the symbol
-  exists; it can be copied out of a file. At plan, `plan_grounded` holds a run
-  whose ledger records no knowledge call — see §4a. Record both verdicts
-  separately, or a run that cited well and looked up nothing scores as grounded.
-- **Which store answered is the fact this section exists to record.**
-  `droost:search:index` runs custom|contrib|themes|wiki; core is a scope
-  nothing indexes by default, so the symbol-graph table holds no `node`,
-  `views` or `field` symbols at all. A core citation therefore resolves
-  through the **brain** (registered kinds only) or the **autoloader** (any
-  class the site can load); a file the index does not carry resolves through
-  the **filesystem**. Count them: a round where most citations resolved on
-  disk rather than in a store is a round whose index did not cover what the
-  agent actually read — true grounding, and an index gap, at once. If a round
-  reports a core citation resolving against the symbol graph, the probe is
-  wrong, not the finding.
-- **A cell that resolves nowhere is a finding on a passing gate, not a
-  failure** (unless `strict_citations` is on). Read §8a for them by rule
-  `unresolved`; a `none-superseded` rule marks a plan-phase negative claim
-  that the code phase itself made true, which is the build doing its job.
+  exists; it can be copied out of a file. `plan_grounded` also holds a run
+  whose ledger shows no `code:wiki` and no `code:tree` call — see §4a. Record
+  both verdicts separately, or a run that cited well and looked up nothing
+  scores as grounded.
+- **Which store answered is the fact this section exists to record.** A
+  citation that resolved on disk rather than in the index is true grounding
+  and an index gap at once. Count them.
 
 ## 4c. Transcripts — what the tool actually said
 
@@ -314,8 +287,8 @@ reason the rows are trustworthy.
 
 | # | Link | Where it is recorded | How observed | Held? |
 |---|---|---|---|---|
-| 1 | Lever written | `droost.workflow.yml` | the file, in the diff | |
-| 2 | Lever resolved | resolver output | `droost-workflow status` → `.levers` | |
+| 1 | Lever written | `droost/droost.yml` | the file, in the diff | |
+| 2 | Lever resolved | resolver output | `droost workflow:status` → `.levers` | |
 | 3 | Frozen into the run | `run` row | `run.preset`, `.mode`, `.enforcement` | |
 | 3b | **Spec frozen** | `run.spec_hash` | non-empty, and `spec_frozen_at` set | |
 | 4 | Phase map derived | `run.json` | `.run.phase_gates[phase]` | |
@@ -328,7 +301,7 @@ reason the rows are trustworthy.
 | 7c | **What the tool printed** | `transcript` | the raw stream, per attempt | |
 | 8 | Phase advanced | `phases` in `run.json` | **subject-written — corroborate with 7** | |
 | 9 | Artefact on disk | files / config | `git diff`, `config:status`, HTTP | |
-| 10 | Reported to a human | the report | `drush droost:workflow:report` | |
+| 10 | Reported to a human | the report | `droost workflow:evidence` | |
 
 **Operator interventions** — every one, with why. Each is a first-run defect
 in disguise:
@@ -347,7 +320,7 @@ in disguise:
 | I3 | `.run.browser` / `.run.tasks` are self-declared through unguarded, TTY-free commands — corroborate against the transcript | |
 | I4 | No refusal read as success. **`isError` is never set anywhere**, so every gate refusal is a protocol-level success — scan for refusal *text* | |
 | I5 | Baseline coherent: `baseline.on: false` alongside an existing `droost/baseline/` fails every consulting gate. Void, not a product failure | |
-| I6 | Cross-check the doctor's gates row, `drush droost:gate`, and what the decision graph reported — these have disagreed live on one boolean | |
+| I6 | Every gate, hook and wall file `droost/droost.yml` names is in `run.json`'s `rule_files` with the hash it had at begin, and none of them changed before its gate ran | |
 
 ### 7.3 Blind spots — what this chain CANNOT see
 

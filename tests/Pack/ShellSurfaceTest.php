@@ -1993,6 +1993,14 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       'drush droost:workflow:effort low',
       'vendor/bin/droost-workflow effort low',
       'droost-workflow effort max',
+      // The droost command's spelling (2026-10-19), which every pack file now
+      // teaches: refused, from wherever droost is installed.
+      'droost workflow:bypass "hotfix"',
+      'tools/droost/vendor/bin/droost workflow:bypass hotfix',
+      'droost workflow:gate-waive config_clean "no config workflow"',
+      'droost workflow:effort low',
+      'droost workflow:baseline',
+      'droost workflow:intake answer "Who edits?" "Me"',
     ] as $command) {
       [$exit, , $stderr] = $this->shell($root, $command);
       $this->assertSame(2, $exit, $command . ' is the operator\'s: ' . $stderr);
@@ -2013,6 +2021,12 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       'vendor/bin/droost-workflow baseline --status',
       'vendor/bin/droost-workflow baseline --measure',
       'vendor/bin/droost-workflow status',
+      'droost workflow:effort max --preview',
+      'droost workflow:bypass --off',
+      'droost workflow:bypass --help',
+      'droost workflow:baseline --status',
+      'droost workflow:status',
+      'git commit -m "ran droost workflow:bypass for the hotfix"',
     ] as $command) {
       [$exit, , $stderr] = $this->shell($root, $command);
       $this->assertSame(0, $exit, $command . ' writes nothing and is anyone\'s: ' . $stderr);
@@ -2032,6 +2046,7 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       'vendor/bin/droost-workflow ticket move TICKET-12 done',
       'droost-workflow ticket move 12 ready',
       'drush droost:workflow:ticket move TICKET-12 review',
+      'droost workflow:ticket move TICKET-12 done',
     ] as $command) {
       [$exit, , $stderr] = $this->shell($root, $command);
       $this->assertSame(2, $exit, $command . ' is the operator\'s: ' . $stderr);
@@ -2039,6 +2054,8 @@ final class ShellSurfaceTest extends WorkflowTestCase {
     }
     [, , $handover] = $this->shell($root, 'vendor/bin/droost-workflow ticket move TICKET-12 done');
     $this->assertStringContainsString('`droost-workflow ticket move …`', $handover, 'the hand-over names the binary that was used');
+    [, , $handover] = $this->shell($root, 'droost workflow:ticket move TICKET-12 done');
+    $this->assertStringContainsString('`droost workflow:ticket move …`', $handover, 'and the droost command, in its own spelling');
     $this->assertStringNotContainsString('`! ', $handover, 'and not through Claude Code\'s `!`, which has no terminal (F-256)');
 
     foreach ([

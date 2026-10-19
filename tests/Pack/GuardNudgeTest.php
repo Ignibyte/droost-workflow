@@ -96,7 +96,7 @@ final class GuardNudgeTest extends WorkflowTestCase {
       $note = $this->nudge($root, 'Grep', ['pattern' => 'hook_tokens', 'path' => 'web/core']);
       if ($note !== NULL) {
         $noted[] = $i;
-        $this->assertStringContainsString('droost_symbol', $note);
+        $this->assertStringContainsString('droost code:symbol', $note);
       }
     }
     $this->assertSame([1, 10], $noted);
@@ -146,7 +146,8 @@ final class GuardNudgeTest extends WorkflowTestCase {
     $spec = ['file_path' => $root . '/droost/droost-workflow/tmp-spec-t1.md'];
     $note = $this->nudge($root, 'Write', $spec);
     $this->assertNotNull($note);
-    $this->assertStringContainsString('drush droost:brief', $note);
+    $this->assertStringContainsString('droost code:wiki', $note);
+    $this->assertStringContainsString('droost code:tree', $note);
     $this->assertNull($this->nudge($root, 'Edit', $spec), 'not every edit');
     $full = $this->project('plan');
     $this->assertNotNull($this->nudge($full, 'Write', ['file_path' => $full . '/droost/droost-workflow/spec-t1.md']), 'the full spec at high and above is a spec too (S5-5)');
@@ -154,7 +155,7 @@ final class GuardNudgeTest extends WorkflowTestCase {
     $looked = $this->project('plan');
     file_put_contents(
       $looked . '/droost/droost-workflow/tool-calls.jsonl',
-      (string) json_encode(['tool' => 'droost_symbol', 'outcome' => 'ok', 'run' => 'run-n', 'phase' => 'plan']) . "\n",
+      (string) json_encode(['tool' => 'code:symbol', 'outcome' => 'ok', 'run' => 'run-n', 'phase' => 'plan']) . "\n",
     );
     $this->assertNull($this->nudge($looked, 'Write', ['file_path' => $looked . '/droost/droost-workflow/tmp-spec-t1.md']));
   }
@@ -165,9 +166,10 @@ final class GuardNudgeTest extends WorkflowTestCase {
   public function testOnlyThisRunsSuccessfulKnowledgeCallCounts(): void {
     $root = $this->project('plan');
     file_put_contents($root . '/droost/droost-workflow/tool-calls.jsonl', implode("\n", [
-      json_encode(['tool' => 'droost_search', 'outcome' => 'fail', 'run' => 'run-n']),
-      json_encode(['tool' => 'droost_search', 'outcome' => 'ok', 'run' => 'run-other']),
-      json_encode(['tool' => 'droost_scaffold', 'outcome' => 'ok', 'run' => 'run-n']),
+      json_encode(['tool' => 'search:code', 'outcome' => 'fail', 'run' => 'run-n']),
+      json_encode(['tool' => 'search:code', 'outcome' => 'ok', 'run' => 'run-other']),
+      // A retired Drupal-era tool id is not a knowledge call either.
+      json_encode(['tool' => 'droost_search', 'outcome' => 'ok', 'run' => 'run-n']),
     ]) . "\n");
     $this->assertNotNull($this->nudge($root, 'Write', ['file_path' => $root . '/droost/droost-workflow/tmp-spec-t1.md']));
   }

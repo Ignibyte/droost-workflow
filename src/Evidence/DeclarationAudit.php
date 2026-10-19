@@ -47,7 +47,7 @@ final class DeclarationAudit {
    * `.claude/` and the lever file are here because leaving them out made this
    * audit punish the one thing it exists to reward. A reviewer declared its
    * files honestly and was blocked at code over THIRTY-ONE undeclared paths,
-   * every one of them written by `droost-workflow init` itself: the five agent
+   * every one of them written by `droost init` itself: the five agent
    * briefs, four commands, the guard hook, settings.json, six skills and their
    * pack markers, the evaluation template, .gitignore and droost.workflow.yml.
    * Declaring nothing skipped the audit entirely and completed in half the
@@ -105,7 +105,7 @@ final class DeclarationAudit {
   private const array NEVER_CREEP = [
     'droost/droost-workflow/',
     '.droost-workflow/',
-    // Everything `droost-workflow init` writes, plus the lever file the briefs
+    // Everything `droost init` writes, plus the lever file the briefs
     // tell the agent to edit.
     //
     // This exemption is only safe because the GUARD refuses the parts of
@@ -115,6 +115,7 @@ final class DeclarationAudit {
     // an agent can rewrite its own brief mid-run with nothing saying so.
     '.claude/',
     'droost/droost.yml',
+    // The root lever file a project keeps until `droost migrate` moves it.
     'droost.workflow.yml',
     // Init appends its ignore rule here.
     '.gitignore',
@@ -574,7 +575,7 @@ final class DeclarationAudit {
             ),
           $missed === [] ? NULL : sprintf(
             '%s If the declared work type is wrong for this diff, '
-            . '`droost-workflow declare-changes --type=<type>` is the other answer.',
+            . '`droost workflow:declare-changes --type=<type>` is the other answer.',
             GateRemedy::measuredNothing($missed[0]),
           ),
         );

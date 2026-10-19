@@ -16,12 +16,11 @@ If `droost/droost-workflow/run.json` already exists, do **not** start a second r
 
 - The run is still **in progress** → resume it with
   `/droost:workflow:continue`, not a new start. To abandon it deliberately,
-  `drush droost:workflow:reset --force` (or, on a checkout with no site,
-  `vendor/bin/droost-workflow reset --force`).
+  the operator runs `droost workflow:reset --force`.
 - The run has **failed**, or completed before droost/workflow 0.14.18 (a
   `run.json` whose `current_phase` is `null`) → clear it with
-  `drush droost:workflow:reset` or `vendor/bin/droost-workflow reset` (either
-  archives the record to `droost/droost-workflow/history/`), then start fresh.
+  `droost workflow:reset` (it archives the record to
+  `droost/droost-workflow/history/`), then start fresh.
   A run that completes now is archived as it completes, so there is nothing
   to clear.
 
@@ -36,34 +35,28 @@ and the plan phase is where the codebase gets asked the most. A run opened
 after the plan had already grounded could not attribute any of that work
 (F-25). So the sequence is:
 
-1. **Open the run** — on a project with a working site use the SITE-BACKED
-   surface, `drush droost:workflow:run`. With no
-   spec written yet this BEGINS the run (writes `droost/droost-workflow/run.json`
+1. **Open the run** — `droost workflow:run`. With no spec written yet this
+   BEGINS the run (writes `droost/droost-workflow/run.json`
    with the plan phase active) and answers `outcome: blocked` with one row,
    `spec`, saying the run is open and waiting for its document. That is not
    a failure; it is the run existing before the work it will govern. Nothing
-   is gated yet. The standalone `vendor/bin/droost-workflow run` is for a
-   checkout with no site: through it every site-dependent gate
-   (`config_clean`, `rendered_check`) comes back skipped with its reason, and
-   an agentic run does not circle back to run them.
+   is gated yet.
 2. **Declare your browser tier** — `run.json` exists now:
    ```
-   drush droost:workflow:declare-browser playwright-mcp        # site-backed; or: native | none
-   vendor/bin/droost-workflow declare-browser playwright-mcp   # the same verb on a checkout with no site
+   droost workflow:declare-browser playwright-mcp   # or: native | none
    ```
    - `playwright-mcp` — you hold Playwright MCP tools and can drive a browser.
    - `native` — the editor gives you its own browser (Claude in Chrome, a
      cloud browser).
-   - `none` — no browser this session; the rendered check is the floor and
-     always runs. `none` is not a failure.
+   - `none` — no browser this session; criteria marked `browser` are then
+     checked by fetching the page. `none` is not a failure.
 
    The test phase branches on this, and the final report says which tier
    actually ran.
 3. **Declare your task surface** — whether this session can show a human
    where the run is:
    ```
-   drush droost:workflow:declare-tasks claude-code        # site-backed; or: codex | other | none
-   vendor/bin/droost-workflow declare-tasks claude-code   # the same verb on a checkout with no site
+   droost workflow:declare-tasks claude-code   # or: codex | other | none
    ```
    - `claude-code` — you hold task tools (TaskCreate / TaskUpdate).
    - `codex` — the host's own task list.
@@ -87,14 +80,13 @@ after the plan had already grounded could not attribute any of that work
    a shorter same-shape spec at `medium`/`low`), reading the frozen preset
    from the `run.json` that now exists. The spec file exists BEFORE code
    does, at every level of the dial. Plan does not close until the spec's
-   `## Grounding` cites what resolves and the run has asked droost's
-   knowledge (`drush droost:brief`, then `vendor/bin/droost <id> '<json>'` for
-   the code and `drush droost:tool <id> '<json>'` for the live site):
-   the `plan_grounded` check. While the run is in plan the guard
+   `## Grounding` cites what resolves and the run has consulted droost's wiki
+   and code tree (`droost code:wiki`, `droost code:tree`, then whatever
+   narrower command the plan needs): the `plan_grounded` check. While the run is in plan the guard
    permits writes only under `droost/droost-workflow/` — the spec is plan's
    artefact; project files wait for code.
 5. **Declare the spec and gate the plan phase** —
-   `drush droost:workflow:run --spec=droost/droost-workflow/spec-<slug>.md`
+   `droost workflow:run --spec=droost/droost-workflow/spec-<slug>.md`
    This records WHICH document governs the run and gates plan against it —
    its `## Grounding` must cite what resolves before the run may leave plan,
    and a missing `## Routes` is recorded. On a project holding several spec files the declaration is

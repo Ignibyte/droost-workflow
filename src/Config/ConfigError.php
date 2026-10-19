@@ -648,7 +648,7 @@ final class ConfigError extends \RuntimeException {
   ): self {
     return new self($source, sprintf(
       'baseline accepts only "on" — got "%s". What the baseline contains is '
-      . 'measured and written by `droost:workflow:baseline`, never typed into '
+      . 'measured and written by `droost workflow:baseline`, never typed into '
       . 'the lever file; the lever only says whether it is honoured.',
       $key,
     ));

@@ -31,14 +31,13 @@ decision is good (that is the human's, at approval):
   ticket, and every construct shown only on pages a rung at or after its own
   builds.
 
-The commands are drush on a site (`drush droost:workflow:intake <verb>`) and
-the binary on a checkout (`vendor/bin/droost-workflow intake <verb>`). Under
-DDEV, prefix `ddev`.
+The commands are `droost workflow:intake <verb>`. Under DDEV, run them in the
+container (`ddev exec tools/droost/vendor/bin/droost …`).
 
 ## 1. Open the intake
 
 ```
-drush droost:workflow:intake start --request="<the human's words, verbatim>" --source=<path or URL>
+droost workflow:intake start --request="<the human's words, verbatim>" --source=<path or URL>
 ```
 
 The request is their words, exactly as they said them: it is the record of
@@ -65,7 +64,7 @@ too (`ddev exec …`), or give the audit a URL the container reaches.
   schemas from there.
 
 ```
-drush droost:workflow:intake audit --url=<where it is served> --files=<the source folder>
+droost workflow:intake audit --url=<where it is served> --files=<the source folder>
 ```
 
 This writes `droost/intake/audit.json` and `audit.md`, and records the
@@ -158,12 +157,13 @@ Write it in this shape; `intake check` reads it:
 Before the model goes to the human, look at what the site already has, so no
 construct duplicates one that exists and none breaks the site's house rules:
 
-- `drush droost:brief` — the site's case (Canvas, SDC, code components), its
-  modules, its content model and its house rules.
-- `drush droost:tool droost_entities '{}'` and `vendor/bin/droost
-  droost_module_docs` — what already exists and what an installed module
-  already gives you.
-- `vendor/bin/droost-workflow rules` — the house rules alone: each rung's
+- `droost brief` — the site's versions, its custom and contrib modules, what
+  the last configuration export enabled, and its house rules.
+- `droost code:wiki` and `droost code:tree` — what already exists, and what
+  each installed module and theme already gives you. The running site's
+  content model (bundles, fields) is drush's to read, or the exported
+  configuration's.
+- `droost workflow:rules` — the house rules alone: each rung's
   work is held to them, by a gate or by the seeker.
 
 A construct the site already has is reused, and the row says so; one a house
@@ -228,16 +228,16 @@ the words `questions.md` carries, your recommendation first:
 then run:
 
 ```
-drush droost:workflow:intake ask --file=droost/intake/ask.json
+droost workflow:intake ask --file=droost/intake/ask.json
 ```
 
 and **stop your turn**. The host shows the questions to the human and records
 each answer through `intake answer` (never run it yourself: it is the
-operator's, and refused). When you are resumed, `drush
-droost:workflow:intake status` lists what is still `pending` and what is
+operator's, and refused). When you are resumed, `droost
+workflow:intake status` lists what is still `pending` and what is
 `recorded`; copy each recorded answer into `questions.md` as above, and ask
 again only what is still unanswered. Without a host either, the operator
-records each answer in their terminal (`drush droost:workflow:intake answer
+records each answer in their terminal (`droost workflow:intake answer
 "<question>" "<answer>"`).
 
 Revise the model with the answers.
@@ -301,7 +301,7 @@ pass, not a decision.
 ## 7. Check, then hand it to the operator
 
 ```
-drush droost:workflow:intake check
+droost workflow:intake check
 ```
 
 Repeat until it reads `ready: true`. Then show the human the roadmap in a
@@ -313,7 +313,7 @@ of that one question with the options `Approve` and `Not yet`, `intake ask`,
 and stop your turn. Only on their yes, approve it yourself:
 
 ```
-drush droost:workflow:intake approve
+droost workflow:intake approve
 ```
 
 Never approve without that yes: `approve` is refused until the human's

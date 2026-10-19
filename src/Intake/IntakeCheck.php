@@ -79,10 +79,10 @@ final class IntakeCheck {
     if (isset($text['audit'])) {
       $decoded = json_decode($text['audit'], TRUE);
       if (!is_array($decoded) || ($decoded['schema'] ?? NULL) !== self::AUDIT_SCHEMA) {
-        $findings[] = new IntakeFinding('files', sprintf('%s/audit.json is not a source audit (%s): run `droost-workflow intake audit`.', IntakeStore::DIR, self::AUDIT_SCHEMA));
+        $findings[] = new IntakeFinding('files', sprintf('%s/audit.json is not a source audit (%s): run `droost workflow:intake audit`.', IntakeStore::DIR, self::AUDIT_SCHEMA));
       }
       elseif ($state->auditSha === NULL) {
-        $findings[] = new IntakeFinding('files', 'the audit was not written by `droost-workflow intake audit`, so nothing records that a tool wrote it: run it through the intake.');
+        $findings[] = new IntakeFinding('files', 'the audit was not written by `droost workflow:intake audit`, so nothing records that a tool wrote it: run it through the intake.');
       }
       elseif (hash('sha256', $text['audit']) !== $state->auditSha) {
         $findings[] = new IntakeFinding('files', 'audit.json has changed since `intake audit` wrote it: the decisions cite the audit, so it is the tool\'s to write. Run `intake audit` again.');
@@ -153,7 +153,7 @@ final class IntakeCheck {
    */
   private static function purpose(string $role): string {
     return match ($role) {
-      'audit' => 'run `droost-workflow intake audit --url <served source> --files <source>`',
+      'audit' => 'run `droost workflow:intake audit --url <served source> --files <source>`',
       'model' => 'the content model: a `## Constructs` table (Construct, What it is, Evidence, Rung) and `## Routes`',
       'questions' => 'the Q&A: a table of Id, Question, Recommendation, Answer and Decided by',
       default => 'the roadmap: a table of Rung, Ticket, Builds, Consumes and Pages',
@@ -418,7 +418,7 @@ final class IntakeCheck {
       $id = trim($row['id'] ?? '') !== '' ? trim($row['id']) : 'Q' . ($i + 1);
       $recorded = $onRecord[IntakeTables::normal($row['question'])] ?? NULL;
       if ($recorded === NULL) {
-        $findings[] = new IntakeFinding('answered', sprintf('%s has no answer on record: ask it through AskUserQuestion with these exact words (on a host with none, `intake ask`), or have the operator record the answer (`droost-workflow intake answer "<question>" "<answer>"`).', $id));
+        $findings[] = new IntakeFinding('answered', sprintf('%s has no answer on record: ask it through AskUserQuestion with these exact words (on a host with none, `intake ask`), or have the operator record the answer (`droost workflow:intake answer "<question>" "<answer>"`).', $id));
         continue;
       }
       if (!str_contains(IntakeTables::normal($row['answer']), IntakeTables::normal($recorded))) {

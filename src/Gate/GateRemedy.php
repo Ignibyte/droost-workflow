@@ -101,7 +101,7 @@ final class GateRemedy {
       . 'at begin, but the tuning levers are re-read from the file at gate '
       . 'time and the gate\'s summary says so when they have moved. No `reset '
       . '--force` is needed — and if nothing changes, check the file still '
-      . 'parses, because an unreadable droost.workflow.yml leaves the frozen '
+      . 'parses, because an unreadable droost/droost.yml leaves the frozen '
       . 'levers in force without comment.';
   }
 

@@ -2097,8 +2097,8 @@ final class RunState {
    * The retry budget, as every surface must report it (F-21).
    *
    * ONE SOURCE OF TRUTH. `RunOutcome::toArray()` computed this for the run
-   * envelope and `status()` did not carry it, so `droost:workflow:report`
-   * — the surface an operator actually reads after a run ends — could not tell
+   * envelope and `status()` did not carry it, so the report — the surface an
+   * operator actually reads after a run ends — could not tell
    * "this gate failed" from "this gate failed, spent its budget, and has not
    * been asked since". Only the second sentence explains a verdict naming spec
    * rows the agent has already corrected, which is how a live round read as

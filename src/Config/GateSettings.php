@@ -661,7 +661,7 @@ final class GateSettings {
     $value = $node->string($option);
     if (!in_array($value, ['recorded', 'never'], TRUE)) {
       throw new DataError($node->path($option), sprintf(
-        '%s must be "recorded" (take a run `droost-workflow specs` recorded on this tree) or "never" — got "%s"',
+        '%s must be "recorded" (take a run `droost workflow:specs` recorded on this tree) or "never" — got "%s"',
         $node->path($option),
         $value,
       ));

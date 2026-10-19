@@ -39,16 +39,15 @@ const WATCHED_EVENTS = /^(tool\.(call|check)|classic\.PreToolUse|prompt\.(submit
 // The words of every note, kept identical to the PHP guard's (`nudge` mode),
 // so a record reads the same whichever of the two said it.
 export const NOTES = {
-  ground: 'droost: look before you spec. `drush droost:brief` gives the site\'s facts, and `vendor/bin/droost droost_search`, `droost_symbol`, `droost_wiki` and the other knowledge tools (or droost\'s MCP tools, when the project wires its server; `ddev exec vendor/bin/droost …` on DDEV; no site needed) find the code and pages that already cover what this plan touches. The spec\'s `## Grounding` cites what you found; plan does not close until its citations resolve and droost was asked. How you build is your choice.',
-  traverse: 'droost: droost knows this codebase first-hand, core and contrib included. `vendor/bin/droost droost_symbol` says where a class or hook lives and what calls it, `droost_graph` what depends on what, `droost_module_docs` what an installed module gives you, `droost_wiki` how this project is put together, and `droost_search` finds this site\'s code by words. Reading files works too; asking is faster, and it is recorded.',
+  ground: 'droost: look before you spec. `droost code:wiki` (how this project is put together, and every contrib module and theme it installs) and `droost code:tree` (its modules, files, classes, hooks, services and routes) are the two looks plan cannot close without; `droost search:arch`, `droost code:symbol`, `droost code:graph` and `droost search:code` answer the narrower questions. droost reads files, so no site is needed. The spec\'s `## Grounding` cites what you found; plan does not close until its citations resolve and droost was asked. How you build is your choice.',
+  traverse: 'droost: droost knows this codebase first-hand, core and contrib included. `droost code:symbol` says where a class or hook lives, `droost code:graph` what calls it and what it calls, `droost code:tree` how a module is laid out, `droost code:wiki` how this project is put together and what each installed module provides, and `droost search:code` finds this project\'s code by words. Reading files works too; asking is faster, and it is recorded.',
 }
 
 // The tools that read this site's knowledge: asking one is what grounds a
 // plan (owner, 2026-10-15). The same list as the evidence report's.
 export const KNOWLEDGE_TOOLS = [
-  'droost_search', 'droost_symbol', 'droost_graph', 'droost_module_docs', 'droost_deprecations',
-  'droost_entities', 'droost_routes', 'droost_capabilities', 'droost_architecture', 'droost_services',
-  'droost_db_schema', 'droost_wiki', 'droost_brief',
+  'code:wiki', 'code:tree', 'search:arch', 'code:symbol', 'code:graph',
+  'code:docs', 'code:deprecations', 'search:code', 'brief',
 ]
 
 // Where a search walks code that is not the project's own.

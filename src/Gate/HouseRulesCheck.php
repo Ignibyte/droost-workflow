@@ -228,7 +228,7 @@ final class HouseRulesCheck {
       }
       if ($exit === 127) {
         return GateResult::toolMissing(self::GATE, $invocation, sprintf(
-          'The command for house rule %s was not found. Install it, or ask the OPERATOR to change the rule in droost.workflow.yml (rules.house); an agent cannot decide either.',
+          'The command for house rule %s was not found. Install it, or ask the OPERATOR to change the rule in droost/droost.yml (rules.house); an agent cannot decide either.',
           $id,
         ), 127, $ms);
       }

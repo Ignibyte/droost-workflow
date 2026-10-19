@@ -465,7 +465,7 @@ final class BaselineWriter {
     }
     $includes[] = Baseline::FILES['phpstan'];
     $lines = [
-      '# Written by droost (`droost:workflow:baseline`). The phpstan gate runs',
+      '# Written by droost (`droost workflow:baseline`). The phpstan gate runs',
       '# through this file while a baseline is honoured: the project\'s own',
       '# config, then the recorded baseline. Unmatched ignores are paid-off',
       '# debt and never fail a run — a refresh drops them. Do not edit by hand.',

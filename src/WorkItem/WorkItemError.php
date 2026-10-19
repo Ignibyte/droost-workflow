@@ -21,7 +21,7 @@ final class WorkItemError extends \RuntimeException {
   public static function noSource(): self {
     return new self(
       'no work-item source is configured: tickets need `work_item.provider: '
-      . 'markdown` in droost.workflow.yml (and, optionally, `work_item.markdown: '
+      . 'markdown` in droost/droost.yml (and, optionally, `work_item.markdown: '
       . '{ dir: <dir>, prefix: <PREFIX> }`), or `provider: droost_cockpit` with '
       . '`work_item.cockpit: { url_env: <VARIABLE>, token_env: <VARIABLE> }`. '
       . 'Any other provider is metadata only.'
@@ -40,7 +40,7 @@ final class WorkItemError extends \RuntimeException {
    *   The error.
    */
   public static function notFound(string $id, string $where): self {
-    return new self(sprintf('no ticket %s in %s: `droost-workflow ticket list` shows the tickets there.', $id, $where));
+    return new self(sprintf('no ticket %s in %s: `droost workflow:ticket list` shows the tickets there.', $id, $where));
   }
 
   /**
@@ -106,7 +106,7 @@ final class WorkItemError extends \RuntimeException {
   public static function alreadyStarted(string $asked, ?string $bound, string $runId): self {
     return new self(sprintf(
       '%s cannot be bound to %s: one run, one ticket, bound when the run begins, and this run %s. '
-      . 'Finish it, or `droost-workflow reset --force`, then `run --ticket=%s`.',
+      . 'Finish it, or `droost workflow:reset --force`, then `run --ticket=%s`.',
       $asked,
       $runId,
       $bound === NULL ? 'began with none' : 'is bound to ' . $bound,

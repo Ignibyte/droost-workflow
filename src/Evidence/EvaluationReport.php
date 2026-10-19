@@ -62,13 +62,11 @@ final class EvaluationReport {
    * that grounded itself through the new tool would have rendered as a run
    * that asked the codebase nothing.
    *
-   * The last three joined on 2026-09-22 (F-49). The directive droost writes
-   * into AGENTS.md and the MCP handshake tells every agent to ask it
-   * `droost_services`, `droost_db_schema` and `droost_wiki`, and the gate
-   * credited none of them: an agent that grounded exactly as told failed the
-   * ledger half with zero knowledge calls. They are questions put to this
-   * codebase, the same kind as `droost_entities` and `droost_routes`, and
-   * droost now pins every tool its directive names to this list.
+   * Every knowledge command the AGENTS block and the skills name is on this
+   * list (F-49: when the directive named tools this list did not credit, an
+   * agent that grounded exactly as told failed the ledger half with zero
+   * knowledge calls). Since 2026-10-19 the ledger names each call by its
+   * `droost` command.
    */
   public const array KNOWLEDGE_TOOLS = [
     // The droost command's knowledge commands (droost off Drupal,
@@ -1247,7 +1245,7 @@ final class EvaluationReport {
           . "a round has already been observed where five green gates passed over a\n"
           . "display that rendered nothing on an empty optional field, and the\n"
           . "seeker was what caught it.\n\n"
-          . "`seekers: { on: true }` in `droost.workflow.yml` is one line, and\n"
+          . "`seekers: { on: true }` in `droost/droost.yml` is one line, and\n"
           . "`medium` and above turn it on by preset.\n",
         'on' => "`seekers` was **on** and no findings are recorded. That means either\n"
           . "every inspection came back clean, or an inspection ran and its ledger\n"
@@ -1784,12 +1782,11 @@ final class EvaluationReport {
     if ($rows === []) {
       return $heading
         . "**The store holds no grounding rows for this run.** That is not a\n"
-        . "verdict on the round's grounding — it means either the spec carried\n"
-        . "no grounding table, or `grounding_check` never ran, or it ran and\n"
-        . "recorded nothing. §4's row for `grounding_check` says which, and §4a\n"
-        . "says whether any knowledge tool was reached at all. The two halves\n"
-        . "fail independently, and a pass on one tells you nothing about the\n"
-        . "other.\n";
+        . "verdict on the round's grounding. `plan_grounded` resolves the\n"
+        . "spec's table at plan and records its verdict among the checks (§4),\n"
+        . "and §4a says whether any knowledge command was called at all. The\n"
+        . "two halves fail independently, and a pass on one tells you nothing\n"
+        . "about the other.\n";
     }
 
     // The three tiers appear whether or not the spec claimed them. A tier
@@ -1847,13 +1844,10 @@ final class EvaluationReport {
       . "- **Half two is §4a, not this table.** A citation proves the symbol\n"
       . "  exists and can be copied out of a file. The ledger is what makes the\n"
       . "  lookup a fact.\n"
-      . "- **Core is not indexed, and resolves anyway.** Core is a scope nothing\n"
-      . "  indexes by default, so a core citation is answered by the brain, by\n"
-      . "  the autoloader, or off the filesystem — the `Store that answered`\n"
-      . "  column above says which. This paragraph used to read \"the brain, and\n"
-      . "  only the brain\", which the table four lines above it has contradicted\n"
-      . "  since the autoloader fallback landed: it told a reader that a correct\n"
-      . "  observation was a broken probe (F-28).\n"
+      . "- **Core resolves without being indexed.** A core citation is answered\n"
+      . "  by the code index when it holds core, else by where PSR-4 puts the\n"
+      . "  class's file, or off the filesystem — the `Store that answered`\n"
+      . "  column above says which.\n"
       . "\n### Every row\n\n"
       . self::table(
         ['Tier', 'Phase', 'Asked', 'Found', 'Citation', 'Resolved'],

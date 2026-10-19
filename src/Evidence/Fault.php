@@ -84,12 +84,10 @@ enum Fault: string {
    * The fault for one outcome, honouring a gate's own declaration.
    *
    * `ErrorToolFailed` is the ambiguous one, and the gate that produced it
-   * usually knows which it is. A contributed gate already documents its exit
-   * codes in the `verdict` string its #[DroostGate] attribute carries — snyk's
-   * names exit 2 as "the snyk CLI itself could not run — not authenticated
-   * (`snyk auth`), no network, or no manifest it understands" — so a gate may
-   * also declare the fault each exit code means, once, in the module that
-   * knows.
+   * usually knows which it is: snyk's exit 2 means "the snyk CLI itself could
+   * not run — not authenticated (`snyk auth`), no network, or no manifest it
+   * understands" — so a gate may declare the fault each exit code means, once,
+   * where it is declared.
    *
    * A declaration may only apply to a status that blocks, and may only move it
    * between Agent, Environment and Unknown: no gate may declare itself

@@ -28,7 +28,7 @@ final class PackMaterializer {
   /**
    * Where the pack says the binary is, as shipped.
    */
-  public const DEFAULT_BINARY = 'vendor/bin/droost-workflow';
+  public const DEFAULT_BINARY = 'vendor/bin/droost';
 
   /**
    * The package root, where the pack/ directory lives.
@@ -94,7 +94,7 @@ final class PackMaterializer {
     foreach (PackManifest::FILES as $source => $destination) {
       // Rendered with the binary's real path (F-166), and locked as rendered,
       // so drift is judged against what this init wrote.
-      $shipped = self::withBinary($this->readSource($source), $binary);
+      $shipped = $this->readSource($source);
       $lastShipped = is_string($lock[$destination] ?? NULL)
         ? $lock[$destination]
         : NULL;
@@ -134,7 +134,8 @@ final class PackMaterializer {
     // the documented CLI route produced an installed pipeline that no agent
     // was ever told about. That is eval T01's headline miss, shipped as the
     // default for every non-Drupal consumer.
-    $agents = AgentsBlock::write($root, AgentsBlock::paragraphs($binary));
+    $project = is_file($root . '/' . ConfigLocator::AGENTS) ? (string) file_get_contents($root . '/' . ConfigLocator::AGENTS) : '';
+    $agents = AgentsBlock::write($root, AgentsBlock::paragraphs($binary, $project));
     if ($agents === 'failed') {
       throw PackError::unwritable(AgentsBlock::FILE, 'the write did not complete');
     }
@@ -594,14 +595,14 @@ final class PackMaterializer {
   /**
    * The project-relative path of this package's binary (F-166).
    *
-   * The pack names `vendor/bin/droost-workflow` in the skills, the template
-   * and AGENTS.md, which is right for a project that requires this package
-   * at its own root and wrong for one that installs it elsewhere: druplit
-   * keeps it in a Composer project of its own, `tools/workflow/`, because
-   * the repository has no root composer.json, and its agent was told a
-   * command that does not exist. Composer's bin proxy says where the bin
-   * directory is; otherwise the package's own vendor directory does. A path
-   * that resolves to no file keeps the default.
+   * The skills call it `droost`; the AGENTS block says where that is. It is
+   * `vendor/bin/droost` for a project that requires this package at its own
+   * root, and usually somewhere else: droost lives in a Composer project of
+   * its own, `tools/droost/`, and an agent told a command that does not exist
+   * cannot run it. Composer's bin proxy says where the bin directory is;
+   * otherwise the vendor directory the package sits in, then the package's
+   * own `bin/` (a checkout). A path that resolves to no file keeps the
+   * default.
    *
    * @param string $root
    *   The project.
@@ -613,39 +614,25 @@ final class PackMaterializer {
     $candidates = [];
     $proxy = $GLOBALS['_composer_bin_dir'] ?? NULL;
     if (is_string($proxy) && $proxy !== '') {
-      $candidates[] = rtrim($proxy, '/') . '/droost-workflow';
+      $candidates[] = rtrim($proxy, '/') . '/droost';
     }
     // <vendor>/droost/workflow: the bin directory beside it, by default.
     if (basename(dirname($this->packageRoot)) === 'droost') {
-      $candidates[] = dirname($this->packageRoot, 2) . '/bin/droost-workflow';
+      $candidates[] = dirname($this->packageRoot, 2) . '/bin/droost';
     }
+    $candidates[] = $this->packageRoot . '/bin/droost';
     $project = realpath($root) ?: $root;
     foreach ($candidates as $candidate) {
       $real = realpath(dirname($candidate));
-      if ($real === FALSE || !is_file($real . '/droost-workflow')) {
+      if ($real === FALSE || !is_file($real . '/droost')) {
         continue;
       }
-      $real .= '/droost-workflow';
+      $real .= '/droost';
 
       return str_starts_with($real, $project . '/') ? substr($real, strlen($project) + 1) : $real;
     }
 
     return self::DEFAULT_BINARY;
-  }
-
-  /**
-   * A pack file with the binary's path put where the default is named.
-   *
-   * @param string $contents
-   *   The shipped file.
-   * @param string $binary
-   *   The binary's path.
-   *
-   * @return string
-   *   The file as this project needs it.
-   */
-  private static function withBinary(string $contents, string $binary): string {
-    return $binary === self::DEFAULT_BINARY ? $contents : str_replace(self::DEFAULT_BINARY, $binary, $contents);
   }
 
   /**

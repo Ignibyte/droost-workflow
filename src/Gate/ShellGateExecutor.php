@@ -428,7 +428,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         $gate->name,
         1,
         sprintf('gates.%s.scope is %s', $gate->name, var_export($scope, TRUE)),
-        sprintf('gates.%s.scope takes ticket (the files this run changed) or full (the whole configured set). Correct it in droost.workflow.yml; nothing ran.', $gate->name),
+        sprintf('gates.%s.scope takes ticket (the files this run changed) or full (the whole configured set). Correct it in droost/droost.yml; nothing ran.', $gate->name),
         sprintf('gates.%s.scope', $gate->name),
       );
     }
@@ -623,7 +623,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $gate->name,
       sprintf('gates.%s.root is %s, which is not a directory inside the project', $gate->name, var_export($gate->option('root'), TRUE)),
       sprintf(
-        'gates.%s.root names the Composer project the tool runs in, relative to the project root (for example `site`), and it must be a directory inside it. Correct it in droost.workflow.yml; nothing ran.',
+        'gates.%s.root names the Composer project the tool runs in, relative to the project root (for example `site`), and it must be a directory inside it. Correct it in droost/droost.yml; nothing ran.',
         $gate->name,
       ),
     );
@@ -958,8 +958,8 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       // running bare phpunit against a root with neither would let the tool
       // error and the error read as a failing suite. Config-missing is the
       // same honesty class as tool-missing: the environment cannot run the
-      // gate it was told to run. On a Drupal site,
-      // `drush droost:workflow:install` writes the file this looks for.
+      // gate it was told to run. drupal/droost's drush installer once wrote
+      // the file this looks for; nothing in droost does now.
       return GateResult::toolMissing(
         $gate->name,
         $invocation
@@ -968,10 +968,10 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
           'phpunit IS installed — what is missing is its configuration, so '
           . '`composer require --dev phpunit/phpunit` will change nothing. '
           . 'Write a phpunit.xml (or phpunit.xml.dist) at the project root '
-          . 'naming the bootstrap and the test suites; on a Drupal site '
-          . '`drush droost:workflow:install` writes one for you. If this '
+          . 'naming the bootstrap and the test suites; on a Drupal site, '
+          . 'core\'s `core/phpunit.xml.dist` is the usual starting point. If this '
           . 'project has no suite yet, that is the OPERATOR\'s call: '
-          . '`gates.%s.on: false` in droost.workflow.yml.',
+          . '`gates.%s.on: false` in droost/droost.yml.',
           $gate->name,
         ),
       );
@@ -994,7 +994,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         . '{"source": {"directories": ["web/modules/custom"]}}; infection runs '
         . 'the suite the phpunit.xml there describes. If this project has '
         . 'nothing to mutate yet, that is the OPERATOR\'s call: '
-        . '`gates.mutation.on: false` in droost.workflow.yml.',
+        . '`gates.mutation.on: false` in droost/droost.yml.',
       );
     }
 
@@ -1033,7 +1033,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         $gate->name,
         $exit,
         sprintf('killed after %ds — the gate\'s timeout', $this->timeoutFor($gate)),
-        sprintf('raise gates.%s.timeout (seconds) in droost.workflow.yml, or narrow what the tool scans; the tool produced no verdict.', $gate->name),
+        sprintf('raise gates.%s.timeout (seconds) in droost/droost.yml, or narrow what the tool scans; the tool produced no verdict.', $gate->name),
         $invocation,
       );
     }
@@ -1091,7 +1091,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         . 'reaches it: ask the OPERATOR to enable pcov (or xdebug with '
         . 'xdebug.mode=coverage) for the PHP that runs the gates; `php -m | '
         . 'grep -iE "xdebug|pcov"` confirms it. If this project does not '
-        . 'mutation-test, `gates.mutation.on: false` in droost.workflow.yml. '
+        . 'mutation-test, `gates.mutation.on: false` in droost/droost.yml. '
         . 'This says nothing about the tests.',
         $exit,
         $elapsed,
@@ -2207,7 +2207,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       'The %1$s gate runs a command this project declared, and the shell '
       . 'could not find the program that command names (exit 127). Nothing '
       . 'called "%1$s" is installable, so `composer require --dev` on it '
-      . 'fetches nothing — read `%2$s.cmd` in droost.workflow.yml, install '
+      . 'fetches nothing — read `%2$s.cmd` in droost/droost.yml, install '
       . 'the program it actually names, or ask the OPERATOR to correct that '
       . 'lever or turn the gate off with `%2$s.on: false`.',
       $gate->name,
@@ -2460,7 +2460,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         . '`opcache.jit=disable` too: a driver turns JIT off with a warning at '
         . 'every startup, which fails every test that runs in its own process. '
         . 'If this project does not measure coverage, `gates.coverage.on: '
-        . 'false` in droost.workflow.yml. The suite itself is fine — re-running '
+        . 'false` in droost/droost.yml. The suite itself is fine — re-running '
         . 'it reports the same thing.',
       );
     }
@@ -3390,8 +3390,8 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       // and it is the one every tool finds alike: a prettier config pinned
       // by the lever reaches the prettier gate and neither eslint's nor
       // stylelint's prettier rule, so the gates then disagree about one file.
-      'eslint' => 'eslint walked up to a config it cannot load — on a Drupal site that is core\'s scaffolded .eslintrc.json, which extends core\'s own config and the packages core/package.json lists for it (eslint-config-airbnb-base, eslint-plugin-prettier and the rest). Install those at the project root, or give the project its own config there (`root: true` stops the cascade); either is a project change you may make and declare. Only the OPERATOR can pin one instead, with gates.eslint.config in droost.workflow.yml.',
-      'stylelint' => 'stylelint found no config for the files it was handed. Give the project its own at its root, where every tool finds the same one: a .stylelintrc.json, which on a Drupal site can extend core\'s (core/.stylelintrc.json under the docroot). That is a project change you may make and declare. Only the OPERATOR can pin one instead, with gates.stylelint.config in droost.workflow.yml.',
+      'eslint' => 'eslint walked up to a config it cannot load — on a Drupal site that is core\'s scaffolded .eslintrc.json, which extends core\'s own config and the packages core/package.json lists for it (eslint-config-airbnb-base, eslint-plugin-prettier and the rest). Install those at the project root, or give the project its own config there (`root: true` stops the cascade); either is a project change you may make and declare. Only the OPERATOR can pin one instead, with gates.eslint.config in droost/droost.yml.',
+      'stylelint' => 'stylelint found no config for the files it was handed. Give the project its own at its root, where every tool finds the same one: a .stylelintrc.json, which on a Drupal site can extend core\'s (core/.stylelintrc.json under the docroot). That is a project change you may make and declare. Only the OPERATOR can pin one instead, with gates.stylelint.config in droost/droost.yml.',
       'prettier' => 'prettier could not run; its own message says why. Its config belongs at the project root (.prettierrc.json), where eslint\'s and stylelint\'s prettier rules read the same one. A config pinned with gates.prettier.config reaches this gate and neither of those, so the two can demand opposite formatting of one file.',
       'phpcs' => 'phpcs hit a processing error — check the ruleset gates.phpcs.standard names and that it resolves from the project root.',
       default => 'the tool could not run; fix its configuration before the gate can judge anything.',

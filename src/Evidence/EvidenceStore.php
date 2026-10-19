@@ -1079,7 +1079,7 @@ final class EvidenceStore {
   /**
    * The newest run a gate's tool made outside a phase, with its findings.
    *
-   * `droost-workflow specs` runs the browser gate exactly as the test phase
+   * `droost workflow:specs` runs the browser gate exactly as the test phase
    * would and records it here, as `recorded_run` (0.11). At a level whose
    * playwright gate takes `reuse: recorded`, the phase takes this row instead
    * of running the suite again, while the tree is the one it was run on.
@@ -1607,7 +1607,7 @@ final class EvidenceStore {
    * the highest one is the count, and the attempt just made.
    *
    * ONLY THE PHASE'S OWN CHECKS (F-201). The agent's recorded suite runs
-   * (`recorded_run`, one row per `droost-workflow specs`) and a return's
+   * (`recorded_run`, one row per `droost workflow:specs`) and a return's
    * marker (`loop`) are stored under the phase too, numbered by themselves.
    * Counted, they made P7 run 15's single test attempt "attempt 2" in the
    * run-event log, since the agent had recorded its spec twice, and a

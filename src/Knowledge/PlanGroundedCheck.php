@@ -24,18 +24,17 @@ use Droost\Workflow\State\RunStateStore;
  *     claims, and at least one that names something that EXISTS: a `none:`
  *     claim alone resolves on any site, so it cannot be the whole of a
  *     plan's looking (S4-2);
- *   - the tool-call ledger shows this run called one of droost's knowledge
- *     tools during plan (EvaluationReport::KNOWLEDGE_TOOLS, so the record and
- *     this check count the same calls), and one other than `droost_brief`:
- *     reading the site's summary is not looking anything up.
+ *   - the tool-call ledger shows this run called `code:wiki` and `code:tree`
+ *     since it began (owner, 2026-10-19), counted from
+ *     EvaluationReport::KNOWLEDGE_TOOLS so the record and this check count
+ *     the same calls; `brief` alone is not looking anything up.
  *
  * It says nothing about how to build, and nothing it reads can.
  *
- * It lives in the library, not in droost, so both doors ask it: drush and
- * the standalone binary. Held only where Drupal booted, a broken site let
- * `vendor/bin/droost-workflow advance` close plan with the check recorded as
- * skipped (F-276). Nothing here needs Drupal: the ledger and the index are
- * files, and `vendor/bin/droost` answers the code questions with no site.
+ * It lives in the library and needs no Drupal: the ledger and the index are
+ * files, and `droost` answers the code questions with no site. (It once
+ * lived in drupal/droost, where a broken site let the standalone binary
+ * close plan with the check recorded as skipped: F-276.)
  *
  * Where it applies: every run with a spec. droost off Drupal (2026-10-19)
  * ships the knowledge commands in this package, so wherever this check runs,

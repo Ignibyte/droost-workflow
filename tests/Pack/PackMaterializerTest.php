@@ -41,27 +41,47 @@ class PackMaterializerTest extends WorkflowTestCase {
   /**
    * A package installed outside the project's vendor/ names its own binary.
    *
-   * F-166: druplit keeps droost/workflow in `tools/workflow/`, a Composer
-   * project of its own, and the skills and AGENTS.md told its agent to run
-   * `vendor/bin/droost-workflow`, which is not there.
+   * F-166: druplit kept droost/workflow in `tools/workflow/`, a Composer
+   * project of its own, and the skills and AGENTS.md told its agent to run a
+   * command that was not there. droost lives in `tools/droost/` by design
+   * (2026-10-19): the skills call it `droost`, and the AGENTS block says where
+   * that is in this project.
    */
   public function testInitNamesTheBinaryWhereItIsInstalled(): void {
     $root = $this->makeRoot();
-    mkdir($root . '/tools/workflow/vendor/droost', 0755, TRUE);
-    mkdir($root . '/tools/workflow/vendor/bin', 0755, TRUE);
-    symlink(dirname(__DIR__, 2), $root . '/tools/workflow/vendor/droost/workflow');
-    file_put_contents($root . '/tools/workflow/vendor/bin/droost-workflow', "#!/bin/sh\n");
-    $materializer = new PackMaterializer($root . '/tools/workflow/vendor/droost/workflow');
+    mkdir($root . '/tools/droost/vendor/droost', 0755, TRUE);
+    mkdir($root . '/tools/droost/vendor/bin', 0755, TRUE);
+    symlink(dirname(__DIR__, 2), $root . '/tools/droost/vendor/droost/workflow');
+    file_put_contents($root . '/tools/droost/vendor/bin/droost', "#!/bin/sh\n");
+    $materializer = new PackMaterializer($root . '/tools/droost/vendor/droost/workflow');
 
     $materializer->init($root);
 
+    $agents = (string) file_get_contents($root . '/AGENTS.md');
+    $this->assertStringContainsString('`tools/droost/vendor/bin/droost` in this project', $agents);
+    $this->assertStringContainsString('`droost workflow:run`', $agents);
     $skill = (string) file_get_contents($root . '/.claude/skills/workflow-start/SKILL.md');
-    $this->assertStringContainsString('tools/workflow/vendor/bin/droost-workflow', $skill);
-    $this->assertStringNotContainsString('`vendor/bin/droost-workflow', $skill);
-    $this->assertStringContainsString('`tools/workflow/vendor/bin/droost-workflow run`', (string) file_get_contents($root . '/AGENTS.md'));
+    $this->assertStringContainsString('droost workflow:run', $skill, 'the skills call it droost');
 
     $again = $materializer->init($root);
     $this->assertSame([], $again->drifted, 'what init wrote is what the lock holds');
+  }
+
+  /**
+   * The project's own agents.md is carried in the AGENTS block.
+   *
+   * `droost/agents.md` is the text a project adds to what every agent reads
+   * (a tracker's work command, say). It is frozen with the rule files when
+   * a run begins, so it has to reach AGENTS.md through init.
+   */
+  public function testInitCarriesTheProjectsAgentsText(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost', 0755, TRUE);
+    file_put_contents($root . '/droost/agents.md', "Work a Jira ticket with `/droost:work <KEY>`.\n");
+
+    (new PackMaterializer(dirname(__DIR__, 2)))->init($root);
+
+    $this->assertStringContainsString('Work a Jira ticket with `/droost:work <KEY>`.', (string) file_get_contents($root . '/AGENTS.md'));
   }
 
   /**

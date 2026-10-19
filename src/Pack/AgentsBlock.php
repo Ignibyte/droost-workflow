@@ -13,10 +13,9 @@ namespace Droost\Workflow\Pack;
  * session never said the pipeline existed. A pipeline nobody is told about is
  * a pipeline nobody uses.
  *
- * WHY IT LIVES HERE rather than in droost. This block was written by
- * `drush droost:workflow:install` alone until 2026-09-15, so the documented
- * CLI route — `droost-workflow init`, the one a project without Drupal has —
- * produced no block at all. The install that needed the doctrine MOST was the
+ * WHY IT LIVES HERE. This block was written by drupal/droost's drush
+ * installer alone until 2026-09-15, so the route a project without Drupal
+ * has — this package's own init — produced no block at all. The install that needed the doctrine MOST was the
  * one that did not get it, and a cross-repo audit found this project's own
  * dogfood site running exactly that configuration.
  *
@@ -55,58 +54,62 @@ final class AgentsBlock {
   private const string HEADING = '## The build pipeline is installed — every build starts with a run';
 
   /**
-   * The doctrine, for a project whose only surface is this package.
-   *
-   * Named commands an agent can actually run here: the standalone binary.
-   * Droost passes its own paragraphs naming the slash commands and drush,
-   * because on a Drupal site those are what exist.
+   * The doctrine, naming the droost command where it is installed.
    *
    * @param string $binary
-   *   The binary's path in this project (F-166): `vendor/bin/droost-workflow`
-   *   unless the package is installed somewhere else.
+   *   The `droost` binary's path in this project (F-166):
+   *   `vendor/bin/droost` unless the package is installed somewhere else,
+   *   which is the usual case (`tools/droost/vendor/bin/droost`).
+   * @param string $project
+   *   The project's own text for the block (`droost/agents.md`), or ''.
    *
    * @return list<string>
    *   The paragraphs.
    */
-  public static function paragraphs(string $binary = 'vendor/bin/droost-workflow'): array {
-    return array_map(
-      static fn (string $paragraph): string => str_replace('vendor/bin/droost-workflow', $binary, $paragraph),
+  public static function paragraphs(string $binary = 'vendor/bin/droost', string $project = ''): array {
+    $paragraphs = array_map(
+      static fn (string $paragraph): string => str_replace('{binary}', $binary, $paragraph),
       self::shipped(),
     );
+    if (trim($project) !== '') {
+      $paragraphs[] = trim($project);
+    }
+
+    return $paragraphs;
   }
 
   /**
-   * The doctrine as shipped, naming the default binary.
+   * The doctrine as shipped, with `{binary}` where the command's path goes.
    *
    * @return list<string>
    *   The paragraphs.
    */
   private static function shipped(): array {
     return [
+      "droost is one command, `{binary}` in this project; the skills and this\n"
+      . "block call it `droost`.",
       "Building means ANY new functionality: a module, a class, a template, a\n"
       . "config change, or a schema change. The moment intent turns from\n"
       . "discussing a change to making it, your FIRST move is to open a run —\n"
-      . "`vendor/bin/droost-workflow run` (it begins one, and advances it by a\n"
-      . "phase on each later call) — never a write.\n"
-      . "`vendor/bin/droost-workflow status` inspects it, and\n"
-      . "`vendor/bin/droost-workflow declare-changes --files=… --tests=…` says\n"
-      . "what the run will touch before it touches anything.",
+      . "`droost workflow:run` (it begins one, and advances it by a phase on\n"
+      . "each later call) — never a write. `droost workflow:status` inspects it,\n"
+      . "and `droost workflow:declare-changes --files=… --tests=…` says what\n"
+      . "the run will touch before it touches anything.",
       "This is enforced, not advisory: with `require_run: hard` (the default in\n"
-      . "`droost.workflow.yml`) the editor guard blocks ungoverned custom-code\n"
-      . "edits. A finished run counts as no run —\n"
-      . "`vendor/bin/droost-workflow reset` archives it under the state\n"
-      . "directory's `history/` rather than discarding it. If a one-off should\n"
-      . "genuinely skip the pipeline, that is the OPERATOR's call: show them\n"
-      . "`droost-workflow bypass \"<why>\"` and let them run it in their own\n"
-      . "terminal. Never grant it yourself — the guard refuses it from your\n"
-      . "shell, and a bypass with no human behind it is indistinguishable from\n"
-      . "tampering.",
+      . "`droost/droost.yml`) the editor guard blocks ungoverned custom-code\n"
+      . "edits. A finished run counts as no run — `droost workflow:reset`\n"
+      . "archives it under the state directory's `history/` rather than\n"
+      . "discarding it. If a one-off should genuinely skip the pipeline, that is\n"
+      . "the OPERATOR's call: show them `droost workflow:bypass \"<why>\"` and\n"
+      . "let them run it in their own terminal. Never grant it yourself — the\n"
+      . "guard refuses it from your shell, and a bypass with no human behind it\n"
+      . "is indistinguishable from tampering.",
       "A WHOLE SITE from a design (a Replit or Vite app, a folder of HTML)\n"
       . "starts with an intake, not a run: follow `.claude/skills/intake/SKILL.md`.\n"
-      . "It reads the source (`vendor/bin/droost-workflow intake audit`),\n"
-      . "proposes the content model, asks the human what the source cannot say,\n"
-      . "and writes the roadmap; no run opens until the human approves it (ask\n"
-      . "them; on their yes, run `droost-workflow intake approve`).",
+      . "It reads the source (`droost workflow:intake audit`), proposes the\n"
+      . "content model, asks the human what the source cannot say, and writes\n"
+      . "the roadmap; no run opens until the human approves it (ask them; on\n"
+      . "their yes, run `droost workflow:intake approve`).",
     ];
   }
 

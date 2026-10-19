@@ -429,7 +429,7 @@ final class GateResult {
         'Install %1$s so the gate can run — `composer require --dev` or '
         . '`npm install` it, whichever owns it in this project — or, if this '
         . 'project genuinely does not use %1$s, ask the OPERATOR to turn the '
-        . 'gate off in droost.workflow.yml (`gates.%1$s.on: false`). An agent '
+        . 'gate off in droost/droost.yml (`gates.%1$s.on: false`). An agent '
         . 'cannot decide either of those.',
         $gate,
       ),

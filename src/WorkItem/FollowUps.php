@@ -183,7 +183,7 @@ final class FollowUps {
       "## Summary\n\n%s failed at %s in run %s, and the run moved on without fixing it: %s.\n\n"
       . "## The failure\n\n```\n%s\n```\n\n"
       . "## Where it came from\n\n- Run: %s (%s, %s flow)\n- Ticket: %s\n- Spec: %s\n- Loops: %d of %d\n\n"
-      . "## Notes\n\nWritten by droost/workflow. `droost-workflow evidence` renders the run's full record.\n",
+      . "## Notes\n\nWritten by droost/workflow. `droost workflow:evidence` renders the run's full record.\n",
       $gate,
       $phase->value,
       $state->runId,

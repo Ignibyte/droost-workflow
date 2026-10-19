@@ -8,7 +8,7 @@ namespace Droost\Workflow\Vcs;
  * Turns a ref a caller named into the commit it names.
  *
  * Apart from VcsInterface so that the doubles of that interface need not
- * grow a method only `droost-workflow gate --base` asks.
+ * grow a method only `droost workflow:gate --base` asks.
  */
 interface RefResolverInterface {
 

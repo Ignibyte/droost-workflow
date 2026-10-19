@@ -1,10 +1,11 @@
-# Droost Workflow levers for this repo.
+# droost's levers for this repo: droost/droost.yml.
 #
 # This file is the source of truth for how the workflow runs here. It is a
-# file rather than Drupal configuration on purpose: the agent has to be able
-# to read it while the site is mid-build or broken, a plain Claude Code or
-# Codex user has to get the same answers with no site at all, and loosening a
-# gate should show up in review as a diff.
+# file on purpose: the agent has to be able to read it while the site is
+# mid-build or broken, every agent harness gets the same answers with no site
+# at all, and loosening a gate should show up in review as a diff. During a
+# run the guard refuses edits to it, and to the gate, hook and wall files it
+# names: they are the rules the run is held to.
 #
 # Everything below is written out explicitly. That is deliberate — a file
 # that named no preset would resolve to `max` (the top of the dial, tests
@@ -30,15 +31,16 @@
 mode: agentic
 
 # custom | low | medium | high | xhigh | max — one dial for how hard the
-# workflow VERIFIES. A spec is always written and the brain is always used at
-# every level; the dial scales gates, thresholds and written artefacts only.
+# workflow VERIFIES. A spec is always written and droost's wiki and code tree
+# are always consulted at every level; the dial scales gates, thresholds and
+# written artefacts only.
 # Consent (the write wall, require_run) is never in a preset.
 #   low    — basic static checks, NO tests, the browser check, no wiki. Seeker
 #            off. The one level whose base turns a mandatory gate off — allowed
 #            only here because this line is loud and reviewable; the gate is
 #            recorded off, never passed. Never the default.
-#   medium — the mandatory trio with phpstan 2, the rendered check, a shorter
-#            EARS spec, docs in chat. (Formerly `light`, unchanged.)
+#   medium — the mandatory trio with phpstan 2, a shorter EARS spec, docs in
+#            chat. (Formerly `light`, unchanged.)
 #   high   — solid static + unit tests (phpstan 6), no slow tiers; hard.
 #   xhigh  — + coverage/mutation at 60, the front-end trio, phpstan 8.
 #   max    — everything strict AND tests required to exist (phpunit and
@@ -58,7 +60,7 @@ mode: agentic
 # coverage off, and still leaves max_gate_retries at 2. To let a level decide
 # a lever, DELETE that lever's line.
 #
-# `droost-workflow status`, under `deprecations`, names the SWITCHES a named
+# `droost workflow:status`, under `deprecations`, names the SWITCHES a named
 # level cannot reach past a value spelled here — mode, enforcement, seekers,
 # max_gate_retries, and any gate the level runs that this file turns off. It
 # does NOT list a gate's own TUNING (a `phpstan.level`, a `phpcs.standard`, a
@@ -71,8 +73,8 @@ preset: custom
 # flow: fast | strict  (omitted, the level decides)
 #   Which phases run which gates. fast, the default at low and medium: each
 #   gate runs once, at the phase that owns it. Code runs the analysers and the
-#   unit tests, test runs the browser suite, parity and the rendered check, and
-#   complete runs nothing but wiki_fresh on the documentation it writes.
+#   unit tests, test runs the browser suite and parity, and complete runs
+#   nothing but wiki_fresh on the documentation it writes.
 #   strict, the default from high up: every gate at every phase that writes
 #   source, and complete re-runs the whole set as the terminal safety net.
 #
@@ -85,7 +87,7 @@ preset: custom
 #     gates:
 #       playwright: { scope: full }
 #   playwright also takes reuse: recorded | never. recorded (the default at
-#   low): the test phase takes the run `droost-workflow specs` recorded of the
+#   low): the test phase takes the run `droost workflow:specs` recorded of the
 #   ticket's specs, on the same tree, instead of running them again.
 #
 # max_loops: <n>  (omitted, the level decides: low 2, medium 3, high+ 5)
@@ -120,7 +122,7 @@ enforcement: soft
 #   What happens when custom code is edited with NO active run — the trigger
 #   that makes the pipeline the end game, not an opt-in an eager agent can
 #   skip. hard BLOCKS the edit (start a run, or take an operator-granted
-#   bypass: `drush droost:workflow:bypass "<why>"`); soft nudges once; off is
+#   bypass: `droost workflow:bypass "<why>"`); soft nudges once; off is
 #   silent (pre-require_run behaviour). Defaults hard.
 #
 #   THE THREE TREES IT COVERS, stated because this said two of them (F-8):
@@ -246,6 +248,32 @@ gates:
 # walls:
 #   tracker_writes: { tools: "^mcp__atlassian__(create|edit|transition)", run: droost/walls/tracker-writes.php }
 
+# operator_only: scripts of the project's own that only a person may run from
+# their terminal (arming tracker writes, say). The guard refuses them from
+# the agent's shell, as it refuses `droost workflow:bypass`.
+# operator_only:
+#   - droost/bin/tracker-writes
+
+# Where droost keeps its two stores, relative to the project (or absolute).
+# Omitted, both live in the state directory, droost/droost-workflow/.
+# storage:
+#   index: droost/droost-workflow/code-index.sqlite
+#   evidence: droost/droost-workflow/evidence.sqlite
+
+# Semantic search: `droost code:index` embeds the code and `droost
+# search:code` adds the nearest chunks when an endpoint is named here. The
+# key is never written in this committed file: name the environment variable
+# that holds it.
+# search:
+#   embeddings: { endpoint: "http://localhost:11434/api/embeddings", model: nomic-embed-text, format: ollama }
+
+# The wiki droost reads (`droost code:wiki`) and checks (`wiki_fresh`).
+# contrib_scope: reached (the contrib modules the project's code reaches are
+# owed a page) or all.
+# wiki:
+#   path: droost/wiki
+#   contrib_scope: reached
+
 # The seeker checkpoint: an adversarial reviewer (the workflow-seeker agent)
 # inspects the run's diff after the code phase's gates pass. Gates verify
 # rules; the seeker verifies judgment — dead new code, drift from the spec,
@@ -282,7 +310,7 @@ seekers: { on: true, rounds: 1 }
 #   seeker  read against the diff by the seeker (its lens 8); a break is HIGH
 # An exception is the operator's to grant, recorded in the spec. To make the
 # rules binding, hold on HIGH: `seekers: { holds: high, at_complete: true }`.
-# `vendor/bin/droost-workflow rules` prints the resolved rules. For example:
+# `droost workflow:rules` prints the resolved rules. For example:
 # rules:
 #   house:
 #     - { id: HR1, rule: "New markup lives in an SDC component", judge: gate, check: sdc_markup }

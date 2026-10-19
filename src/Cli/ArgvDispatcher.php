@@ -523,16 +523,16 @@ final class ArgvDispatcher {
 "
       . "
 "
-      . "Those come from droost.workflow.yml, which is yours to edit — it is
+      . "Those come from droost/droost.yml, which is yours to edit — it is
 "
-      . "version-controlled intent and no re-install overwrites it. `%s status`
+      . "version-controlled intent and no re-install overwrites it. `%s`
 "
       . "prints this at any time.",
       is_scalar($levers['preset'] ?? NULL) ? (string) $levers['preset'] : '?',
       is_scalar($levers['enforcement'] ?? NULL) ? (string) $levers['enforcement'] : '?',
       is_scalar($levers['mode'] ?? NULL) ? (string) $levers['mode'] : '?',
       $off === [] ? 'none — every gate runs' : implode(', ', $off),
-      'droost-workflow',
+      'droost workflow:status',
     );
   }
 
@@ -642,7 +642,7 @@ final class ArgvDispatcher {
     ));
     $text = trim(implode(' ', $words));
     if ($text === '') {
-      $this->fail('answer needs the answer: droost-workflow answer "yes"');
+      $this->fail('answer needs the answer: droost workflow:answer "yes"');
       return self::EXIT_USAGE;
     }
     $outcome = $this->facade($projectRoot)->answer($projectRoot, $text);
@@ -658,8 +658,8 @@ final class ArgvDispatcher {
     if ($outcome->outcome === Outcome::Failed && $phase !== NULL) {
       $this->say(sprintf(
         'answered — the run is STOPPED at %s on your word, not on a gate. '
-        . 'Nothing further will advance it. `droost-workflow evidence` renders '
-        . 'what it had measured; `droost-workflow reset --force` archives it '
+        . 'Nothing further will advance it. `droost workflow:evidence` renders '
+        . 'what it had measured; `droost workflow:reset --force` archives it '
         . 'once you know what made it stick.',
         $phase->value,
       ));
@@ -693,7 +693,7 @@ final class ArgvDispatcher {
       }
       $this->fail(
         'Clear what they name and answer again, or `answer "stop here"` to end '
-        . 'the run on your word. `droost-workflow evidence` renders every row.',
+        . 'the run on your word. `droost workflow:evidence` renders every row.',
       );
 
       return self::EXIT_RUN_FAILED;
@@ -747,7 +747,7 @@ final class ArgvDispatcher {
     if (trim($text) === '') {
       $this->fail(
         'seeker-report reads the ledger from stdin: '
-        . 'droost-workflow seeker-report < section.md',
+        . 'droost workflow:seeker-report < section.md',
       );
       return self::EXIT_USAGE;
     }
@@ -1269,7 +1269,7 @@ final class ArgvDispatcher {
       }
     }
     if (trim($reason) === '') {
-      $this->fail('Usage: droost-workflow bypass "<why>" — the reason goes on the record. `--off` re-arms the wall.');
+      $this->fail('Usage: droost workflow:bypass "<why>" — the reason goes on the record. `--off` re-arms the wall.');
       return self::EXIT_USAGE;
     }
     if (!$this->operatorTerminal()) {
@@ -1279,14 +1279,14 @@ final class ArgvDispatcher {
     $written = $facade->grantBypass($projectRoot, $reason);
     $this->say(sprintf(
       'require_run bypass GRANTED (%s): %s. Ungoverned custom-code edits are '
-      . 'allowed until you run: droost-workflow bypass --off',
+      . 'allowed until you run: droost workflow:bypass --off',
       $written,
       trim($reason),
     ));
     $this->say(
       'NOTE: this drops the WHOLE require_run wall. To waive one blocking gate '
       . 'for the current run instead — the usual intent — use: '
-      . 'droost-workflow gate-waive <gate> "<reason>".',
+      . 'droost workflow:gate-waive <gate> "<reason>".',
     );
     return self::EXIT_OK;
   }
@@ -1310,7 +1310,7 @@ final class ArgvDispatcher {
     $gate = $operands[0] ?? '';
     $reason = $operands[1] ?? '';
     if (trim($gate) === '' || trim($reason) === '') {
-      $this->fail('Usage: droost-workflow gate-waive <gate> "<reason>" — both are required; the reason goes on the record.');
+      $this->fail('Usage: droost workflow:gate-waive <gate> "<reason>" — both are required; the reason goes on the record.');
       return self::EXIT_USAGE;
     }
     if (!$this->operatorTerminal()) {
@@ -1435,7 +1435,7 @@ final class ArgvDispatcher {
     $rules = $open ? $state->rules : WorkflowConfig::load($projectRoot)->rules()->toArray();
     $house = is_array($rules['house'] ?? NULL) ? array_values(array_filter($rules['house'], 'is_array')) : [];
     $written = array_diff_key($rules, ['house' => TRUE]);
-    $source = $open ? sprintf('as run %s holds them (frozen when it began)', $state->runId) : 'as droost.workflow.yml writes them';
+    $source = $open ? sprintf('as run %s holds them (frozen when it began)', $state->runId) : 'as droost/droost.yml writes them';
     if (in_array('--json', $argv, TRUE)) {
       $this->say((string) json_encode(['source' => $source, 'house' => $house, 'pages' => $written], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
       return self::EXIT_OK;
@@ -1452,7 +1452,7 @@ final class ArgvDispatcher {
       $this->say(sprintf('  %s [%s] %s', $text($rule['id'] ?? NULL, '?'), $judge, $text($rule['rule'] ?? NULL, '')));
     }
     $this->say('');
-    $this->say('Page rules written (every kind not named keeps the site\'s case default; droost:workflow:status resolves them):');
+    $this->say('Page rules written (every kind not named keeps the site\'s case default; droost workflow:status resolves them):');
     if ($written === []) {
       $this->say('  none');
     }
@@ -1785,7 +1785,7 @@ final class ArgvDispatcher {
                        .claude/ for Claude Code) and a default lever file
       uninstall        take it back out: the pack's files, its guard hooks
                        in settings.json and its AGENTS.md block. KEEPS
-                       droost.workflow.yml and the state directory — your
+                       droost/droost.yml and the state directory — your
                        intent, and this project's run records — and names
                        them so you can remove them deliberately
       status           what this repo resolves to, and where a run has got to

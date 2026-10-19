@@ -20,14 +20,13 @@ actually accepts, what core's constructor signature really is.
 Add rows tagged `code`. `Found` must carry what came back — "nothing matched"
 included. An empty cell is refused.
 
-Carry the `Evidence` column too, and keep it resolvable: a class the symbol
-graph, the brain or the autoloader knows; a file the index carries or that
-exists on disk (docroot-relative — `modules/custom/…`, never `web/…`); or
-`none: <query>` for a search that really did come back empty. `grounding_check`
-re-runs each one. A cell that resolves nowhere is reported, not fatal; a tier
-that cites nothing that resolves fails; and a `plan` row's `none:` that your
-own build has just made true is recorded as superseded — write the `code` row
-that cites what you built instead.
+Carry the `Evidence` column too, and keep it resolvable: a class the code
+index holds or whose file is where PSR-4 puts it; a file the index carries or
+that exists on disk (docroot-relative — `modules/custom/…`, never `web/…`);
+or `none: <query>` for a search that really did come back empty. The seeker
+reads the table against the diff, and a `plan` row's `none:` that your own
+build has just made true is superseded, not wrong — write the `code` row that
+cites what you built instead.
 
 
 ## Your declaration is audited here
@@ -38,7 +37,7 @@ three outcomes stop the phase:
 
 - **a file you touch that was never declared BLOCKS.** If the work genuinely
   needs more scope than the plan named, re-declare it —
-  `vendor/bin/droost-workflow declare-changes --files=...` — and say in the
+  `droost workflow:declare-changes --files=...` — and say in the
   spec why it grew. Growing the diff quietly is the drift this exists to catch.
 
   **Pass the WHOLE list, not just the new thing.** A re-declaration REPLACES
@@ -81,21 +80,20 @@ your task list, then work through them, one at a time or a few together:
 2. **Check it**, the way its `Check` column says, or another way that shows
    it better. How you check is yours to choose; that you check is not:
    - `rendered`: fetch the page and read it, `curl -sL <site>/<route>`
-     (`ddev describe` gives the site's URL), and `drush
-     droost:workflow:render-probe <route>` to see that it renders cleanly. No
-     browser needed, and it costs little.
-   - `browser`: open it in the run's browser (Playwright's MCP server, or
-     your editor's) and take a snapshot; for clicks, forms and JavaScript.
+     (`ddev describe` gives the site's URL; `-L`, since a node path
+     redirects to its alias). No browser needed, and it costs little.
+   - `browser`: open it in the run's browser (your editor's) and take a
+     snapshot; for clicks, forms and JavaScript.
    - `test`: write the criterion's test now, and run that file alone
      (`node_modules/.bin/playwright test tests/e2e/x.spec.ts`, `phpunit
      --filter …`).
    - `command`: run it and compare what it prints.
 3. **Record what showed it**, the moment it does:
    ```bash
-   vendor/bin/droost-workflow verify-criterion AC-1 "curl /rinks lists all six published rinks"
-   vendor/bin/droost-workflow verify-criterion AC-3 "tests/e2e/rinks.spec.ts passes"
+   droost workflow:verify-criterion AC-1 "curl /rinks lists all six published rinks"
+   droost workflow:verify-criterion AC-3 "tests/e2e/rinks.spec.ts passes"
    ```
-   `vendor/bin/droost-workflow criteria` shows what is checked and when.
+   `droost workflow:criteria` shows what is checked and when.
 4. **Move on.** A check that fails is fixed now, not left for test.
 
 Check more than the criteria whenever it helps; nothing limits you to them.
@@ -114,31 +112,28 @@ suite once, as the sign-off: it is not where you find out.
 first-hand: its wiki, its index and its symbol graph are built from this
 project's own code, core and contrib included. The questions that send an
 agent grepping through `web/core` or `vendor` are the ones it answers, and it
-is there all phase, not only at plan. The code tools are `vendor/bin/droost
-<id> '<json>'`, which answer even while the site will not boot; the live
-site's are `drush droost:tool <id> '<json>'` (on DDEV, `ddev exec
-vendor/bin/droost …` and `ddev drush …`):
+is there all phase, not only at plan. It reads files only, so it answers even
+while the site will not boot (on DDEV, `ddev droost …`):
 
-- `droost_wiki` — how this project is put together, page by page.
-- `droost_symbol` and `droost_graph` — where an existing class or hook lives,
-  what calls it and what it calls, before you change it.
-- `droost_module_docs` — what an installed module gives you.
-- `droost_search` — this site's code, by words.
+- `droost code:wiki` — how this project is put together, page by page, and
+  what each installed contrib module and theme provides.
+- `droost code:tree <module>` — a module's files, classes, hooks, services
+  and routes.
+- `droost code:symbol` and `droost code:graph` — where an existing class or
+  hook lives, what calls it and what it calls, before you change it.
+- `droost code:docs` — what an installed module documents.
+- `droost search:code` and `droost search:arch` — the code and the
+  documentation, by words.
 
 **How you build is yours to decide.** Write it by hand, run `drush generate`
-(bare, it lists what this site's drush offers), or use droost's write tools,
-each switched on by the site:
-
-- `droost_scaffold` — skeletons for constructs drush does not generate
-  (`#[Hook]` classes, SDCs, Views filters and sorts, config schema, tests,
-  migrations, access handlers, plugin derivers, recipes).
-- `droost_structure_create` — content types, fields, bundles.
-- `droost_entity_create` / `droost_entity_update` — content.
-- `droost_config_set` — configuration.
+(bare, it lists what this site's drush offers), apply a recipe, or build in
+the site and export the configuration. droost writes nothing into the site.
+A file `drush generate` writes is recorded as generated, so a generated test
+left untouched is the generator's, not the run's.
 
 Nothing holds a file to having come from one of them. What the gates and the
 seeker hold the result to is the spec, the declaration and the site's house
-rules (`vendor/bin/droost-workflow rules`).
+rules (`droost workflow:rules`).
 
 Then the rules that do not bend:
 
@@ -154,9 +149,9 @@ Then the rules that do not bend:
 5. **Leave no orphans.** A field with no storage, a route with no controller,
    a service with no definition — each is a half-built thing the next phase
    will report as broken.
-6. **Export config, or it is invisible.** `droost_structure_create`,
-   `droost_config_set` and the entity tools write to ACTIVE config in the
-   database — nothing the seeker's file review can see, and the static gates
+6. **Export config, or it is invisible.** drush, a recipe and the admin UI
+   write to ACTIVE config in the database — nothing the seeker's file review
+   can see, and the static gates
    analyse PHP only. After any config-affecting change, export it
    (`drush config:export -y`, or the site's own config workflow) so it lands
    as reviewable YAML — **and confirm the sync directory is inside the repo
@@ -172,20 +167,19 @@ Then the rules that do not bend:
 
 ### Pages, and the house rules
 
-**Build each page as you declared it.** `composition_check` reads what really
-builds every page the spec declared, at this phase: a Canvas page, a View
-page, an entity's display, a Webform, or a route. A page declared as one and
-built as another fails: the record must be true. If the build had to change
-what owns a page, declare it again with its new owner.
+**Build each page as you declared it.** Every page the spec declared names
+what builds it: a Canvas page, a View page, an entity's display, a Webform,
+or a route. A page declared as one and built as another is a false record,
+and the seeker reads the declaration against the diff. If the build had to
+change what owns a page, declare it again with its new owner.
 
-**The site's house rules bind the result.** `vendor/bin/droost-workflow
-rules` prints them: the page rules (which owners each kind of page may have
-on this site) and `rules.house`, each with an id and its judge.
+**The site's house rules bind the result.** `droost workflow:rules` prints
+them: the page rules (which owners each kind of page may have on this site)
+and `rules.house`, each with an id and its judge.
 
-- A rule judged by **`gate`** is checked mechanically: the composition gate
-  for a page's owner, `sdc_markup` for new markup outside an SDC
-  component's directory. In `block` mode a break fails the gate; in `report`
-  mode it is recorded.
+- A rule judged by **`gate`** is checked mechanically: `sdc_markup` for new
+  markup outside an SDC component's directory, or the site's own `cmd`. In
+  `block` mode a break fails the gate; in `report` mode it is recorded.
 - A rule judged by **`seeker`** is read against your diff by the seeker
   (its lens 8). A break is HIGH, and on a site that holds on HIGH it holds
   the run.
@@ -193,15 +187,10 @@ on this site) and `rules.house`, each with an id and its judge.
   the spec with who approved it and why; one you write for yourself
   (`--except=` on a route) records the break, it does not excuse it.
 
-**Tools that write Canvas and displays**, if you choose them:
-
-- **A Canvas page:** create it with `droost_entity_create`
-  (`entity_type: canvas_page`, with its title and path), then write its
-  tree with `droost_canvas_tree_set`. `droost_canvas` lists what can be
-  placed, a View's block display among them
-  (`block.views_block.<view>-<display>`).
-- **An entity's own page:** its full view mode, its fields bound to the
-  theme's components.
+**Canvas pages and displays** are built in the site (its UI, drush, or a
+recipe) and exported, like any configuration: a Canvas page as its entity
+and tree, an entity's own page as its full view mode with its fields bound
+to the theme's components.
 
 ## Exit gate
 
@@ -213,7 +202,7 @@ config-only run would pass having verified nothing it built.
 
 At this phase's `run`, the engine gates the diff with phpcs and phpstan, the
 pair mandatory since 0.4, tunable but never off. **What else runs here depends
-on the run's flow**, and `droost-workflow status` lists it under `phase_gates`:
+on the run's flow**, and `droost workflow:status` lists it under `phase_gates`:
 
 - **fast** (`flow: fast`, the default at `low` and `medium`): code runs every analyser the level turns on
   AND the unit tests: phpunit, mutation and coverage, where on. So write the
@@ -223,8 +212,9 @@ on the run's flow**, and `droost-workflow status` lists it under `phase_gates`:
   this run changed, at every level, and at `low` and `medium` phpunit runs
   the test files this run added or changed; `scope: full` on a gate runs its
   whole configured set. The test phase that follows runs only the
-  browser suite, parity and the rendered check; nothing re-runs your
-  analysers or unit tests after this phase, and complete runs no gate.
+  browser suite, parity, the house rules and the project's own gates placed
+  at test; nothing re-runs your analysers or unit tests after this phase,
+  and complete runs only `wiki_fresh`.
 
   **The run can come back here.** A failure at test, or a code file changed
   after this phase's gates ran, returns the run to code (`outcome:
@@ -294,20 +284,19 @@ whole pipeline is built to prevent.
 Gates verify rules; the seeker verifies judgment. The checkpoint spends no
 retry budget: it is a hold, not a failure.
 
-## When droost's tools stop answering
+## When the site stops answering
 
 A `ddev snapshot restore`, a `ddev restart`, a failed module install or a
-fatal in a plugin you wrote can leave the site unable to boot, and then every
-droost call fails with the site's error. Fix the site (the fatal drush
-prints, or `drush watchdog:show`), then call again. Read the state before
-repeating a call that writes.
+fatal in a plugin you wrote can leave the site unable to boot. droost still
+answers, since it reads files: use `droost code:tree` and `code:graph` to find
+what broke. Fix the site (the fatal drush prints, or `drush watchdog:show`),
+then go on. Read the state before repeating anything that writes.
 
 ## Without a site
 
-**Every tool above is unavailable** — including `droost_scaffold`. They are
-all Drupal plugins run through drush, so with no booted site there is no
-droost at all, not a reduced droost. It is tempting to assume the file-writing
-ones still work; they do not.
+droost still answers about the code, the wiki and the installed modules. What
+you cannot do is anything the running site does: create content, set
+configuration, render a page, run a test that boots Drupal.
 
 So you are writing code by hand, to the conventions you can read in the
 repository. Do it, and record plainly which steps could not be applied: no

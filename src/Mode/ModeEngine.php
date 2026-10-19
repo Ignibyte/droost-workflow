@@ -418,7 +418,7 @@ final class ModeEngine {
         . 'the phase by itself. These are declarations, contributed checks or '
         . 'spec conditions, and they cost nothing to retry — so a run can sit '
         . 'here indefinitely without anything saying so.',
-        'Read §4 of `droost-workflow evidence` for what is blocked and why.',
+        'Read §4 of `droost workflow:evidence` for what is blocked and why.',
         'A block with an ENVIRONMENT fault names a remedy an operator can run.',
         'A block with an AGENT fault has no waiver: the work itself has to change.',
         'If a block cannot be cleared by any action, that is a defect in droost '
@@ -750,7 +750,7 @@ final class ModeEngine {
               . 'here on their word, not on a gate.',
               trim($answer),
             ),
-            'droost-workflow reset --force, once whatever made it stick is understood',
+            'droost workflow:reset --force, once whatever made it stick is understood',
           ),
           $now,
         );

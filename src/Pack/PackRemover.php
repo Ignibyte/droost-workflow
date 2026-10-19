@@ -11,8 +11,8 @@ use Droost\Workflow\State\RunStateStore;
  * Takes the pack back out — the half `init` never had.
  *
  * There was no uninstall at all until 2026-09-15, and the gap had a shape
- * worse than "a missing convenience". `drush droost:uninstall` removes
- * droost's skills and its MCP entry and leaves the three guard hooks wired in
+ * worse than "a missing convenience". drupal/droost's uninstall removed
+ * droost's skills and its MCP entry and left the three guard hooks wired in
  * `settings.json` — so a project that removed droost kept a PreToolUse hook on
  * every Edit and every Bash call, running a guard that reads a lever file for a
  * module no longer installed. The only way out was to hand-edit JSON, and the

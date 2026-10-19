@@ -20,8 +20,8 @@ exists at every level:
 2. What will be built, each piece named, and the approach, including what is
    deliberately NOT being done. How each is built is the plan's call: no
    tool or generator is prescribed.
-3. The house rules the change meets: read them with `vendor/bin/droost-workflow
-   rules` (or in `drush droost:brief`) and say, per rule that applies, how the
+3. The house rules the change meets: read them in the researcher's
+   findings, or in `rules.house` in `droost/droost.yml`, and say, per rule that applies, how the
    change meets it. An exception is the OPERATOR's to grant, never yours.
 4. Acceptance criteria in EARS form — "When <trigger>, the <system> shall
    <observable response>" — as a table `| ID | Criterion | Check | Verified By |`:
@@ -58,12 +58,12 @@ check falls back on; a missing one is recorded. Both are short:
 - /rinks/ice-house — one detail page, so the display renders with real content
 ```
 
-`## Routes` is what `rendered_check` renders at test and complete, beside the
-front page — the paths this change adds or alters, as the site serves them
-(`/camps`, never `/node/7`). A ticket that touches no route writes
-`none — <why>` instead; the gate then renders `/` and the record says the spec
-declared none. Every route you name here is a page the run must make render;
-name the ones the ticket is for, not every page on the site.
+`## Routes` is the paths this change adds or alters, as the site serves them
+(`/camps`, never `/node/7`): what the seeker, the browser check and the
+report read as the pages this ticket is about. A ticket that touches no route
+writes `none — <why>` instead, and the record says the spec declared none.
+Every route you name here is a page the run must make render; name the ones
+the ticket is for, not every page on the site.
 
 All three tiers at `plan`, each with something that resolves, or the gate
 names the ones you skipped and stops.

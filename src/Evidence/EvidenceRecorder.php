@@ -135,8 +135,8 @@ final class EvidenceRecorder {
    * link that corroborates the spec's grounding claims. A link that is always
    * dark corroborates nothing.
    *
-   * The file is written by ToolCallLog, whichever door made the call
-   * (`vendor/bin/droost`, `drush droost:tool`, droost's MCP server). Each row
+   * The file is written by ToolCallLog, from the `droost` command's own
+   * knowledge calls. Each row
    * carries the run it was made under (or `null` for a call made with no run
    * open) and the phase. ONLY THIS RUN'S ROWS ARE TAKEN — the same rule
    * ingestGuardCalls() below has always applied, and the same reason: a

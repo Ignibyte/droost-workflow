@@ -2327,7 +2327,7 @@ final class WorkflowFacade {
    * Waives ONE gate for the rest of this run, on the operator's authority.
    *
    * The scoped alternative to dropping the whole wall: two live rounds
-   * reached for `droost:workflow:bypass` believing it cleared a gate, and
+   * reached for the bypass believing it cleared a gate, and
    * it arms ungoverned edits instead — the wrong hammer. A waiver is
    * per-gate, run-scoped (it dies with the run record), always carries its
    * reason, renders as its own status (never a pass), and enters ONLY
@@ -2585,13 +2585,12 @@ final class WorkflowFacade {
       // binary had none, and `droost-workflow gate-waive` has been one of its
       // verbs since; an operator on a project with no Drupal was told the only
       // exit was `reset`.
-      'remedy' => 'Read the full report with `droost-workflow status` or '
-      . '`droost-workflow evidence`, then clear the run with '
-      . '`droost-workflow reset` and begin the next one. If every gate that '
+      'remedy' => 'Read the full report with `droost workflow:status` or '
+      . '`droost workflow:evidence`, then clear the run with '
+      . '`droost workflow:reset` and begin the next one. If every gate that '
       . 'killed the phase has been answered for, the OPERATOR can waive them '
-      . 'from a terminal, with `droost-workflow gate-waive <gate> "<reason>"` '
-      . 'or `drush droost:workflow:gate-waive <gate> "<reason>"`, and the '
-      . 'phase reopens. Both refuse without a terminal, so an agent cannot '
+      . 'from a terminal, with `droost workflow:gate-waive <gate> "<reason>"`, '
+      . 'and the phase reopens. It refuses without a terminal, so an agent cannot '
       . 'grant one, and the mandatory trio takes one only at preset custom.',
       'guidance' => '',
     ];
@@ -2658,7 +2657,7 @@ final class WorkflowFacade {
           Fault::Environment,
           'The declaration audit could not read the run\'s own record: ' . $error::class,
           'Re-run the phase. If it persists, check that nothing else is holding '
-          . 'the evidence store open, then inspect it with `droost-workflow evidence`.',
+          . 'the evidence store open, then inspect it with `droost workflow:evidence`.',
         ),
         $this->now(),
       );
@@ -3390,7 +3389,7 @@ final class WorkflowFacade {
               is_string($record['note'] ?? NULL) ? '; ' . $record['note'] : '',
             )
             : sprintf('%s failed, and %s.', $gate, $record['note'] ?? 'no follow-up could be written'),
-          $written ? NULL : 'Write the follow-up by hand: droost-workflow ticket new --title="…" --type=bug',
+          $written ? NULL : 'Write the follow-up by hand: droost workflow:ticket new --title="…" --type=bug',
         ), $this->now());
       }
       catch (\Throwable) {

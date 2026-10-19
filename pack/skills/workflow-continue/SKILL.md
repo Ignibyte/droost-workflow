@@ -18,7 +18,7 @@ declares the browser tier. Everything below assumes an open run.
 
 ## What this does
 
-Reads `droost.workflow.yml` for the levers and works the phases **in the one
+Reads `droost/droost.yml` for the levers and works the phases **in the one
 order that exists**: `plan → code → test → complete`. Every run walks all of
 them — minor changes included. What varies between the top and the bottom of
 the effort dial is the weight each phase carries, never the path. (0.4 folded the old document
@@ -32,13 +32,13 @@ new session picks the run up on a machine with a different capability,
 re-declare it before the test phase — run.json already exists, so it applies:
 
 ```
-drush droost:workflow:declare-browser playwright-mcp        # site-backed; or: native | none
-vendor/bin/droost-workflow declare-browser playwright-mcp   # the same verb on a checkout with no site
+droost workflow:declare-browser playwright-mcp   # or: native | none
 ```
 
 `playwright-mcp` = you can drive a browser; `native` = the editor gives you
-one; `none` = no browser this session (the rendered check is the floor and
-always runs — `none` is not a failure). The test phase branches on this and
+one; `none` = no browser this session (criteria marked `browser` are then
+checked by fetching the page, and the report says no browser ran — `none` is
+not a failure). The test phase branches on this and
 the final report says which tier actually ran.
 
 ## The dial, and its two weights
@@ -48,8 +48,8 @@ The preset is one graded dial for how much the run VERIFIES —
 Read the frozen, canonical name from run.json (`factory` records as `max`,
 `light` as `medium`). The dial decides the gates and thresholds (engine-side)
 and the artefact weight (your side); the file can override any lever. Two
-things never move with it: a spec always exists, and the brain — search,
-the code graph, the wiki as knowledge — is always used. Five points, two weights:
+things never move with it: a spec always exists, and droost's knowledge —
+the wiki, the code tree, search — is always consulted. Five points, two weights:
 
 - **Full weight — `high`, `xhigh`, `max`, `custom`** — the full EARS spec,
   written to `droost/droost-workflow/spec-<slug>.md`; the capture is recorded
@@ -58,24 +58,24 @@ the code graph, the wiki as knowledge — is always used. Five points, two weigh
   playwright suite fails the gate rather than passing labelled-empty.
 - **Light weight — `medium`, `low`** — a SHORTER spec in the same EARS shape:
   what was asked, what will change, a handful of "When <trigger>, the
-  <system> shall <response>" criteria, AND the `## Grounding` and `## Tooling
-  plan` sections the engine requires at every weight — written to
+  <system> shall <response>" criteria, AND the `## Grounding` and `## Routes`
+  sections expected at every weight — written to
   `droost/droost-workflow/tmp-spec-<slug>.md` and presented back in chat at
   complete. Depth trims, never format: one spec shape everywhere is what the
   seeker grades against, and the grounding discipline is never what a lighter
   weight drops. At `low` there is additionally NO wiki: `wiki_fresh`
   is off and the complete phase writes no wiki pages; phpunit is off BY
-  PRESET (the test phase is left with the rendered check, plus phpcs and
-  phpstan over whatever it wrote) and reports `off`, never `passed` — that is
+  PRESET (the test phase is left with phpcs and phpstan over whatever it
+  wrote, and the criteria code checked) and reports `off`, never `passed` — that is
   the level's declared trade, not a green suite.
 
-**You cannot move the dial — propose it.** `drush droost:workflow:effort
-<level>` is the operator's command: the guard refuses it from your shell, and
-editing `droost.workflow.yml` yourself is the defeat the seeker's lens 7
+**You cannot move the dial — propose it.** `droost workflow:effort <level>`
+is the operator's command: the guard refuses it from your shell, and
+editing `droost/droost.yml` yourself is the defeat the seeker's lens 7
 names. When the level does not fit the work — a change that deserves tests at
 `low`, a docs-only tweak held to `max` — say so and hand the operator the
 exact command with your reason. Ground the proposal first with
-`drush droost:workflow:effort <level> --preview`, which is read-only and
+`droost workflow:effort <level> --preview`, which is read-only and
 allowed: it prints the bill — every gate, threshold, the seeker, enforcement
 and the retry bound the move would change for the NEXT run. The run in
 progress stays frozen at its level either way.
@@ -112,10 +112,8 @@ When the code phase's gates pass, the engine holds the run at
    word for word. You never edit its rows: an independent ledger whose rows
    differ from what the seeker returned is refused. A status you change
    yourself goes in a section of your own, `Inspector: self-reviewed`.
-3. Record it: `drush droost:workflow:seeker-report <file>` (site-backed; the
-   standalone `vendor/bin/droost-workflow seeker-report < <(the section)` on a
-   checkout with no site) —
-   or pipe the whole spec file; the engine parses the LAST section. The
+3. Record it: `droost workflow:seeker-report < <file>` — pipe the section,
+   or the whole spec file; the engine parses the LAST section. The
    parse is the record: counts come from the ledger text, never from a
    summary of it.
 4. Which open findings hold the run is the lever `seekers.holds`
@@ -172,21 +170,10 @@ agent's good judgment.
 
 ## How the engine drives this
 
-Every surface — `vendor/bin/droost-workflow run` and `drush droost:workflow:run`
-— drives one engine, and the engine writes run state to
-`droost/droost-workflow/run.json` on every invocation.
-
-**If this project has a working site, advance through the SITE-BACKED
-surface** — `drush droost:workflow:run` — not
-`vendor/bin/droost-workflow`. They are not equivalent: the standalone binary
-has no booted site, so every site-dependent gate (today, `rendered_check`)
-comes back skipped with its reason, however healthy the site is. A live run
-advanced its test phase through the binary while the site was up and being
-driven by a browser, and the gate recorded "skipped-no-site"; it only ran
-because the next phase happened to use a different surface. Choosing the
-binary where a site exists means choosing not to run a gate the run has
-configured. Use the binary when there is genuinely no site — that is what it
-is for, and it says exactly which checks it could not perform. One phase per invocation, so
+`droost workflow:run` drives the engine, and the engine writes run state to
+`droost/droost-workflow/run.json` on every invocation. It boots no Drupal: a
+gate that needs the running site is a project's own gate file, which asks
+the site itself and says when it could not. One phase per invocation, so
 the loop is:
 
 1. `/droost:workflow:status` — see the levers and where the run stands.
@@ -227,7 +214,9 @@ record, never by remembering.
 
 **The levers are frozen into the run when it begins** — `resolved_gates`,
 the phase map, the enforcement level and the seeker switch, all in run.json.
-A mid-run edit to `droost.workflow.yml` does not retarget a run in flight.
+A mid-run edit to `droost/droost.yml` does not retarget a run in flight, and
+the guard refuses one: the levers and the project's gate, hook and wall files
+are the rules the run is held to.
 
 **Retries are engine-counted.** Each blocking gate spends one attempt per
 failing invocation (`feedback_attempts` against `max_gate_retries`); when the
@@ -238,8 +227,7 @@ instead** (`outcome: returned`, within `max_loops`), and once the loops are
 spent, or for a failure outside the ticket, it becomes a follow-up ticket and
 the phase is recorded `deferred` (`outcome: deferred`). Read `returned` as
 "work to do at code", never as a failed run. **Abandoning a run is a deliberate act**: ask the operator
-to run `drush droost:workflow:reset --force` (or
-`vendor/bin/droost-workflow reset --force`), which archives the record to
+to run `droost workflow:reset --force`, which archives the record to
 `droost/droost-workflow/history/` — there is no quiet way out, on purpose, and the
 record is never discarded.
 
@@ -259,16 +247,18 @@ and with what thresholds, is the lever file's business:
 | phase | fast flow (`flow: fast`, the default at `low` and `medium`) | strict flow (`flow: strict`, the default from `high` up) |
 |---|---|---|
 | plan | no gate; one check, `plan_grounded`: the spec's `## Grounding` cites what resolves, and the run asked droost's knowledge during plan | the same |
-| code | phpcs, phpstan, eslint, stylelint, prettier, phpunit, mutation, coverage, config_clean, grounding_check, plus custom gates placed at `code`; then the seeker checkpoint, where the level runs one | phpcs, phpstan, eslint, stylelint, prettier, config_clean, grounding_check, plus custom gates placed at `code`; then the seeker checkpoint |
-| test | playwright, parity, rendered_check, config_clean, plus custom gates placed at `test` | the static pair again, phpunit, mutation, playwright, parity, coverage, rendered_check, config_clean, plus custom gates placed at `test` |
+| code | phpcs, phpstan, eslint, stylelint, prettier, phpunit, mutation, coverage, house_rules, plus the project's gates placed at `code`; then the seeker checkpoint, where the level runs one | phpcs, phpstan, eslint, stylelint, prettier, house_rules, plus the project's gates placed at `code`; then the seeker checkpoint |
+| test | playwright, parity, house_rules, plus the project's gates placed at `test` | the static pair again, phpunit, mutation, playwright, parity, coverage, plus the project's gates placed at `test` |
 | complete | documentation, then `wiki_fresh` only | documentation first, then the full enabled set re-run, the terminal safety net |
 
-The run's own table is `phase_gates` in `droost-workflow status`: it is frozen
-when the run begins, and it is what the engine dispatches from.
+The run's own table is `phase_gates` in `droost workflow:status`: it is
+frozen when the run begins, and it is what the engine dispatches from.
 
-Custom gates are the repo's own commands (`gates.custom` in the lever file —
-semgrep, behat, anything); exit zero passes, a missing tool reports
-tool-missing and blocks, never passes.
+The project's own gates are files or commands declared in `droost/droost.yml`
+(`gates.<id>` with `run: droost/gates/<file>` or `cmd:` — semgrep, behat,
+anything). Each runs as its own process: exit 0 passes, 1 fails, and anything
+else — a missing file or tool, a crash, a timeout — is recorded as did not
+run, never as passed.
 
 ## Before you start
 
@@ -299,8 +289,8 @@ wrecks the very gates this pipeline runs.
 
 A legacy project carries findings that predate every run. When the operator
 has written a baseline (`droost/baseline/`, from their own terminal with
-`drush droost:workflow:baseline`), the consulting gates — phpcs, phpstan,
-eslint, stylelint, prettier, coverage, mutation, config_clean — judge only
+`droost workflow:baseline`), the consulting gates — phpcs, phpstan,
+eslint, stylelint, prettier, coverage, mutation — judge only
 what the baseline does NOT record. Read their lines as written: `passed — 0
 new, 123 inherited` is the baseline working, and the 123 are not this run's
 to fix unless the spec says so; `FAILED — 2 new error(s) the baseline does not
@@ -314,26 +304,34 @@ Three rules:
   anyway.
 - **You cannot write or refresh the baseline — propose it.** When gates fail
   on debt the change never touched and the project has no baseline, ground
-  the proposal with `drush droost:workflow:baseline --measure` (read-only:
-  the bill per gate) and hand the operator `drush droost:workflow:baseline`
-  with your reason. Paid-off debt is theirs to drop with `--refresh`; growth
+  the proposal with `droost workflow:baseline --measure` (read-only: the
+  bill per gate) and hand the operator `droost workflow:baseline` with your
+  reason. Paid-off debt is theirs to drop with `--refresh`; growth
   needs their `--grow --reason`.
 - **Coverage and mutation ratchet.** Under the level's target but at or above
   the inherited floor passes, and the line names the target. Below the floor
   fails: the change lost coverage the project already had.
 
-## Contributed gates
+## The project's own gates, hooks and walls
 
-A `module:<id>` gate — Snyk's `module:snyk`, say — was declared by a module,
-not by the lever file; enabling the module put it in the run. Its line carries
-its mode (report or block), its provenance, and on a failure the sentence the
-module wrote about what the verdict means: read that before deciding what a
-finding is. In report mode a failure is REPORTED — recorded, the phase
-advances, and it is still a finding to weigh in your summary. Whether it
-blocks is the site's decision, not yours: propose
-`gates.contributed.<id>: { mode: block }` (or `{ on: false }`) to the operator
-when the work calls for it, and never write it mid-run — the lever file
-changing without the spec saying so is the seeker's lens 7.
+`droost/droost.yml` may name files of the project's own, in `droost/`:
+
+- **gates** (`gates.<id>` with `run: droost/gates/<file>` or `cmd:`): a check
+  at the phases it names. Its line carries its mode: in `block` mode a
+  failure holds the phase; in `report` mode it is recorded, the phase
+  advances, and it is still a finding to weigh in your summary. A gate that
+  could not run (exit 3, a crash, a timeout, a missing tool) is never a pass.
+- **walls** (`walls.<id>` with the tools they judge): asked before a tool
+  call, and they may refuse it with a reason. A refusal is the project's
+  rule, not a broken tool: read the reason, and when it names an operator
+  step (arming tracker writes, say), hand the operator that step.
+- **hooks** (`hooks.<event>`): told when the run starts, a phase begins or
+  ends, and the run completes. They never hold anything.
+
+The files were frozen when the run began, and the guard refuses an edit to
+them, to `droost/droost.yml` or to `droost/agents.md` while the run is open.
+Whether a gate blocks is the site's decision, not yours: propose a mode
+change to the operator when the work calls for it.
 
 ## When the run finishes
 
@@ -347,4 +345,4 @@ artifacts, and the wiki is written (at `low` it is not — `wiki_fresh` is off).
 A COMPLETED run is archived the moment it completes: its record, ledgers and
 spec go to `droost/droost-workflow/history/`, `status` and `evidence` still
 read it there, and the next ticket's `run` starts with no reset. A FAILED
-run stays as `run.json` until `drush droost:workflow:reset` archives it.
+run stays as `run.json` until `droost workflow:reset` archives it.
