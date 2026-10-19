@@ -7652,6 +7652,22 @@ function guard_project_rules(string $root): array {
  */
 function guard_walls(string $root, array $event, string $harness): void {
   $rules = guard_project_rules($root);
+  // A droost.yml that declares walls the guard cannot read (it will not
+  // parse, or there is no YAML parser beside the package) has walls nobody
+  // asked. Reading that as "no walls" let every call through: a wall that
+  // did not run was read as consent (F-302). Refuse instead, except the one
+  // write that repairs it; during a run that write is the rule-file wall's
+  // to refuse, and the operator's to make.
+  if ($rules['error'] !== '') {
+    $target = is_string($event['input']['file_path'] ?? NULL) ? $event['input']['file_path'] : '';
+    if (preg_match('#(^|/)droost/droost\.yml$#', $target) !== 1) {
+      guard_refuse('wall:unreadable', sprintf(
+        'droost/droost.yml declares walls or operator-only scripts, and the guard could not read them (%s), so this %s call is refused: a wall that was never asked has not said yes. Fix droost/droost.yml (or the package\'s install), or tell the OPERATOR.',
+        $rules['error'],
+        $event['tool'] !== '' ? $event['tool'] : 'tool',
+      ));
+    }
+  }
   foreach ($rules['walls'] as $id => $wall) {
     if ($event['tool'] === '' || @preg_match('#' . str_replace('#', '\#', $wall['tools']) . '#', $event['tool']) !== 1) {
       continue;
