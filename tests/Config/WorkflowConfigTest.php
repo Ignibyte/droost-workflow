@@ -422,7 +422,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
         'droost.workflow.yml: unknown gate "phpstain" (known: phpcs, phpstan, '
         . 'eslint, stylelint, prettier, phpunit, mutation, playwright, parity, '
         . 'coverage, '
-        . 'rendered_check, config_clean, grounding_check, composition_check, house_rules, wiki_fresh)',
+        . 'house_rules, wiki_fresh)',
       ],
       'unknown gate option' => [
         ['gates' => ['phpcs' => ['levl' => 1]]],
@@ -432,10 +432,6 @@ class WorkflowConfigTest extends WorkflowTestCase {
       'option on a gate with none' => [
         ['gates' => ['phpunit' => ['min' => 1]]],
         'droost.workflow.yml: gate "phpunit" has no option "min" (accepts: on, required, in_diff, root, scope, timeout, mode)',
-      ],
-      'grounding takes the strictness flag and nothing else' => [
-        ['gates' => ['grounding_check' => ['unresolved' => 'block']]],
-        'droost.workflow.yml: gate "grounding_check" has no option "unresolved" (accepts: on, strict_citations, mode)',
       ],
       'unknown phase' => [
         ['phases' => ['plan', 'deploy', 'complete']],

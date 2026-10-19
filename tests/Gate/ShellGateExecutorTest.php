@@ -7,7 +7,6 @@ namespace Droost\Workflow\Tests\Gate;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Gate\GateResult;
-use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\ShellGateExecutor;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -1424,7 +1423,7 @@ class ShellGateExecutorTest extends WorkflowTestCase {
    */
   #[DataProvider('wikiReports')]
   public function testWikiFreshSaysWhatItMeasured(int $exit, string $stdout, GateStatus $status, bool $labelled, array $says): void {
-    $root = $this->rootWithBinaries(['drush']);
+    $root = $this->rootWithBinaries(['droost']);
     $executor = new ShellGateExecutor(
       static fn (array $argv): array => [$exit, $stdout, ''],
       static fn (): int => 0,
@@ -1447,7 +1446,7 @@ class ShellGateExecutorTest extends WorkflowTestCase {
    * them from these rows rather than parsing the sentence.
    */
   public function testWikiFreshListsEachUncoveredExtension(): void {
-    $root = $this->rootWithBinaries(['drush']);
+    $root = $this->rootWithBinaries(['droost']);
     $stdout = (string) json_encode([
       'bundle_path' => 'droost/wiki',
       'summary' => [
@@ -1562,7 +1561,7 @@ class ShellGateExecutorTest extends WorkflowTestCase {
 
     // And where drush IS present the gate really runs, rather than having been
     // quietly switched off by the fix for the case above.
-    $withDrush = $this->rootWithBinaries(['drush']);
+    $withDrush = $this->rootWithBinaries(['droost']);
     $spawned = NULL;
     $running = new ShellGateExecutor(
       function (array $argv) use (&$spawned): array {
@@ -1576,8 +1575,9 @@ class ShellGateExecutorTest extends WorkflowTestCase {
 
     $this->assertSame(GateStatus::Passed, $present->status);
     $this->assertIsArray($spawned, 'it spawned something');
-    $this->assertStringContainsString('drush', (string) ($spawned[0] ?? ''));
-    $this->assertContains('droost:wiki:status', $spawned);
+    $this->assertStringContainsString('droost', (string) ($spawned[0] ?? ''));
+    $this->assertContains('code:wiki', $spawned);
+    $this->assertContains('status', $spawned);
   }
 
   /**
@@ -1595,7 +1595,7 @@ class ShellGateExecutorTest extends WorkflowTestCase {
    * a walk found the second one the day the first was fixed.
    */
   public function testWikiFreshSkipsWhenDrushCannotBootstrap(): void {
-    $root = $this->rootWithBinaries(['drush']);
+    $root = $this->rootWithBinaries(['droost']);
     $executor = new ShellGateExecutor(
       static fn (array $argv): array => [
         1,
@@ -1619,7 +1619,7 @@ class ShellGateExecutorTest extends WorkflowTestCase {
    * every wiki_fresh failure to disappear.
    */
   public function testWikiFreshStillFailsOnStaleDocumentation(): void {
-    $root = $this->rootWithBinaries(['drush']);
+    $root = $this->rootWithBinaries(['droost']);
     $executor = new ShellGateExecutor(
       static fn (array $argv): array => [1, '{"stale":3}', ''],
       static fn (): int => 0,
@@ -1629,22 +1629,6 @@ class ShellGateExecutorTest extends WorkflowTestCase {
 
     $this->assertSame(GateStatus::Failed, $result->status);
     $this->assertTrue($result->status->blocksAdvance());
-  }
-
-  /**
-   * And the site driver is not asked for it, because it cannot answer.
-   *
-   * `GateRunner::SITE_GATES` is dispatched to the driver, and a site gate the
-   * driver does not implement is `toolMissing` by design. Naming wiki_fresh
-   * there put it in exactly that hole on every real site.
-   */
-  public function testWikiFreshIsNotDispatchedToTheSiteDriver(): void {
-    $this->assertNotContains(
-      'wiki_fresh',
-      GateRunner::SITE_GATES,
-      'SITE_GATES is about a booted kernel in-process, and the Drupal driver '
-      . 'implements exactly the three gates named there',
-    );
   }
 
   /**

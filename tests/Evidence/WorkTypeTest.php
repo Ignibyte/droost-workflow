@@ -58,11 +58,13 @@ final class WorkTypeTest extends TestCase {
       [],
       ['config/sync/node.type.rink.yml', 'config/sync/views.view.rinks.yml'],
       WorkType::ContentModel,
-      ['config_clean', 'rendered_check'],
+      [],
     );
 
     $this->assertSame(CheckState::Satisfied, $this->check($audit, 'work_type')->state);
-    $this->assertSame(CheckState::Satisfied, $this->check($audit, 'type_coverage')->state);
+    // A content-model run names no gate that must have measured: the two
+    // that proved it asked a booted site, and left with droost's module.
+    $this->assertSame([], WorkType::ContentModel->mustMeasure());
   }
 
   /**
@@ -78,7 +80,7 @@ final class WorkTypeTest extends TestCase {
       [],
       ['web/modules/custom/x/a.php', 'web/modules/custom/x/B.php', 'web/modules/custom/x/C.php'],
       WorkType::ContentModel,
-      ['config_clean', 'rendered_check'],
+      [],
     );
 
     $check = $this->check($audit, 'work_type');
@@ -106,7 +108,7 @@ final class WorkTypeTest extends TestCase {
         'web/profiles/custom/acme/C.php',
       ],
       WorkType::ContentModel,
-      ['config_clean', 'rendered_check'],
+      [],
     );
 
     $check = $this->check($audit, 'work_type');
@@ -166,7 +168,7 @@ final class WorkTypeTest extends TestCase {
         'web/themes/custom/x/x.theme',
       ],
       WorkType::ContentModel,
-      ['config_clean', 'rendered_check'],
+      [],
     );
 
     $this->assertSame(CheckState::Satisfied, $this->check($audit, 'work_type')->state);
@@ -176,21 +178,21 @@ final class WorkTypeTest extends TestCase {
    * A gate the type rests on that measured nothing blocks the phase.
    *
    * "Passed" and "looked at something" are different claims, and for the gate a
-   * ticket rests on, only the second one counts. A config_clean that passed
-   * over an empty export has not checked the content model it was pointed at.
+   * ticket rests on, only the second one counts. A phpunit that passed having
+   * discovered no test has not checked the code it was pointed at.
    */
   public function testGateThatMeasuredNothingBlocksItsType(): void {
     $audit = new DeclarationAudit(
-      ['config'],
+      ['web/modules/custom/x'],
       [],
-      ['config/sync/a.yml'],
-      WorkType::ContentModel,
-      ['rendered_check'],
+      ['web/modules/custom/x/x.module'],
+      WorkType::Code,
+      ['phpcs', 'phpstan'],
     );
 
     $check = $this->check($audit, 'type_coverage');
     $this->assertSame(CheckState::Blocked, $check->state);
-    $this->assertStringContainsString('config_clean', (string) $check->summary);
+    $this->assertStringContainsString('phpunit', (string) $check->summary);
     $this->assertStringContainsString('without examining anything', (string) $check->summary);
     // ENVIRONMENT, with a remedy. A gate that ran and examined nothing is
     // describing its own configuration, and an agent fault here says "this is

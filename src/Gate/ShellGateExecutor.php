@@ -231,14 +231,11 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   }
 
   /**
-   * Shell gates whose tool being absent means "no site", not "broken setup".
+   * Shell gates whose tool being absent means "not run", not "broken setup".
    *
-   * `GateRunner::SITE_GATES` is about gates that need a booted kernel
-   * IN-PROCESS, and it dispatches them to the site driver. This is the other
-   * kind: an ordinary shell command that happens to ask a site. No drush on a
-   * bare checkout is not a misconfigured environment — it is the same absence
-   * `rendered_check` reports, and it must give the same answer, because
-   * `skipped-no-site` lets a phase advance and `error-tool-missing` does not.
+   * The wiki_fresh gate asks droost itself; a checkout without it reports
+   * the gate not run with its reason, because `skipped-no-site` lets a phase
+   * advance and `error-tool-missing` does not.
    *
    * @var list<string>
    */
@@ -867,20 +864,12 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     }
 
     if (!is_file($root . '/' . $binary)) {
-      // A gate whose tool IS a site, asked on a checkout that has none.
-      // `wiki_fresh` runs `drush droost:wiki:status`, so no drush here means no
-      // site to ask — which is the same answer `rendered_check` gives, and it
-      // must not be a different one. As `toolMissing` it BLOCKED, at complete,
+      // A gate whose tool is droost itself, asked where droost is not
+      // installed. As `toolMissing` it BLOCKED, at complete,
       // which is the last phase; levers freeze at begin so turning it off then
       // does not help; and the only way out was `reset --force` and redoing
       // three phases. No standalone run could finish at the levers `init`
       // itself writes.
-      //
-      // The first attempt at this moved the gate into `GateRunner::SITE_GATES`,
-      // which dispatches to the site driver — and `DrupalSiteDriver` names
-      // three gates, so on a real site it became `toolMissing` there instead.
-      // Same wall, worse surface. The question belongs here, where the binary
-      // is looked for.
       if (in_array($gate->name, self::SITE_SHELL_GATES, TRUE)) {
         return GateResult::skippedNoSite($gate->name);
       }
@@ -2042,11 +2031,9 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   /**
    * What to do when a gate's own command names a program the shell cannot find.
    *
-   * Custom and contributed gates both run a `cmd`, and the lever that chose it
-   * sits in a different place for each — the operator's own file for a custom
-   * gate, the declaring module's code for a contributed one. Sending an
-   * operator to edit a key their lever file does not have is the same failure
-   * as sending them to install a package that does not exist.
+   * A project's own gate runs a `cmd` its lever file chose. Sending an
+   * operator to install a package named after the gate is sending them to
+   * install a package that does not exist.
    *
    * @param \Droost\Workflow\Config\GateSettings $gate
    *   The gate whose command exited 127.
@@ -2055,19 +2042,6 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   The remedy.
    */
   private function ownCommandRemedy(GateSettings $gate): string {
-    if (GateSettings::isContributed($gate->name)) {
-      return sprintf(
-        'The %1$s gate runs a command the module that declares it chose, and '
-        . 'the shell could not find the program that command names (exit '
-        . '127). That command is not in droost.workflow.yml and cannot be '
-        . 'corrected there — install the program the module needs (the '
-        . 'summary above shows the command as it ran), or ask the OPERATOR to '
-        . 'turn the gate off with `gates.contributed.%2$s.on: false`.',
-        $gate->name,
-        substr($gate->name, strlen(GateSettings::MODULE_PREFIX)),
-      );
-    }
-
     $key = GateSettings::isCustom($gate->name)
       ? 'gates.custom.' . substr($gate->name, strlen(GateSettings::CUSTOM_PREFIX))
       : 'gates.' . $gate->name;
@@ -2411,11 +2385,11 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       'parity' => 'droost-parity',
       'coverage' => 'phpunit',
       'mutation' => 'infection',
-      // The wiki gate asks the SITE whether its own documentation is current,
-      // so it runs through drush. On a checkout with no drush the executor
-      // reports toolMissing rather than a pass — which is the honest answer:
-      // nothing was checked.
-      'wiki_fresh' => 'drush',
+      // The wiki gate asks droost whether the wiki is current: `droost
+      // code:wiki status`, read from files, no Drupal (droost left Drupal,
+      // 2026-10-19). With no droost binary the gate reads "not run", never a
+      // pass: nothing was checked.
+      'wiki_fresh' => 'droost',
       default => $gate,
     };
   }
@@ -2556,10 +2530,14 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       'eslint' => [$binary, '--format=json', ...$this->frontEndConfigArgs($gate, $root)],
       'stylelint' => [$binary, '--formatter=json', ...$this->frontEndConfigArgs($gate, $root)],
       'prettier' => [$binary, '--check', ...$this->frontEndConfigArgs($gate, $root)],
-      // Drush exits non-zero when any page is stale, orphaned or invalid, so
-      // the exit code IS the verdict. The JSON report is read only to say
-      // what was measured (see wikiResult()).
-      'wiki_fresh' => [$binary, 'droost:wiki:status', '--format=json'],
+      // Exits non-zero when any page is stale, orphaned or invalid, so the
+      // exit code IS the verdict. The JSON report is read only to say what
+      // was measured (see wikiResult()).
+      // @todo (off-drupal merge): `droost code:wiki status --format=json` is
+      // the knowledge fork's command; it must print the shape
+      // `droost:wiki:status` did (pages with status fresh|stale|orphaned|
+      // invalid) or wikiResult() reads it as unverified.
+      'wiki_fresh' => [$binary, 'code:wiki', 'status', '--format=json'],
       // The empty-suite flag (PHPUnit >= 10; core-dev ships 11.5) turns "no
       // tests yet" into exit zero, which execute() then LABELS rather than
       // reporting as a clean suite — the same honesty shape as the static

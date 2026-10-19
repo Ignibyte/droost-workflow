@@ -168,7 +168,7 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
           count($asked),
           implode(', ', array_map(static fn (string $tool, int $n): string => $tool . ' ×' . $n, array_keys($tools), $tools)),
           count($citations['resolved']),
-          $citations['unresolved'] === [] ? '' : sprintf(' (%d more do not, reported by grounding_check)', count($citations['unresolved'])),
+          $citations['unresolved'] === [] ? '' : sprintf(' (%d more do not)', count($citations['unresolved'])),
           $citations['index'],
         ),
       ),

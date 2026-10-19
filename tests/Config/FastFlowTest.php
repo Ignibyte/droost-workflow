@@ -9,7 +9,6 @@ use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\PhaseGateMap;
 use Droost\Workflow\Config\WorkflowConfig;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Gate\ShellGateExecutor;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\State\LoopState;
@@ -44,13 +43,13 @@ class FastFlowTest extends WorkflowTestCase {
     $code = PhaseGateMap::gatesFor(Phase::Code, 'fast');
     $owned = [
       'phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier',
-      'phpunit', 'mutation', 'coverage', 'grounding_check',
+      'phpunit', 'mutation', 'coverage', 'house_rules',
     ];
     foreach ($owned as $gate) {
       $this->assertContains($gate, $code, $gate . ' runs at code');
     }
     $test = PhaseGateMap::gatesFor(Phase::Test, 'fast');
-    $this->assertSame(['playwright', 'parity', 'rendered_check', 'config_clean', 'house_rules'], $test, 'the site\'s rules hold over what test adds (S4-9)');
+    $this->assertSame(['playwright', 'parity', 'house_rules'], $test, 'the site\'s rules hold over what test adds (S4-9)');
     foreach (['phpcs', 'phpstan', 'phpunit', 'mutation', 'coverage'] as $gate) {
       $this->assertNotContains($gate, $test, $gate . ' is not run again at test');
     }
@@ -185,7 +184,6 @@ class FastFlowTest extends WorkflowTestCase {
     $root = $this->makeRootWithConfig("preset: low\ngates:\n  custom:\n    suite: { on: true, phase: test, cmd: 'bin/gate.sh FULL' }\n");
     $facade = new WorkflowFacade(
       new ShellGateExecutor(static fn (): array => [0, '', ''], static fn (): int => 0),
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       static fn (): string => '2026-09-29T00:00:00+00:00',
       static fn (): string => 'r',

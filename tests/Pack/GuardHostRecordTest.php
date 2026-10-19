@@ -8,7 +8,6 @@ use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\WorkflowFacade;
@@ -61,7 +60,6 @@ final class GuardHostRecordTest extends WorkflowTestCase {
         }
 
       },
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       static fn (): string => '2026-10-02T12:00:00+00:00',
       static fn (): string => 'run-host',
@@ -126,7 +124,6 @@ final class GuardHostRecordTest extends WorkflowTestCase {
         }
 
       },
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       static fn (): string => '2026-10-05T12:00:00+00:00',
       static fn (): string => 'run-host',

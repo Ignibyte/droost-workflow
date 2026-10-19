@@ -13,7 +13,6 @@ use Droost\Workflow\Gate\GateRemedy;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\Tests\Levers;
 use Droost\Workflow\Tests\WorkflowTestCase;
@@ -168,7 +167,7 @@ final class RemedyIsExecutableTest extends WorkflowTestCase {
       Levers::path($root),
       "preset: custom\ngates:\n  phpstan: { level: 6, paths: \"src\" }\n",
     );
-    $report = (new GateRunner($executor, new NullSiteDriver()))->run($state, Phase::Code, $root);
+    $report = (new GateRunner($executor))->run($state, Phase::Code, $root);
 
     $this->assertArrayHasKey('phpstan', $executor->seen);
     $this->assertSame(

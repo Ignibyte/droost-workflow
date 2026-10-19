@@ -6,7 +6,6 @@ namespace Droost\Workflow\Gate;
 
 use Droost\Workflow\Baseline\Baseline;
 use Droost\Workflow\Baseline\BaselineAwareExecutorInterface;
-use Droost\Workflow\Baseline\BaselineAwareSiteDriverInterface;
 use Droost\Workflow\Baseline\BaselineContext;
 use Droost\Workflow\Baseline\BaselineError;
 use Droost\Workflow\Baseline\BaselineStore;
@@ -42,37 +41,6 @@ use Droost\Workflow\Vcs\VcsInterface;
 final class GateRunner {
 
   /**
-   * The gates that cannot run without a booted site.
-   *
-   * Note that phpunit is deliberately NOT here: unit and kernel suites run well
-   * against a checkout, and treating the whole gate as site-bound would skip
-   * checks that could have run. Functional suites do need a site, but selecting
-   * them is an argument to phpunit rather than a fact about the gate — a
-   * distinction this package cannot make yet, and recorded rather than guessed
-   * at.
-   *
-   * wiki_fresh is NOT here, and putting it here was a mistake worth recording.
-   * It genuinely needs a site — it asks one, through `drush
-   * droost:wiki:status` — so the classification looks right, and moving it here
-   * did fix the standalone surface. But every gate in this list is dispatched
-   * to the SITE DRIVER, and `DrupalSiteDriver::supports()` names three gates.
-   * A site gate the driver does not implement is `toolMissing` by design (a
-   * misconfiguration, not an environmental skip), which BLOCKS — so the fix
-   * moved the unpassable phase from the standalone surface onto the Drupal one,
-   * which is the surface a real run uses. Strictly worse, and with a more
-   * confusing message.
-   *
-   * The list is about HOW a gate runs, not about what it needs: these three
-   * need a booted kernel in-process. wiki_fresh is a shell command like phpcs,
-   * and its real problem was never the classification — it was that a missing
-   * drush read as a broken environment. That is answered where it happens, in
-   * ShellGateExecutor.
-   *
-   * @var list<string>
-   */
-  public const SITE_GATES = ['rendered_check', 'config_clean', 'grounding_check', 'composition_check'];
-
-  /**
    * The gates that read the site's pages as they stand.
    *
    * After a browser suite killed at its timeout, what they read is the site
@@ -80,30 +48,23 @@ final class GateRunner {
    *
    * @var list<string>
    */
-  public const SITE_READERS = ['parity', 'rendered_check'];
+  public const SITE_READERS = ['parity'];
 
   /**
    * Constructs a GateRunner.
    *
    * @param \Droost\Workflow\Gate\GateExecutorInterface $executor
    *   Runs the gates that need only a checkout.
-   * @param \Droost\Workflow\Gate\SiteDriverInterface $driver
-   *   Runs the gates that need a site.
    * @param \Droost\Workflow\Vcs\VcsInterface|null $vcs
    *   Answers which files the run has changed since its base commit, for the
    *   baseline context. NULL means "unknown", which the gates treat as
    *   nothing changed — the conservative reading for inherited whole files.
-   * @param list<\Droost\Workflow\Config\ContributedGate> $contributed
-   *   The gates enabled modules declare, so re-reading the lever file at gate
-   *   time resolves the same set the run froze.
    * @param (\Closure(list<string>, string, int): array{int, string, string})|null $commandRunner
    *   Runs a house rule's command; NULL runs it as a process.
    */
   public function __construct(
     private readonly GateExecutorInterface $executor,
-    private readonly SiteDriverInterface $driver,
     private readonly ?VcsInterface $vcs = NULL,
-    private readonly array $contributed = [],
     private readonly ?\Closure $commandRunner = NULL,
   ) {}
 
@@ -227,7 +188,6 @@ final class GateRunner {
           ),
         ));
         $result = $this->steeredByTheRun($name, $levers, $state, $projectRoot, $result, $changed);
-        $result = $this->frozenCommandNoted($name, $levers, $live[$name] ?? NULL, $result);
         $result = $this->outsideTheDiff($state, $projectRoot, $result, $changed);
         if ($drift !== []) {
           // Through the one helper that carries every field: the positional
@@ -254,31 +214,6 @@ final class GateRunner {
       $report = $report->with($result);
       if ($onResult !== NULL) {
         $onResult($result);
-      }
-    }
-
-    // A GATE A MODULE DECLARED AFTER THE RUN BEGAN, on a run that read the
-    // catalog at begin: not in this run's agreement, so it does not run, and
-    // the report says so rather than leaving it out in silence (0.14.18).
-    if ($only === NULL && $state->sawContributedAtBegin()) {
-      foreach ($live as $name => $levers) {
-        if (!GateSettings::isContributed($name) || array_key_exists($name, $state->resolvedGates)
-          || ($levers['on'] ?? TRUE) === FALSE) {
-          continue;
-        }
-        $declared = array_map('trim', explode(',', (string) ($levers['phase'] ?? '')));
-        if ($phase !== Phase::Complete && !in_array($phase->value, $declared, TRUE)) {
-          continue;
-        }
-        $report = $report->with(new GateResult(
-          $name,
-          GateStatus::Off,
-          summary: sprintf(
-            '%s off — declared after this run began, so it is not among the gates this run agreed to and did not run; it runs from the next run',
-            $name,
-          ),
-          skipReason: 'declared after the run began',
-        ));
       }
     }
 
@@ -400,41 +335,6 @@ final class GateRunner {
    */
   private function commandRunner(): \Closure {
     return $this->commandRunner ?? CliProcess::run(...);
-  }
-
-  /**
-   * Says when a contributed gate ran a command its module no longer declares.
-   *
-   * A contributed gate's command is frozen when the run takes the gate, like
-   * every lever: a run must not loosen the gate it is held to by editing the
-   * plugin that declares it. So a run that changes a gate's plugin is
-   * measured by the command it began with, and the next run measures the
-   * change. Until 0.14.18 nothing said so (a client's run read its snyk gate
-   * as passed on the old command).
-   *
-   * @param string $name
-   *   The gate.
-   * @param array<string, mixed> $frozen
-   *   The levers it ran with.
-   * @param array<string, mixed>|null $current
-   *   The levers the site declares now, or NULL when unknown.
-   * @param \Droost\Workflow\Gate\GateResult $result
-   *   What the gate reported.
-   *
-   * @return \Droost\Workflow\Gate\GateResult
-   *   The result, its summary naming both commands when they differ.
-   */
-  private function frozenCommandNoted(string $name, array $frozen, ?array $current, GateResult $result): GateResult {
-    if (!GateSettings::isContributed($name) || $current === NULL
-      || !is_string($frozen['cmd'] ?? NULL) || !is_string($current['cmd'] ?? NULL)
-      || $frozen['cmd'] === $current['cmd']) {
-      return $result;
-    }
-    return $result->withSummary(rtrim($result->summary, '. ') . sprintf(
-      ' [ran the command this run froze when it took the gate, `%s`; the module now declares `%s`, which the next run runs]',
-      $frozen['cmd'],
-      $current['cmd'],
-    ));
   }
 
   /**
@@ -811,26 +711,6 @@ final class GateRunner {
     $gate = $this->settings($name, $levers);
     $consults = $context !== NULL && in_array($name, Baseline::CONSULTING, TRUE);
 
-    if (in_array($name, self::SITE_GATES, TRUE)) {
-      if (!$this->driver->available()) {
-        return GateResult::skippedNoSite($name);
-      }
-      if (!in_array($name, $this->driver->supports(), TRUE)) {
-        // A site exists but this driver cannot run the gate. That is a
-        // misconfiguration, not an environmental skip — reporting it as
-        // "no site" would blame the wrong thing and hide a real gap.
-        return GateResult::toolMissing(
-          $name,
-          sprintf('%s (no site driver implements it)', $name),
-          GateRemedy::wrongDriver($name),
-        );
-      }
-      if ($consults && $this->driver instanceof BaselineAwareSiteDriverInterface) {
-        return $this->driver->runWithBaseline($gate, $projectRoot, $context);
-      }
-      return $this->driver->run($gate, $projectRoot);
-    }
-
     if ($consults && $this->executor instanceof BaselineAwareExecutorInterface) {
       return $this->executor->executeWithBaseline($gate, $projectRoot, $context);
     }
@@ -939,10 +819,6 @@ final class GateRunner {
       // A repo's own gate has no built-in base to be compared against.
       return 'by the lever file';
     }
-    if (GateSettings::isContributed($name)) {
-      // A module declares its gate ON; only gates.contributed turns it off.
-      return 'by the lever file (gates.contributed — the declaring module turns it on)';
-    }
     if ($preset === 'custom') {
       return 'by the lever file (custom levers)';
     }
@@ -976,7 +852,7 @@ final class GateRunner {
       return [];
     }
     try {
-      return WorkflowConfig::load($projectRoot, $this->contributed)->resolvedGates();
+      return WorkflowConfig::load($projectRoot)->resolvedGates();
     }
     catch (\Throwable) {
       return [];
@@ -1000,8 +876,8 @@ final class GateRunner {
    *   The levers to run with, and a human line per option that changed.
    */
   private function withLiveTuning(string $name, array $frozen, ?array $current): array {
-    if ($current === NULL || GateSettings::isCustom($name) || GateSettings::isContributed($name)) {
-      // Custom and contributed gates: their `cmd` is the gate, not a tuning.
+    if ($current === NULL || GateSettings::isCustom($name)) {
+      // A project's own gates: their `cmd` or `run` is the gate, not a tuning.
       return [$frozen, []];
     }
     $drift = [];

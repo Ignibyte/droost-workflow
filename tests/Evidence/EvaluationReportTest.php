@@ -439,7 +439,7 @@ final class EvaluationReportTest extends TestCase {
 
     $report = (new EvaluationReport(new EvidenceStore($this->root)))->render('r1');
 
-    foreach (['eslint', 'stylelint', 'prettier', 'mutation', 'coverage', 'wiki_fresh', 'grounding_check'] as $gate) {
+    foreach (['eslint', 'stylelint', 'prettier', 'mutation', 'coverage', 'wiki_fresh', 'house_rules'] as $gate) {
       $this->assertStringContainsString(
         '| `' . $gate . '` | ' . EvaluationReport::NOT_RECORDED . ' | 0 |',
         $report,

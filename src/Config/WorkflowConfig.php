@@ -148,10 +148,6 @@ final class WorkflowConfig {
    *   — a baseline exists because an operator wrote it — and `baseline: { on:
    *   false }` is strict mode, a visible refusal in one line. Meaningless when
    *   the project has no baseline.
-   * @param array<string, \Droost\Workflow\Config\ContributedGate> $contributedGates
-   *   The gates enabled modules declared (D72), keyed by resolved name, kept
-   *   for provenance: status and the report say which module a `module:*`
-   *   gate came from and what its verdict means.
    * @param list<string> $customCode
    *   Project-relative directories whose files are the project's own code to
    *   `require_run`, beside every `modules/custom`, `themes/custom` and
@@ -189,7 +185,6 @@ final class WorkflowConfig {
     public readonly Enforcement $requireRun = Enforcement::Hard,
     public readonly ?WorkItemSettings $workItem = NULL,
     public readonly bool $baseline = TRUE,
-    public readonly array $contributedGates = [],
     public readonly array $customCode = [],
     public readonly string $flow = 'strict',
     public readonly int $maxLoops = 0,
@@ -215,12 +210,6 @@ final class WorkflowConfig {
    *
    * @param string $projectRoot
    *   The repo root to look in.
-   * @param list<\Droost\Workflow\Config\ContributedGate>|null $contributed
-   *   The gates enabled modules declare (D72). A surface that knows them
-   *   passes the list (possibly empty); NULL means the caller has no catalog
-   *   to consult — a `gates.contributed` block is then left unresolved rather
-   *   than refused, because the caller is reading other levers and cannot
-   *   tell a typo from a gate it simply cannot see.
    *
    * @return self
    *   The resolved configuration; built-in factory defaults when no file
@@ -232,7 +221,7 @@ final class WorkflowConfig {
    *   When the project root is empty, is the filesystem root, or is not a
    *   directory.
    */
-  public static function load(string $projectRoot, ?array $contributed = NULL): self {
+  public static function load(string $projectRoot): self {
     $root = TypedArray::requireProjectRoot($projectRoot);
     // Where the levers are: droost/droost.yml, or the root
     // droost.workflow.yml for one release, with a notice naming the new file.
@@ -244,7 +233,7 @@ final class WorkflowConfig {
     // reads as "no file" and would hand back the built-in levers — the exact
     // silent substitution the checks below exist to refuse.
     if (!is_link($path) && !file_exists($path)) {
-      return self::fromArray([], '<built-in defaults>', Provenance::BuiltIn, $contributed, $projectRoot);
+      return self::fromArray([], '<built-in defaults>', Provenance::BuiltIn, $projectRoot);
     }
 
     // Everything below is the same principle: something IS there, so silently
@@ -280,7 +269,7 @@ final class WorkflowConfig {
       throw ConfigError::notMapping($relative, 'a list');
     }
 
-    return self::fromArray($parsed, $relative, Provenance::File, $contributed, $projectRoot, $notices);
+    return self::fromArray($parsed, $relative, Provenance::File, $projectRoot, $notices);
   }
 
   /**
@@ -302,9 +291,6 @@ final class WorkflowConfig {
    *   The document label, for error messages.
    * @param \Droost\Workflow\Config\Provenance $provenance
    *   Where the document came from.
-   * @param list<\Droost\Workflow\Config\ContributedGate>|null $contributed
-   *   The gates enabled modules declare, or NULL when the caller has no
-   *   catalog (see load()).
    * @param string|null $projectRoot
    *   The project the document is for, when there is one — what a level's
    *   phpcs standard is checked against. NULL leaves the standard as asked.
@@ -323,7 +309,6 @@ final class WorkflowConfig {
     array $raw,
     string $source,
     Provenance $provenance = Provenance::File,
-    ?array $contributed = NULL,
     ?string $projectRoot = NULL,
     array $notices = [],
   ): self {
@@ -374,19 +359,9 @@ final class WorkflowConfig {
         $deprecations[] = ConfigError::phasesDeprecationNotice($source);
       }
 
-      // Module-contributed gates join the base set after the named gates, on
-      // by default: enabling the module was the opt-in. The lever file may
-      // then override on/mode under gates.contributed (readGates).
-      $declared = [];
-      $baseGates = $base->gates;
-      foreach ($contributed ?? [] as $gate) {
-        $declared[$gate->name()] = $gate;
-        $baseGates[$gate->name()] = $gate->toSettings();
-      }
-
       $mode = self::readMode($root, $source, $base->mode);
       $gates = self::scopeTrioLikeThePair(
-        self::readGates($root, $source, $baseGates, $deprecations, $contributed, $base->name === 'custom'),
+        self::readGates($root, $source, $base->gates, $deprecations, $base->name === 'custom'),
       );
       // A STANDARD THE PROJECT CAN RUN. The preset bases ask for Drupal's
       // sniffs, and `init` alone knew to write PSR-12 instead on a project
@@ -463,7 +438,6 @@ final class WorkflowConfig {
         self::readRequireRun($root, $source, Enforcement::Hard),
         self::readWorkItem($root, $source),
         self::readBaseline($root, $source),
-        $declared,
         self::readCustomCode($root, $source),
         self::readFlow($root, $source, $base->name),
         $root->has('max_loops')
@@ -1361,9 +1335,6 @@ final class WorkflowConfig {
    *   The preset's gate set.
    * @param list<string> $deprecations
    *   Accumulates supersession notices (mandatory-gate disarm attempts).
-   * @param list<\Droost\Workflow\Config\ContributedGate>|null $contributed
-   *   The declared contributed gates, or NULL when the caller has no catalog
-   *   — a gates.contributed block is then left unresolved, not refused.
    * @param bool $custom
    *   Whether the file names `preset: custom`, where its word on the
    *   mandatory trio stands like its word on any other gate.
@@ -1381,7 +1352,6 @@ final class WorkflowConfig {
     string $source,
     array $base,
     array &$deprecations = [],
-    ?array $contributed = NULL,
     bool $custom = FALSE,
   ): array {
     $node = $root->optionalChild('gates');
@@ -1402,21 +1372,13 @@ final class WorkflowConfig {
         }
         continue;
       }
-      // gates.contributed OVERRIDES gates modules declared: on and mode only.
-      // Without a catalog the block cannot be resolved and is left alone (see
-      // load()); with one, an id no module declares is a typo to surface.
-      if ($name === 'contributed') {
-        if ($contributed === NULL) {
-          continue;
-        }
-        $declaredIds = array_map(static fn (ContributedGate $g): string => $g->id, $contributed);
-        foreach ($node->child('contributed')->keys() as $id) {
-          $resolved = GateSettings::MODULE_PREFIX . $id;
-          if (!isset($gates[$resolved])) {
-            throw ConfigError::unknownContributedGate($source, $id, $declaredIds);
-          }
-          $gates[$resolved] = $gates[$resolved]->overlayContributed($node->child('contributed')->child($id), $source);
-        }
+      // RETIRED WITH DROOST'S DRUPAL MODULE (2026-10-19): gates a Drupal
+      // module contributed, and the four gates a booted site answered. A file
+      // that still names them is told, once, where each went, and loads: a
+      // lever file is version-controlled intent, and refusing it would stop
+      // every run in a project that has not moved yet.
+      if (isset(GateSettings::RETIRED_GATES[$name])) {
+        $deprecations[] = ConfigError::retiredGateNotice($source, $name, GateSettings::RETIRED_GATES[$name]);
         continue;
       }
       if (!GateSettings::isKnown($name)) {

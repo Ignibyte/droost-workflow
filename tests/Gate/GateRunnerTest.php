@@ -14,8 +14,6 @@ use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
-use Droost\Workflow\Gate\SiteDriverInterface;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -30,19 +28,19 @@ class GateRunnerTest extends WorkflowTestCase {
    */
   public function testExecutesExactlyTheDueResolvedSet(): void {
     $executor = $this->recordingExecutor();
-    $runner = new GateRunner($executor, new NullSiteDriver());
+    $runner = new GateRunner($executor);
     $state = $this->beginWith(['preset' => 'custom']);
 
     $report = $runner->run($state, Phase::Test, '/tmp');
 
     // Due at test: phpcs, phpstan, eslint, prettier, phpunit, mutation,
-    // playwright, parity, coverage, rendered_check, config_clean. custom:
+    // playwright, parity, coverage. custom:
     // phpcs, phpstan, phpunit, playwright AND parity on — the browser suite
     // is on at every preset since the check became a committed spec, and
     // parity beside it, measuring nothing until a reference is captured;
     // eslint, prettier,
-    // mutation, coverage off; rendered_check and config_clean on but
-    // site-dependent. The static gates run here over what the test phase
+    // mutation, coverage off. The static gates run here over what the test
+    // phase
     // wrote, and in KNOWN_GATES order they precede the suite whose shape
     // they check.
     $this->assertSame(
@@ -50,7 +48,7 @@ class GateRunnerTest extends WorkflowTestCase {
       $executor->ran,
       'the executor saw a different set than the phase map named',
     );
-    $this->assertCount(11, $report->results);
+    $this->assertCount(9, $report->results);
   }
 
   /**
@@ -92,7 +90,7 @@ class GateRunnerTest extends WorkflowTestCase {
       }
 
     };
-    $runner = new GateRunner($executor, new NullSiteDriver());
+    $runner = new GateRunner($executor);
     $state = $this->beginWith(['preset' => 'custom']);
 
     $report = $runner->run($state, Phase::Test, '/tmp');
@@ -133,7 +131,7 @@ class GateRunnerTest extends WorkflowTestCase {
   #[DataProvider('gatelessPhases')]
   public function testGatelessPhaseRunsNoGates(Phase $phase): void {
     $executor = $this->recordingExecutor();
-    $runner = new GateRunner($executor, new NullSiteDriver());
+    $runner = new GateRunner($executor);
 
     $report = $runner->run($this->beginWith([]), $phase, '/tmp');
 
@@ -163,35 +161,29 @@ class GateRunnerTest extends WorkflowTestCase {
    */
   public function testCodeRunsOnlyStaticAnalysis(): void {
     $executor = $this->recordingExecutor();
-    $runner = new GateRunner($executor, new NullSiteDriver());
+    $runner = new GateRunner($executor);
 
     $report = $runner->run($this->beginWith([]), Phase::Code, '/tmp');
 
-    // The executor sees only the shell gates; config_clean is due here too
-    // but routes through the site driver (skipped under NullSiteDriver).
     $this->assertSame(
       ['phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier'],
       $executor->ran,
     );
-    // Nine: the five above, the three site gates, and house_rules, which the
-    // runner judges itself (off here: no house rule names a gate).
-    $this->assertCount(9, $report->results);
+    // Six: the five above, and house_rules, which the runner judges itself
+    // (off here: no house rule names a gate).
+    $this->assertCount(6, $report->results);
   }
 
   /**
    * Complete re-runs the full resolved set — the terminal safety net.
    *
-   * Note that wiki_fresh IS in the shell executor's list. It asks a site, via
-   * `drush droost:wiki:status`, but through a subprocess as phpcs does —
-   * `SITE_GATES` is about gates needing a booted kernel in-process, and those
-   * are dispatched to the site driver, which implements exactly three. Moving
-   * wiki_fresh there made it `toolMissing` on a real site instead of on a
-   * checkout: the same wall, on the surface a real run uses. What its absence
-   * means is answered in the executor, where the binary is looked for.
+   * Wiki_fresh is in the shell executor's list: it asks `droost code:wiki
+   * status` through a subprocess as phpcs does, and what its absence means is
+   * answered in the executor, where the binary is looked for.
    */
   public function testCompleteRunsTheFullResolvedSet(): void {
     $executor = $this->recordingExecutor();
-    $runner = new GateRunner($executor, new NullSiteDriver());
+    $runner = new GateRunner($executor);
 
     // factory: everything on.
     $report = $runner->run($this->beginWith([]), Phase::Complete, '/tmp');
@@ -204,20 +196,17 @@ class GateRunnerTest extends WorkflowTestCase {
       $executor->ran,
       'every non-site gate must execute at complete',
     );
-    // Sixteen results: the eleven shell gates above, the four site gates,
-    // which are the ones NullSiteDriver skips, and house_rules, which the
-    // runner judges itself. wiki_fresh is a shell gate and
-    // its own skip comes from the executor finding no drush — see
-    // ShellGateExecutorTest — so the fake executor here runs it like any other.
-    $this->assertCount(16, $report->results);
-    $this->assertCount(4, $report->withStatus(GateStatus::SkippedNoSite));
+    // Twelve results: the eleven shell gates above and house_rules, which the
+    // runner judges itself. No gate needs a site.
+    $this->assertCount(12, $report->results);
+    $this->assertCount(0, $report->withStatus(GateStatus::SkippedNoSite));
   }
 
   /**
    * REQ-006: a gate that is configured off records as off.
    */
   public function testDisabledGatesRecordAsOff(): void {
-    $runner = new GateRunner($this->recordingExecutor(), new NullSiteDriver());
+    $runner = new GateRunner($this->recordingExecutor());
     $report = $runner->run(
       $this->beginWith(['preset' => 'custom']),
       Phase::Test,
@@ -244,7 +233,7 @@ class GateRunnerTest extends WorkflowTestCase {
    * non-passes prints this one.
    */
   public function testOffResultsSayWhatTurnedThemOff(): void {
-    $runner = new GateRunner($this->recordingExecutor(), new NullSiteDriver());
+    $runner = new GateRunner($this->recordingExecutor());
     $byGate = static function (array $results, string $gate): ?GateResult {
       foreach ($results as $result) {
         if ($result instanceof GateResult && $result->gate === $gate) {
@@ -282,83 +271,6 @@ class GateRunnerTest extends WorkflowTestCase {
   }
 
   /**
-   * REQ-002: a site gate with no driver is skipped, and never passed.
-   */
-  public function testSiteGateWithNoDriverIsSkippedNotPassed(): void {
-    $runner = new GateRunner($this->recordingExecutor(), new NullSiteDriver());
-
-    $report = $runner->run(
-      $this->beginWith(['preset' => 'custom']),
-      Phase::Test,
-      '/tmp',
-    );
-
-    $skipped = $report->withStatus(GateStatus::SkippedNoSite);
-    $this->assertCount(2, $skipped);
-    $this->assertSame(
-      ['rendered_check', 'config_clean'],
-      array_map(static fn ($r) => $r->gate, $skipped),
-    );
-    $this->assertSame(NullSiteDriver::REASON, $skipped[0]->skipReason);
-    $this->assertSame(NullSiteDriver::REASON, $skipped[1]->skipReason);
-    // Non-blocking, but never counted among the passes. Under custom at the
-    // test phase, phpcs, phpstan, phpunit, playwright and parity are the
-    // gates that both run and pass — the two static ones because the phase
-    // that writes tests is held to the standards those tests are written
-    // against, playwright because a committed browser spec is now due at
-    // every level, and parity beside it.
-    $this->assertTrue($report->advance());
-    $this->assertSame(5, $report->tally()['passed']);
-  }
-
-  /**
-   * A site exists but cannot run the gate: that is a gap, not a skip.
-   *
-   * Blaming "no site" when there IS a site would point the reader at the
-   * wrong problem and hide a real hole in the driver.
-   */
-  public function testUnsupportedSiteGateIsToolMissing(): void {
-    $driver = new class() implements SiteDriverInterface {
-
-      /**
-       * {@inheritdoc}
-       */
-      public function available(): bool {
-        return TRUE;
-      }
-
-      /**
-       * {@inheritdoc}
-       */
-      public function supports(): array {
-        return [];
-      }
-
-      /**
-       * {@inheritdoc}
-       */
-      public function run(GateSettings $gate, string $projectRoot): GateResult {
-        throw new \LogicException('Should not be called.');
-      }
-
-    };
-
-    $report = (new GateRunner($this->recordingExecutor(), $driver))->run(
-      $this->beginWith(['preset' => 'custom']),
-      Phase::Test,
-      '/tmp',
-    );
-
-    $missing = $report->withStatus(GateStatus::ErrorToolMissing);
-    $this->assertCount(2, $missing);
-    $this->assertSame(
-      ['rendered_check', 'config_clean'],
-      array_map(static fn ($r) => $r->gate, $missing),
-    );
-    $this->assertFalse($report->advance(), 'a real gap must block');
-  }
-
-  /**
    * The per-result callback fires once per gate, in order.
    *
    * The attach point pair mode uses, so it is pinned before anything depends
@@ -366,7 +278,7 @@ class GateRunnerTest extends WorkflowTestCase {
    */
   public function testTheResultCallbackFiresOncePerGate(): void {
     $seen = [];
-    $runner = new GateRunner($this->recordingExecutor(), new NullSiteDriver());
+    $runner = new GateRunner($this->recordingExecutor());
 
     $report = $runner->run(
       $this->beginWith(['preset' => 'custom']),
@@ -387,7 +299,7 @@ class GateRunnerTest extends WorkflowTestCase {
    * REQ-004: the feedback loop is bounded by the run's own lever.
    */
   public function testFeedbackLoopIsBoundedByTheLever(): void {
-    $runner = new GateRunner($this->recordingExecutor(), new NullSiteDriver());
+    $runner = new GateRunner($this->recordingExecutor());
     $state = $this->beginWith(['max_gate_retries' => 2]);
 
     $this->assertTrue($runner->mayRetry($state, 'phpcs'));
@@ -404,7 +316,7 @@ class GateRunnerTest extends WorkflowTestCase {
    * A retry budget of zero means one attempt and no retry.
    */
   public function testZeroRetriesMeansNoRetry(): void {
-    $runner = new GateRunner($this->recordingExecutor(), new NullSiteDriver());
+    $runner = new GateRunner($this->recordingExecutor());
     $state = $this->beginWith(['max_gate_retries' => 0]);
 
     $this->assertFalse($runner->mayRetry($state, 'phpcs'));
@@ -418,7 +330,7 @@ class GateRunnerTest extends WorkflowTestCase {
   public function testAttemptCountsSurviveReload(): void {
     $root = $this->makeRoot();
     $store = new RunStateStore($root);
-    $runner = new GateRunner($this->recordingExecutor(), new NullSiteDriver());
+    $runner = new GateRunner($this->recordingExecutor());
 
     $state = $runner->recordAttempt($this->beginWith([]), 'phpcs');
     $store->save($state);
@@ -441,7 +353,7 @@ class GateRunnerTest extends WorkflowTestCase {
   public function testGateReportsArePersistedIntoTheRun(): void {
     $root = $this->makeRoot();
     $store = new RunStateStore($root);
-    $runner = new GateRunner($this->recordingExecutor(), new NullSiteDriver());
+    $runner = new GateRunner($this->recordingExecutor());
 
     $state = $this->beginWith(['preset' => 'custom']);
     $report = $runner->run($state, Phase::Test, $root);
@@ -496,13 +408,13 @@ class GateRunnerTest extends WorkflowTestCase {
    */
   public function testFlagLeversReachTheExecutor(): void {
     $low = new SettingsRecordingExecutor();
-    (new GateRunner($low, new NullSiteDriver()))->run($this->beginWith(['preset' => 'low']), Phase::Test, '/tmp');
+    (new GateRunner($low))->run($this->beginWith(['preset' => 'low']), Phase::Test, '/tmp');
     $this->assertTrue($low->option('playwright', 'required'), 'low resolves playwright required: true, and the executor must see it');
 
     // At max, phpunit's `required` is set too, which turns "No tests executed"
     // into a failure; it was a labelled pass in every max run.
     $max = new SettingsRecordingExecutor();
-    (new GateRunner($max, new NullSiteDriver()))->run($this->beginWith(['preset' => 'max']), Phase::Test, '/tmp');
+    (new GateRunner($max))->run($this->beginWith(['preset' => 'max']), Phase::Test, '/tmp');
     $this->assertTrue($max->option('phpunit', 'required'), 'max resolves phpunit required: true');
     $this->assertTrue($max->option('playwright', 'required'));
   }
@@ -542,13 +454,13 @@ class GateRunnerTest extends WorkflowTestCase {
 
     };
     $recorder = new SettingsRecordingExecutor();
-    (new GateRunner($recorder, new NullSiteDriver(), $vcs))->run($state, Phase::Test, '/tmp');
+    (new GateRunner($recorder, $vcs))->run($state, Phase::Test, '/tmp');
     $this->assertSame('ticket', $recorder->option('playwright', 'scope'));
     $this->assertSame("tests/e2e/mine.spec.ts\nweb/modules/custom/x/x.module", $recorder->option('playwright', 'ticket_files'));
 
     // With no repository to ask, the gate is told it cannot know.
     $blind = new SettingsRecordingExecutor();
-    (new GateRunner($blind, new NullSiteDriver()))->run($state, Phase::Test, '/tmp');
+    (new GateRunner($blind))->run($state, Phase::Test, '/tmp');
     $this->assertTrue($blind->option('playwright', 'ticket_unknown'));
     $this->assertNull($blind->option('playwright', 'ticket_files'));
   }
@@ -561,9 +473,9 @@ class GateRunnerTest extends WorkflowTestCase {
    */
   public function testFrozenReferenceDigestReachesTheParityGate(): void {
     $root = $this->makeRootWithConfig("preset: low\n");
-    $state = RunState::begin('run-1', '2026-09-29T09:00:00+00:00', WorkflowConfig::load($root), NULL, NULL, NULL, 'digest-at-start');
+    $state = RunState::begin('run-1', '2026-09-29T09:00:00+00:00', WorkflowConfig::load($root), NULL, NULL, 'digest-at-start');
     $executor = new SettingsRecordingExecutor();
-    (new GateRunner($executor, new NullSiteDriver()))->run($state, Phase::Test, $root);
+    (new GateRunner($executor))->run($state, Phase::Test, $root);
 
     $this->assertSame('digest-at-start', $executor->option('parity', 'reference_digest'));
   }
@@ -603,7 +515,7 @@ class GateRunnerTest extends WorkflowTestCase {
       }
 
     };
-    $runner = new GateRunner($executor, new NullSiteDriver());
+    $runner = new GateRunner($executor);
     file_put_contents(Levers::path($root), "preset: custom\ngates:\n  phpcs: { standard: \"phpcs.xml\" }\n");
 
     $phpcs = NULL;
@@ -654,7 +566,7 @@ class GateRunnerTest extends WorkflowTestCase {
       }
 
     };
-    $runner = new GateRunner($executor, new NullSiteDriver());
+    $runner = new GateRunner($executor);
     $byGate = static function (array $results, string $gate): ?GateResult {
       foreach ($results as $result) {
         if ($result instanceof GateResult && $result->gate === $gate) {

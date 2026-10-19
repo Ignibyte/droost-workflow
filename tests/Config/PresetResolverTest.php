@@ -61,10 +61,6 @@ class PresetResolverTest extends TestCase {
       'playwright' => ['on' => TRUE, 'required' => TRUE],
       'parity' => ['on' => TRUE],
       'coverage' => ['on' => FALSE, 'min' => 0],
-      'rendered_check' => ['on' => TRUE],
-      'config_clean' => ['on' => TRUE],
-      'grounding_check' => ['on' => TRUE],
-      'composition_check' => ['on' => TRUE],
       'house_rules' => ['on' => TRUE],
       'wiki_fresh' => ['on' => TRUE],
     ];
@@ -82,10 +78,6 @@ class PresetResolverTest extends TestCase {
       'playwright' => ['on' => TRUE, 'required' => TRUE, 'scope' => 'ticket', 'reuse' => 'recorded'],
       'parity' => ['on' => TRUE],
       'coverage' => ['on' => FALSE, 'min' => 0],
-      'rendered_check' => ['on' => TRUE],
-      'config_clean' => ['on' => TRUE],
-      'grounding_check' => ['on' => TRUE],
-      'composition_check' => ['on' => TRUE],
       'house_rules' => ['on' => TRUE],
       'wiki_fresh' => ['on' => FALSE],
     ];
@@ -100,10 +92,6 @@ class PresetResolverTest extends TestCase {
       'playwright' => ['on' => TRUE, 'required' => TRUE, 'scope' => 'ticket'],
       'parity' => ['on' => TRUE],
       'coverage' => ['on' => FALSE, 'min' => 0],
-      'rendered_check' => ['on' => TRUE],
-      'config_clean' => ['on' => TRUE],
-      'grounding_check' => ['on' => TRUE],
-      'composition_check' => ['on' => TRUE],
       'house_rules' => ['on' => TRUE],
       'wiki_fresh' => ['on' => TRUE, 'cover_diff' => TRUE],
     ];
@@ -118,10 +106,6 @@ class PresetResolverTest extends TestCase {
       'playwright' => ['on' => TRUE, 'required' => TRUE],
       'parity' => ['on' => TRUE],
       'coverage' => ['on' => TRUE, 'min' => 60, 'timeout' => 900],
-      'rendered_check' => ['on' => TRUE],
-      'config_clean' => ['on' => TRUE],
-      'grounding_check' => ['on' => TRUE],
-      'composition_check' => ['on' => TRUE],
       'house_rules' => ['on' => TRUE],
       'wiki_fresh' => ['on' => TRUE, 'cover_diff' => TRUE],
     ];
@@ -136,10 +120,6 @@ class PresetResolverTest extends TestCase {
       'playwright' => ['on' => TRUE, 'required' => TRUE],
       'parity' => ['on' => TRUE],
       'coverage' => ['on' => TRUE, 'min' => 80, 'timeout' => 900],
-      'rendered_check' => ['on' => TRUE],
-      'config_clean' => ['on' => TRUE],
-      'grounding_check' => ['on' => TRUE],
-      'composition_check' => ['on' => TRUE],
       'house_rules' => ['on' => TRUE],
       'wiki_fresh' => ['on' => TRUE, 'cover_diff' => TRUE],
     ];
@@ -154,17 +134,6 @@ class PresetResolverTest extends TestCase {
       'factory (alias of max)' => ['factory', $max],
       'light (alias of medium)' => ['light', $medium],
     ];
-  }
-
-  /**
-   * The rendered check stays on even in the light preset.
-   *
-   * Its own justification, pinned: a light run that stops checking whether
-   * the page renders is not light, it is blind.
-   */
-  public function testLightKeepsTheRenderedCheck(): void {
-    $config = WorkflowConfig::fromArray(['preset' => 'light'], 'test');
-    $this->assertTrue($config->gate('rendered_check')->on);
   }
 
   /**
@@ -198,7 +167,7 @@ class PresetResolverTest extends TestCase {
 
     $this->assertFalse($config->gate('phpunit')->on);
     $this->assertFalse($config->gate('wiki_fresh')->on);
-    $this->assertTrue($config->gate('rendered_check')->on, 'low keeps the browser check');
+    $this->assertTrue($config->gate('playwright')->on, 'low keeps the browser check');
     $this->assertSame([], $config->deprecations, 'a preset base disarming is a choice, not an attempt');
   }
 
@@ -319,7 +288,7 @@ class PresetResolverTest extends TestCase {
     $this->assertSame(9, $config->gate('phpstan')->option('level'));
     // The overlaid gate keeps its siblings...
     $this->assertTrue($config->gate('playwright')->on);
-    $this->assertTrue($config->gate('rendered_check')->on);
+    $this->assertTrue($config->gate('parity')->on);
     // ...and the untouched gates keep their own options.
     $this->assertSame(
       'Drupal,DrupalPractice',

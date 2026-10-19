@@ -10,7 +10,6 @@ use Droost\Workflow\Event\RunEventLog;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Intake\IntakeCheck;
 use Droost\Workflow\Intake\IntakeError;
 use Droost\Workflow\Intake\IntakeFinding;
@@ -920,7 +919,7 @@ MD;
 
     };
     $clock = static fn (): string => '2026-10-08T00:00:00+00:00';
-    return new WorkflowFacade($executor, new NullSiteDriver(), new RunStateOnlySink(), $clock, static fn (): string => 'run-intake', NULL, $vcs);
+    return new WorkflowFacade($executor, new RunStateOnlySink(), $clock, static fn (): string => 'run-intake', NULL, $vcs);
   }
 
   /**

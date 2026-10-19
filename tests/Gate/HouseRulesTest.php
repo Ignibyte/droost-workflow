@@ -13,7 +13,6 @@ use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\Vcs\CliVcs;
@@ -286,7 +285,7 @@ final class HouseRulesTest extends WorkflowTestCase {
   private function houseRules(string $root): GateResult {
     $base = trim((string) shell_exec(sprintf('git -C %s rev-parse HEAD', escapeshellarg($root))));
     $state = RunState::begin('run-hr', '2026-10-15T00:00:00+00:00', WorkflowConfig::load($root), $base);
-    $runner = new GateRunner($this->passing(), new NullSiteDriver(), new CliVcs(CliProcess::run(...)));
+    $runner = new GateRunner($this->passing(), new CliVcs(CliProcess::run(...)));
     foreach ($runner->run($state, Phase::Code, $root)->results as $result) {
       if ($result->gate === 'house_rules') {
         return $result;

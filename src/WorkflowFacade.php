@@ -14,7 +14,6 @@ use Droost\Workflow\Vcs\CliVcs;
 use Droost\Workflow\Vcs\RefResolverInterface;
 use Droost\Workflow\Vcs\VcsInterface;
 use Droost\Workflow\Config\BuildRules;
-use Droost\Workflow\Config\ContributedGate;
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\WorkflowConfig;
@@ -41,7 +40,6 @@ use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\ParityReference;
 use Droost\Workflow\Gate\ShellGateExecutor;
-use Droost\Workflow\Gate\SiteDriverInterface;
 use Droost\Workflow\Mode\ModeEngine;
 use Droost\Workflow\Mode\PendingQuestion;
 use Droost\Workflow\Mode\Outcome;
@@ -102,9 +100,6 @@ final class WorkflowFacade {
    *
    * @param \Droost\Workflow\Gate\GateExecutorInterface $executor
    *   Runs the gates that need only a checkout.
-   * @param \Droost\Workflow\Gate\SiteDriverInterface $driver
-   *   Runs the gates that need a site. The ONLY thing that differs between
-   *   the CLI surface and the live one.
    * @param \Droost\Workflow\Mode\QuestionSinkInterface $sink
    *   Delivers a paused run's question.
    * @param callable(): string $clock
@@ -120,18 +115,6 @@ final class WorkflowFacade {
    * @param \Droost\Workflow\Vcs\VcsInterface|null $vcs
    *   Version-control facts: the base commit frozen at begin and the files
    *   changed since. Defaults to the git binary; a test injects a fake.
-   * @param list<\Droost\Workflow\Config\ContributedGate>|null $contributed
-   *   The gates enabled modules declare (D72). The Drupal surfaces pass their
-   *   catalog (an empty list when no module contributes); the standalone CLI
-   *   passes what drush answered, or NULL when nothing could be resolved —
-   *   and NULL leaves a lever file's `gates.contributed` block alone rather
-   *   than refusing it as naming a gate no module declares. Every lever load
-   *   this facade performs resolves against the same list, so the run's
-   *   frozen set and the status document agree.
-   * @param string|null $contributedSource
-   *   Where that list came from, for status (R31-F3): the booted site's
-   *   catalog, drush asked from the standalone binary, or the reason none
-   *   could be resolved. NULL lets the facade say "none resolved".
    * @param \Droost\Workflow\Evidence\CheckAdjudicatorInterface|null $checks
    *   The contributed checks this surface can ask, or NULL when it has
    *   none. Asked once per phase, after the gates and before advancing.
@@ -145,14 +128,11 @@ final class WorkflowFacade {
    */
   public function __construct(
     private readonly GateExecutorInterface $executor,
-    private readonly SiteDriverInterface $driver,
     private readonly QuestionSinkInterface $sink,
     private readonly mixed $clock,
     private readonly mixed $ids,
     ?WorkflowListenerInterface $listener = NULL,
     ?VcsInterface $vcs = NULL,
-    private readonly ?array $contributed = NULL,
-    private readonly ?string $contributedSource = NULL,
     private readonly ?CheckAdjudicatorInterface $checks = NULL,
     private readonly ?WorkItemSourceInterface $workItems = NULL,
     private readonly ?CockpitEventRelay $relay = NULL,
@@ -208,7 +188,7 @@ final class WorkflowFacade {
    *   to guess which.
    */
   public function status(string $projectRoot): array {
-    $config = WorkflowConfig::load($projectRoot, $this->contributed);
+    $config = WorkflowConfig::load($projectRoot);
     $store = new RunStateStore($projectRoot);
     $state = $store->load();
     // With none open, the last run if it completed: a completed run is
@@ -272,24 +252,6 @@ final class WorkflowFacade {
         // Whether a committed adoption baseline is honoured (strict mode when
         // FALSE). What it holds is the `baseline` block below.
         'baseline' => $config->baseline,
-        // The gates enabled modules contributed (D72), with their provenance
-        // and the sentence each declared for its verdict — "not moved by the
-        // dial": a level change never turns these on or off.
-        'contributed' => array_map(
-          static fn (ContributedGate $gate): array => [
-            'provider' => $gate->provider,
-            'phases' => $gate->phases,
-            'default_mode' => $gate->defaultMode,
-            'command' => $gate->command,
-            'verdict' => $gate->verdict,
-          ],
-          $config->contributedGates,
-        ),
-        // Where this surface got that list (R31-F3): a booted site reads its
-        // own catalog; the standalone binary asks drush; a surface that could
-        // resolve none says so here rather than presenting a shorter set as
-        // the whole truth.
-        'contributed_source' => $this->contributedSource(),
       ],
       // The adoption baseline: present or not, honoured or not, what each
       // gate inherits — so "why did phpstan pass over 123 errors" is
@@ -363,10 +325,9 @@ final class WorkflowFacade {
       // begin, so a report can say what "new" was measured against.
       'base_commit' => $state->baseCommit,
       'baseline_hash' => $state->baselineHash,
-      // Which door began the run, as far as contributed gates go, and which
-      // of them a later, seeing surface had to weave in (R31-F3/F5).
-      'contributed_source' => $state->contributedSource,
-      'late_woven' => $state->lateWoven,
+      // The project's own rule files the run is held to, with their hashes
+      // at begin (droost/droost.yml's gates, hooks and walls; agents.md).
+      'rule_files' => $state->ruleFiles,
       // The ticket this run answers (`run --ticket`), NULL when none.
       'work_item' => $state->workItem,
       'phases' => array_map(
@@ -451,7 +412,7 @@ final class WorkflowFacade {
    *   manifest reports `error` rather than pretending to be absent.
    */
   public function baselineStatus(string $projectRoot): array {
-    return $this->baselineSummary($projectRoot, WorkflowConfig::load($projectRoot, $this->contributed));
+    return $this->baselineSummary($projectRoot, WorkflowConfig::load($projectRoot));
   }
 
   /**
@@ -470,7 +431,7 @@ final class WorkflowFacade {
    *   The level, the per-gate bill, and the gates that could not be measured.
    */
   public function baselineMeasure(string $projectRoot, ?array $configDrift = NULL): array {
-    $config = WorkflowConfig::load($projectRoot, $this->contributed);
+    $config = WorkflowConfig::load($projectRoot);
     $measured = $this->writer()->measure($config, $projectRoot, $configDrift);
     return [
       'level' => $config->preset,
@@ -515,7 +476,7 @@ final class WorkflowFacade {
     if ($active !== NULL && $active->currentPhase !== NULL) {
       throw BaselineError::runActive();
     }
-    $config = WorkflowConfig::load($projectRoot, $this->contributed);
+    $config = WorkflowConfig::load($projectRoot);
     $measured = $this->writer()->measure($config, $projectRoot, $configDrift);
     $manifest = $this->writer()->write(
       $projectRoot,
@@ -549,23 +510,6 @@ final class WorkflowFacade {
       throw new \LogicException('baseline measurement needs the shell executor — this facade was built with another.');
     }
     return new BaselineWriter($this->executor, $this->clock);
-  }
-
-  /**
-   * Where this surface's contributed gates came from, for status (R31-F3).
-   *
-   * @return string
-   *   The surface's own sentence when it gave one; otherwise "none resolved"
-   *   for an empty list, so a shorter gate set never reads as the whole.
-   */
-  private function contributedSource(): string {
-    if ($this->contributedSource !== NULL) {
-      return $this->contributedSource;
-    }
-    if ($this->contributed === NULL) {
-      return RunState::CONTRIBUTED_BLIND;
-    }
-    return $this->contributed === [] ? 'declared to this surface (none)' : 'declared to this surface';
   }
 
   /**
@@ -620,12 +564,8 @@ final class WorkflowFacade {
   /**
    * The toolchain rows: per named gate, the binary it runs and its presence.
    *
-   * Custom gates are absent by design — their cmd runs through the shell,
-   * whose own 127 is the probe. Site gates are absent too: rendered_check
-   * runs through the injected site driver, never a binary, and probing
-   * binaryPathFor() for it invented a vendor/bin/rendered_check that cannot
-   * exist on any repo — a row that read "missing" forever while every
-   * remedy pointed at packages that do not provide it. The phpunit row also
+   * A project's own gates are absent by design — their cmd or file runs
+   * itself, and its own failure to start is the probe. The phpunit row also
    * reports whether a suite config exists, because the gate refuses to run
    * without one.
    *
@@ -644,9 +584,7 @@ final class WorkflowFacade {
     $root = rtrim($projectRoot, '/');
     $rows = [];
     foreach ($config->gates as $name => $gate) {
-      if (GateSettings::isCustom($name)
-        || GateSettings::isContributed($name)
-        || in_array($name, GateRunner::SITE_GATES, TRUE)) {
+      if (GateSettings::isCustom($name)) {
         continue;
       }
       // Where the gate runs its tool (F-161): a gate's `root` names the
@@ -729,7 +667,7 @@ final class WorkflowFacade {
       if ($intake !== NULL) {
         throw IntakeError::buildBeforeApproval($intake->id);
       }
-      $config = WorkflowConfig::load($projectRoot, $this->contributed);
+      $config = WorkflowConfig::load($projectRoot);
       // Frozen with the levers: where the tree is, and which baseline the
       // run is held to (none when the lever refuses one). A baseline that
       // moves under the run is then caught by every gate that consults it.
@@ -742,7 +680,6 @@ final class WorkflowFacade {
         $config,
         $this->vcs->head($projectRoot),
         $config->baseline ? BaselineStore::hash($projectRoot) : NULL,
-        $this->contributedSource(),
         is_array($parity) && ($parity['on'] ?? FALSE) === TRUE
           ? ParityReference::digest($projectRoot, ParityReference::directory($parity['reference'] ?? NULL))
           : NULL,
@@ -922,13 +859,6 @@ final class WorkflowFacade {
       );
     }
 
-    // Every door, the same gates (R31-F3/F5): a run begun on a surface that
-    // could not see the site's contributed catalog froze a shorter set. A
-    // surface that CAN see it weaves the missing gates in here, on record,
-    // before this phase's gates run — and complete re-runs everything, so no
-    // run finishes without the gates the site declared.
-    $state = $this->weaveLateContributed($state, $phase, $projectRoot, $store);
-
     $outcome = $this->engine($projectRoot)->runPhase(
       $state,
       $phase,
@@ -987,42 +917,6 @@ final class WorkflowFacade {
     }
 
     return $advanced;
-  }
-
-  /**
-   * Weaves contributed gates this surface can see and the run's record lacks.
-   *
-   * @param \Droost\Workflow\State\RunState $state
-   *   The run about to be gated.
-   * @param \Droost\Workflow\Config\Phase $phase
-   *   The phase about to run.
-   * @param string $projectRoot
-   *   The repository.
-   * @param \Droost\Workflow\State\RunStateStore $store
-   *   Where the amended record is saved.
-   *
-   * @return \Droost\Workflow\State\RunState
-   *   The run, amended and saved when anything joined; otherwise unchanged.
-   */
-  private function weaveLateContributed(RunState $state, Phase $phase, string $projectRoot, RunStateStore $store): RunState {
-    if ($this->contributed === NULL || $this->contributed === []) {
-      return $state;
-    }
-    $config = WorkflowConfig::load($projectRoot, $this->contributed);
-    $missing = [];
-    foreach ($config->gates as $name => $settings) {
-      if (GateSettings::isContributed($name) && !array_key_exists($name, $state->resolvedGates)) {
-        $missing[$name] = $settings;
-      }
-    }
-    if ($missing === []) {
-      return $state;
-    }
-    $woven = $state->withLateContributed($missing, $phase);
-    if ($woven !== $state) {
-      $store->save($woven);
-    }
-    return $woven;
   }
 
   /**
@@ -1814,7 +1708,7 @@ final class WorkflowFacade {
         ));
       }
     }
-    $config = WorkflowConfig::load($projectRoot, $this->contributed);
+    $config = WorkflowConfig::load($projectRoot);
     $parity = $config->resolvedGates()['parity'] ?? NULL;
     $state = RunState::begin(
       'gate-' . $this->newId(),
@@ -1822,12 +1716,11 @@ final class WorkflowFacade {
       $config,
       $commit,
       $config->baseline ? BaselineStore::hash($projectRoot) : NULL,
-      $this->contributedSource(),
       is_array($parity) && ($parity['on'] ?? FALSE) === TRUE
         ? ParityReference::digest($projectRoot, ParityReference::directory($parity['reference'] ?? NULL))
         : NULL,
     );
-    $report = (new GateRunner($this->executor, $this->driver, $this->vcs, $this->contributed ?? []))
+    $report = (new GateRunner($this->executor, $this->vcs))
       ->run($state, $phase, $projectRoot, NULL, NULL, FALSE);
 
     $gates = [];
@@ -1889,7 +1782,7 @@ final class WorkflowFacade {
         $state->currentPhase->value ?? 'its end',
       ));
     }
-    $runner = new GateRunner($this->executor, $this->driver, $this->vcs, $this->contributed ?? []);
+    $runner = new GateRunner($this->executor, $this->vcs);
     $result = $runner->run($state, Phase::Test, $projectRoot, NULL, ['playwright'], FALSE)->results[0] ?? NULL;
     if ($result === NULL || $result->status === GateStatus::Off) {
       throw new \InvalidArgumentException(
@@ -2843,7 +2736,7 @@ final class WorkflowFacade {
           'why' => $routes === NULL
             ? sprintf(
               'no route was declared with `declare-route`, and no "%s" section '
-              . 'to fall back on — so rendered_check has only the lever to go on',
+              . 'to fall back on — so the record names no page this ticket serves',
               SpecContract::ROUTES_HEADING,
           )
             : sprintf(
@@ -3433,7 +3326,7 @@ final class WorkflowFacade {
     // The ticket source as the lever file names it now. A file that no longer
     // loads costs the cockpit, never the follow-ups: markdown takes them.
     try {
-      $settings = WorkflowConfig::load($projectRoot, $this->contributed)->workItem;
+      $settings = WorkflowConfig::load($projectRoot)->workItem;
     }
     catch (\Throwable) {
       $settings = NULL;
@@ -3692,7 +3585,7 @@ final class WorkflowFacade {
    */
   private function engine(?string $projectRoot = NULL): ModeEngine {
     return new ModeEngine(
-      new GateRunner($this->executor, $this->driver, $this->vcs, $this->contributed ?? []),
+      new GateRunner($this->executor, $this->vcs),
       $this->sink,
       $this->checks,
       $projectRoot === NULL ? NULL : static function (RunState $paused) use ($projectRoot): void {

@@ -11,7 +11,6 @@ use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\Vcs\VcsInterface;
@@ -130,7 +129,7 @@ final class WikiCoversTheDiffTest extends WorkflowTestCase {
    *   The wiki gate's result.
    */
   private function wikiAfter(string $root, array $uncovered, ?array $changed): GateResult {
-    $runner = new GateRunner($this->executor($uncovered), new NullSiteDriver(), $this->vcs($changed));
+    $runner = new GateRunner($this->executor($uncovered), $this->vcs($changed));
     $state = RunState::begin('run-1', '2026-09-23T00:00:00+00:00', WorkflowConfig::load($root), 'abc', NULL);
 
     foreach ($runner->run($state, Phase::Complete, $root)->results as $result) {

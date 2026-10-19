@@ -20,8 +20,8 @@ namespace Droost\Workflow\Evidence;
  *      tell "nothing to analyse because there is no PHP in a content-model
  *      ticket" from "nothing to analyse because the paths lever is wrong";
  *   2. names the gates that must have actually MEASURED something for this
- *      kind of work — a content-model run whose config_clean measured nothing
- *      has not been checked, whatever else is green;
+ *      kind of work — a code run whose phpunit measured nothing has not
+ *      been checked, whatever else is green;
  *   3. gets audited against the diff, like any other declaration.
  *
  * That last one is what stops it becoming the escape hatch we removed. An agent
@@ -37,8 +37,9 @@ enum WorkType: string {
   case Code = 'code';
 
   // Content types, fields, displays, views — configuration, not PHP. What
-  // proves it is config_clean (the export is canonical) and rendered_check
-  // (the thing it builds actually renders).
+  // proved it was config_clean and rendered_check, two gates that asked a
+  // booted site; they left with droost's Drupal module (2026-10-19), and a
+  // project that wants them declares them as its own gates.
   case ContentModel = 'content_model';
 
   // Themes, templates, SDCs, CSS. Proven by rendering, not by static analysis
@@ -60,9 +61,12 @@ enum WorkType: string {
    * The gates that must have MEASURED something for this kind of work.
    *
    * Not "must pass" — every gate must pass. These must have actually looked at
-   * something, which is a different and stricter question: a `config_clean`
-   * that ran over an empty export directory passes and proves nothing, and for
-   * a content-model run that is the gate the whole ticket rests on.
+   * something, which is a different and stricter question: a phpunit that
+   * discovered no tests passes and proves nothing, and for a code run that is
+   * the gate the whole ticket rests on. The kinds a site proved (content
+   * model, theme, content) name none since the site gates left: their proof
+   * is the criteria the run verifies and the browser suite, not a gate this
+   * runtime owns.
    *
    * @return list<string>
    *   Gate names.
@@ -70,11 +74,8 @@ enum WorkType: string {
   public function mustMeasure(): array {
     return match ($this) {
       self::Code => ['phpcs', 'phpstan', 'phpunit'],
-      self::ContentModel => ['config_clean', 'rendered_check'],
-      self::Theme => ['rendered_check'],
-      self::Content => ['rendered_check'],
-      self::Docs => [],
-      self::Mixed => ['config_clean', 'rendered_check'],
+      self::ContentModel, self::Theme, self::Content, self::Docs => [],
+      self::Mixed => ['phpcs', 'phpstan', 'phpunit'],
     };
   }
 

@@ -11,7 +11,6 @@ use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Gate\ShellGateExecutor;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\Tests\WorkflowTestCase;
@@ -118,7 +117,7 @@ final class WikiHeldToTheRunTest extends WorkflowTestCase {
    */
   private function wikiAfter(string $yaml, array $stale, ?array $changed): GateResult {
     $root = $this->makeRootWithConfig($yaml);
-    $runner = new GateRunner($this->executor($stale), new NullSiteDriver(), $this->vcs($changed));
+    $runner = new GateRunner($this->executor($stale), $this->vcs($changed));
     $state = RunState::begin('run-1', '2026-10-15T00:00:00+00:00', WorkflowConfig::load($root), 'abc', NULL);
     foreach ($runner->run($state, Phase::Complete, $root)->results as $result) {
       if ($result->gate === 'wiki_fresh') {

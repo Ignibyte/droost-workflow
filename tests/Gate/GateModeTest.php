@@ -14,9 +14,7 @@ use Droost\Workflow\Evidence\CheckState;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Gate\PhaseReport;
-use Droost\Workflow\Gate\SiteDriverInterface;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\Tests\WorkflowTestCase;
 
@@ -94,7 +92,7 @@ final class GateModeTest extends WorkflowTestCase {
    */
   public function testFailingReportModeGateIsReportedAndThePhaseAdvances(): void {
     $root = $this->makeRootWithConfig("preset: max\ngates:\n  eslint: { mode: report }\n");
-    $runner = new GateRunner($this->executor(failing: ['eslint']), new NullSiteDriver());
+    $runner = new GateRunner($this->executor(failing: ['eslint']));
     $state = RunState::begin('run-1', '2026-09-08T00:00:00+00:00', WorkflowConfig::load($root));
 
     $report = $runner->run($state, Phase::Code, $root);
@@ -113,65 +111,11 @@ final class GateModeTest extends WorkflowTestCase {
   }
 
   /**
-   * A site gate takes the mode too: config drift can be advisory at any level.
-   */
-  public function testConfigDriftInReportModeIsReportedAtLow(): void {
-    $driver = new class() implements SiteDriverInterface {
-
-      /**
-       * {@inheritdoc}
-       */
-      public function available(): bool {
-        return TRUE;
-      }
-
-      /**
-       * {@inheritdoc}
-       */
-      public function supports(): array {
-        return GateRunner::SITE_GATES;
-      }
-
-      /**
-       * {@inheritdoc}
-       */
-      public function run(GateSettings $gate, string $projectRoot): GateResult {
-        $drifts = $gate->name === 'config_clean';
-        return GateResult::ran(
-          $gate->name,
-          $drifts ? GateStatus::Failed : GateStatus::Passed,
-          $drifts ? 1 : 0,
-          5,
-          $drifts ? 'config_clean: 3 differences from config/sync' : $gate->name . ' passed',
-          [],
-          'config:status',
-        );
-      }
-
-    };
-    $cases = [
-      "preset: low\ngates:\n  config_clean: { mode: report }\n" => GateStatus::Reported,
-      "preset: low\n" => GateStatus::Failed,
-    ];
-    foreach ($cases as $file => $expected) {
-      $root = $this->makeRootWithConfig($file);
-      $state = RunState::begin('run-1', '2026-10-12T00:00:00+00:00', WorkflowConfig::load($root));
-
-      $report = (new GateRunner($this->executor(), $driver))->run($state, Phase::Code, $root);
-
-      $config = $this->resultFor($report, 'config_clean');
-      $this->assertSame($expected, $config->status, $file);
-      $this->assertSame($expected === GateStatus::Reported, $report->advance(), $file);
-      $this->assertStringContainsString('3 differences from config/sync', $config->summary, 'the drift is still named');
-    }
-  }
-
-  /**
    * The same failure in block mode still blocks — the mode is the only change.
    */
   public function testTheSameFailureInBlockModeBlocks(): void {
     $root = $this->makeRootWithConfig("preset: max\n");
-    $runner = new GateRunner($this->executor(failing: ['eslint']), new NullSiteDriver());
+    $runner = new GateRunner($this->executor(failing: ['eslint']));
     $state = RunState::begin('run-1', '2026-09-08T00:00:00+00:00', WorkflowConfig::load($root));
 
     $report = $runner->run($state, Phase::Code, $root);
@@ -185,7 +129,7 @@ final class GateModeTest extends WorkflowTestCase {
    */
   public function testToolMissingIsReportedAndPassesAreUntouched(): void {
     $root = $this->makeRootWithConfig("preset: max\ngates:\n  eslint: { mode: report }\n  stylelint: { mode: report }\n");
-    $runner = new GateRunner($this->executor(missing: ['eslint']), new NullSiteDriver());
+    $runner = new GateRunner($this->executor(missing: ['eslint']));
     $state = RunState::begin('run-1', '2026-09-08T00:00:00+00:00', WorkflowConfig::load($root));
 
     $report = $runner->run($state, Phase::Code, $root);

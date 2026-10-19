@@ -71,9 +71,6 @@ class PhaseGateMapTest extends TestCase {
         'eslint',
         'stylelint',
         'prettier',
-        'config_clean',
-        'grounding_check',
-        'composition_check',
         'house_rules',
       ],
       PhaseGateMap::gatesFor(Phase::Code),
@@ -91,19 +88,6 @@ class PhaseGateMapTest extends TestCase {
       GateSettings::KNOWN_GATES,
       PhaseGateMap::gatesFor(Phase::Complete),
     );
-  }
-
-  /**
-   * The site gate is due only where a site could exist to serve it.
-   */
-  public function testTheSiteGateIsDueOnlyAtTestAndComplete(): void {
-    $where = [];
-    foreach (PhaseGateMap::DEFAULT as $phase => $gates) {
-      if (in_array('rendered_check', $gates, TRUE)) {
-        $where[] = $phase;
-      }
-    }
-    $this->assertSame(['test', 'complete'], $where);
   }
 
   /**
@@ -185,7 +169,6 @@ class PhaseGateMapTest extends TestCase {
         'plan' => [],
         'code' => [
           'phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier',
-          'config_clean', 'grounding_check', 'composition_check',
           'house_rules',
         ],
         'complete' => GateSettings::KNOWN_GATES,

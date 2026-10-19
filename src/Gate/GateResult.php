@@ -345,6 +345,11 @@ final class GateResult {
   }
 
   /**
+   * Why a gate that asks droost or a site did not run, when nothing answered.
+   */
+  public const NO_SITE = 'nothing answered it here (its tool is not installed, or the site it asks is down) — the gate did not run, and it is not a pass';
+
+  /**
    * A gate that needs a booted site when there is none.
    *
    * @param string $gate
@@ -357,7 +362,7 @@ final class GateResult {
    */
   public static function skippedNoSite(
     string $gate,
-    string $reason = NullSiteDriver::REASON,
+    string $reason = self::NO_SITE,
   ): self {
     return new self(
       $gate,

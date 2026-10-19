@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Config;
 
-use Droost\Workflow\Driver\RenderedRoutes;
 use Droost\Workflow\Support\DataError;
 use Droost\Workflow\Support\TypedArray;
 
@@ -49,21 +48,24 @@ final class GateSettings {
     // rebuilt from (a design, or the site being replaced): bin/droost-parity.
     'parity',
     'coverage',
-    'rendered_check',
-    'config_clean',
-    // Resolves the spec's grounding citations against the site's symbol
-    // graph. Engine-side this gate has only a name and a phase; the truth
-    // lives where the graph does, exactly as rendered_check does.
-    'grounding_check',
-    // Reads what really builds each page the spec declares (a Canvas page, a
-    // View page, a display, a Webform, a route) against the declaration and
-    // the owner's rules (owner, 2026-10-02). Engine-side, a name and a phase;
-    // the truth lives in the site, as it does for rendered_check.
-    'composition_check',
     // The site's own rules a machine can check on the diff (`rules.house`,
     // judge: gate; owner, 2026-10-15). Off when no house rule names a gate.
     'house_rules',
     'wiki_fresh',
+  ];
+
+  /**
+   * Gate names a lever file may still carry, retired with droost's module.
+   *
+   * Name => what to do instead. Each loads with a notice, never silently and
+   * never fatally (WorkflowConfig::readGates()).
+   */
+  public const RETIRED_GATES = [
+    'contributed' => 'a gate a Drupal module contributed is now a file the project runs: declare it under gates.<id> with run: <file> (or cmd:)',
+    'rendered_check' => 'it asked a booted Drupal site to render routes; declare a gate that requests them (gates.<id> with run: or cmd:, e.g. curl), or check the pages through playwright',
+    'config_clean' => 'it asked a booted Drupal site for config drift; declare it as a gate: `gates.config_clean: { cmd: "drush config:status", phase: test }`',
+    'grounding_check' => 'plan_grounded holds the plan to the code index and the knowledge calls; there is no site gate to arm',
+    'composition_check' => 'it read what a booted Drupal site serves; a project that needs it declares its own gate file',
   ];
 
   /**
@@ -96,22 +98,6 @@ final class GateSettings {
    * package might name in a later release.
    */
   public const CUSTOM_PREFIX = 'custom:';
-
-  /**
-   * The prefix carried by gates a MODULE contributes (D72).
-   *
-   * `module:snyk` is declared in code by droost_snyk and joins the run when
-   * the module is enabled; the lever file may override only `on` and `mode`
-   * for it (under `gates.contributed.snyk`). A different prefix from custom
-   * gates so a repo's own `custom:snyk` and a module's never collide, and so
-   * a report's provenance is legible from the name alone.
-   */
-  public const MODULE_PREFIX = 'module:';
-
-  /**
-   * The two switches the lever file may override on a contributed gate.
-   */
-  private const CONTRIBUTED_OVERRIDES = ['on', 'mode'];
 
   /**
    * What a gate does with a blocking result: fail the phase, or only say so.
@@ -173,9 +159,7 @@ final class GateSettings {
    * tool may run before the executor kills it. The executor's default is
    * ten minutes, which a mutation run over one kernel-test-heavy module
    * already exceeds (F-ADOPT-23) — the slow tiers carry longer defaults from
-   * xhigh up, and a repo raises any of them here. The two gates the site
-   * driver answers (rendered_check, config_clean) spawn nothing and take
-   * none.
+   * xhigh up, and a repo raises any of them here.
    */
   // `root` (F-153) names the Composer project a PHP tool runs in, relative
   // to the project: its vendor/bin holds the tool, the tool runs there, and
@@ -220,19 +204,6 @@ final class GateSettings {
       'timeout' => 'seconds',
     ],
     'coverage' => ['min' => 'percent', 'root' => 'string', 'timeout' => 'seconds'],
-    'rendered_check' => ['routes' => 'routes'],
-    'config_clean' => [],
-    // `strict_citations` restores the old behaviour, in which a single
-    // Evidence cell the site's stores could not resolve failed the whole
-    // phase. Off by default since 0.9: a citation that resolves nowhere is now
-    // REPORTED on a passing gate, while a claimed tier with nothing resolving
-    // and a ledger with no knowledge calls still block. Two live rounds each
-    // built their ticket correctly and died on 13-14 citations that named
-    // real files the index simply did not carry (F-22); the forcing half of
-    // the gate never needed the citation half to be fatal.
-    'grounding_check' => ['strict_citations' => 'flag'],
-    // The rules themselves are the `rules` block, not levers on the gate.
-    'composition_check' => [],
     // Each rule carries its own check and mode, in `rules.house`.
     'house_rules' => [],
     // The front-end lint trio takes `paths` for the same reason the static
@@ -310,75 +281,20 @@ final class GateSettings {
    *   TRUE when known.
    */
   public static function isKnown(string $name): bool {
-    return in_array($name, self::KNOWN_GATES, TRUE) || self::isCustom($name) || self::isContributed($name);
-  }
-
-  /**
-   * Whether a name denotes a module-contributed gate.
-   *
-   * @param string $name
-   *   The candidate name.
-   *
-   * @return bool
-   *   TRUE for a well-formed module:<id>.
-   */
-  public static function isContributed(string $name): bool {
-    if (!str_starts_with($name, self::MODULE_PREFIX)) {
-      return FALSE;
-    }
-    return preg_match(self::CUSTOM_NAME, substr($name, strlen(self::MODULE_PREFIX))) === 1;
+    return in_array($name, self::KNOWN_GATES, TRUE) || self::isCustom($name);
   }
 
   /**
    * Whether this gate runs its own command rather than a known tool.
    *
-   * Custom and contributed gates both carry a `cmd` the executor runs through
-   * the shell; the executor's dispatch turns on this, not on the prefix.
+   * A project's own gates carry a `cmd` or a `run` file the executor runs;
+   * the executor's dispatch turns on this, not on the prefix.
    *
    * @return bool
-   *   TRUE for custom and contributed gates.
+   *   TRUE for the project's own gates.
    */
   public function runsOwnCommand(): bool {
-    return self::isCustom($this->name) || self::isContributed($this->name);
-  }
-
-  /**
-   * A contributed gate with the lever file's override applied.
-   *
-   * Only `on` and `mode` may be overridden: the command, the phases and the
-   * verdict are the declaring module's contract. A repo that wants a
-   * different scan writes a custom gate; a repo that wants this one to block
-   * writes `mode: block`, in one line, in a reviewable diff.
-   *
-   * @param \Droost\Workflow\Support\TypedArray $node
-   *   The gates.contributed.<id> mapping.
-   * @param string $source
-   *   The document label, for error messages.
-   *
-   * @return self
-   *   A new GateSettings; this one is unchanged.
-   *
-   * @throws \Droost\Workflow\Config\ConfigError
-   *   When the mapping names anything but `on` or `mode`.
-   * @throws \Droost\Workflow\Support\DataError
-   *   When a value has the wrong type.
-   */
-  public function overlayContributed(TypedArray $node, string $source): self {
-    foreach ($node->keys() as $key) {
-      if (!in_array($key, self::CONTRIBUTED_OVERRIDES, TRUE)) {
-        throw ConfigError::unknownContributedOption($source, substr($this->name, strlen(self::MODULE_PREFIX)), $key);
-      }
-    }
-    $options = $this->options;
-    if ($node->has('mode')) {
-      if (self::readModeWord($node) === 'report') {
-        $options['mode'] = 'report';
-      }
-      else {
-        unset($options['mode']);
-      }
-    }
-    return new self($this->name, $node->optionalBool('on', $this->on), $options);
+    return self::isCustom($this->name);
   }
 
   /**
@@ -672,7 +588,6 @@ final class GateSettings {
       'paths' => $this->readPaths($node, $option),
       'flag' => $node->bool($option),
       'reuse' => $this->readReuse($node, $option),
-      'routes' => $this->readRoutes($node, $option),
       default => $this->readToolArgument($node, $option),
     };
   }
@@ -701,53 +616,6 @@ final class GateSettings {
       ));
     }
 
-    return $value;
-  }
-
-  /**
-   * Reads rendered_check's routes: paths, each with the status it must answer.
-   *
-   * `/user/login,/admin/reports@403,/admin/portal@302`: the same shape the
-   * README documents and RenderedRoutes parses. Before 0.18.2 the validator
-   * took only a plain argument, so a route a login gate redirects could not
-   * be declared in the lever at all (F-299).
-   *
-   * @param \Droost\Workflow\Support\TypedArray $node
-   *   The gate's node.
-   * @param string $option
-   *   The option name.
-   *
-   * @return string
-   *   The value.
-   *
-   * @throws \Droost\Workflow\Support\DataError
-   *   When a route is not a path, traverses, or names a status a route cannot
-   *   be declared to answer.
-   */
-  private function readRoutes(TypedArray $node, string $option): string {
-    $value = $node->string($option);
-    $routes = array_values(array_filter(array_map('trim', explode(',', $value)), static fn (string $r): bool => $r !== ''));
-    foreach ($routes === [] ? [''] : $routes as $route) {
-      $path = $route;
-      if (preg_match('#^(.*)@(\d{3})$#', $route, $m) === 1) {
-        $path = $m[1];
-        if (!RenderedRoutes::declarable((int) $m[2])) {
-          throw new DataError($node->path($option), sprintf(
-            '%s: "%s" names %s, and a route may be declared to answer 200, 401, 403 or a redirect (301, 302, 303, 307, 308)',
-            $node->path($option),
-            $route,
-            $m[2],
-          ));
-        }
-      }
-      if ($path === '' || self::traverses($path) || preg_match(self::TOOL_ARGUMENT, $path) !== 1) {
-        throw new DataError($node->path($option), sprintf(
-          '%s must list paths, each optionally with the status it must answer (`/admin/reports@403`, `/portal@302`), using only letters, digits, and the characters _ - . / — got "%s"',
-          $node->path($option),
-          $value,
-        ));
-      }
-    }
     return $value;
   }
 
