@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Evidence;
 
-use Droost\Workflow\State\RunStateStore;
+use Droost\Workflow\Config\StoragePaths;
 
 /**
  * What a run actually measured, in rows droost wrote and the agent cannot.
@@ -117,8 +117,8 @@ final class EvidenceStore {
    *   The absolute path.
    */
   public static function pathFor(string $projectRoot): string {
-    return rtrim($projectRoot, '/') . '/'
-      . RunStateStore::resolveStateDir($projectRoot) . '/' . self::FILENAME;
+    // droost.yml's storage.evidence, or the state directory (StoragePaths).
+    return StoragePaths::evidence($projectRoot);
   }
 
   /**

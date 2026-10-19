@@ -6853,7 +6853,10 @@ function baseline_dir_guard(string $stdin, string $root, string $stateDir): void
   // in plan the store was allowed by the state-dir exemption, and in every
   // other phase pre-tool-use returned before any file check ran.
   $normalised = normalised_path($file);
-  $isStore = preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/evidence\.sqlite(-wal|-shm|-journal)?$#', $normalised) === 1;
+  // By NAME, wherever it is: a project may keep the store elsewhere
+  // (droost.yml's storage.evidence, which must keep this name, so a Cockpit
+  // can hold it), and the wall goes where the store goes.
+  $isStore = preg_match('#(^|/)evidence\.sqlite(-wal|-shm|-journal)?$#', $normalised) === 1;
   if (preg_match('#(^|/)droost/baseline(/|$)#', $normalised) !== 1 && !$isStore) {
     return;
   }
@@ -7136,7 +7139,7 @@ function unresolved_checks(string $root, string $stateDir, mixed $runId, string 
   if (!is_string($runId) || $runId === '' || !extension_loaded('pdo_sqlite')) {
     return [];
   }
-  $path = $root . '/' . $stateDir . '/evidence.sqlite';
+  $path = guard_evidence_path($root, $stateDir);
   if (!is_file($path)) {
     return [];
   }
@@ -7961,4 +7964,38 @@ function guard_scaffold_after(string $command, string $root, string $stateDir): 
   }
 
   return $recorded;
+}
+
+/**
+ * Where the evidence store is, configured or the state directory's.
+ *
+ * The droost.yml storage.evidence key, by the same rule as
+ * StoragePaths::evidence(), read here with no autoloader and no YAML parser:
+ * the `evidence:` key indented under a top-level `storage:`, followed only
+ * when its file is called evidence.sqlite, the name every wall on the store
+ * goes by.
+ *
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The resolved state directory.
+ *
+ * @return string
+ *   The store's path, absolute.
+ */
+function guard_evidence_path(string $root, string $stateDir): string {
+  $default = rtrim($root, '/') . '/' . $stateDir . '/evidence.sqlite';
+  $text = (string) @file_get_contents(rtrim($root, '/') . '/droost/droost.yml');
+  if ($text === '' || preg_match('/^storage:[ \t]*\n((?:[ \t]+[^\n]*\n?|[ \t]*\n)*)/m', $text, $block) !== 1) {
+    return $default;
+  }
+  if (preg_match('/^[ \t]+evidence:[ \t]*["\']?([^"\'#\n]+?)["\']?[ \t]*(?:#.*)?$/m', $block[1], $m) !== 1) {
+    return $default;
+  }
+  $configured = trim($m[1]);
+  if ($configured === '' || basename($configured) !== 'evidence.sqlite') {
+    return $default;
+  }
+
+  return str_starts_with($configured, '/') ? $configured : rtrim($root, '/') . '/' . $configured;
 }

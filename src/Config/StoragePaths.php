@@ -11,21 +11,22 @@ use Symfony\Component\Yaml\Yaml;
  * Where droost's SQLite stores live: the one place that answers it.
  *
  * The code index and the evidence store are files in the state directory by
- * default. A project may name another place for the code index in its
- * configuration's `storage:` block, which is how a Cockpit can hold it later:
+ * default. A project may name other places in its configuration's `storage:`
+ * block, which is how a Cockpit can hold them (owner, 2026-10-19: "the sql
+ * lite can instead be used on the cockpit so it needs to be configurable"):
  *
  * @code
  * storage:
- *   index: droost/droost-workflow/code-index.sqlite
+ *   index: /srv/cockpit/projects/emt/code-index.sqlite
+ *   evidence: /srv/cockpit/projects/emt/evidence.sqlite
  * @endcode
  *
- * The evidence store is NOT configurable yet. It is the run's tamper-evident
- * record, and the guard walls it from the agent's writes where it is, in the
- * state directory, finding it with no autoloader. A configured path would
- * move it out from under that wall, so `storage.evidence` is read, not
- * followed, and the workflow's configuration says so (a notice). Moving it
- * waits for the Cockpit storage design (owner, 2026-10-19: "we can talk about
- * that later").
+ * The evidence store keeps its NAME wherever it goes. It is the run's
+ * tamper-evident record, and the guard walls it from the agent's writes by
+ * that name (any file called `evidence.sqlite`, and any shell command naming
+ * it), reading the configured place itself with no autoloader. A path whose
+ * file is called anything else would slip that wall, so it is not followed:
+ * the store stays in the state directory and the configuration says so.
  *
  * A relative path is the project root's; an absolute one is kept. Anything
  * that reads or writes a store asks here, so the answer cannot differ
@@ -119,10 +120,10 @@ final class StoragePaths {
   }
 
   /**
-   * The evidence store's file, absolute: always the state directory's.
+   * The evidence store's file, absolute.
    *
-   * `storage.evidence` is not followed (see the class comment): the guard
-   * walls the store where it is.
+   * `storage.evidence` when it names a file called `evidence.sqlite` (the name
+   * the guard walls); the state directory's otherwise.
    *
    * @param string $projectRoot
    *   The project root.
@@ -131,7 +132,12 @@ final class StoragePaths {
    *   The path, whether or not the file exists.
    */
   public static function evidence(string $projectRoot): string {
-    return rtrim($projectRoot, '/') . '/' . RunStateStore::resolveStateDir($projectRoot) . '/' . self::EVIDENCE_FILE;
+    $path = self::resolve($projectRoot, 'evidence', self::EVIDENCE_FILE);
+    if (basename($path) !== self::EVIDENCE_FILE) {
+      return rtrim($projectRoot, '/') . '/' . RunStateStore::resolveStateDir($projectRoot) . '/' . self::EVIDENCE_FILE;
+    }
+
+    return $path;
   }
 
   /**

@@ -344,10 +344,11 @@ final class WorkflowConfig {
     try {
       $deprecations = array_values($notices);
       // A setting that is read and not followed says so, rather than being
-      // silently ignored (StoragePaths: the guard walls the evidence store in
-      // the state directory, so moving it waits for the Cockpit design).
-      if (is_array($raw['storage'] ?? NULL) && array_key_exists('evidence', $raw['storage'])) {
-        $deprecations[] = 'storage.evidence is not followed: the evidence store stays in the state directory, where the guard walls it from the agent. Only storage.index moves the code index.';
+      // silently ignored: the evidence store keeps the name the guard walls
+      // (StoragePaths).
+      $evidence = is_array($raw['storage'] ?? NULL) ? ($raw['storage']['evidence'] ?? NULL) : NULL;
+      if ($evidence !== NULL && (!is_string($evidence) || basename(trim($evidence)) !== StoragePaths::EVIDENCE_FILE)) {
+        $deprecations[] = 'storage.evidence is not followed: it must name a file called evidence.sqlite, the name the guard walls from the agent wherever the store is. The store stays in the state directory.';
       }
       $declared = $root->optionalString(
         'preset',

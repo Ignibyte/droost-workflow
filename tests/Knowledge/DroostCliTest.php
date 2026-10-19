@@ -6,6 +6,7 @@ namespace Droost\Workflow\Tests\Knowledge;
 
 use Droost\Workflow\Config\StoragePaths;
 use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Knowledge\CodeIndex;
 use Droost\Workflow\Knowledge\DroostCli;
 use Droost\Workflow\Knowledge\KnowledgeSettings;
@@ -229,19 +230,31 @@ final class DroostCliTest extends TestCase {
   }
 
   /**
-   * The evidence store does not move, and the configuration says so.
+   * The evidence store moves where storage.evidence says, keeping its name.
    *
-   * The guard walls the store in the state directory; a configured path
-   * would take it out from under that wall, so it is read and not followed.
+   * A Cockpit can hold it; the guard walls it by its name wherever it is, so
+   * a path whose file is called anything else is not followed, and the
+   * configuration says so.
    */
-  public function testEvidenceStoreStaysWhereTheGuardWallsIt(): void {
+  public function testEvidenceStoreMovesKeepingItsName(): void {
     $this->put($this->root, 'droost/droost.yml', "storage:\n  evidence: var/evidence.sqlite\n");
+    $this->assertSame($this->root . '/var/evidence.sqlite', StoragePaths::evidence($this->root));
+    $this->assertSame(StoragePaths::evidence($this->root), EvidenceStore::pathFor($this->root));
+    $this->assertSame([], array_values(array_filter(
+      WorkflowConfig::load($this->root)->deprecations,
+      static fn (string $notice): bool => str_contains($notice, 'storage.evidence'),
+    )));
 
+    // A real write lands there.
+    (new EvidenceStore($this->root))->recordToolCall('run-x', 'plan', 'code:wiki', 'ok');
+    $this->assertFileExists($this->root . '/var/evidence.sqlite');
+    $this->assertFileDoesNotExist($this->root . '/droost/droost-workflow/evidence.sqlite');
+
+    $this->put($this->root, 'droost/droost.yml', "storage:\n  evidence: var/store.db\n");
     $this->assertSame($this->root . '/droost/droost-workflow/evidence.sqlite', StoragePaths::evidence($this->root));
-    $config = WorkflowConfig::load($this->root);
     $this->assertNotEmpty(array_filter(
-      $config->deprecations,
-      static fn (string $notice): bool => str_contains($notice, 'storage.evidence is not followed'),
+      WorkflowConfig::load($this->root)->deprecations,
+      static fn (string $notice): bool => str_contains($notice, 'must name a file called evidence.sqlite'),
     ));
   }
 
