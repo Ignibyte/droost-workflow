@@ -15,9 +15,10 @@ namespace Droost\Workflow\Pack;
  *
  * WHY IT LIVES HERE. This block was written by drupal/droost's drush
  * installer alone until 2026-09-15, so the route a project without Drupal
- * has — this package's own init — produced no block at all. The install that needed the doctrine MOST was the
- * one that did not get it, and a cross-repo audit found this project's own
- * dogfood site running exactly that configuration.
+ * has — this package's own init — produced no block at all. The install that
+ * needed the doctrine MOST was the one that did not get it, and a cross-repo
+ * audit found this project's own dogfood site running exactly that
+ * configuration.
  *
  * AGENTS.md is also the honest answer to this package's host-agnostic claim.
  * Everything else `init` writes is Claude Code's (`.claude/skills`,

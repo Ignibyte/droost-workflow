@@ -128,7 +128,7 @@ final class PlanGroundedCheckTest extends WorkflowTestCase {
   }
 
   /**
-   * droost installed where no known path finds it still holds plan (F-303).
+   * Plan is held wherever droost is installed, on no known path too (F-303).
    *
    * The package running this check is the one that ships code:wiki and
    * code:tree, so "no droost here" is never a reason to stand down: a plan

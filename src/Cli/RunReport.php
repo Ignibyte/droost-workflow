@@ -12,8 +12,8 @@ namespace Droost\Workflow\Cli;
  * history, a paused run's question, an active bypass. Printed from the run
  * record (the facade's status), never inferred.
  *
- * It lived in drupal/droost as `drush droost:workflow:report` until droost
- * left Drupal (2026-10-19), when it would have gone with the module: the
+ * It lived in drupal/droost, behind a drush command, until droost left
+ * Drupal (2026-10-19), when it would have gone with the module: the
  * observability the workflow trigger doctrine calls first-class
  * (WORKFLOW-TRIGGER-AND-OBSERVABILITY §2) would have had no door at all. It
  * renders the same record the same way, in plain text.

@@ -40,13 +40,14 @@ test('the spec is recognised by its place', () => {
 
 test('a knowledge call grounds its run, and one made under no run counts', () => {
   const ledger = [
-    { tool: 'droost_scaffold', outcome: 'ok', run: 'run-a' },
-    { tool: 'droost_search', outcome: 'fail', run: 'run-a' },
-    { tool: 'droost_symbol', outcome: 'ok', run: 'run-b' },
+    { tool: 'workflow:run', outcome: 'ok', run: 'run-a' },
+    { tool: 'search:code', outcome: 'fail', run: 'run-a' },
+    { tool: 'code:symbol', outcome: 'ok', run: 'run-b' },
+    { tool: 'droost_symbol', outcome: 'ok', run: 'run-a' },
   ].map((r) => JSON.stringify(r)).join('\n')
-  assert.equal(grounded(ledger, 'run-a'), false, 'a write tool, and a failed search, ground nothing')
+  assert.equal(grounded(ledger, 'run-a'), false, 'a run verb, a failed search and a retired tool id ground nothing')
   assert.equal(grounded(ledger, 'run-b'), true)
-  assert.equal(grounded(ledger + '\n' + JSON.stringify({ tool: 'droost_brief', outcome: 'ok', run: null }), 'run-a'), true)
+  assert.equal(grounded(ledger + '\n' + JSON.stringify({ tool: 'brief', outcome: 'ok', run: null }), 'run-a'), true)
   assert.equal(grounded('not json\n', 'run-a'), false)
 })
 

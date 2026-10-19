@@ -213,7 +213,8 @@ class PackContentLintTest extends TestCase {
    * The pack says what droost reads, and what it does not.
    *
    * The droost command reads files and its code index, with no site
-   * (2026-10-19). The running site — content, active configuration, rendered pages — is not
+   * (2026-10-19). The running site — content, active configuration, rendered
+   * pages — is not
    * droost's, and a pack that implied otherwise would have an agent report
    * the site checked when only its files were.
    */

@@ -37,7 +37,11 @@ final class RunReportTest extends TestCase {
           'code' => [
             'gates' => [
         ['gate' => 'phpcs', 'status' => 'passed', 'summary' => 'phpcs passed — 3 files'],
-        ['gate' => 'custom:loose', 'status' => 'passed', 'summary' => 'custom:loose passed — its file exited 0 [its file droost/gates/loose.php changed since this run began: this verdict is the changed file\'s]'],
+        [
+          'gate' => 'custom:loose',
+          'status' => 'passed',
+          'summary' => 'custom:loose passed — its file exited 0 [its file droost/gates/loose.php changed since this run began]',
+        ],
         ['gate' => 'phpstan', 'status' => 'off', 'skip_reason' => 'off — by preset low'],
         ['gate' => 'custom:mine', 'status' => 'error-tool-failed', 'summary' => 'its file exited 3'],
         ['gate' => 'phpunit', 'status' => 'failed', 'summary' => '2 tests failed'],

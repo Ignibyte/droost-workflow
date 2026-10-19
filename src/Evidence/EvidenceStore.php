@@ -1413,8 +1413,9 @@ final class EvidenceStore {
    *
    * Two ways in, and they were found one at a time. A site gate on the
    * standalone binary was ON and unreachable — no booted site, so the
-   * page-rendering gate and its kin recorded `skipped` — which wedged the test phase
-   * forever for anyone following the plan skill's own `--type=theme` example.
+   * page-rendering gate and its kin recorded `skipped` — which wedged the test
+   * phase forever for anyone following the plan skill's own `--type=theme`
+   * example.
    *
    * And a WAIVED gate, which is worse, because the waiver is the operator's
    * rescue: a run blocks, the operator lifts the gate to free it, the gate then

@@ -1,7 +1,7 @@
 // droost-guard: droost's guard, inside Claude Code (owner, 2026-10-01).
 //
-// It complements the project's PreToolUse guard
-// (.claude/hooks/droost-workflow-guard.php), which stays the floor. A mod a
+// It complements the project's PreToolUse guard (the package's
+// bin/droost-guard, which .claude/settings.json calls), which stays the floor. A mod a
 // repository ships runs among the user's own mods, not ahead of them: only
 // managed settings (prependPlugins) put a mod first, and a project's
 // PreToolUse hook runs after every mod. So this does only what is honest
@@ -196,7 +196,12 @@ async function groundedNow($, runId) {
 async function hasFloor($) {
   if (floor !== null) return floor
   const settings = await read($, (await $.session.cwd()) + '/.claude/settings.json')
-  floor = typeof settings === 'string' && settings.includes('droost-workflow-guard.php\\" nudge')
+  // The settings entry names the guard as droost's entry point since the
+  // guard moved into the package (`bin/droost-guard" nudge`), or as the old
+  // copy (`droost-workflow-guard.php" nudge`). Reading only the old name made
+  // a shimmed project look floorless, and every note came twice.
+  floor = typeof settings === 'string'
+    && (settings.includes('droost-guard\\" nudge') || settings.includes('droost-workflow-guard.php\\" nudge'))
   return floor
 }
 
