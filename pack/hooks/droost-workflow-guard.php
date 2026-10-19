@@ -58,6 +58,8 @@
 
 declare(strict_types=1);
 
+use Symfony\Component\Yaml\Yaml;
+
 $mode = $argv[1] ?? '';
 // A hook runs from the invoking tool's cwd, which the agent's Bash tool can
 // move out of the project root (a persisted `cd`). getcwd() would then point
@@ -409,6 +411,19 @@ $GLOBALS['workflow_guard_tool'] = is_string($toolName) && $toolName !== ''
   : NULL;
 $guardInput = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
 
+// THE HARNESS, AND DROOST'S OWN EVENT. Each harness's hook configuration
+// calls this guard with `--harness=<name>`; its payload is translated into
+// the shape the rules below read (Claude Code's passes through), and the call
+// is named in droost's own vocabulary for the project's walls.
+$harness = guard_harness($argv);
+$translated = guard_payload_for($harness, $payload);
+if ($translated !== $payload) {
+  $payload = $translated;
+  $stdin = (string) json_encode($payload);
+  $guardInput = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
+}
+$guardEvent = guard_event($mode, $payload);
+
 // RECORD MODE ENDS HERE, and ending here is the whole design (F-37).
 //
 // The diary's other two modes are walls that happen to keep a diary. This one
@@ -429,6 +444,9 @@ $guardInput = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] 
 // The shutdown function is already registered above and writes the row however
 // this script leaves, so `return` here is a complete recording.
 if ($mode === 'record') {
+  // The project's walls are asked about every call this registration sees:
+  // a tracker's write tools are MCP calls (droost off Drupal, 2026-10-19).
+  guard_walls($root, $guardEvent, $harness);
   return;
 }
 
@@ -569,6 +587,10 @@ if (str_contains($stdin, "\0") || $carriesNul($payload)) {
 }
 
 if ($mode === 'operator-commands') {
+  // The project's own walls and operator-only scripts first: they are the
+  // project's signature, run or no run.
+  guard_walls($root, $guardEvent, $harness);
+  guard_operator_only($guardEvent['command'], $root);
   // A shell is a file editor. `baseline_dir_guard()` refuses the store and the
   // baseline for Edit|Write|MultiEdit|NotebookEdit, and Bash is wired to THIS
   // branch — which only ever looked at drush command names and returned. So the
@@ -619,6 +641,7 @@ if ($mode === 'operator-commands') {
 }
 
 if ($mode === 'pre-tool-use') {
+  guard_walls($root, $guardEvent, $harness);
   // Run or no run, the adoption baseline is never the agent's to edit.
   baseline_dir_guard($stdin, $root, $stateDir);
 }
@@ -4974,6 +4997,18 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
       . 'agent\'s. If the work needs a plugin, name it and why, and let the '
       . 'operator install it.';
   }
+  // THE PACKAGE THIS GUARD RUNS FROM (droost off Drupal, 2026-10-19): the
+  // guard is no longer copied into the project, so the copy every hook calls
+  // is the one in the package — `tools/droost/`, or wherever Composer put
+  // it. An agent that can rewrite the vendored guard has no guard.
+  $package = guard_package_relative($root);
+  if (preg_match('#^tools/droost(/|$)#', $relative) === 1
+    || ($package !== '' && ($relative === $package || str_starts_with($relative, $package . '/')))) {
+    return 'That is droost itself: the package this guard, the gates and the '
+      . 'run record are read from. An agent that can rewrite it can make the '
+      . 'guard allow anything and any gate pass. The OPERATOR installs and '
+      . 'updates it with composer (`composer install -d tools/droost`).';
+  }
   if (preg_match('#(^|/)\.claude/settings(\.local)?\.json$#', $relative) === 1) {
     return 'That file wires the enforcement in. Removing an entry from it '
       . 'disarms the wall exactly as surely as deleting the guard, and quietly. '
@@ -5120,7 +5155,7 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
         . 'puts it on record for the host to show the human); `intake check` and '
         . '`intake status` read the record, and so do `cat` and the Read tool.';
     }
-    if (preg_match('#^(events\.jsonl|host\.json|host-mods\.json|\.?work-item-[A-Za-z0-9._-]*|\.guard-warned-[A-Za-z0-9._-]+)$#', $inState[3]) === 1) {
+    if (preg_match('#^(events\.jsonl|hook-calls\.jsonl|host\.json|host-mods\.json|\.?work-item-[A-Za-z0-9._-]*|\.guard-warned-[A-Za-z0-9._-]+)$#', $inState[3]) === 1) {
       return 'That file is one the pipeline writes beside the run\'s record: the '
         . 'run-event log, the host record the run reports, a cached work item or '
         . 'a warn-once marker. droost, the guard and the pipeline write it, and '
@@ -6168,6 +6203,7 @@ function enforcement_protected_dirs(string $stateDir): array {
     '.claude/hooks',
     '.claude',
     'droost',
+    'tools/droost',
     trim($stateDir, '/'),
   ]));
 }
@@ -7410,4 +7446,345 @@ function guard_ledger_digest(string $text): ?string {
   }
   sort($rows);
   return implode(',', $rows);
+}
+
+/**
+ * Which agent harness invoked this hook: `--harness=<name>`, else claude.
+ *
+ * The rules are written once against droost's own events; the shim each
+ * harness's hook configuration calls names the harness, and the translator
+ * below turns its payload into the shape the rules read. Claude Code is the
+ * first and, today, the only harness whose hooks can refuse a tool call.
+ *
+ * @param list<string> $argv
+ *   The process arguments.
+ *
+ * @return string
+ *   The harness name.
+ */
+function guard_harness(array $argv): string {
+  foreach ($argv as $argument) {
+    if (is_string($argument) && str_starts_with($argument, '--harness=')) {
+      $name = strtolower(substr($argument, strlen('--harness=')));
+      return preg_match('/^[a-z0-9_-]{1,32}$/', $name) === 1 ? $name : 'claude';
+    }
+  }
+
+  return 'claude';
+}
+
+/**
+ * A harness's hook payload, in the shape droost's rules read.
+ *
+ * The rules were written against Claude Code's payload (`tool_name`,
+ * `tool_input.file_path`, `tool_input.command`, `stop_hook_active`), so that
+ * shape is droost's own. Claude Code's payload passes through; another
+ * harness's translator maps its fields onto it here, and nowhere else.
+ *
+ * @param string $harness
+ *   The harness name.
+ * @param array<array-key, mixed> $payload
+ *   The payload as the harness sent it.
+ *
+ * @return array<array-key, mixed>
+ *   The payload droost's rules read.
+ */
+function guard_payload_for(string $harness, array $payload): array {
+  return match ($harness) {
+    // Codex and the others: after everything else is fixed (owner,
+    // 2026-10-19). Until a translator exists, their payload is read as
+    // Claude Code's, and status says their enforcement is advisory.
+    default => $payload,
+  };
+}
+
+/**
+ * The event a payload describes, in droost's own vocabulary.
+ *
+ * @param string $mode
+ *   The hook mode the harness invoked.
+ * @param array<array-key, mixed> $payload
+ *   The normalised payload.
+ *
+ * @return array{kind: string, tool: string, path: string, command: string, input: array<array-key, mixed>}
+ *   kind is one of: write (a file edit), shell (a command), tool (any other
+ *   call), stop, subagent.
+ */
+function guard_event(string $mode, array $payload): array {
+  $tool = $payload['tool_name'] ?? $payload['tool'] ?? '';
+  $tool = is_string($tool) ? $tool : '';
+  $input = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
+  $path = $input['file_path'] ?? $input['notebook_path'] ?? '';
+  $command = $input['command'] ?? '';
+  $kind = match (TRUE) {
+    $mode === 'stop' => 'stop',
+    $mode === 'subagent-stop' || $mode === 'dispatched' => 'subagent',
+    is_string($command) && $command !== '' => 'shell',
+    is_string($path) && $path !== '' => 'write',
+    default => 'tool',
+  };
+
+  return [
+    'kind' => $kind,
+    'tool' => $tool,
+    'path' => is_string($path) ? $path : '',
+    'command' => is_string($command) ? $command : '',
+    'input' => $input,
+  ];
+}
+
+/**
+ * The package this guard runs from, relative to the project, or ''.
+ *
+ * The guard ships in the package (pack/hooks/ under the package root) and
+ * each harness's hook configuration calls it there. An agent that can edit
+ * the vendored guard has no guard, so the package directory is protected run
+ * or no run. A copy outside a package (the old `.claude/hooks/` install) has
+ * no package to protect, and a package that IS the project (droost's own
+ * repository) is not walled off from itself.
+ *
+ * @param string $root
+ *   The project root.
+ *
+ * @return string
+ *   The package root relative to the project, or ''.
+ */
+function guard_package_relative(string $root): string {
+  if (basename(__DIR__) !== 'hooks' || basename(dirname(__DIR__)) !== 'pack') {
+    return '';
+  }
+  $package = realpath(dirname(__DIR__, 2));
+  $project = realpath($root);
+  if ($package === FALSE || $project === FALSE || $package === $project
+    || !str_starts_with($package . '/', $project . '/')) {
+    return '';
+  }
+
+  return trim(substr($package, strlen($project)), '/');
+}
+
+/**
+ * The project's walls and operator-only scripts, from droost/droost.yml.
+ *
+ * Read only when the file mentions either, because reading YAML needs a
+ * parser, which this file does not carry: the package's own (Symfony Yaml,
+ * through the autoloader beside the package) is loaded for it then and only
+ * then. A file that cannot be read yields none, and the row says so: the
+ * lever reports already refuse a broken file loudly, and a wall nobody can
+ * read cannot be asked.
+ *
+ * @param string $root
+ *   The project root.
+ *
+ * @return array{walls: array<string, array{tools: string, run: string}>, operator_only: list<string>, error: string}
+ *   The rules.
+ */
+function guard_project_rules(string $root): array {
+  static $cache = [];
+  if (isset($cache[$root])) {
+    return $cache[$root];
+  }
+  $none = ['walls' => [], 'operator_only' => [], 'error' => ''];
+  $file = rtrim($root, '/') . '/droost/droost.yml';
+  $text = is_file($file) ? (string) @file_get_contents($file) : '';
+  if ($text === '' || preg_match('/^(walls|operator_only)\s*:/m', $text) !== 1) {
+    return $cache[$root] = $none;
+  }
+  if (!class_exists('Symfony\Component\Yaml\Yaml', FALSE)) {
+    foreach ([dirname(__DIR__, 2) . '/vendor/autoload.php', dirname(__DIR__, 4) . '/autoload.php'] as $autoload) {
+      if (is_file($autoload)) {
+        require_once $autoload;
+        break;
+      }
+    }
+  }
+  if (!class_exists('Symfony\Component\Yaml\Yaml')) {
+    return $cache[$root] = ['error' => 'no YAML parser beside the package'] + $none;
+  }
+  try {
+    $parsed = Yaml::parse($text);
+  }
+  catch (\Throwable $e) {
+    return $cache[$root] = ['error' => 'droost/droost.yml does not parse'] + $none;
+  }
+  $walls = [];
+  foreach ((is_array($parsed) && is_array($parsed['walls'] ?? NULL)) ? $parsed['walls'] : [] as $id => $wall) {
+    if (is_string($id) && is_array($wall) && is_string($wall['tools'] ?? NULL) && is_string($wall['run'] ?? NULL)) {
+      $walls[$id] = ['tools' => $wall['tools'], 'run' => ltrim(preg_replace('#^(\./)+#', '', $wall['run']) ?? '', '/')];
+    }
+  }
+  $operatorOnly = [];
+  foreach ((is_array($parsed) && is_array($parsed['operator_only'] ?? NULL)) ? $parsed['operator_only'] : [] as $script) {
+    if (is_string($script) && trim($script) !== '') {
+      $operatorOnly[] = ltrim(preg_replace('#^(\./)+#', '', trim($script)) ?? '', '/');
+    }
+  }
+
+  return $cache[$root] = ['walls' => $walls, 'operator_only' => $operatorOnly, 'error' => ''];
+}
+
+/**
+ * Asks the project's walls about a tool call, and refuses on their word.
+ *
+ * Each wall whose `tools` regex matches the tool's name runs as its own
+ * process from the project root with the call as JSON on stdin (tool,
+ * tool_name, input, project_root, harness) and DROOST_PROJECT_ROOT in its
+ * environment. Exit 0 allows. Exit 2 refuses, with the wall's stderr as the
+ * reason. Anything else — a missing file, a crash, a timeout — refuses too,
+ * because a wall's silence is never consent. The refusal is the guard's own,
+ * recorded in the diary under `wall:<id>`.
+ *
+ * @param string $root
+ *   The project root.
+ * @param array{kind: string, tool: string, path: string, command: string, input: array<array-key, mixed>} $event
+ *   The call, in droost's vocabulary.
+ * @param string $harness
+ *   The harness that made it.
+ */
+function guard_walls(string $root, array $event, string $harness): void {
+  $rules = guard_project_rules($root);
+  foreach ($rules['walls'] as $id => $wall) {
+    if ($event['tool'] === '' || @preg_match('#' . str_replace('#', '\#', $wall['tools']) . '#', $event['tool']) !== 1) {
+      continue;
+    }
+    [$exit, $reason] = guard_run_wall($root, $wall['run'], [
+      'wall' => $id,
+      'tool' => $event['tool'],
+      'tool_name' => $event['tool'],
+      'input' => $event['input'],
+      'project_root' => rtrim($root, '/'),
+      'harness' => $harness,
+    ]);
+    if ($exit === 0) {
+      continue;
+    }
+    if ($exit === 2) {
+      guard_refuse('wall:' . $id, $reason !== ''
+        ? $reason
+        : sprintf('The project\'s wall "%s" refused this %s call and gave no reason.', $id, $event['tool']));
+    }
+    guard_refuse('wall:' . $id, sprintf(
+      'The project\'s wall "%s" (%s) could not answer for this %s call (%s), so the call is refused: a wall that cannot decide has not decided in your favour. If the wall is broken, tell the OPERATOR; it is theirs to fix.',
+      $id,
+      $wall['run'],
+      $event['tool'],
+      $reason !== '' ? $reason : 'exit ' . $exit,
+    ));
+  }
+}
+
+/**
+ * Runs one wall file with the call on stdin.
+ *
+ * @param string $root
+ *   The project root.
+ * @param string $run
+ *   The wall's file, relative to the root.
+ * @param array<string, mixed> $call
+ *   What the wall is told.
+ *
+ * @return array{int, string}
+ *   The exit code (-1 when it could not be started or timed out) and its
+ *   reason: the first lines of stderr, or what went wrong.
+ */
+function guard_run_wall(string $root, string $run, array $call): array {
+  $file = rtrim($root, '/') . '/' . $run;
+  if (!is_file($file)) {
+    return [-1, 'its file ' . $run . ' is not there'];
+  }
+  $php = str_ends_with($run, '.php');
+  if (!$php && !is_executable($file)) {
+    return [-1, 'its file ' . $run . ' is neither .php nor executable'];
+  }
+  $command = $php ? [PHP_BINARY, $file] : [$file];
+  $env = getenv();
+  $env['DROOST_PROJECT_ROOT'] = rtrim($root, '/');
+  $pipes = [];
+  $process = @proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $root, $env);
+  if (!is_resource($process)) {
+    return [-1, 'it could not be started'];
+  }
+  fwrite($pipes[0], (string) json_encode($call, JSON_UNESCAPED_SLASHES));
+  fclose($pipes[0]);
+  stream_set_blocking($pipes[1], FALSE);
+  stream_set_blocking($pipes[2], FALSE);
+  $stderr = '';
+  $deadline = microtime(TRUE) + 10;
+  $exit = NULL;
+  while (TRUE) {
+    $stderr .= (string) stream_get_contents($pipes[2]);
+    stream_get_contents($pipes[1]);
+    $status = proc_get_status($process);
+    if (!$status['running']) {
+      $exit = $status['exitcode'];
+      break;
+    }
+    if (microtime(TRUE) > $deadline) {
+      proc_terminate($process, 9);
+      $exit = -1;
+      $stderr = 'it did not answer within 10 seconds';
+      break;
+    }
+    usleep(10000);
+  }
+  $stderr .= (string) stream_get_contents($pipes[2]);
+  fclose($pipes[1]);
+  fclose($pipes[2]);
+  proc_close($process);
+
+  return [(int) $exit, mb_substr(trim($stderr), 0, 1000)];
+}
+
+/**
+ * Refuses a project's operator-only script from the agent's shell.
+ *
+ * `operator_only` in droost/droost.yml names scripts that are the
+ * OPERATOR's signature — arming tracker writes, say — the way bypass and
+ * gate-waive are droost's. Run directly or through an interpreter or a
+ * wrapper, from the agent's shell, each is refused, run or no run.
+ *
+ * @param string $command
+ *   The command as the agent typed it.
+ * @param string $root
+ *   The project root.
+ */
+function guard_operator_only(string $command, string $root): void {
+  $scripts = guard_project_rules($root)['operator_only'];
+  if ($scripts === [] || trim($command) === '') {
+    return;
+  }
+  $rootPaths = array_unique([rtrim($root, '/'), rtrim((string) (realpath($root) ?: $root), '/')]);
+  foreach (operator_commands_invocations(operator_commands_scan_text($command)) as $tokens) {
+    $plain = operator_commands_unwrapped(array_map(static fn (string $t): string => trim(ltrim($t, "\x01"), '\'"'), $tokens));
+    if ($plain === []) {
+      continue;
+    }
+    $candidates = [$plain[0]];
+    if (in_array(strtolower(basename($plain[0])), ['php', 'sh', 'bash', 'zsh', 'dash', 'source', '.'], TRUE)) {
+      foreach (array_slice($plain, 1) as $word) {
+        if ($word !== '' && !str_starts_with($word, '-')) {
+          $candidates[] = $word;
+          break;
+        }
+      }
+    }
+    if (strtolower(basename($plain[0])) === 'ddev' && ($plain[1] ?? '') === 'exec') {
+      $candidates[] = $plain[2] ?? '';
+    }
+    foreach ($candidates as $word) {
+      $relative = $word;
+      foreach ($rootPaths as $rootPath) {
+        if (str_starts_with($relative, $rootPath . '/')) {
+          $relative = substr($relative, strlen($rootPath) + 1);
+        }
+      }
+      $relative = (string) preg_replace('#^(\./)+#', '', $relative);
+      if (in_array($relative, $scripts, TRUE)) {
+        guard_refuse('operator-only', sprintf(
+          '`%s` is one of this project\'s operator-only scripts (operator_only in droost/droost.yml): it is the OPERATOR\'s signature, never the agent\'s, run or no run. Show the operator the exact command and why, and let them run it in their own terminal.',
+          $relative,
+        ));
+      }
+    }
+  }
 }

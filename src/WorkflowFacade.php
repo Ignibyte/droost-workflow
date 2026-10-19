@@ -10,6 +10,7 @@ use Droost\Workflow\Baseline\BaselineError;
 use Droost\Workflow\Baseline\BaselineStore;
 use Droost\Workflow\Baseline\BaselineWriter;
 use Droost\Workflow\Cli\CliProcess;
+use Droost\Workflow\Event\ProjectHooks;
 use Droost\Workflow\State\StateError;
 use Droost\Workflow\Vcs\CliVcs;
 use Droost\Workflow\Vcs\RefResolverInterface;
@@ -3471,6 +3472,23 @@ final class WorkflowFacade {
     (new RunEventLog($store->directory(), NULL, fn (): string => $this->now()))
       ->append($state->runId, is_string($workItem) ? $workItem : NULL, $type, $payload);
     $this->relayEvents();
+    // The project's hook for this event, told and never asked: a hook that
+    // fails is recorded beside the run, and the run goes on.
+    $this->notify(function () use ($store, $state, $type, $payload, $workItem): void {
+      if (!isset(ProjectHooks::EVENTS[$type])) {
+        return;
+      }
+      $hooks = WorkflowConfig::load($store->projectRoot())->hooks;
+      if ($hooks === []) {
+        return;
+      }
+      (new ProjectHooks($store->projectRoot(), $store->directory(), $hooks))->fire($type, [
+        'run_id' => $state->runId,
+        'phase' => is_string($payload['phase'] ?? NULL) ? $payload['phase'] : $state->currentPhase?->value,
+        'work_item' => is_string($workItem) ? $workItem : NULL,
+        'payload' => $payload,
+      ], $state->ruleFiles, $this->now());
+    });
   }
 
   /**
