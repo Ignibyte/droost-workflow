@@ -65,6 +65,14 @@ final class PackManifest {
     // before any run. A skill every host reads, and its Claude Code pointer.
     'skills/intake/SKILL.md'
     => '.claude/skills/intake/SKILL.md',
+    // The knowledge commands plan consults (owner, 2026-10-19): the workflow
+    // forces the consult, and these say how.
+    'skills/droost-code-wiki/SKILL.md'
+    => '.claude/skills/droost-code-wiki/SKILL.md',
+    'skills/droost-code-tree/SKILL.md'
+    => '.claude/skills/droost-code-tree/SKILL.md',
+    'skills/droost-search-arch/SKILL.md'
+    => '.claude/skills/droost-search-arch/SKILL.md',
     'commands/droost/workflow/start.md'
     => '.claude/commands/droost/workflow/start.md',
     'commands/droost/workflow/continue.md'
