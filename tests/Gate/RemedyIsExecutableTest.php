@@ -15,6 +15,7 @@ use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\State\RunState;
+use Droost\Workflow\Tests\Levers;
 use Droost\Workflow\Tests\WorkflowTestCase;
 
 /**
@@ -164,7 +165,7 @@ final class RemedyIsExecutableTest extends WorkflowTestCase {
 
     // The operator does exactly what the remedy says, mid-run.
     file_put_contents(
-      $root . '/droost.workflow.yml',
+      Levers::path($root),
       "preset: custom\ngates:\n  phpstan: { level: 6, paths: \"src\" }\n",
     );
     $report = (new GateRunner($executor, new NullSiteDriver()))->run($state, Phase::Code, $root);

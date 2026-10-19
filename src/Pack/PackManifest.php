@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Pack;
 
+use Droost\Workflow\Config\ConfigLocator;
+
 /**
  * The sole enumerator of what the pack contains.
  *
@@ -34,9 +36,14 @@ final class PackManifest {
   public const SENTINEL = '.droost-workflow-pack';
 
   /**
-   * The lever file, written to the project root only when absent.
+   * The lever file, written only when the project has none (ConfigLocator).
    */
-  public const string CONFIG_FILE = 'droost.workflow.yml';
+  public const string CONFIG_FILE = ConfigLocator::PATH;
+
+  /**
+   * The lever file's template, under the pack's source directory.
+   */
+  public const string CONFIG_TEMPLATE = 'droost.yml';
 
   /**
    * Pack files, as source path => destination path under the project root.
@@ -228,8 +235,7 @@ final class PackManifest {
    *   TRUE when a lever file is present and must be left alone.
    */
   public static function hasConfigFile(string $root): bool {
-    $path = rtrim($root, '/') . '/' . self::CONFIG_FILE;
-    return file_exists($path) || is_link($path);
+    return ConfigLocator::found($root) !== NULL;
   }
 
 }

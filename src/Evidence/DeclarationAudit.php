@@ -114,6 +114,7 @@ final class DeclarationAudit {
     // held to. The two rules are load-bearing together: loosen either and
     // an agent can rewrite its own brief mid-run with nothing saying so.
     '.claude/',
+    'droost/droost.yml',
     'droost.workflow.yml',
     // Init appends its ignore rule here.
     '.gitignore',

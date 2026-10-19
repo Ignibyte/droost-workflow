@@ -11,6 +11,7 @@ use Droost\Workflow\Baseline\BaselineContext;
 use Droost\Workflow\Baseline\BaselineError;
 use Droost\Workflow\Baseline\BaselineStore;
 use Droost\Workflow\Cli\CliProcess;
+use Droost\Workflow\Config\ConfigLocator;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\PresetResolver;
@@ -970,7 +971,8 @@ final class GateRunner {
    *   Gate name to its currently resolved levers.
    */
   private function liveTuning(string $projectRoot): array {
-    if (!is_file(rtrim($projectRoot, '/') . '/' . WorkflowConfig::FILENAME)) {
+    $levers = ConfigLocator::found($projectRoot);
+    if ($levers === NULL || !is_file(rtrim($projectRoot, '/') . '/' . $levers)) {
       return [];
     }
     try {

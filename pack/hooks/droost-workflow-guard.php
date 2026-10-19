@@ -96,7 +96,7 @@ if (!$named) {
       $boundary = NULL;
       break;
     }
-    if ($levers === NULL && is_file($here . '/droost.workflow.yml')) {
+    if ($levers === NULL && (is_file($here . '/droost/droost.yml') || is_file($here . '/droost.workflow.yml'))) {
       $levers = $here;
     }
     // A worktree and a submodule carry `.git` as a FILE, so `is_dir` alone
@@ -5174,12 +5174,25 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
       . 'wrong, the OPERATOR re-captures it with `droost-parity capture` '
       . 'before a run.';
   }
-  if (preg_match('#^droost\.workflow\.yml$#', $relative) === 1) {
+  if (preg_match('#^(droost/droost\.yml|droost\.workflow\.yml)$#', $relative) === 1) {
     return 'The lever file sets what this run is held to, and a run is under '
       . 'way. Its levers were frozen when the run began, so editing it now '
       . 'cannot change THIS run — but it changes the next one, and moving the '
       . 'effort dial is the operator\'s decision rather than the agent\'s. '
       . 'Before a run, it is an ordinary file.';
+  }
+  // THE PROJECT'S OWN RULES (droost off Drupal, 2026-10-19): the gate, hook
+  // and wall files `droost/droost.yml` points at, and the text droost adds to
+  // the AGENTS block. A run froze their hashes when it began, and the gate
+  // that runs a changed file names it — but an agent that can rewrite the
+  // gate judging it has replaced the verdict, so the earlier word is here.
+  if (preg_match('#^droost/(gates|hooks|walls)(/|$)#', $relative) === 1
+    || $relative === 'droost/agents.md') {
+    return 'That is one of the project\'s own rules: a gate, hook or wall file '
+      . 'droost/droost.yml runs, or the text it adds to AGENTS.md. A run is under '
+      . 'way, and it is held to these as they stood when it began; a gate you '
+      . 'can rewrite is not a gate. Read them as much as you like. Change them '
+      . 'before a run, or ask the OPERATOR.';
   }
   // COMMANDS too. Skills and agents were refused and `.claude/commands/` was
   // not, and a slash command is the same thing wearing a different extension:
@@ -5673,7 +5686,7 @@ function enforcement_path_markers(): string {
   return '#droost-workflow-guard\.php|\brun\.json|\bbypass\.json|evidence\.sqlite'
     . '|tool-calls\.jsonl|guard-calls\.jsonl|scaffolded\.jsonl|\bpack\.lock'
     . '|settings\.local\.json|\bsettings\.json|settings\.droost\.php'
-    . '|droost\.workflow\.yml|\.claude/hooks|\.claude/(?:skills|agents|commands)'
+    . '|droost\.workflow\.yml|droost/droost\.yml|\.claude/hooks|\.claude/(?:skills|agents|commands)'
     . '|droost/droost-workflow|\.droost-workflow|droost/baseline#';
 }
 
@@ -6308,7 +6321,16 @@ function enforcement_protected_files(string $root, string $stateDir): array {
     }
     return enforcement_refusal_for($relative, $root, $stateDir) !== '';
   };
-  foreach (array_unique([...$wholeTrees, '.claude', 'vendor/bin', 'node_modules/.bin']) as $tree) {
+  $walked = [
+    ...$wholeTrees,
+    '.claude',
+    'vendor/bin',
+    'node_modules/.bin',
+    'droost/gates',
+    'droost/hooks',
+    'droost/walls',
+  ];
+  foreach (array_unique($walked) as $tree) {
     if ($tree === '' || !is_dir($root . '/' . $tree)) {
       continue;
     }
@@ -6316,7 +6338,7 @@ function enforcement_protected_files(string $root, string $stateDir): array {
   }
   $found = array_values(array_filter($found, $include));
   // The standalone files, wherever the rule places them.
-  $candidates = ['droost.workflow.yml'];
+  $candidates = ['droost/droost.yml', 'droost.workflow.yml', 'droost/agents.md'];
   foreach (glob($root . '/{web/,docroot/,}sites/*/settings*.php', GLOB_BRACE) ?: [] as $absolute) {
     $candidates[] = ltrim(substr($absolute, strlen($root)), '/');
   }
@@ -6837,6 +6859,29 @@ function require_run_names_path(string $root, string $file, string $levers): boo
 }
 
 /**
+ * The lever file in force, absolute, or '' when the project has none.
+ *
+ * `droost/droost.yml`, or the root `droost.workflow.yml` a project keeps for
+ * one release. Mirrors ConfigLocator::found(), which `PackGuardParityTest`
+ * holds this copy to.
+ *
+ * @param string $root
+ *   The project root.
+ *
+ * @return string
+ *   The absolute path, or ''.
+ */
+function guard_lever_file(string $root): string {
+  foreach (['droost/droost.yml', 'droost.workflow.yml'] as $relative) {
+    if (is_file(rtrim($root, '/') . '/' . $relative)) {
+      return rtrim($root, '/') . '/' . $relative;
+    }
+  }
+
+  return '';
+}
+
+/**
  * Refuses ungoverned custom-code edits when no run is ACTIVE (require_run).
  *
  * The one gap "no run, no opinion" leaves open: an agent quietly building
@@ -6851,7 +6896,7 @@ function require_run_names_path(string $root, string $file, string $levers): boo
  * paths land here, so finishing ticket A never leaves ticket B ungoverned and
  * corrupting run.json is not a self-disarm.
  *
- * The level lives in droost.workflow.yml (require_run: hard|soft|off), read
+ * The level lives in droost/droost.yml (require_run: hard|soft|off), read
  * here with a dependency-free regex because the hook cannot boot Drupal;
  * absent or unreadable defaults to hard, because building is exactly where the
  * pipeline must engage. hard blocks (exit 2) and names the two ways forward —
@@ -6873,8 +6918,8 @@ function require_run_guard(string $root, string $mode, string $stdin, string $st
     return;
   }
   $level = 'hard';
-  $lever = $root . '/droost.workflow.yml';
-  $levers = is_file($lever) ? (string) file_get_contents($lever) : '';
+  $lever = guard_lever_file($root);
+  $levers = $lever !== '' ? (string) file_get_contents($lever) : '';
   // Optional quotes: the lever parser reads "off" and off as the same value,
   // so the regex must too — or the hook enforces hard while status says off.
   if (preg_match('/^require_run:\s*["\']?(hard|soft|off)\b["\']?/m', $levers, $m) === 1) {

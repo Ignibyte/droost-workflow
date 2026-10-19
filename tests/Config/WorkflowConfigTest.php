@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Config;
 
+use Droost\Workflow\Tests\Levers;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\Config\ConfigError;
 use Droost\Workflow\Support\DataError;
@@ -347,7 +348,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
     string $expected,
   ): void {
     $root = $this->makeRoot();
-    $path = $root . '/droost.workflow.yml';
+    $path = Levers::path($root);
     match ($kind) {
       'directory' => mkdir($path, 0755),
       'dangling symlink' => symlink($root . '/gone', $path),
@@ -572,7 +573,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
     }
     catch (ConfigError $e) {
       $this->assertStringNotContainsString($root, $e->getMessage());
-      $this->assertStringContainsString('droost.workflow.yml', $e->getMessage());
+      $this->assertStringContainsString('droost/droost.yml', $e->getMessage());
     }
   }
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Pack;
 
+use Droost\Workflow\Tests\Levers;
 use Droost\Workflow\Tests\WorkflowTestCase;
 
 /**
@@ -156,6 +157,9 @@ final class GuardReadOnlyReviewerTest extends WorkflowTestCase {
     [$exit] = $this->attempt($root, "find . -path '*droost*' -name '*.json' -o -name x -delete");
     $this->assertSame(2, $exit, 'an action after -o still writes');
 
+    // A legacy lever file at the root: `*droost*` reaches it, and the guard
+    // still holds it for the one release it is read.
+    file_put_contents($root . '/droost.workflow.yml', "preset: custom\n");
     [$exit, , $stderr] = $this->attempt($root, "mytool '*droost*'");
     $this->assertSame(2, $exit);
     $this->assertStringContainsString('`mytool` is not a program this guard knows to only read', $stderr);
@@ -235,7 +239,7 @@ final class GuardReadOnlyReviewerTest extends WorkflowTestCase {
       mkdir($root . '/' . $directory, 0755, TRUE);
     }
     file_put_contents($root . '/vendor/droost/workflow/src/Gate/ShellGateExecutor.php', "<?php\n");
-    file_put_contents($root . '/droost.workflow.yml', "preset: custom\n");
+    file_put_contents(Levers::path($root), "preset: custom\n");
     file_put_contents($root . '/.claude/hooks/droost-workflow-guard.php', "<?php\n");
     file_put_contents($root . '/droost/baseline/manifest.json', "{}\n");
     file_put_contents($root . '/droost/droost-workflow/history/run-96507f1e60f4.spec.md', "## Grounding\n");

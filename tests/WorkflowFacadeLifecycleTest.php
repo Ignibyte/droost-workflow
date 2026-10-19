@@ -447,7 +447,7 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
     $this->facade($executor)->run($root);
 
     // Break the lever file AFTER the run began (its levers are frozen).
-    file_put_contents($root . '/droost.workflow.yml', "presett: custom\n");
+    file_put_contents(Levers::path($root), "presett: custom\n");
 
     try {
       $this->facade($executor)->reset($root);

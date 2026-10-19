@@ -50,7 +50,7 @@ abstract class WorkflowTestCase extends TestCase {
    */
   protected function makeRootWithConfig(string $yaml): string {
     $root = $this->makeRoot();
-    file_put_contents($root . '/droost.workflow.yml', $yaml);
+    file_put_contents(Levers::path($root), $yaml);
     $this->writeSpec($root);
     return $root;
   }

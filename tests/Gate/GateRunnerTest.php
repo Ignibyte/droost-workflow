@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Gate;
 
+use Droost\Workflow\Tests\Levers;
 use Droost\Workflow\Vcs\VcsInterface;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\Config\GateSettings;
@@ -603,7 +604,7 @@ class GateRunnerTest extends WorkflowTestCase {
 
     };
     $runner = new GateRunner($executor, new NullSiteDriver());
-    file_put_contents($root . '/droost.workflow.yml', "preset: custom\ngates:\n  phpcs: { standard: \"phpcs.xml\" }\n");
+    file_put_contents(Levers::path($root), "preset: custom\ngates:\n  phpcs: { standard: \"phpcs.xml\" }\n");
 
     $phpcs = NULL;
     foreach ($runner->run($state, Phase::Complete, $root)->results as $result) {
@@ -666,7 +667,7 @@ class GateRunnerTest extends WorkflowTestCase {
     // The operator fixes the ruleset mid-run and, illegitimately, tries to
     // switch a gate on that the run began without.
     file_put_contents(
-      $root . '/droost.workflow.yml',
+      Levers::path($root),
       "preset: custom\ngates:\n  phpcs: { standard: \"phpcs.xml\" }\n  mutation: { on: true, msi_min: 70 }\n",
     );
     $report = $runner->run($state, Phase::Complete, $root);
@@ -682,7 +683,7 @@ class GateRunnerTest extends WorkflowTestCase {
     $this->assertSame(GateStatus::Off, $mutation->status);
 
     // A file that no longer parses leaves the frozen record in force.
-    file_put_contents($root . '/droost.workflow.yml', "gates:\n  phpstain: { on: true }\n");
+    file_put_contents(Levers::path($root), "gates:\n  phpstain: { on: true }\n");
     $report = $runner->run($state, Phase::Code, $root);
     $this->assertSame('Drupal', $executor->seen['phpcs']->option('standard'));
     $phpcs = $byGate($report->results, 'phpcs');

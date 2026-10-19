@@ -331,7 +331,7 @@ final class ArgvDispatcher {
         || is_file($here . '/.droost-workflow/run.json')) {
         return $here;
       }
-      if ($levers === NULL && is_file($here . '/droost.workflow.yml')) {
+      if ($levers === NULL && (is_file($here . '/droost/droost.yml') || is_file($here . '/droost.workflow.yml'))) {
         $levers = $here;
       }
       // A repository boundary is a hard stop, checked AFTER the directory

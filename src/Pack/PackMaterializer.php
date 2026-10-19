@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Pack;
 
+use Droost\Workflow\Config\ConfigLocator;
 use Droost\Workflow\Config\PhpcsStandard;
 use Droost\Workflow\State\RunStateStore;
 use Droost\Workflow\Support\TypedArray;
@@ -738,25 +739,31 @@ final class PackMaterializer {
     $to = $root . '/' . $destination;
 
     // Never refresh a lever file. It is version-controlled intent that
-    // somebody wrote; re-running init must not quietly reset their gates.
-    if (PackManifest::hasConfigFile($root)) {
-      return $report->withKept($destination);
+    // somebody wrote; re-running init must not quietly reset their gates. A
+    // project still on the root droost.workflow.yml keeps it, and every lever
+    // report says where it should move (ConfigLocator).
+    $existing = ConfigLocator::found($root);
+    if ($existing !== NULL) {
+      return $report->withKept($existing);
     }
 
     $from = $this->packageRoot . '/' . PackManifest::SOURCE_DIR
-      . '/' . PackManifest::CONFIG_FILE;
+      . '/' . PackManifest::CONFIG_TEMPLATE;
     if (!is_file($from)) {
       throw PackError::sourceMissing(
-        PackManifest::SOURCE_DIR . '/' . PackManifest::CONFIG_FILE,
+        PackManifest::SOURCE_DIR . '/' . PackManifest::CONFIG_TEMPLATE,
       );
     }
     $contents = file_get_contents($from);
     if ($contents === FALSE) {
       throw PackError::sourceMissing(
-        PackManifest::SOURCE_DIR . '/' . PackManifest::CONFIG_FILE,
+        PackManifest::SOURCE_DIR . '/' . PackManifest::CONFIG_TEMPLATE,
       );
     }
     $contents = self::standardThisProjectHas($root, $contents);
+    if (!is_dir(dirname($to)) && !@mkdir(dirname($to), 0755, TRUE) && !is_dir(dirname($to))) {
+      throw PackError::unwritable($destination, 'its directory could not be created');
+    }
     if (@file_put_contents($to, $contents) !== strlen($contents)) {
       throw PackError::unwritable($destination, 'the write did not complete');
     }

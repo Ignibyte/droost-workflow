@@ -12,6 +12,7 @@ use Droost\Workflow\Evidence\Fault;
 use Droost\Workflow\Knowledge\PlanGroundedCheck;
 use Droost\Workflow\State\RunStateStore;
 use Droost\Workflow\Tests\Evidence\ReadsTheStore;
+use Droost\Workflow\Tests\Levers;
 use Droost\Workflow\Tests\WorkflowTestCase;
 
 /**
@@ -217,7 +218,7 @@ final class PlanGroundedCheckTest extends WorkflowTestCase {
    */
   public function testTheBinaryHoldsPlan(): void {
     $root = $this->project();
-    file_put_contents($root . '/droost.workflow.yml', "preset: custom\nseekers: { on: false }\n");
+    file_put_contents(Levers::path($root), "preset: custom\nseekers: { on: false }\n");
     $lines = [];
     $sink = function (string $line) use (&$lines): void {
       $lines[] = $line;

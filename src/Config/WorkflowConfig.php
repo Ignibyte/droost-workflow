@@ -13,7 +13,8 @@ use Symfony\Component\Yaml\Yaml;
 /**
  * The resolved levers for a workflow run.
  *
- * Read from a repo-root droost.workflow.yml with no Drupal in the picture: the
+ * Read from the project's droost/droost.yml (ConfigLocator; the root
+ * droost.workflow.yml for one release) with no Drupal in the picture: the
  * agent must be able to read its own levers while the site is mid-build or
  * broken, and a plain Claude Code or Codex user must get the same answers from
  * the same file with no site at all. Nothing in this class, or anything it
@@ -26,9 +27,9 @@ use Symfony\Component\Yaml\Yaml;
 final class WorkflowConfig {
 
   /**
-   * The lever file's name at the project root.
+   * The lever file, relative to the project root (ConfigLocator::PATH).
    */
-  public const FILENAME = 'droost.workflow.yml';
+  public const FILENAME = ConfigLocator::PATH;
 
   /**
    * The top-level keys the file may contain.
@@ -232,8 +233,12 @@ final class WorkflowConfig {
    *   directory.
    */
   public static function load(string $projectRoot, ?array $contributed = NULL): self {
-    $path = TypedArray::requireProjectRoot($projectRoot)
-      . '/' . self::FILENAME;
+    $root = TypedArray::requireProjectRoot($projectRoot);
+    // Where the levers are: droost/droost.yml, or the root
+    // droost.workflow.yml for one release, with a notice naming the new file.
+    $relative = ConfigLocator::relative($root);
+    $path = $root . '/' . $relative;
+    $notices = ConfigLocator::isLegacy($root) ? [ConfigLocator::legacyNotice()] : [];
 
     // is_link() first: file_exists() FOLLOWS a symlink, so a dangling one
     // reads as "no file" and would hand back the built-in levers — the exact
@@ -247,17 +252,17 @@ final class WorkflowConfig {
     // different ones and call that normal. Only genuine absence is allowed to
     // fall back.
     if (!is_file($path)) {
-      throw ConfigError::notRegularFile(self::FILENAME);
+      throw ConfigError::notRegularFile($relative);
     }
     if (!is_readable($path)) {
-      throw ConfigError::unreadable(self::FILENAME);
+      throw ConfigError::unreadable($relative);
     }
 
     try {
       $parsed = Yaml::parseFile($path);
     }
     catch (ParseException $e) {
-      throw ConfigError::unparseable(self::FILENAME, $e, $path);
+      throw ConfigError::unparseable($relative, $e, $path);
     }
 
     // An empty file is a legitimate statement: "the defaults, and I have
@@ -266,16 +271,16 @@ final class WorkflowConfig {
       $parsed = [];
     }
     if (!is_array($parsed)) {
-      throw ConfigError::notMapping(self::FILENAME, get_debug_type($parsed));
+      throw ConfigError::notMapping($relative, get_debug_type($parsed));
     }
     // A YAML sequence decodes to a PHP array too, so is_array() alone lets a
     // list through to be reported as an unknown setting called "0" — true, but
     // useless. An empty array is exempt: that is the empty file above.
     if ($parsed !== [] && array_is_list($parsed)) {
-      throw ConfigError::notMapping(self::FILENAME, 'a list');
+      throw ConfigError::notMapping($relative, 'a list');
     }
 
-    return self::fromArray($parsed, self::FILENAME, Provenance::File, $contributed, $projectRoot);
+    return self::fromArray($parsed, $relative, Provenance::File, $contributed, $projectRoot, $notices);
   }
 
   /**
@@ -303,6 +308,9 @@ final class WorkflowConfig {
    * @param string|null $projectRoot
    *   The project the document is for, when there is one — what a level's
    *   phpcs standard is checked against. NULL leaves the standard as asked.
+   * @param list<string> $notices
+   *   Notices the caller already holds about the document (the legacy
+   *   location), carried first in the deprecations every report shows.
    *
    * @return self
    *   The resolved configuration.
@@ -317,17 +325,19 @@ final class WorkflowConfig {
     Provenance $provenance = Provenance::File,
     ?array $contributed = NULL,
     ?string $projectRoot = NULL,
+    array $notices = [],
   ): self {
     $root = TypedArray::authored($raw);
 
     foreach ($root->keys() as $key) {
-      if (!in_array($key, self::KNOWN_SETTINGS, TRUE)) {
+      if (!in_array($key, self::KNOWN_SETTINGS, TRUE)
+        && !self::isProjectBlock($key, $raw[$key] ?? NULL)) {
         throw ConfigError::unknownSetting($source, $key, self::KNOWN_SETTINGS);
       }
     }
 
     try {
-      $deprecations = [];
+      $deprecations = array_values($notices);
       $declared = $root->optionalString(
         'preset',
         PresetResolver::DEFAULT_PRESET,
@@ -468,6 +478,38 @@ final class WorkflowConfig {
     catch (DataError $e) {
       throw ConfigError::fromData($source, $e);
     }
+  }
+
+  /**
+   * Whether an unknown top-level key is a project's own settings block.
+   *
+   * Droost.yml is the project's file, and a project's gate, hook and wall
+   * files read their own settings from it (`acme: { webroot }`).
+   * A mapping under a name that is not a near-miss of a lever is that, and is
+   * left to the files that read it. A near-miss (`gate:`, `seeker:`) and a
+   * scalar (`presett: custom`) are still typos, and still refused: a config
+   * loader that shrugs at a misspelt lever hands back a run with that lever
+   * quietly at its default.
+   *
+   * @param string $key
+   *   The top-level key.
+   * @param mixed $value
+   *   Its value.
+   *
+   * @return bool
+   *   TRUE when the key is a project block to leave alone.
+   */
+  private static function isProjectBlock(string $key, mixed $value): bool {
+    if (!is_array($value) || ($value !== [] && array_is_list($value))) {
+      return FALSE;
+    }
+    foreach (self::KNOWN_SETTINGS as $known) {
+      if (levenshtein($key, $known) <= 2 || str_starts_with($known, $key) || str_starts_with($key, $known)) {
+        return FALSE;
+      }
+    }
+
+    return preg_match('/^[a-z][a-z0-9_]*$/', $key) === 1;
   }
 
   /**

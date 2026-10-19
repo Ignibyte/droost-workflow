@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Pack;
 
+use Droost\Workflow\Config\ConfigLocator;
 use Droost\Workflow\State\RunStateStore;
 
 /**
@@ -269,8 +270,9 @@ final class PackRemover {
    */
   private function leftForTheOperator(string $root): array {
     $left = [];
-    if (PackManifest::hasConfigFile($root)) {
-      $left[] = PackManifest::CONFIG_FILE;
+    $levers = ConfigLocator::found($root);
+    if ($levers !== NULL) {
+      $left[] = $levers;
     }
     foreach (['droost/droost-workflow', '.droost-workflow'] as $relative) {
       if (is_dir($root . '/' . $relative)) {

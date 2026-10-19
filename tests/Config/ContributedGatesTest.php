@@ -17,6 +17,7 @@ use Droost\Workflow\Gate\ShellGateExecutor;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\Support\TypedArray;
+use Droost\Workflow\Tests\Levers;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\WorkflowFacade;
 
@@ -245,13 +246,13 @@ final class ContributedGatesTest extends WorkflowTestCase {
     $this->assertStringContainsString('what this means', $snyk->summary);
     $this->assertTrue($report->advance(), 'report mode: findings recorded, phase advances');
 
-    file_put_contents($root . '/droost.workflow.yml', "preset: high\ngates:\n  contributed:\n    snyk: { mode: block }\n");
+    file_put_contents(Levers::path($root), "preset: high\ngates:\n  contributed:\n    snyk: { mode: block }\n");
     $config = WorkflowConfig::load($root, [$this->snyk()]);
     $report = $runner->run(RunState::begin('r', 't', $config), Phase::Code, $root);
     $this->assertSame(GateStatus::Failed, $this->resultFor($report, 'module:snyk')->status);
     $this->assertFalse($report->advance(), 'block mode: the coding phase does not continue');
 
-    file_put_contents($root . '/droost.workflow.yml', "preset: high\ngates:\n  contributed:\n    snyk: { on: false }\n");
+    file_put_contents(Levers::path($root), "preset: high\ngates:\n  contributed:\n    snyk: { on: false }\n");
     $config = WorkflowConfig::load($root, [$this->snyk()]);
     $report = $runner->run(RunState::begin('r', 't', $config), Phase::Code, $root);
     $off = $this->resultFor($report, 'module:snyk');

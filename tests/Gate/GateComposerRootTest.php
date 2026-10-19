@@ -10,6 +10,7 @@ use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Gate\ShellGateExecutor;
 use Droost\Workflow\Mode\RunStateOnlySink;
+use Droost\Workflow\Tests\Levers;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\WorkflowFacade;
 
@@ -182,7 +183,7 @@ class GateComposerRootTest extends WorkflowTestCase {
     $root = $this->druplit();
     mkdir($root . '/site/vendor/drupal/coder/coder_sniffer/Drupal', 0755, TRUE);
     file_put_contents($root . '/site/vendor/drupal/coder/coder_sniffer/Drupal/ruleset.xml', "<ruleset/>\n");
-    file_put_contents($root . '/droost.workflow.yml', "preset: low\ngates:\n  phpcs:\n    root: site\n  phpstan:\n    root: site\n");
+    file_put_contents(Levers::path($root), "preset: low\ngates:\n  phpcs:\n    root: site\n  phpstan:\n    root: site\n");
     $facade = new WorkflowFacade(
       new ShellGateExecutor(static fn (): array => [0, '', ''], static fn (): int => 0),
       new NullSiteDriver(),

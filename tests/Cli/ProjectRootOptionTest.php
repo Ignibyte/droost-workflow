@@ -8,6 +8,7 @@ use Droost\Workflow\Cli\ArgvDispatcher;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
+use Droost\Workflow\Tests\Levers;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -38,7 +39,7 @@ final class ProjectRootOptionTest extends TestCase {
     $this->root = sys_get_temp_dir() . '/droost-proj-' . bin2hex(random_bytes(6));
     mkdir($this->root . '/sub/deeper', 0775, TRUE);
     file_put_contents(
-      $this->root . '/droost.workflow.yml',
+      Levers::path($this->root),
       "preset: medium\nmode: agentic\n",
     );
   }
@@ -411,7 +412,7 @@ final class ProjectRootOptionTest extends TestCase {
 
     $this->assertSame(0, $code);
     $this->assertFileExists(
-      $this->root . '/lib/sub/droost.workflow.yml',
+      $this->root . '/lib/sub/droost/droost.yml',
       'init initialises where it was run',
     );
   }

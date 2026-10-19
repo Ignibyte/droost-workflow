@@ -7,6 +7,7 @@ namespace Droost\Workflow\Tests\Driver;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
+use Droost\Workflow\Tests\Levers;
 
 /**
  * An open run whose spec carries a `## Routes` section, for driver tests.
@@ -30,7 +31,7 @@ final class RunWithSpec {
     if (!is_dir($dir)) {
       mkdir($dir, 0755, TRUE);
     }
-    file_put_contents($root . '/droost.workflow.yml', "preset: custom\nseekers: { on: false }\n");
+    file_put_contents(Levers::path($root), "preset: custom\nseekers: { on: false }\n");
     file_put_contents(
       $dir . '/spec-routes.md',
       "# Spec\n\n## Notes\n\n- fixture\n\n## Routes\n\n" . $routes . "\n",
@@ -54,7 +55,7 @@ final class RunWithSpec {
     }
     @rmdir($dir);
     @rmdir($root . '/droost');
-    @unlink($root . '/droost.workflow.yml');
+    @unlink(Levers::path($root));
   }
 
   /**
