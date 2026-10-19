@@ -194,7 +194,7 @@ final class GuardNudgeTest extends WorkflowTestCase {
    */
   public function testTheNudgeIsWiredAfterTheCall(): void {
     $this->assertStringContainsString("['PostToolUse', [", (string) file_get_contents(dirname(__DIR__, 2) . '/src/Pack/PackMaterializer.php'));
-    $this->assertStringContainsString("\$guard . ' nudge'", (string) file_get_contents(dirname(__DIR__, 2) . '/src/Pack/PackMaterializer.php'));
+    $this->assertStringContainsString("\$guard . ' nudge --harness=claude'", (string) file_get_contents(dirname(__DIR__, 2) . '/src/Pack/PackMaterializer.php'));
   }
 
 }

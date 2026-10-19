@@ -11,6 +11,7 @@ use Droost\Workflow\Baseline\BaselineStore;
 use Droost\Workflow\Baseline\BaselineWriter;
 use Droost\Workflow\Cli\CliProcess;
 use Droost\Workflow\Event\ProjectHooks;
+use Droost\Workflow\Pack\PackManifest;
 use Droost\Workflow\State\StateError;
 use Droost\Workflow\Vcs\CliVcs;
 use Droost\Workflow\Vcs\RefResolverInterface;
@@ -1337,6 +1338,32 @@ final class WorkflowFacade {
   }
 
   /**
+   * Whether the project's Claude Code settings wire the guard for a mode.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $mode
+   *   The guard mode.
+   *
+   * @return bool
+   *   TRUE when a hook command runs droost's guard in that mode.
+   */
+  private static function guardWired(string $projectRoot, string $mode): bool {
+    $settings = json_decode((string) @file_get_contents(rtrim($projectRoot, '/') . '/.claude/settings.json'), TRUE);
+    $hooks = is_array($settings) && is_array($settings['hooks'] ?? NULL) ? $settings['hooks'] : [];
+    foreach ($hooks as $entries) {
+      foreach (is_array($entries) ? $entries : [] as $entry) {
+        foreach (is_array($entry) && is_array($entry['hooks'] ?? NULL) ? $entry['hooks'] : [] as $hook) {
+          if (is_array($hook) && is_string($hook['command'] ?? NULL) && PackManifest::guardMode($hook['command']) === $mode) {
+            return TRUE;
+          }
+        }
+      }
+    }
+    return FALSE;
+  }
+
+  /**
    * Whether a seeker ran for the ledger being filed.
    *
    * The guard writes a row for every subagent that returns (PostToolUse on
@@ -1367,8 +1394,7 @@ final class WorkflowFacade {
    *   When every seeker that returned kept a ledger, and this is none of them.
    */
   private function seekerDispatch(string $projectRoot, RunStateStore $store, RunState $state, ?string $digest = NULL): string {
-    $settings = @file_get_contents(rtrim($projectRoot, '/') . '/.claude/settings.json');
-    if (!is_string($settings) || !str_contains($settings, 'droost-workflow-guard.php\\" dispatched')) {
+    if (!self::guardWired($projectRoot, 'dispatched')) {
       return 'unverified';
     }
     $floor = strtotime(self::lastLedgerAt($state));

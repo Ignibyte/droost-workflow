@@ -217,7 +217,7 @@ final class PackRemover {
     foreach (is_array($entry['hooks'] ?? NULL) ? $entry['hooks'] : [] as $hook) {
       if (is_array($hook)
         && is_string($hook['command'] ?? NULL)
-        && str_contains($hook['command'], 'droost-workflow-guard.php')) {
+        && PackManifest::guardMode($hook['command']) !== NULL) {
         return TRUE;
       }
     }

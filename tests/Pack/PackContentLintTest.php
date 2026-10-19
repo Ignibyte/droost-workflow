@@ -62,7 +62,9 @@ class PackContentLintTest extends TestCase {
       if (in_array($file->getFilename(), self::OS_ARTIFACTS, TRUE)) {
         continue;
       }
-      if ($relative !== PackManifest::CONFIG_TEMPLATE) {
+      // The lever template is written once, and the guard is never copied:
+      // each runs from the pack (droost off Drupal, 2026-10-19).
+      if ($relative !== PackManifest::CONFIG_TEMPLATE && $relative !== PackManifest::GUARD) {
         $onDisk[] = $relative;
       }
     }

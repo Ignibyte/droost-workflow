@@ -41,6 +41,43 @@ final class PackManifest {
   public const string CONFIG_FILE = ConfigLocator::PATH;
 
   /**
+   * The guard, under the pack's source directory: shipped, never copied.
+   *
+   * Each harness's hooks call it in the package through GUARD_ENTRY, and the
+   * guard protects the package it runs from (droost off Drupal, 2026-10-19).
+   */
+  public const string GUARD = 'hooks/droost-workflow-guard.php';
+
+  /**
+   * The guard's entry point, relative to the package root.
+   */
+  public const string GUARD_ENTRY = 'bin/droost-guard';
+
+  /**
+   * Where an earlier init copied the guard, relative to the project.
+   */
+  public const string LEGACY_GUARD = '.claude/hooks/droost-workflow-guard.php';
+
+  /**
+   * The guard mode a hook command runs, when it is droost's guard.
+   *
+   * Recognises the entry point and the copied script of earlier installs, so
+   * an install wired by any version is found, upgraded in place and never
+   * doubled.
+   *
+   * @param string $command
+   *   A hook's command line.
+   *
+   * @return string|null
+   *   The mode (pre-tool-use, stop, …), or NULL when it is not our guard.
+   */
+  public static function guardMode(string $command): ?string {
+    return preg_match('#(?:droost-workflow-guard\.php|droost-guard)"?\s+(?:guard\s+)?([a-z][a-z-]*)#', $command, $m) === 1
+      ? $m[1]
+      : NULL;
+  }
+
+  /**
    * The lever file's template, under the pack's source directory.
    */
   public const string CONFIG_TEMPLATE = 'droost.yml';
@@ -81,8 +118,6 @@ final class PackManifest {
     'commands/droost/workflow/intake.md'
     => '.claude/commands/droost/workflow/intake.md',
     'partials/droost-usage.md' => '.claude/partials/droost-usage.md',
-    'hooks/droost-workflow-guard.php'
-    => '.claude/hooks/droost-workflow-guard.php',
     'agents/workflow-researcher.md'
     => '.claude/agents/workflow-researcher.md',
     'agents/workflow-spec-writer.md'
