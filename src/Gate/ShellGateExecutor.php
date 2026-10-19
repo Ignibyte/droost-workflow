@@ -1556,12 +1556,12 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    * What the wiki gate looked at, said in its verdict.
    *
    * The exit code still decides: `droost code:wiki status` fails on any stale,
-   * orphaned or invalid page. But "wiki_fresh passed" was the entire record. In P6 run 3 it stood
-   * over one page written that same run while three extensions had none, and
-   * the status command put that in a note nothing kept. Without `--strict` an
-   * uncovered extension never fails, so the summary names them. A wiki with no
-   * managed page is fresh only by vacuity and measured nothing, so it is a
-   * labelled pass, as phpunit's NO TESTS RAN is.
+   * orphaned or invalid page. But "wiki_fresh passed" was the entire record. In
+   * P6 run 3 it stood over one page written that same run while three
+   * extensions had none, and the status command put that in a note nothing
+   * kept. Without `--strict` an uncovered extension never fails, so the summary
+   * names them. A wiki with no managed page is fresh only by vacuity and
+   * measured nothing, so it is a labelled pass, as phpunit's NO TESTS RAN is.
    *
    * @param int $exit
    *   The exit code.

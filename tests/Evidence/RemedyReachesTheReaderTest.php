@@ -107,22 +107,4 @@ final class RemedyReachesTheReaderTest extends TestCase {
     );
   }
 
-  /**
-   * The project's own lever still wins over the gate's built-in answer.
-   */
-  public function testTheProjectsOwnRemedyWins(): void {
-    $record = CheckRecord::fromGate(
-      GateResult::toolMissing('snyk', 'node_modules/.bin/snyk'),
-      NULL,
-      [],
-      'ask #security to add this runner to the CI image',
-    );
-
-    $this->assertSame(
-      'ask #security to add this runner to the CI image',
-      $record->remedy,
-      'a project that has said something more useful is not overruled',
-    );
-  }
-
 }

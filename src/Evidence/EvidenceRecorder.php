@@ -81,8 +81,6 @@ final class EvidenceRecorder {
               $this->projectRoot,
               SubjectHasher::fromLever($levers['paths'] ?? NULL) ?: $result->subjects,
             ),
-            self::declaredFaults($levers),
-            self::remedy($levers),
           ),
           $now,
         );
@@ -269,64 +267,6 @@ final class EvidenceRecorder {
       }
       return;
     }
-  }
-
-  /**
-   * The exit-code-to-fault map a gate declared for itself.
-   *
-   * A crashed tool is genuinely ambiguous — phpstan dying on PHP the agent just
-   * wrote is the agent's problem, snyk dying unauthenticated is not — and the
-   * module that owns the gate is the only place that knows which. It declares
-   * it once, in its own definition, rather than leaving every run to guess.
-   *
-   * @param array<string, mixed> $levers
-   *   The gate's frozen settings.
-   *
-   * @return array<int|string, string>
-   *   Exit code to fault name.
-   */
-  private static function declaredFaults(array $levers): array {
-    $faults = $levers['faults'] ?? NULL;
-    if (is_string($faults) && $faults !== '') {
-      // Frozen through YAML and JSON, so it may arrive as a packed
-      // "2:environment,1:agent" string rather than a map.
-      $parsed = [];
-      foreach (explode(',', $faults) as $pair) {
-        $bits = explode(':', $pair, 2);
-        if (count($bits) === 2 && trim($bits[0]) !== '') {
-          $parsed[(int) trim($bits[0])] = trim($bits[1]);
-        }
-      }
-
-      return $parsed;
-    }
-
-    if (!is_array($faults)) {
-      return [];
-    }
-    $map = [];
-    foreach ($faults as $exit => $fault) {
-      if (is_scalar($fault)) {
-        $map[(int) $exit] = (string) $fault;
-      }
-    }
-
-    return $map;
-  }
-
-  /**
-   * The command that clears an environment fault on this gate, if it named one.
-   *
-   * @param array<string, mixed> $levers
-   *   The gate's frozen settings.
-   *
-   * @return string|null
-   *   The remedy.
-   */
-  private static function remedy(array $levers): ?string {
-    $remedy = $levers['remedy'] ?? NULL;
-
-    return is_string($remedy) && trim($remedy) !== '' ? trim($remedy) : NULL;
   }
 
 }

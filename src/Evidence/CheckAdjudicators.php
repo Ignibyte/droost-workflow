@@ -50,8 +50,8 @@ final class CheckAdjudicators implements CheckAdjudicatorInterface {
    * The library's checks, then a site's, for a door to hand the facade.
    *
    * @param \Droost\Workflow\Evidence\CheckAdjudicatorInterface|null $site
-   *   The site's contributed checks (droost's catalog, or the binary's note
-   *   that it cannot ask them), or NULL.
+   *   Checks a door adds beside the library's own (none since droost left
+   *   Drupal; the seam stays for one that does), or NULL.
    *
    * @return self
    *   The adjudicator.

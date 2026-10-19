@@ -118,8 +118,9 @@ final class WorkflowFacade {
    *   Version-control facts: the base commit frozen at begin and the files
    *   changed since. Defaults to the git binary; a test injects a fake.
    * @param \Droost\Workflow\Evidence\CheckAdjudicatorInterface|null $checks
-   *   The contributed checks this surface can ask, or NULL when it has
-   *   none. Asked once per phase, after the gates and before advancing.
+   *   The checks this surface asks (the library's own, plan_grounded, and any
+   *   a door adds), or NULL. Asked once per phase, after the gates and before
+   *   advancing.
    * @param \Droost\Workflow\WorkItem\WorkItemSourceInterface|null $workItems
    *   Where this project's tickets come from (`work_item.provider:
    *   markdown`), or NULL when it has no built-in source: a run then binds
