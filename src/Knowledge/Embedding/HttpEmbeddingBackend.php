@@ -301,16 +301,9 @@ final class HttpEmbeddingBackend implements EmbeddingBackendInterface {
       $error = error_get_last();
       throw new \RuntimeException('the embeddings endpoint did not answer' . ($error !== NULL ? ': ' . $error['message'] : ''));
     }
-    $status = 0;
-    // PHP fills this in the calling scope when the stream wrapper answers.
     // PHP 8.4 names the response headers by a function; 8.3 by a variable
-    // filled in the calling scope.
-    $received = function_exists('http_get_last_response_headers') ? (http_get_last_response_headers() ?? []) : $http_response_header;
-    foreach ($received as $header) {
-      if (preg_match('#^HTTP/\S+\s+(\d{3})#', (string) $header, $m) === 1) {
-        $status = (int) $m[1];
-      }
-    }
+    // filled in the calling scope when the stream wrapper answers.
+    $status = self::statusOf(function_exists('http_get_last_response_headers') ? http_get_last_response_headers() : $http_response_header);
     if ($status >= 300) {
       throw new \RuntimeException(sprintf('the embeddings endpoint answered HTTP %d: %s', $status, mb_substr($response, 0, 200)));
     }
@@ -377,6 +370,30 @@ final class HttpEmbeddingBackend implements EmbeddingBackendInterface {
     }
     $value = $this->env !== NULL ? ($this->env)($variable) : getenv($variable);
     return is_string($value) ? trim($value) : '';
+  }
+
+  /**
+   * The HTTP status the last response's headers carry, or 0.
+   *
+   * Takes the headers as mixed: each PHP and analyser version types them
+   * differently (8.3's `$http_response_header`, 8.4's function), and the
+   * answer must not depend on which.
+   *
+   * @param mixed $headers
+   *   The response headers.
+   *
+   * @return int
+   *   The last status line's code, 0 when none.
+   */
+  private static function statusOf(mixed $headers): int {
+    $status = 0;
+    foreach (is_array($headers) ? $headers : [] as $header) {
+      if (is_string($header) && preg_match('#^HTTP/\\S+\\s+(\\d{3})#', $header, $m) === 1) {
+        $status = (int) $m[1];
+      }
+    }
+
+    return $status;
   }
 
 }

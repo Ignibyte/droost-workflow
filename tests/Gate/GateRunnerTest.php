@@ -31,7 +31,7 @@ class GateRunnerTest extends WorkflowTestCase {
     $runner = new GateRunner($executor);
     $state = $this->beginWith(['preset' => 'custom']);
 
-    $report = $runner->run($state, Phase::Test, '/tmp');
+    $report = $runner->run($state, Phase::Test, $this->makeRoot());
 
     // Due at test: phpcs, phpstan, eslint, prettier, phpunit, mutation,
     // playwright, parity, coverage. custom:
@@ -93,7 +93,7 @@ class GateRunnerTest extends WorkflowTestCase {
     $runner = new GateRunner($executor);
     $state = $this->beginWith(['preset' => 'custom']);
 
-    $report = $runner->run($state, Phase::Test, '/tmp');
+    $report = $runner->run($state, Phase::Test, $this->makeRoot());
 
     $summaries = [];
     foreach ($report->results as $result) {
@@ -133,7 +133,7 @@ class GateRunnerTest extends WorkflowTestCase {
     $executor = $this->recordingExecutor();
     $runner = new GateRunner($executor);
 
-    $report = $runner->run($this->beginWith([]), $phase, '/tmp');
+    $report = $runner->run($this->beginWith([]), $phase, $this->makeRoot());
 
     $this->assertSame([], $executor->ran, 'a gateless phase ran a tool');
     $this->assertSame([], $report->results);
@@ -163,7 +163,7 @@ class GateRunnerTest extends WorkflowTestCase {
     $executor = $this->recordingExecutor();
     $runner = new GateRunner($executor);
 
-    $report = $runner->run($this->beginWith([]), Phase::Code, '/tmp');
+    $report = $runner->run($this->beginWith([]), Phase::Code, $this->makeRoot());
 
     $this->assertSame(
       ['phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier'],
@@ -186,7 +186,7 @@ class GateRunnerTest extends WorkflowTestCase {
     $runner = new GateRunner($executor);
 
     // factory: everything on.
-    $report = $runner->run($this->beginWith([]), Phase::Complete, '/tmp');
+    $report = $runner->run($this->beginWith([]), Phase::Complete, $this->makeRoot());
 
     $this->assertSame(
       [
@@ -210,7 +210,7 @@ class GateRunnerTest extends WorkflowTestCase {
     $report = $runner->run(
       $this->beginWith(['preset' => 'custom']),
       Phase::Test,
-      '/tmp',
+      $this->makeRoot(),
     );
 
     $this->assertSame(4, $report->tally()['off']);
@@ -245,7 +245,7 @@ class GateRunnerTest extends WorkflowTestCase {
 
     // The level dropped it: low's base has no phpunit. Low runs the fast
     // flow, where phpunit is due at code.
-    $report = $runner->run($this->beginWith(['preset' => 'low']), Phase::Code, '/tmp');
+    $report = $runner->run($this->beginWith(['preset' => 'low']), Phase::Code, $this->makeRoot());
     $phpunit = $byGate($report->results, 'phpunit');
     $this->assertInstanceOf(GateResult::class, $phpunit);
     $this->assertSame(GateStatus::Off, $phpunit->status);
@@ -257,14 +257,14 @@ class GateRunnerTest extends WorkflowTestCase {
     $report = $runner->run(
       $this->beginWith(['preset' => 'xhigh', 'gates' => ['mutation' => ['on' => FALSE]]]),
       Phase::Test,
-      '/tmp',
+      $this->makeRoot(),
     );
     $mutation = $byGate($report->results, 'mutation');
     $this->assertInstanceOf(GateResult::class, $mutation);
     $this->assertSame('by the lever file (preset xhigh turns it on)', $mutation->skipReason);
 
     // Custom has no opinion to compare against: the file is the truth.
-    $report = $runner->run($this->beginWith(['preset' => 'custom']), Phase::Test, '/tmp');
+    $report = $runner->run($this->beginWith(['preset' => 'custom']), Phase::Test, $this->makeRoot());
     $mutation = $byGate($report->results, 'mutation');
     $this->assertInstanceOf(GateResult::class, $mutation);
     $this->assertSame('by the lever file (custom levers)', $mutation->skipReason);
@@ -283,7 +283,7 @@ class GateRunnerTest extends WorkflowTestCase {
     $report = $runner->run(
       $this->beginWith(['preset' => 'custom']),
       Phase::Test,
-      '/tmp',
+      $this->makeRoot(),
       static function (GateResult $r) use (&$seen): void {
         $seen[] = $r->gate;
       },
@@ -408,13 +408,13 @@ class GateRunnerTest extends WorkflowTestCase {
    */
   public function testFlagLeversReachTheExecutor(): void {
     $low = new SettingsRecordingExecutor();
-    (new GateRunner($low))->run($this->beginWith(['preset' => 'low']), Phase::Test, '/tmp');
+    (new GateRunner($low))->run($this->beginWith(['preset' => 'low']), Phase::Test, $this->makeRoot());
     $this->assertTrue($low->option('playwright', 'required'), 'low resolves playwright required: true, and the executor must see it');
 
     // At max, phpunit's `required` is set too, which turns "No tests executed"
     // into a failure; it was a labelled pass in every max run.
     $max = new SettingsRecordingExecutor();
-    (new GateRunner($max))->run($this->beginWith(['preset' => 'max']), Phase::Test, '/tmp');
+    (new GateRunner($max))->run($this->beginWith(['preset' => 'max']), Phase::Test, $this->makeRoot());
     $this->assertTrue($max->option('phpunit', 'required'), 'max resolves phpunit required: true');
     $this->assertTrue($max->option('playwright', 'required'));
   }
@@ -454,13 +454,13 @@ class GateRunnerTest extends WorkflowTestCase {
 
     };
     $recorder = new SettingsRecordingExecutor();
-    (new GateRunner($recorder, $vcs))->run($state, Phase::Test, '/tmp');
+    (new GateRunner($recorder, $vcs))->run($state, Phase::Test, $this->makeRoot());
     $this->assertSame('ticket', $recorder->option('playwright', 'scope'));
     $this->assertSame("tests/e2e/mine.spec.ts\nweb/modules/custom/x/x.module", $recorder->option('playwright', 'ticket_files'));
 
     // With no repository to ask, the gate is told it cannot know.
     $blind = new SettingsRecordingExecutor();
-    (new GateRunner($blind))->run($state, Phase::Test, '/tmp');
+    (new GateRunner($blind))->run($state, Phase::Test, $this->makeRoot());
     $this->assertTrue($blind->option('playwright', 'ticket_unknown'));
     $this->assertNull($blind->option('playwright', 'ticket_files'));
   }
