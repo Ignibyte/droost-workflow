@@ -530,6 +530,12 @@ if ($mode === 'answers') {
 // the same notes in the same words where this floor is not installed.
 if ($mode === 'nudge') {
   $GLOBALS['workflow_guard_quiet'] = TRUE;
+  // A generator's files go in the scaffold record before anything else.
+  if ($guardEvent['kind'] === 'shell' && guard_scaffold_after($guardEvent['command'], $root, $stateDir) > 0) {
+    $GLOBALS['workflow_guard_quiet'] = FALSE;
+    $GLOBALS['workflow_guard_verdict'] = 'note';
+    $GLOBALS['workflow_guard_rule'] = 'scaffold-recorded';
+  }
   $guardResponse = is_array($payload['tool_response'] ?? NULL) ? $payload['tool_response'] : [];
   $note = guard_nudge($root . '/' . $stateDir, $GLOBALS['workflow_guard_tool'] ?? '', $guardInput, $guardResponse);
   if ($note !== NULL) {
@@ -637,6 +643,9 @@ if ($mode === 'operator-commands') {
       );
     }
   }
+  // Allowed: when it runs a code generator, note what was already untracked,
+  // so the call's return can record what the generator wrote.
+  guard_scaffold_before($guardEvent['command'], $root, $stateDir);
   exit(0);
 }
 
@@ -5155,7 +5164,7 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
         . 'puts it on record for the host to show the human); `intake check` and '
         . '`intake status` read the record, and so do `cat` and the Read tool.';
     }
-    if (preg_match('#^(events\.jsonl|hook-calls\.jsonl|host\.json|host-mods\.json|\.?work-item-[A-Za-z0-9._-]*|\.guard-warned-[A-Za-z0-9._-]+)$#', $inState[3]) === 1) {
+    if (preg_match('#^(events\.jsonl|hook-calls\.jsonl|host\.json|host-mods\.json|\.?work-item-[A-Za-z0-9._-]*|\.guard-warned-[A-Za-z0-9._-]+|\.guard-scaffold-pending\.json)$#', $inState[3]) === 1) {
       return 'That file is one the pipeline writes beside the run\'s record: the '
         . 'run-event log, the host record the run reports, a cached work item or '
         . 'a warn-once marker. droost, the guard and the pipeline write it, and '
@@ -7787,4 +7796,143 @@ function guard_operator_only(string $command, string $root): void {
       }
     }
   }
+}
+
+/**
+ * Whether a shell command runs a code generator droost records.
+ *
+ * `drush generate` (or `gen`), directly, through `vendor/bin/drush`, or
+ * through `ddev drush`; and `dcg`, Drupal Code Generator's own binary. What
+ * they write is the generator's, not the agent's: a generated test that was
+ * never touched does not meet the tests-in-diff demand (F-65), and droost's
+ * own scaffolding, which used to record it, left with the module (DO8).
+ *
+ * @param string $command
+ *   The command as the agent typed it.
+ *
+ * @return bool
+ *   TRUE when the command runs a generator.
+ */
+function guard_runs_generator(string $command): bool {
+  return preg_match('#(?:^|[\s;&|(])(?:\S*/)?(?:drush(?:\.php)?\s+(?:[^;&|\n]*\s)?(?:generate|gen)(?:\s|$)|dcg(?:\s|$))#', $command) === 1;
+}
+
+/**
+ * The project's untracked files, as git sees them, or NULL without git.
+ *
+ * @param string $root
+ *   The project root.
+ *
+ * @return list<string>|null
+ *   Project-relative paths.
+ */
+function guard_untracked_files(string $root): ?array {
+  if (!is_dir($root . '/.git') && !is_file($root . '/.git')) {
+    return NULL;
+  }
+  $pipes = [];
+  $process = @proc_open(
+    ['git', '-C', $root, 'ls-files', '--others', '--exclude-standard', '-z'],
+    [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+    $pipes,
+  );
+  if (!is_resource($process)) {
+    return NULL;
+  }
+  $out = (string) stream_get_contents($pipes[1]);
+  stream_get_contents($pipes[2]);
+  fclose($pipes[1]);
+  fclose($pipes[2]);
+  if (proc_close($process) !== 0) {
+    return NULL;
+  }
+
+  return array_values(array_filter(explode("\0", $out), static fn (string $p): bool => $p !== ''));
+}
+
+/**
+ * Before a generator runs: what was already untracked.
+ *
+ * @param string $command
+ *   The command about to run.
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The state directory, where the snapshot waits for the call's return.
+ */
+function guard_scaffold_before(string $command, string $root, string $stateDir): void {
+  if (!guard_runs_generator($command) || !is_dir($root . '/' . $stateDir)) {
+    return;
+  }
+  $untracked = guard_untracked_files($root);
+  if ($untracked === NULL) {
+    return;
+  }
+  @file_put_contents(
+    $root . '/' . $stateDir . '/.guard-scaffold-pending.json',
+    (string) json_encode(['command' => mb_substr($command, 0, 500), 'untracked' => $untracked, 'at' => date('c')], JSON_UNESCAPED_SLASHES),
+    LOCK_EX,
+  );
+}
+
+/**
+ * After a generator ran: each new file, with its hash, in the scaffold record.
+ *
+ * ScaffoldRecord reads these rows the way it read droost's own blueprints':
+ * a file still holding exactly what the generator wrote is the generator's.
+ *
+ * @param string $command
+ *   The command that ran.
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The state directory.
+ *
+ * @return int
+ *   How many files were recorded.
+ */
+function guard_scaffold_after(string $command, string $root, string $stateDir): int {
+  $marker = $root . '/' . $stateDir . '/.guard-scaffold-pending.json';
+  if (!is_file($marker)) {
+    return 0;
+  }
+  $before = json_decode((string) @file_get_contents($marker), TRUE);
+  @unlink($marker);
+  if (!is_array($before) || !guard_runs_generator($command) || !is_array($before['untracked'] ?? NULL)) {
+    return 0;
+  }
+  $now = guard_untracked_files($root);
+  if ($now === NULL) {
+    return 0;
+  }
+  $run = NULL;
+  $record = json_decode((string) @file_get_contents($root . '/' . $stateDir . '/run.json'), TRUE);
+  if (is_array($record) && is_string($record['run_id'] ?? NULL)) {
+    $run = $record['run_id'];
+  }
+  $recorded = 0;
+  foreach (array_diff($now, $before['untracked']) as $path) {
+    $absolute = $root . '/' . $path;
+    if (str_starts_with($path, trim($stateDir, '/') . '/') || !is_file($absolute)) {
+      continue;
+    }
+    $hash = @hash_file('sha256', $absolute);
+    if (!is_string($hash)) {
+      continue;
+    }
+    $line = json_encode([
+      'path' => $path,
+      'hash' => 'sha256:' . $hash,
+      'run' => $run,
+      'blueprint' => 'generator',
+      'command' => mb_substr($command, 0, 300),
+      'at' => date('c'),
+    ], JSON_UNESCAPED_SLASHES);
+    if ($line !== FALSE) {
+      @file_put_contents($root . '/' . $stateDir . '/scaffolded.jsonl', $line . "\n", FILE_APPEND | LOCK_EX);
+      $recorded++;
+    }
+  }
+
+  return $recorded;
 }
