@@ -127,6 +127,27 @@ final class GateFileContractTest extends WorkflowTestCase {
   }
 
   /**
+   * The verdict a gate file prints last is its summary, plain (F-317).
+   *
+   * The tool a gate file wraps prints first (gitleaks' coloured log, a
+   * Python warning from semgrep); the summary took that first line instead
+   * of the file's own verdict.
+   */
+  public function testTheLastLineIsTheSummary(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/gates', 0755, TRUE);
+    file_put_contents($root . '/droost/gates/g.php', '<?php echo "\033[90m5:59PM\033[0m \033[32mINF\033[0m scanned ~2087028 bytes\n"; echo "dependencies.py:4: UserWarning: pkg_resources is deprecated\n"; echo "\ngitleaks passed: no leaks in the custom code.\n"; exit(0);');
+    $passed = $this->executor()->execute($this->gate('droost/gates/g.php'), $root);
+    $this->assertSame(GateStatus::Passed, $passed->status);
+    $this->assertStringEndsWith('passed — gitleaks passed: no leaks in the custom code.', $passed->summary);
+
+    file_put_contents($root . '/droost/gates/g.php', '<?php echo "\033[31mERR\033[0m leak in a.php\n\ngitleaks FAILED: 1 leak.\n"; exit(1);');
+    $failed = $this->executor()->execute($this->gate('droost/gates/g.php'), $root);
+    $this->assertStringEndsWith('gitleaks FAILED: 1 leak.', $failed->summary);
+    $this->assertStringNotContainsString("\033", $failed->summary, 'no colour codes in the record');
+  }
+
+  /**
    * A missing or unexecutable file judged nothing, and says why.
    */
   public function testFileThatCannotRunIsNotRun(): void {

@@ -777,13 +777,51 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   The line, or "no output".
    */
   private static function firstLine(string $text): string {
-    foreach (preg_split('/\R/', $text) ?: [] as $line) {
+    foreach (preg_split('/\R/', self::withoutAnsi($text)) ?: [] as $line) {
       if (trim($line) !== '') {
         return mb_substr(trim($line), 0, 300);
       }
     }
 
     return 'no output';
+  }
+
+  /**
+   * The last non-empty line of a project gate file's stdout, trimmed, capped.
+   *
+   * A gate file's verdict is the line it prints last: the tool it wraps
+   * prints first (gitleaks' log, a Python warning from semgrep), and the
+   * first line put that noise in the summary instead of the verdict
+   * (F-317).
+   *
+   * @param string $text
+   *   The output.
+   *
+   * @return string
+   *   The line, or "no output".
+   */
+  private static function lastLine(string $text): string {
+    $lines = array_reverse(preg_split('/\R/', self::withoutAnsi($text)) ?: []);
+    foreach ($lines as $line) {
+      if (trim($line) !== '') {
+        return mb_substr(trim($line), 0, 300);
+      }
+    }
+
+    return 'no output';
+  }
+
+  /**
+   * The text with terminal colour and cursor codes taken out.
+   *
+   * @param string $text
+   *   The text.
+   *
+   * @return string
+   *   The text, plain.
+   */
+  private static function withoutAnsi(string $text): string {
+    return (string) preg_replace('/\x1B\[[0-9;?]*[ -\/]*[@-~]/', '', $text);
   }
 
   /**
@@ -1990,8 +2028,8 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         $exit,
         $elapsed,
         $exit === 0
-          ? sprintf('%s passed — %s', $gate->name, self::firstLine($stdout !== '' ? $stdout : 'its file exited 0'))
-          : sprintf('%s failed (exit 1): %s', $gate->name, self::firstLine($stdout !== '' ? $stdout : $stderr)),
+          ? sprintf('%s passed — %s', $gate->name, self::lastLine($stdout !== '' ? $stdout : 'its file exited 0'))
+          : sprintf('%s failed (exit 1): %s', $gate->name, self::lastLine($stdout !== '' ? $stdout : $stderr)),
         $findings,
         $invocation,
       );
