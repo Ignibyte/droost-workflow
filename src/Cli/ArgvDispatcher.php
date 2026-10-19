@@ -837,6 +837,44 @@ final class ArgvDispatcher {
   }
 
   /**
+   * Refuses a verb whose sentence arrived as more words than it takes.
+   *
+   * A verb that keeps its first words and drops the rest records the wrong
+   * thing and exits 0. A launcher that loses the quoting (DDEV's custom
+   * commands join arguments into one bash -c string) turned "When an account
+   * node is saved …" into the criterion "When" (F-316). Every positional
+   * argument past the last one the verb takes is refused, naming the cause.
+   *
+   * @param string $verb
+   *   The verb.
+   * @param list<string> $argv
+   *   The verb and its arguments.
+   * @param int $takes
+   *   How many positional arguments the verb takes.
+   * @param string $example
+   *   A correctly quoted call.
+   *
+   * @return bool
+   *   TRUE when refused.
+   */
+  private function splitSentence(string $verb, array $argv, int $takes, string $example): bool {
+    $positional = array_values(array_filter(array_slice($argv, 1), static fn (string $word): bool => !str_starts_with($word, '--')));
+    if (count($positional) <= $takes) {
+      return FALSE;
+    }
+    $this->fail(sprintf(
+      '%s takes %d argument(s) and got %d: "%s". A sentence arrived split into words, so nothing was recorded. Quote it (%s); if it was quoted, the launcher dropped the quoting: on DDEV use `ddev exec --raw -- php tools/droost/vendor/bin/droost …`, or a custom command with `## ExecRaw: true`.',
+      $verb,
+      $takes,
+      count($positional),
+      implode('" "', $positional),
+      $example,
+    ));
+
+    return TRUE;
+  }
+
+  /**
    * Declares a criterion: `declare-criterion <ref> <statement>`.
    *
    * @param string $projectRoot
@@ -848,6 +886,9 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function declareCriterion(string $projectRoot, array $argv): int {
+    if ($this->splitSentence('declare-criterion', $argv, 2, 'declare-criterion AC-1 "the listing shows every published rink"')) {
+      return self::EXIT_USAGE;
+    }
     $ref = $argv[1] ?? '';
     $statement = $argv[2] ?? '';
     if ($ref === '' || $statement === '') {
@@ -914,6 +955,9 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function verifyCriterion(string $projectRoot, array $argv): int {
+    if ($this->splitSentence('verify-criterion', $argv, 2, 'verify-criterion AC-1 "RinkListTest::testEveryPublished"')) {
+      return self::EXIT_USAGE;
+    }
     $ref = $argv[1] ?? '';
     $by = $argv[2] ?? '';
     if ($ref === '' || $by === '') {
@@ -941,6 +985,9 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function declareNote(string $projectRoot, array $argv): int {
+    if ($this->splitSentence('declare-note', $argv, 3, 'declare-note grounding "Drupal\\node\\Entity\\Node" "the entity the listing reads"')) {
+      return self::EXIT_USAGE;
+    }
     $kind = $argv[1] ?? '';
     $subject = $argv[2] ?? '';
     if ($kind === '' || $subject === '') {
@@ -1293,6 +1340,10 @@ final class ArgvDispatcher {
         : 'no bypass was granted — the wall was already armed.');
       return self::EXIT_OK;
     }
+    $words = array_values(array_filter($flags, static fn (string $flag): bool => !str_starts_with($flag, '--')));
+    if ($this->splitSentence('bypass', ['bypass', ...$words], 1, 'bypass "the reason, quoted"')) {
+      return self::EXIT_USAGE;
+    }
     $reason = '';
     foreach ($flags as $flag) {
       if (!str_starts_with($flag, '--')) {
@@ -1339,6 +1390,9 @@ final class ArgvDispatcher {
       array_slice($argv, 1),
       static fn (string $word): bool => !str_starts_with($word, '--'),
     ));
+    if ($this->splitSentence('gate-waive', ['gate-waive', ...$operands], 2, 'gate-waive phpcs "the reason, quoted"')) {
+      return self::EXIT_USAGE;
+    }
     $gate = $operands[0] ?? '';
     $reason = $operands[1] ?? '';
     if (trim($gate) === '' || trim($reason) === '') {
