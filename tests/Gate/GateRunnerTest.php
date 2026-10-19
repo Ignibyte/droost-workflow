@@ -466,6 +466,57 @@ class GateRunnerTest extends WorkflowTestCase {
   }
 
   /**
+   * With no base commit, every ticket-scoped gate is told it cannot know.
+   *
+   * A repository and no base (the run-less pre-flight, or a run begun outside
+   * git): the first gate was told the scope was unknown and ran its full set,
+   * but its after-checks turned the shared diff into [], so every later gate
+   * read "the run changed no file" and passed over nothing (F-313).
+   */
+  public function testNoBaseIsUnknownForEveryScopedGate(): void {
+    $config = WorkflowConfig::fromArray([
+      'preset' => 'custom',
+      'gates' => [
+        'phpcs' => ['on' => TRUE, 'scope' => 'ticket'],
+        'phpstan' => ['on' => TRUE, 'scope' => 'ticket'],
+        'phpunit' => ['on' => FALSE],
+        'eslint' => ['on' => TRUE, 'scope' => 'ticket'],
+      ],
+    ], 'test');
+    $state = RunState::begin('run-1', '2026-10-19T00:00:00+00:00', $config, NULL);
+    $vcs = new class() implements VcsInterface {
+
+      /**
+       * {@inheritdoc}
+       */
+      public function head(string $projectRoot): string {
+        return 'def456';
+      }
+
+      /**
+       * {@inheritdoc}
+       */
+      public function isRepository(string $projectRoot): bool {
+        return TRUE;
+      }
+
+      /**
+       * {@inheritdoc}
+       */
+      public function changedFiles(string $projectRoot, ?string $base): ?array {
+        return $base === NULL ? NULL : [];
+      }
+
+    };
+    $recorder = new SettingsRecordingExecutor();
+    (new GateRunner($recorder, $vcs))->run($state, Phase::Code, $this->makeRoot());
+    foreach (['phpcs', 'phpstan', 'eslint'] as $gate) {
+      $this->assertTrue($recorder->option($gate, 'ticket_unknown'), $gate . ' is told the scope is unknown');
+      $this->assertNull($recorder->option($gate, 'ticket_files'), $gate . ' is never handed an empty diff');
+    }
+  }
+
+  /**
    * The reference digest frozen at run start reaches the parity gate (F-144).
    *
    * Through the runner, as a run takes it, and past the live lever file,

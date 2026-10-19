@@ -449,8 +449,14 @@ final class GateRunner {
       || $this->vcs === NULL || !$this->vcs->isRepository($projectRoot)) {
       return $result;
     }
-    $changed ??= $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot) ?? [];
-    $steering = SteeringConfigs::changed($name, $levers, $projectRoot, $changed);
+    // Read the diff only when there is a base to read it against, and never
+    // write a guess back: $changed is shared by every gate in the phase, and
+    // an unknown diff coerced to [] here made every later ticket-scoped gate
+    // read "the run changed no file" and pass over nothing (F-313).
+    if ($changed === NULL && $state->baseCommit !== NULL) {
+      $changed = $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot);
+    }
+    $steering = SteeringConfigs::changed($name, $levers, $projectRoot, $changed ?? []);
     if ($steering === []) {
       return $result;
     }
@@ -498,8 +504,11 @@ final class GateRunner {
     if ($errors === []) {
       return $result;
     }
-    $changed ??= $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot) ?? [];
-    $touched = array_flip(array_map(static fn (string $path): string => ltrim(str_replace('\\', '/', $path), '/'), $changed));
+    // Unknown stays unknown for the gates after this one (F-313).
+    if ($changed === NULL && $state->baseCommit !== NULL) {
+      $changed = $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot);
+    }
+    $touched = array_flip(array_map(static fn (string $path): string => ltrim(str_replace('\\', '/', $path), '/'), $changed ?? []));
     $outside = array_values(array_filter($errors, static fn (string $file): bool => !isset($touched[$file])));
     if ($outside === []) {
       return $result;
@@ -600,8 +609,10 @@ final class GateRunner {
     if ($this->vcs === NULL || $state->baseCommit === NULL) {
       return NULL;
     }
-    $changed ??= $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot) ?? [];
-    $now = RunSubject::of($projectRoot, $changed, RunSubject::TEST);
+    // A diff that could not be read stays unknown for the gates after this
+    // one (F-313); this reuse check alone treats it as empty.
+    $changed ??= $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot);
+    $now = RunSubject::of($projectRoot, $changed ?? [], RunSubject::TEST);
     try {
       $row = (new EvidenceStore($projectRoot))->recordedRun($state->runId, $name);
     }
