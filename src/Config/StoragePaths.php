@@ -11,14 +11,21 @@ use Symfony\Component\Yaml\Yaml;
  * Where droost's SQLite stores live: the one place that answers it.
  *
  * The code index and the evidence store are files in the state directory by
- * default. A project may name other places in its configuration's `storage:`
- * block, which is how a Cockpit can hold them later:
+ * default. A project may name another place for the code index in its
+ * configuration's `storage:` block, which is how a Cockpit can hold it later:
  *
  * @code
  * storage:
  *   index: droost/droost-workflow/code-index.sqlite
- *   evidence: droost/droost-workflow/evidence.sqlite
  * @endcode
+ *
+ * The evidence store is NOT configurable yet. It is the run's tamper-evident
+ * record, and the guard walls it from the agent's writes where it is, in the
+ * state directory, finding it with no autoloader. A configured path would
+ * move it out from under that wall, so `storage.evidence` is read, not
+ * followed, and the workflow's configuration says so (a notice). Moving it
+ * waits for the Cockpit storage design (owner, 2026-10-19: "we can talk about
+ * that later").
  *
  * A relative path is the project root's; an absolute one is kept. Anything
  * that reads or writes a store asks here, so the answer cannot differ
@@ -112,7 +119,10 @@ final class StoragePaths {
   }
 
   /**
-   * The evidence store's file, absolute.
+   * The evidence store's file, absolute: always the state directory's.
+   *
+   * `storage.evidence` is not followed (see the class comment): the guard
+   * walls the store where it is.
    *
    * @param string $projectRoot
    *   The project root.
@@ -121,7 +131,7 @@ final class StoragePaths {
    *   The path, whether or not the file exists.
    */
   public static function evidence(string $projectRoot): string {
-    return self::resolve($projectRoot, 'evidence', self::EVIDENCE_FILE);
+    return rtrim($projectRoot, '/') . '/' . RunStateStore::resolveStateDir($projectRoot) . '/' . self::EVIDENCE_FILE;
   }
 
   /**

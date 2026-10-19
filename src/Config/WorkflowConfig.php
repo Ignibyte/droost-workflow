@@ -343,6 +343,12 @@ final class WorkflowConfig {
 
     try {
       $deprecations = array_values($notices);
+      // A setting that is read and not followed says so, rather than being
+      // silently ignored (StoragePaths: the guard walls the evidence store in
+      // the state directory, so moving it waits for the Cockpit design).
+      if (is_array($raw['storage'] ?? NULL) && array_key_exists('evidence', $raw['storage'])) {
+        $deprecations[] = 'storage.evidence is not followed: the evidence store stays in the state directory, where the guard walls it from the agent. Only storage.index moves the code index.';
+      }
       $declared = $root->optionalString(
         'preset',
         PresetResolver::DEFAULT_PRESET,

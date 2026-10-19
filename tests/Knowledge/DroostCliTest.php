@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Droost\Workflow\Tests\Knowledge;
 
 use Droost\Workflow\Config\StoragePaths;
+use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Knowledge\CodeIndex;
 use Droost\Workflow\Knowledge\DroostCli;
 use Droost\Workflow\Knowledge\KnowledgeSettings;
@@ -225,6 +226,23 @@ final class DroostCliTest extends TestCase {
     $this->droost(['code:index']);
     $this->assertFileExists($this->root . '/var/index.sqlite');
     $this->assertSame(0, $this->droost(['code:tree', 'camps']));
+  }
+
+  /**
+   * The evidence store does not move, and the configuration says so.
+   *
+   * The guard walls the store in the state directory; a configured path
+   * would take it out from under that wall, so it is read and not followed.
+   */
+  public function testEvidenceStoreStaysWhereTheGuardWallsIt(): void {
+    $this->put($this->root, 'droost/droost.yml', "storage:\n  evidence: var/evidence.sqlite\n");
+
+    $this->assertSame($this->root . '/droost/droost-workflow/evidence.sqlite', StoragePaths::evidence($this->root));
+    $config = WorkflowConfig::load($this->root);
+    $this->assertNotEmpty(array_filter(
+      $config->deprecations,
+      static fn (string $notice): bool => str_contains($notice, 'storage.evidence is not followed'),
+    ));
   }
 
   /**
