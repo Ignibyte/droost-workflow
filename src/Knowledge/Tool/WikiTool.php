@@ -70,21 +70,28 @@ final class WikiTool extends ToolBase {
           ['path' => $page, 'content' => $generated, 'generated' => TRUE],
         );
       }
+      // A module or theme named bare (`camps`, or `camps.md` as the inventory
+      // links it) is its inventory page when the wiki has no page for it,
+      // and on a project with no wiki yet, which is how every project starts
+      // (F-304: it failed there, saying the inventory had no such extension).
+      $machine = basename($page, '.md');
+      $inventoryPage = isset($inventory->extensions()[$machine]) ? [
+        'path' => ExtensionInventory::PREFIX . $machine . '.md',
+        'content' => (string) $inventory->page(ExtensionInventory::PREFIX . $machine),
+      ] : NULL;
       if (!$hasWiki) {
-        return $this->fail(sprintf('No page "%s": no wiki has been written at %s yet, and the inventory has no extension by that name (`droost code:wiki inventory` lists them).', $page, $site->wikiDir));
+        if ($inventoryPage !== NULL) {
+          return $this->succeed(sprintf('No wiki has been written yet; "%s" is its inventory page (generated).', $page), $inventoryPage + ['generated' => TRUE]);
+        }
+        return $this->fail(sprintf('No page "%s": no wiki has been written at %s yet, and the inventory has no module or theme by that name (`droost code:wiki inventory` lists them).', $page, $site->wikiDir));
       }
       $reader = $site->wiki();
       // A page named as the module it covers is the page: `camps` is
       // `camps.md`.
       $result = $reader->read($page) ?? (str_ends_with($page, '.md') ? NULL : $reader->read($page . '.md'));
       if ($result === NULL) {
-        $machine = basename($page, '.md');
-        if (isset($inventory->extensions()[$machine])) {
-          $result = [
-            'path' => ExtensionInventory::PREFIX . $machine . '.md',
-            'content' => (string) $inventory->page(ExtensionInventory::PREFIX . $machine),
-          ];
-          return $this->succeed(sprintf('No wiki page "%s"; its inventory page (generated) instead.', $page), $result + ['generated' => TRUE]);
+        if ($inventoryPage !== NULL) {
+          return $this->succeed(sprintf('No wiki page "%s"; its inventory page (generated) instead.', $page), $inventoryPage + ['generated' => TRUE]);
         }
         return $this->fail(sprintf('No page "%s" in the wiki (paths are bundle-relative, .md only) or the inventory.', $page));
       }

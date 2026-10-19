@@ -189,6 +189,23 @@ final class DroostCliTest extends TestCase {
   }
 
   /**
+   * A module named bare is its inventory page before any wiki is written.
+   *
+   * Every project starts with no wiki, and the plan consult names a module
+   * (`droost code:wiki camps`). It failed there, saying the inventory had no
+   * such extension (F-304).
+   */
+  public function testBareModuleNameWithNoWikiIsItsInventoryPage(): void {
+    self::remove($this->root . '/droost/wiki');
+
+    $this->assertSame(0, $this->droost(['code:wiki', 'camps']));
+    $this->assertSame('inventory/camps.md', $this->at('data.path'));
+    $this->assertStringContainsString('administer camps', $this->str('data.content'));
+    $this->assertSame(0, $this->droost(['code:wiki', 'camps.md']), 'as the inventory links it');
+    $this->assertSame(1, $this->droost(['code:wiki', 'nope']));
+  }
+
+  /**
    * The brief is the project's files in one answer.
    */
   public function testBrief(): void {

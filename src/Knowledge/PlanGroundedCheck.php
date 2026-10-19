@@ -37,12 +37,12 @@ use Droost\Workflow\State\RunStateStore;
  * skipped (F-276). Nothing here needs Drupal: the ledger and the index are
  * files, and `vendor/bin/droost` answers the code questions with no site.
  *
- * Where it applies: a run with a spec, on a project where droost is
- * installed (`vendor/bin/droost`, which drupal/droost ships) or has written
- * its code index. drush alone is not droost: a Drupal site that uses this
- * library without drupal/droost has nothing to look with, and a check it
- * could never satisfy would wedge every run (S4-3). There it is recorded as
- * Skipped, with that reason, which no reader can mistake for a pass. A
+ * Where it applies: every run with a spec. droost off Drupal (2026-10-19)
+ * ships the knowledge commands in this package, so wherever this check runs,
+ * `droost code:wiki` and `droost code:tree` exist to be asked: there is no
+ * project with the workflow and nothing to look with, and the old Skipped
+ * verdict for "no droost here" let a plan close unconsulted wherever droost
+ * was installed somewhere other than the two paths it knew (F-303). A
  * project whose droost sits one directory down (a site in `site/`) keeps its
  * ledger there, where this run cannot attribute it: that is said, as the
  * environment's to settle, rather than read as an agent that never looked
@@ -95,16 +95,9 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
     if ($spec === NULL) {
       return [];
     }
-    $where = self::droostAt($root);
-    if ($where === NULL) {
-      return [
-        $this->record(
-          CheckState::Skipped,
-          Fault::None,
-          'not asked: this project has no droost to look with (no vendor/bin/droost, no tools/droost/vendor/bin/droost, no code index), so a plan cannot be held to having looked. Install droost (`composer install -d tools/droost`) to have it asked',
-        ),
-      ];
-    }
+    // NULL (none of the paths droostAt() knows) is droost at the root: this
+    // check runs inside the package that answers code:wiki and code:tree.
+    $where = self::droostAt($root) ?? '';
     if ($where !== '') {
       return [
         $this->record(
@@ -128,8 +121,9 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
     }
     if ($missing !== []) {
       $why[] = sprintf(
-        'plan has not consulted %s this run. Every plan consults the wiki (`droost code:wiki`, the site\'s code and its contrib modules and themes) and the tree (`droost code:tree [module]`, how the code is laid out) before it is written; `droost search:arch <query>` finds the documentation in between. Each call is recorded by droost itself, and that record is what this check reads',
+        'plan has not consulted %s this run. Every plan consults the wiki (`droost code:wiki`, the site\'s code and its contrib modules and themes) and the tree (`droost code:tree [module]`, how the code is laid out) before it is written; `droost search:arch <query>` finds the documentation in between. Each call is recorded by droost itself, and that record is what this check reads%s',
         implode(' and ', array_map(static fn (string $command): string => '`droost ' . $command . '`', $missing)),
+        self::failedAttempts($root, $runId, $missing),
       );
     }
     if (!$citations['table']) {
@@ -255,6 +249,42 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
         && $call['outcome'] === 'ok'
         && ($call['phase'] === NULL || $call['phase'] === 'plan'),
     ));
+  }
+
+  /**
+   * What the run tried of the missing commands, when it tried and failed.
+   *
+   * A call that failed is no answer, so it does not count; but "has not
+   * consulted" alone would send an agent that did call back to call again
+   * and fail again. Say that it called, how often, and the usual cause.
+   *
+   * @param string $root
+   *   The repository root.
+   * @param string $runId
+   *   The run.
+   * @param list<string> $missing
+   *   The required commands with no answered call.
+   *
+   * @return string
+   *   '' when none was tried, else a sentence starting with '; '.
+   */
+  private static function failedAttempts(string $root, string $runId, array $missing): string {
+    $tried = [];
+    foreach (ToolCallLog::read($root, $runId) as $call) {
+      if (in_array($call['tool'], $missing, TRUE) && $call['outcome'] !== 'ok'
+        && ($call['phase'] === NULL || $call['phase'] === 'plan')) {
+        $tried[$call['tool']] = ($tried[$call['tool']] ?? 0) + 1;
+      }
+    }
+    if ($tried === []) {
+      return '';
+    }
+    $said = [];
+    foreach ($tried as $tool => $count) {
+      $said[] = sprintf('`droost %s` was called %d× and failed each time%s', $tool, $count, $tool === 'code:tree' ? ' (it reads the code index: build it with `droost code:index`)' : '');
+    }
+
+    return '; ' . implode('; ', $said) . '. A call that fails is no answer: call it until it answers';
   }
 
   /**

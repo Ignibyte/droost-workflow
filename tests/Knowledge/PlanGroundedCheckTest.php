@@ -128,17 +128,22 @@ final class PlanGroundedCheckTest extends WorkflowTestCase {
   }
 
   /**
-   * Drush is no evidence of droost (S4-3).
+   * droost installed where no known path finds it still holds plan (F-303).
+   *
+   * The package running this check is the one that ships code:wiki and
+   * code:tree, so "no droost here" is never a reason to stand down: a plan
+   * that asked nothing is held wherever droost was installed.
    */
-  public function testDrushAloneIsNoDroost(): void {
+  public function testDroostAnywhereStillHoldsPlan(): void {
     $root = $this->project();
     unlink($root . '/vendor/bin/droost');
     $this->put($root, 'vendor/bin/drush', "#!/usr/bin/env php\n");
 
     $record = $this->verdict($root);
 
-    $this->assertSame(CheckState::Skipped, $record->state);
-    $this->assertSame(Fault::None, $record->fault);
+    $this->assertSame(CheckState::Blocked, $record->state, $record->summary);
+    $this->assertSame(Fault::Agent, $record->fault);
+    $this->assertStringContainsString('droost code:wiki', $record->summary);
   }
 
   /**
@@ -184,20 +189,6 @@ final class PlanGroundedCheckTest extends WorkflowTestCase {
     $this->assertSame(CheckState::Blocked, $record->state);
     $this->assertStringContainsString('`Drupal\camps\Invented`', $record->summary);
     $this->assertStringContainsString('code index is absent', $record->summary);
-  }
-
-  /**
-   * A project with no droost to ask is skipped, said, and never passed.
-   */
-  public function testNoDroostToAskIsSkipped(): void {
-    $root = $this->project();
-    unlink($root . '/vendor/bin/droost');
-
-    $record = $this->verdict($root);
-
-    $this->assertSame(CheckState::Skipped, $record->state);
-    $this->assertFalse($record->state->measured());
-    $this->assertStringContainsString('no droost to look with', $record->summary);
   }
 
   /**
@@ -270,6 +261,25 @@ final class PlanGroundedCheckTest extends WorkflowTestCase {
     mkdir($root . '/tools/droost/vendor/bin', 0755, TRUE);
     touch($root . '/tools/droost/vendor/bin/droost');
     $this->assertSame('', PlanGroundedCheck::droostAt($root));
+  }
+
+  /**
+   * A required command that was called and failed is said, not "not asked".
+   */
+  public function testFailedConsultIsSaidAsTried(): void {
+    $root = $this->project();
+    $this->ledger($root, [
+      ['tool' => 'code:wiki', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL],
+      ['tool' => 'code:tree', 'outcome' => 'fail', 'at' => 'x', 'run' => NULL, 'phase' => NULL],
+      ['tool' => 'code:tree', 'outcome' => 'fail', 'at' => 'x', 'run' => NULL, 'phase' => NULL],
+    ]);
+
+    $record = $this->verdict($root);
+
+    $this->assertSame(CheckState::Blocked, $record->state);
+    $this->assertStringContainsString('`droost code:tree` was called 2× and failed each time', $record->summary);
+    $this->assertStringContainsString('droost code:index', $record->summary);
+    $this->assertStringNotContainsString('consulted `droost code:wiki`', $record->summary, 'the answered one is not asked for again');
   }
 
   /**
