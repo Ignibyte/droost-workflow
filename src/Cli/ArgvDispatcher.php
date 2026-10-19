@@ -1206,7 +1206,7 @@ final class ArgvDispatcher {
    * (first, or `--refresh`, or `--refresh --grow --reason=…`) is the
    * operator's act; this surface has no terminal check of its own because it
    * IS the operator's terminal — the pack guard is what refuses the agent's
-   * shell. There is no site here, so config_clean is never measured.
+   * shell.
    *
    * @param string $projectRoot
    *   The repository.

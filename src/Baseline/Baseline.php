@@ -16,10 +16,11 @@ final class Baseline {
    * The gates whose verdict consults a baseline.
    *
    * The static and front-end tools partition their findings; phpstan carries
-   * its native baseline; the two metric gates have a floor; a config drift
-   * snapshot is still read from a baseline that has one. phpunit, playwright
-   * and wiki_fresh get none: a failing suite is broken, not inherited
-   * (design §9).
+   * its native baseline; the two metric gates have a floor. phpunit,
+   * playwright and wiki_fresh get none: a failing suite is broken, not
+   * inherited (design §9). config_clean's drift snapshot left with the site
+   * gates (2026-10-19): an older baseline's `config_clean` entry still loads
+   * (the manifest reads any gate it names) and nothing consults it.
    */
   public const CONSULTING = [
     'phpcs',
@@ -29,7 +30,6 @@ final class Baseline {
     'prettier',
     'coverage',
     'mutation',
-    'config_clean',
   ];
 
   /**
@@ -43,7 +43,6 @@ final class Baseline {
     'phpstan' => 'phpstan-baseline.neon',
     'coverage' => 'metrics.json',
     'mutation' => 'metrics.json',
-    'config_clean' => 'config_clean.json',
   ];
 
   /**
@@ -215,26 +214,6 @@ final class Baseline {
       return 0;
     }
     return FindingParsers::phpstanBaselineCount((string) file_get_contents($this->dir . '/' . self::FILES['phpstan']));
-  }
-
-  /**
-   * The config drift recorded at adoption.
-   *
-   * @return list<string>
-   *   Drift entries exactly as the config_clean gate names them.
-   */
-  public function configDrift(): array {
-    if (!$this->has('config_clean')) {
-      return [];
-    }
-    $decoded = $this->json(self::FILES['config_clean']);
-    $out = [];
-    foreach (is_array($decoded['drift'] ?? NULL) ? $decoded['drift'] : [] as $entry) {
-      if (is_string($entry)) {
-        $out[] = $entry;
-      }
-    }
-    return $out;
   }
 
   /**

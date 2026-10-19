@@ -432,15 +432,13 @@ final class WorkflowFacade {
    *
    * @param string $projectRoot
    *   The repository.
-   * @param list<string>|null $configDrift
-   *   The site's current config drift, from the live surface, or NULL.
    *
    * @return array<string, mixed>
    *   The level, the per-gate bill, and the gates that could not be measured.
    */
-  public function baselineMeasure(string $projectRoot, ?array $configDrift = NULL): array {
+  public function baselineMeasure(string $projectRoot): array {
     $config = WorkflowConfig::load($projectRoot);
-    $measured = $this->writer()->measure($config, $projectRoot, $configDrift);
+    $measured = $this->writer()->measure($config, $projectRoot);
     return [
       'level' => $config->preset,
       'bill' => $measured->bill(),
@@ -463,8 +461,6 @@ final class WorkflowFacade {
    *   Allow the refresh to record more debt than before.
    * @param string|null $reason
    *   Why growth is accepted; required with $grow.
-   * @param list<string>|null $configDrift
-   *   The site's current config drift, from the live surface, or NULL.
    *
    * @return array<string, mixed>
    *   The manifest written, the bill, the skipped gates, and the new hash.
@@ -478,14 +474,13 @@ final class WorkflowFacade {
     bool $refresh = FALSE,
     bool $grow = FALSE,
     ?string $reason = NULL,
-    ?array $configDrift = NULL,
   ): array {
     $active = (new RunStateStore($projectRoot))->load();
     if ($active !== NULL && $active->currentPhase !== NULL) {
       throw BaselineError::runActive();
     }
     $config = WorkflowConfig::load($projectRoot);
-    $measured = $this->writer()->measure($config, $projectRoot, $configDrift);
+    $measured = $this->writer()->measure($config, $projectRoot);
     $manifest = $this->writer()->write(
       $projectRoot,
       $measured,
