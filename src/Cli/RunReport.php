@@ -111,11 +111,13 @@ final class RunReport {
       $why = $reason !== '' ? $reason : self::str($gate['summary'] ?? NULL, '');
     }
     else {
-      // A pass prints bare, except what the record bracketed onto it: "[its
-      // file … changed since this run began]", "[steered by config this run
-      // changed …]". Dropping those printed a loosened gate's pass as a plain
-      // pass, the falsehood by omission this report exists to prevent.
-      preg_match_all('/\[[^\]]+\]/', self::str($gate['summary'] ?? NULL, ''), $notes);
+      // A pass prints bare, except what droost bracketed onto it: "[its file …
+      // changed since this run began]", "[steered by config this run changed
+      // …]", "[the run … recorded …]". Dropping those printed a loosened
+      // gate's pass as a plain pass, the falsehood by omission this report
+      // exists to prevent. Only droost's own notes: a tool's log tag (drush's
+      // "[notice]") is not one (F-320).
+      preg_match_all('/\[(?:its file|steered by|the run )[^\]]*\]/', self::str($gate['summary'] ?? NULL, ''), $notes);
       $why = implode(' ', $notes[0]);
     }
     // WHOSE VERDICT, AND FROM WHEN (F-21): a gate whose retry budget is spent

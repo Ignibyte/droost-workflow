@@ -38,6 +38,11 @@ final class RunReportTest extends TestCase {
             'gates' => [
         ['gate' => 'phpcs', 'status' => 'passed', 'summary' => 'phpcs passed — 3 files'],
         [
+          'gate' => 'custom:config_clean',
+          'status' => 'passed',
+          'summary' => 'custom:config_clean passed — [notice] No differences between DB and sync directory.',
+        ],
+        [
           'gate' => 'custom:loose',
           'status' => 'passed',
           'summary' => 'custom:loose passed — its file exited 0 [its file droost/gates/loose.php changed since this run began]',
@@ -59,6 +64,7 @@ final class RunReportTest extends TestCase {
     $this->assertStringContainsString('✓ plan: passed', $lines);
     $this->assertStringContainsString('✗ code: failed', $lines);
     $this->assertMatchesRegularExpression('/phpcs\s+passed\n/', $lines, 'a plain pass prints bare');
+    $this->assertMatchesRegularExpression('/custom:config_clean passed\n/', $lines, 'a tool\'s own [notice] tag is not droost\'s note');
     $this->assertStringContainsString('custom:loose   passed — [its file droost/gates/loose.php changed since this run began', $lines, 'a pass with a bracketed note keeps it');
     $this->assertMatchesRegularExpression('/phpstan\s+off — off — by preset low/', $lines);
     $this->assertMatchesRegularExpression('/custom:mine\s+error-tool-failed — its file exited 3/', $lines);
