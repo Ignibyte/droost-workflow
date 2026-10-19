@@ -222,6 +222,7 @@ final class ArgvDispatcher {
       return match ($verb) {
         'init' => $this->init($projectRoot, $argv),
         'status' => $this->status($projectRoot),
+        'report' => $this->report($projectRoot),
         'run' => $this->run($projectRoot, $argv),
         'answer' => $this->answer($projectRoot, $argv),
         'swap' => $this->swap($projectRoot, $argv),
@@ -548,6 +549,23 @@ final class ArgvDispatcher {
   private function status(string $projectRoot): int {
     $status = $this->facade($projectRoot)->status($projectRoot);
     $this->say($this->encode($status));
+    return self::EXIT_OK;
+  }
+
+  /**
+   * The current or last run as a readable workchain (RunReport).
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function report(string $projectRoot): int {
+    $facade = $this->facade($projectRoot);
+    foreach (RunReport::lines($facade->status($projectRoot), $facade->bypassState($projectRoot)) as $line) {
+      $this->say($line);
+    }
     return self::EXIT_OK;
   }
 
@@ -1789,6 +1807,8 @@ final class ArgvDispatcher {
                        intent, and this project's run records — and names
                        them so you can remove them deliberately
       status           what this repo resolves to, and where a run has got to
+      report           the current or last run as a readable workchain: each
+                       phase, each gate's verdict and why, criteria, seeker
       run              start a run, or advance it by one phase
                    (--spec=<path> declares which spec governs the run;
                    --ticket=<id> binds it to a ticket, which moves to
