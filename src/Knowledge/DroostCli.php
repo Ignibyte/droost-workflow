@@ -562,6 +562,12 @@ final class DroostCli {
       return $code;
     }
     $root = $this->root();
+    // Before the harness installers run: with a retired skill still on disk
+    // they warn that droost-authored skills were "left in place", which read
+    // as if init had written nothing (F-311).
+    foreach (self::retireSkills($root) as $line) {
+      ($line[0] === 'removed' ? $this->out : $this->err)($line[1]);
+    }
     try {
       $result = (new HarnessSetup($this->packageRoot))->install($root, $harness, Site::coreVersionOf($root, CitationResolver::docroot($root)));
     }
@@ -594,6 +600,59 @@ final class DroostCli {
     '.claude/commands/droost/upgrade.md' => 'Droost — guided upgrade',
     '.claude/commands/droost/configure.md' => 'Droost — guided configuration',
   ];
+
+  /**
+   * Skills drupal/droost installed that describe what droost no longer does.
+   *
+   * `documenting-changes` wrote the wiki through droost's wiki tool, which
+   * went with the module: pages are written by hand now and recorded with
+   * `droost code:wiki stamp`, and complete's skill says when.
+   */
+  private const array RETIRED_SKILLS = ['documenting-changes'];
+
+  /**
+   * Removes the retired skills droost wrote and nobody changed.
+   *
+   * The engine's sentinel beside each skill records the SKILL.md it wrote; a
+   * copy whose SKILL.md no longer matches was edited by someone, and stays,
+   * with a line saying so.
+   *
+   * @param string $root
+   *   The project root.
+   *
+   * @return list<array{string, string}>
+   *   ['removed'|'warning', the line to print] each.
+   */
+  private static function retireSkills(string $root): array {
+    $lines = [];
+    foreach (self::RETIRED_SKILLS as $name) {
+      $dir = $root . '/.claude/skills/' . $name;
+      $sentinel = (string) @file_get_contents($dir . '/.droost-skill');
+      $skill = @file_get_contents($dir . '/SKILL.md');
+      if ($sentinel === '' || !is_string($skill)) {
+        continue;
+      }
+      if (preg_match('/^sha256: ([0-9a-f]{64})$/m', $sentinel, $m) === 1 && hash_equals($m[1], hash('sha256', $skill))) {
+        @unlink($dir . '/SKILL.md');
+        @unlink($dir . '/.droost-skill');
+        if (@rmdir($dir)) {
+          $lines[] = [
+            'removed',
+            'removed .claude/skills/' . $name . ' (retired: it described a droost tool that left with the module)',
+          ];
+        }
+        continue;
+      }
+      $lines[] = [
+        'warning',
+        'warning: .claude/skills/' . $name . ' was droost\'s and has been edited, so it stays; it describes a wiki tool'
+        . ' droost no longer has (pages are written by hand and recorded with `droost code:wiki stamp`).'
+        . ' Delete it when you are done with it.',
+      ];
+    }
+
+    return $lines;
+  }
 
   /**
    * Removes the retired module commands that are still droost's own.

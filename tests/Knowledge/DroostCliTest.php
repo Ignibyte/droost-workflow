@@ -301,6 +301,25 @@ final class DroostCliTest extends TestCase {
   }
 
   /**
+   * Init retires the module's documenting-changes skill unless edited (F-311).
+   */
+  public function testInitRetiresTheModulesSkillUnlessEdited(): void {
+    $skill = "---\nname: documenting-changes\n---\nWrites the wiki through Droost.\n";
+    $sentinel = "Droost-authored skill; safe to delete.\nsha256: " . hash('sha256', $skill) . "\n";
+    $this->put($this->root, '.claude/skills/documenting-changes/SKILL.md', $skill);
+    $this->put($this->root, '.claude/skills/documenting-changes/.droost-skill', $sentinel);
+    $this->assertSame(0, $this->droost(['init']));
+    $this->assertDirectoryDoesNotExist($this->root . '/.claude/skills/documenting-changes');
+    $this->assertStringContainsString('removed .claude/skills/documenting-changes', implode("\n", $this->out));
+
+    $this->put($this->root, '.claude/skills/documenting-changes/SKILL.md', $skill . "My team's own rule.\n");
+    $this->put($this->root, '.claude/skills/documenting-changes/.droost-skill', $sentinel);
+    $this->assertSame(0, $this->droost(['init']));
+    $this->assertFileExists($this->root . '/.claude/skills/documenting-changes/SKILL.md', 'an edited copy stays');
+    $this->assertStringContainsString('has been edited, so it stays', implode("\n", $this->err));
+  }
+
+  /**
    * Init removes the module's retired commands, and only droost's own (F-305).
    */
   public function testInitRemovesTheModulesRetiredCommandsOnly(): void {
