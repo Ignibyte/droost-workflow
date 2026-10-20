@@ -105,14 +105,22 @@ final class GraphTool extends ToolBase {
     $truncated = count($edges) > $limit;
     $edges = array_slice($edges, 0, $limit);
 
+    // What the graph cannot see, said where a reader would take an empty or
+    // short answer as "nothing calls this": calls on $this, self::, static::
+    // and through a class name are recorded; a call on any other object is
+    // not, since its class cannot be known statically (F-322).
+    $blind = $direction === 'callers' && str_contains($symbol, '::')
+      ? ' Calls on $this, self::, static:: and Class:: are recorded; a call through another object ($this->service->m(), $x->m()) is not, so search the text before trusting a short list.'
+      : '';
     return $this->succeed(
       sprintf(
-        '%d %s edge(s) for %s%s%s.',
+        '%d %s edge(s) for %s%s%s.%s',
         count($edges),
         $direction,
         $symbol,
         $resolvedFrom !== '' ? sprintf(' (resolved from "%s")', $resolvedFrom) : '',
         $truncated ? ' (truncated; raise "limit" for more)' : '',
+        $blind,
       ),
       [
         'symbol' => $symbol,

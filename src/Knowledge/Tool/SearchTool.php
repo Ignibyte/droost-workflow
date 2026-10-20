@@ -67,7 +67,7 @@ final class SearchTool extends ToolBase {
 
     return $this->succeed(
       sprintf(
-        '%d symbol match(es)%s and %d wiki page(s) for "%s". %s',
+        '%d symbol match(es)%s and %d wiki page(s) for "%s". %s Symbols are matched by name and the wiki by its text; strings inside the code (labels, messages) are not indexed, so grep finds those.',
         count($symbols),
         $truncated ? ' (more exist; raise "limit")' : '',
         count($wiki),
