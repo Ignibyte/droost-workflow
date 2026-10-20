@@ -30,6 +30,15 @@
 # deadlock, and `enforcement: off` still silences the hooks entirely.
 mode: agentic
 
+# human-led | autonomous — who may finish a run. In a human-led run the agent
+# may answer the plan, code and test holds, and the complete hold (held in
+# agentic mode too) is answered from the operator's terminal: an answer with
+# no terminal is refused there. An autonomous run is the agent's to finish.
+# Unset, interactive mode is human-led and agentic autonomous. A run's lead is
+# chosen when it begins (`droost workflow:run --lead=<lead>`) and changed with
+# `droost workflow:lead <lead>`; making one autonomous needs the terminal.
+# lead: human-led
+
 # custom | low | medium | high | xhigh | max — one dial for how hard the
 # workflow VERIFIES. A spec is always written and droost's wiki and code tree
 # are always consulted at every level; the dial scales gates, thresholds and
@@ -235,8 +244,10 @@ gates:
 
 # hooks: told about the run's events, never able to hold it. Each names a file
 # run as its own process with the event as JSON on stdin; a hook that fails is
-# recorded beside the run, and the run goes on. Events: run_start,
-# phase_begin, phase_end, run_complete.
+# recorded beside the run, and the run goes on. What it prints (its first
+# line) is shown to the agent in `workflow:run` and `workflow:answer` output,
+# so a hook can tell the agent something. Events: run_start, phase_begin,
+# phase_end, run_complete.
 # hooks:
 #   run_start: droost/hooks/ticket-in-progress.php
 

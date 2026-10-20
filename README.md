@@ -87,6 +87,7 @@ One file, `droost/droost.yml`, is the source of truth:
 
 ```yaml
 mode: agentic                   # agentic | interactive
+lead: human-led                 # human-led | autonomous — who may finish a run (unset: interactive → human-led)
 preset: custom                  # custom | low | medium | high | xhigh | max
 enforcement: soft               # hard | soft | off — the hooks, mid-run only
 require_run: hard               # hard | soft | off — custom-code edits with NO active run
@@ -438,7 +439,7 @@ under `php`; anything else is executed.
 |---|---|---|---|
 | **gate** — a check at a phase | `gates.<id>: { run: droost/gates/<file>, phase: code \| test \| "code,test", mode: block \| report, timeout: <s> }`, or `cmd: "<one shell line>"` in place of `run:` | the run's JSON: `project_root`, `run_id`, `phase`, the changed files; `DROOST_PROJECT_ROOT` and `DROOST_GATE` in the environment | exit 0 passed, 1 failed, stdout its report; **anything else — a missing file, a crash, a timeout, exit 3 — is recorded as did not run, never as passed** |
 | **wall** — asked before a tool call | `walls.<id>: { tools: <regex over the tool's name>, run: droost/walls/<file> }` | `tool`, `tool_name`, `input`, `project_root` | exit 0 allows, exit 2 refuses with the reason on stderr; a wall that crashes, is missing or times out (10 s) refuses — its silence is never consent |
-| **hook** — told about the run | `hooks: { run_start \| phase_begin \| phase_end \| run_complete: droost/hooks/<file> }` | the event | recorded in `hook-calls.jsonl`; a hook never holds the run |
+| **hook** — told about the run | `hooks: { run_start \| phase_begin \| phase_end \| run_complete: droost/hooks/<file> }` | the event: `phase`, `run_id`, `work_item` | recorded in `hook-calls.jsonl`, and its first line shown to the agent in `workflow:run` (`hooks` in the envelope) and `workflow:answer`; a hook never holds the run |
 | **operator-only script** | `operator_only: [droost/bin/<script>]` | — | the guard refuses it from the agent's shell, as it refuses `droost workflow:bypass` |
 
 **The rules are frozen.** A run records every gate, hook and wall file's hash
@@ -833,6 +834,20 @@ droost workflow:intake approve          # once the human has said yes
   run is the next run's and the intake's own reading of the site would
   otherwise satisfy the first rung's `plan_grounded`. Each rung then runs from its ticket, as any
   ticket does.
+
+## Who finishes a run: human-led or autonomous
+
+A run has a **lead**. In a **human-led** run the agent may answer the plan,
+code and test holds, and the complete hold is a human's: it holds even in
+agentic mode, and `droost workflow:answer` with no terminal is refused
+there, recording nothing. An **autonomous** run is the agent's to finish,
+complete included. `lead:` in `droost/droost.yml` sets the default (unset,
+interactive mode is human-led and agentic autonomous); `droost workflow:run
+--lead=<lead>` chooses it when a run begins; `droost workflow:lead <lead>`
+changes it. Making a run autonomous where the levers would not needs the
+operator's terminal; making one human-led is anyone's. Every answer records
+whether it came from the terminal or the agent (`via`), and the workchain
+report says how many the agent gave.
 
 ## Run state
 

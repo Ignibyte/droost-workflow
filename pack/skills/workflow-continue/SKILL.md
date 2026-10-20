@@ -203,7 +203,15 @@ answer, and `options` — the answers worth offering. Present it properly:
 - Then record the answer — `answer "<what they said>"` — which releases the
   pause and advances the run. Do not advance a paused run any other way.
 
-`agentic` mode never holds. An operator can switch to it mid-run at any hold
+**A human-led run is finished by a human.** `status` shows the run's `lead`.
+In a `human-led` run you may answer the plan, code and test holds when the
+operator has told you to, and the complete hold is theirs: it holds even in
+agentic mode, and your `answer` there is refused and records nothing. Tell
+the operator the run is ready to finish and that they answer it from their
+own terminal. An `autonomous` run is yours to finish. Every answer records
+whether it came from the operator's terminal or from you.
+
+`agentic` mode never holds (but for a human-led run's complete). An operator can switch to it mid-run at any hold
 (`swap agentic`), which also releases the current pause — that is what it is
 for. The reverse is not supported: a run that started without stopping is
 not interrupted into conversation.
