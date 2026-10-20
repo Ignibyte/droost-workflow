@@ -33,6 +33,22 @@ use Droost\Workflow\Support\TypedArray;
 final class RunState {
 
   /**
+   * The complete hold is answered from the operator's terminal.
+   */
+  public const LEAD_HUMAN = 'human-led';
+
+  /**
+   * The agent may answer every hold, complete's included.
+   */
+  public const LEAD_AUTONOMOUS = 'autonomous';
+
+  /**
+   * Every lead a run may have.
+   */
+  public const LEADS = [self::LEAD_HUMAN, self::LEAD_AUTONOMOUS];
+
+
+  /**
    * The schema version this build reads and writes.
    */
   public const SCHEMA_VERSION = 1;
@@ -181,6 +197,8 @@ final class RunState {
    *   Whether complete needs an inspection of its own, frozen at begin.
    * @param array<string, string> $preexisting
    *   What the tree held changed when the run began, path to sha256.
+   * @param string $lead
+   *   Who may finish the run (LEADS).
    */
   public function __construct(
     public readonly string $runId,
@@ -260,6 +278,16 @@ final class RunState {
      * @var array<string, string>
      */
     public readonly array $preexisting = [],
+    /**
+     * Who may finish the run.
+     *
+     * `human-led` (the complete hold is answered from the operator's
+     * terminal) or `autonomous` (the agent may answer every hold). Frozen at
+     * begin; `workflow:lead` changes it, and only the
+     * operator's terminal may make it autonomous (owner, 2026-10-20).
+     * Absent before then, which is how those runs behaved: autonomous.
+     */
+    public readonly string $lead = self::LEAD_AUTONOMOUS,
   ) {}
 
   /**
@@ -281,6 +309,8 @@ final class RunState {
    *   (F-144); NULL when the gate is off.
    * @param array<string, string|null> $ruleFiles
    *   The project's rule files and their hashes at begin (RuleFiles::hash()).
+   * @param string|null $lead
+   *   The lead chosen for this run, or NULL for the lever's.
    *
    * @return self
    *   A run positioned at its first configured phase.
@@ -293,6 +323,7 @@ final class RunState {
     ?string $baselineHash = NULL,
     ?string $parityDigest = NULL,
     array $ruleFiles = [],
+    ?string $lead = NULL,
   ): self {
     $phases = [];
     foreach ($config->phases as $index => $phase) {
@@ -335,6 +366,7 @@ final class RunState {
       rules: $config->rules()->toArray(),
       seekerHolds: $config->seekerHolds,
       seekerAtComplete: $config->seekerAtComplete,
+      lead: $lead ?? $config->lead(),
     );
   }
 
@@ -773,6 +805,7 @@ final class RunState {
       seekerHolds: $this->seekerHolds,
       seekerAtComplete: $this->seekerAtComplete,
       preexisting: $this->preexisting,
+      lead: $this->lead,
     );
   }
 
@@ -920,6 +953,7 @@ final class RunState {
       seekerHolds: $this->seekerHolds,
       seekerAtComplete: $this->seekerAtComplete,
       preexisting: $this->preexisting,
+      lead: $this->lead,
     );
   }
 
@@ -969,6 +1003,7 @@ final class RunState {
       seekerHolds: $this->seekerHolds,
       seekerAtComplete: $this->seekerAtComplete,
       preexisting: $this->preexisting,
+      lead: $this->lead,
     );
   }
 
@@ -985,6 +1020,33 @@ final class RunState {
    */
   public function awaiting(array $question): self {
     return $this->rebuild(awaiting: $question, clearAwaiting: FALSE);
+  }
+
+  /**
+   * This run with its lead changed (`workflow:lead`).
+   *
+   * @param string $lead
+   *   One of LEADS.
+   *
+   * @return self
+   *   A new instance.
+   */
+  public function withLead(string $lead): self {
+    return $this->with(lead: $lead);
+  }
+
+  /**
+   * Whether a human must answer the pending hold.
+   *
+   * The complete hold of a human-led run (owner, 2026-10-20).
+   *
+   * @return bool
+   *   TRUE when the pending question is complete's and the run is human-led.
+   */
+  public function awaitsHuman(): bool {
+    return $this->lead === self::LEAD_HUMAN
+      && is_array($this->awaiting)
+      && ($this->awaiting['phase'] ?? NULL) === 'complete';
   }
 
   /**
@@ -1105,6 +1167,7 @@ final class RunState {
       seekerHolds: $this->seekerHolds,
       seekerAtComplete: $this->seekerAtComplete,
       preexisting: $this->preexisting,
+      lead: $this->lead,
     );
   }
 
@@ -1259,6 +1322,7 @@ final class RunState {
       'seeker_holds' => $this->seekerHolds,
       'seeker_at_complete' => $this->seekerAtComplete,
       'preexisting' => $this->preexisting,
+      'lead' => $this->lead,
     ];
   }
 
@@ -1379,6 +1443,9 @@ final class RunState {
         static fn (mixed $hash, mixed $path): bool => is_string($hash) && is_string($path),
         ARRAY_FILTER_USE_BOTH,
       ),
+      lead: in_array($node->optionalString('lead', ''), self::LEADS, TRUE)
+        ? (string) $node->optionalString('lead', '')
+        : self::LEAD_AUTONOMOUS,
     );
   }
 
@@ -1521,6 +1588,7 @@ final class RunState {
       seekerHolds: $this->seekerHolds,
       seekerAtComplete: $this->seekerAtComplete,
       preexisting: $this->preexisting,
+      lead: $this->lead,
     );
   }
 
@@ -2059,6 +2127,8 @@ final class RunState {
    *   The loop record, or NULL to keep the run's own.
    * @param array<string, string>|null $preexisting
    *   What the tree held changed at begin, or NULL to keep the run's own.
+   * @param string|null $lead
+   *   The new lead, or NULL to keep it.
    *
    * @return self
    *   A new instance.
@@ -2080,6 +2150,7 @@ final class RunState {
     ?array $workItem = NULL,
     ?LoopState $loop = NULL,
     ?array $preexisting = NULL,
+    ?string $lead = NULL,
   ): self {
     return new self(
       $this->runId,
@@ -2115,6 +2186,7 @@ final class RunState {
       seekerHolds: $this->seekerHolds,
       seekerAtComplete: $this->seekerAtComplete,
       preexisting: $preexisting ?? $this->preexisting,
+      lead: $lead ?? $this->lead,
     );
   }
 

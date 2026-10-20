@@ -151,13 +151,10 @@ final class EvidenceRecorder {
    * appends to the file and nowhere else, so counting what the store holds
    * for this run is counting what this reader already moved. A row's own
    * phase is kept when it has one; the phase being recorded fills in the
-   * rest. A row's `run` is NULL when no run was open —
-   * and those rows are THIS run's too when this is the run that opened next.
-   * The plan phase grounds, writes the spec and only then opens the run, so
-   * every knowledge call that grounding makes lands before run.json exists;
-   * skipping them would report the run as having asked the codebase nothing,
-   * at the phase where it asked most. Which run-less rows are this run's is
-   * ToolCallLog::ofRun()'s to say (F-331).
+   * rest. A row's `run` is NULL when no run was open, and such a row is no
+   * run's: a plan looks once its run is open (owner, 2026-10-20), and a
+   * lookup made between runs for another purpose read as the next run's
+   * (F-331). ToolCallLog::ofRun() says which rows are this run's.
    *
    * @param \Droost\Workflow\Evidence\EvidenceStore $store
    *   The store.

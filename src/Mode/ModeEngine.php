@@ -369,7 +369,10 @@ final class ModeEngine {
       return new RunOutcome(Outcome::Deferred, $state, $report, NULL, [], $deferring);
     }
 
-    if ($this->effectiveMode($state)->holdsForConversation()) {
+    // A human-led run holds at complete whatever the mode: finishing is the
+    // human's (owner, 2026-10-20).
+    if ($this->effectiveMode($state)->holdsForConversation()
+      || ($phase === Phase::Complete && $state->lead === RunState::LEAD_HUMAN)) {
       $question = $this->conversationAt($phase, $report, $now);
       // State first, sink second. Always.
       $state = $state->awaiting($question->toArray());

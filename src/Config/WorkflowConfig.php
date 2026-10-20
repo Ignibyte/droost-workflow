@@ -53,6 +53,7 @@ final class WorkflowConfig {
     'hooks',
     'walls',
     'operator_only',
+    'lead',
   ];
 
   /**
@@ -187,6 +188,8 @@ final class WorkflowConfig {
    * @param list<string> $operatorOnly
    *   Project scripts only the OPERATOR runs: the guard refuses them from the
    *   agent's shell, as it refuses bypass and gate-waive.
+   * @param string|null $leadLever
+   *   `lead:` as written, or NULL to follow the mode (lead()).
    */
   private function __construct(
     public readonly Mode $mode,
@@ -212,7 +215,21 @@ final class WorkflowConfig {
     public readonly array $hooks = [],
     public readonly array $walls = [],
     public readonly array $operatorOnly = [],
+    public readonly ?string $leadLever = NULL,
   ) {}
+
+  /**
+   * Who may finish a run begun on these levers.
+   *
+   * `lead:` when the file says, else what the mode implies: an interactive
+   * run is human-led, an agentic one autonomous (owner, 2026-10-20).
+   *
+   * @return string
+   *   `human-led` or `autonomous`.
+   */
+  public function lead(): string {
+    return $this->leadLever ?? ($this->mode->holdsForConversation() ? 'human-led' : 'autonomous');
+  }
 
   /**
    * The owner's rules for what builds a page, as written.
@@ -477,6 +494,7 @@ final class WorkflowConfig {
         self::readHooks($root, $source),
         self::readWalls($root, $source),
         self::readOperatorOnly($root, $source),
+        self::readLead($root, $source),
       );
     }
     catch (DataError $e) {
@@ -1100,6 +1118,28 @@ final class WorkflowConfig {
       throw ConfigError::unknownMode($source, $name, Mode::names());
     }
     return $mode;
+  }
+
+  /**
+   * Reads `lead:`, or NULL to follow the mode.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The file, for the error.
+   *
+   * @return string|null
+   *   `human-led`, `autonomous`, or NULL.
+   */
+  private static function readLead(TypedArray $root, string $source): ?string {
+    if (!$root->has('lead')) {
+      return NULL;
+    }
+    $lead = $root->string('lead');
+    if (!in_array($lead, ['human-led', 'autonomous'], TRUE)) {
+      throw ConfigError::unknownLead($source, $lead);
+    }
+    return $lead;
   }
 
   /**

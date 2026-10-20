@@ -94,27 +94,26 @@ final class PlanGroundedCheckTest extends WorkflowTestCase {
     $this->assertStringContainsString('code:wiki ×1', $record->summary);
     $this->assertStringContainsString('code:tree ×1', $record->summary);
     $this->assertStringContainsString('the code index is absent', $record->summary, 'the index status is said');
-    $this->assertStringContainsString('3 of them made before the run opened', $record->summary, 'run-less looking is said as such (F-331)');
     $this->assertSame(PlanGroundedCheck::PROVIDER, $record->provider);
   }
 
   /**
-   * A lookup made before an earlier run is not this plan's consult (F-331).
+   * A lookup made before the run opened is not its plan's (F-331).
    *
-   * A run-less call belongs to the run that opened next; with the ledger
-   * never rotated on completion, every one since the last reset counted.
+   * Owner, 2026-10-20: the plan looks once its run is open; a lookup made
+   * between runs, for another purpose, read as the next plan's consult.
    */
-  public function testLookingBeforeAnEarlierRunIsNotThisPlans(): void {
+  public function testLookingBeforeTheRunIsNotThePlans(): void {
     $root = $this->project();
-    $this->ledger($root, [
-      ...self::looked(),
-      ['tool' => 'code:symbol', 'outcome' => 'ok', 'at' => 'y', 'run' => 'run-before', 'phase' => 'plan'],
-    ]);
+    $this->ledger($root, array_map(
+      static fn (array $call): array => ['run' => NULL, 'phase' => NULL] + $call,
+      self::looked(),
+    ));
 
     $record = $this->verdict($root);
 
     $this->assertSame(CheckState::Blocked, $record->state, $record->summary);
-    $this->assertStringContainsString('`droost code:wiki` and `droost code:tree`', $record->summary);
+    $this->assertStringContainsString('`droost code:wiki` was called 1× before this run opened', $record->summary);
   }
 
   /**
@@ -124,7 +123,15 @@ final class PlanGroundedCheckTest extends WorkflowTestCase {
     $root = $this->project();
     $this->codeIndex($root, [], []);
     $this->groundedSpec($root, [['custom', 'none: QzxvMadeUp']]);
-    $this->ledger($root, [['tool' => 'droost_search', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL]]);
+    $this->ledger($root, [
+      [
+        'tool' => 'droost_search',
+        'outcome' => 'ok',
+        'at' => 'x',
+        'run' => 'run-pg',
+        'phase' => 'plan',
+      ],
+    ]);
 
     $record = $this->verdict($root);
 
@@ -142,7 +149,15 @@ final class PlanGroundedCheckTest extends WorkflowTestCase {
       ['custom', 'web/modules/'],
       ['custom', 'droost/droost-workflow/spec-test-run.md'],
     ]);
-    $this->ledger($root, [['tool' => 'droost_search', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL]]);
+    $this->ledger($root, [
+      [
+        'tool' => 'droost_search',
+        'outcome' => 'ok',
+        'at' => 'x',
+        'run' => 'run-pg',
+        'phase' => 'plan',
+      ],
+    ]);
 
     $this->assertSame(CheckState::Blocked, $this->verdict($root)->state);
   }
@@ -202,7 +217,15 @@ final class PlanGroundedCheckTest extends WorkflowTestCase {
   public function testCitationsThatResolveNowhereBlock(): void {
     $root = $this->project();
     $this->groundedSpec($root, [['custom', 'Drupal\camps\Invented']]);
-    $this->ledger($root, [['tool' => 'droost_search', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL]]);
+    $this->ledger($root, [
+      [
+        'tool' => 'droost_search',
+        'outcome' => 'ok',
+        'at' => 'x',
+        'run' => 'run-pg',
+        'phase' => 'plan',
+      ],
+    ]);
 
     $record = $this->verdict($root);
 
@@ -248,8 +271,8 @@ final class PlanGroundedCheckTest extends WorkflowTestCase {
     foreach (['code:wiki' => 'code:tree', 'code:tree' => 'code:wiki'] as $asked => $missing) {
       $root = $this->project();
       $this->ledger($root, [
-        ['tool' => $asked, 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL],
-        ['tool' => 'code:symbol', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL],
+        ['tool' => $asked, 'outcome' => 'ok', 'at' => 'x', 'run' => 'run-pg', 'phase' => 'plan'],
+        ['tool' => 'code:symbol', 'outcome' => 'ok', 'at' => 'x', 'run' => 'run-pg', 'phase' => 'plan'],
       ]);
 
       $record = $this->verdict($root);
@@ -265,7 +288,7 @@ final class PlanGroundedCheckTest extends WorkflowTestCase {
    */
   public function testTheBriefCommandAloneIsNotLooking(): void {
     $root = $this->project();
-    $this->ledger($root, [['tool' => 'brief', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL]]);
+    $this->ledger($root, [['tool' => 'brief', 'outcome' => 'ok', 'at' => 'x', 'run' => 'run-pg', 'phase' => 'plan']]);
 
     $record = $this->verdict($root);
 
@@ -289,9 +312,9 @@ final class PlanGroundedCheckTest extends WorkflowTestCase {
   public function testFailedConsultIsSaidAsTried(): void {
     $root = $this->project();
     $this->ledger($root, [
-      ['tool' => 'code:wiki', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL],
-      ['tool' => 'code:tree', 'outcome' => 'fail', 'at' => 'x', 'run' => NULL, 'phase' => NULL],
-      ['tool' => 'code:tree', 'outcome' => 'fail', 'at' => 'x', 'run' => NULL, 'phase' => NULL],
+      ['tool' => 'code:wiki', 'outcome' => 'ok', 'at' => 'x', 'run' => 'run-pg', 'phase' => 'plan'],
+      ['tool' => 'code:tree', 'outcome' => 'fail', 'at' => 'x', 'run' => 'run-pg', 'phase' => 'plan'],
+      ['tool' => 'code:tree', 'outcome' => 'fail', 'at' => 'x', 'run' => 'run-pg', 'phase' => 'plan'],
     ]);
 
     $record = $this->verdict($root);
@@ -310,9 +333,9 @@ final class PlanGroundedCheckTest extends WorkflowTestCase {
    */
   private static function looked(): array {
     return [
-      ['tool' => 'code:wiki', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL],
-      ['tool' => 'code:tree', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL],
-      ['tool' => 'code:symbol', 'outcome' => 'ok', 'at' => 'x', 'run' => NULL, 'phase' => NULL],
+      ['tool' => 'code:wiki', 'outcome' => 'ok', 'at' => 'x', 'run' => 'run-pg', 'phase' => 'plan'],
+      ['tool' => 'code:tree', 'outcome' => 'ok', 'at' => 'x', 'run' => 'run-pg', 'phase' => 'plan'],
+      ['tool' => 'code:symbol', 'outcome' => 'ok', 'at' => 'x', 'run' => 'run-pg', 'phase' => 'plan'],
     ];
   }
 

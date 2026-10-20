@@ -5144,8 +5144,8 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
   // the gate that holds a run to the tools its plan named. The guard's own
   // rows are what §7a counts, and the scaffold record is what sets an
   // untouched scaffold aside from `tests_in_diff`. No run open is no
-  // exception: a row written before the run opens is attributed to it. The
-  // spec is the one file here the agent writes.
+  // exception: a forged row before a run opens is a forged record all the
+  // same. The spec is the one file here the agent writes.
   //
   // BY NAME, OR BY BEING THERE. The operand loop hands this every word of a
   // command, resolved against its `cd`, so after `cd droost/droost-workflow`
@@ -7403,9 +7403,9 @@ function guard_nudge(string $directory, string $tool, array $input, array $respo
 /**
  * Whether the tool-call ledger shows droost's knowledge asked for this run.
  *
- * A row made before the run opened (`run` null) counts, as the ledger's own
- * reader keeps such rows for the run that opens next. The list is the
- * evidence report's KNOWLEDGE_TOOLS and the mod's.
+ * With a run open, only its own rows count: a row made before it opened is
+ * no run's (owner, 2026-10-20; F-331). With none open, any row does. The
+ * list is the evidence report's KNOWLEDGE_TOOLS and the mod's.
  */
 function guard_nudge_grounded(string $directory, ?string $run): bool {
   $knowledge = [
@@ -7415,7 +7415,7 @@ function guard_nudge_grounded(string $directory, ?string $run): bool {
   foreach (@file($directory . '/tool-calls.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
     $row = json_decode($line, TRUE);
     if (is_array($row) && in_array($row['tool'] ?? NULL, $knowledge, TRUE) && ($row['outcome'] ?? NULL) === 'ok'
-      && (($row['run'] ?? NULL) === NULL || $run === NULL || $row['run'] === $run)) {
+      && ($run === NULL || ($row['run'] ?? NULL) === $run)) {
       return TRUE;
     }
   }

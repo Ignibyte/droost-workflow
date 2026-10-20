@@ -483,6 +483,21 @@ final class ConfigError extends \RuntimeException {
   }
 
   /**
+   * A lead that is neither human-led nor autonomous.
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $lead
+   *   The offending value.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function unknownLead(string $source, string $lead): self {
+    return new self($source, sprintf('unknown lead "%s" (known: human-led, autonomous)', $lead));
+  }
+
+  /**
    * A follow_ups value that is none of the four.
    *
    * @param string $source

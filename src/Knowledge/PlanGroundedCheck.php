@@ -166,20 +166,15 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
 
     $tools = array_count_values(array_column($asked, 'tool'));
     ksort($tools);
-    // Grounding before the run opens counts, as the flow intends; the reader
-    // is told how much of the looking that was, since a run-less call cannot
-    // say what it was made for (F-331).
-    $before = count(array_filter($asked, static fn (array $call): bool => $call['run'] === NULL));
 
     return [
       $this->record(
         CheckState::Satisfied,
         Fault::None,
         sprintf(
-          'plan looked: %d knowledge call(s) this run (%s)%s, and %d Grounding citation(s) resolve%s; the code index is %s',
+          'plan looked: %d knowledge call(s) this run (%s), and %d Grounding citation(s) resolve%s; the code index is %s',
           count($asked),
           implode(', ', array_map(static fn (string $tool, int $n): string => $tool . ' ×' . $n, array_keys($tools), $tools)),
-          $before === 0 ? '' : sprintf(', %d of them made before the run opened', $before),
           count($citations['resolved']),
           $citations['unresolved'] === [] ? '' : sprintf(' (%d more do not)', count($citations['unresolved'])),
           $citations['index'],
@@ -235,9 +230,11 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
   /**
    * This run's knowledge calls made during plan that answered.
    *
-   * A row with no phase was made before the run opened, which is when a plan
-   * grounds. A call droost refused or failed is no answer, so it is not
-   * looking.
+   * Only rows the run made itself (owner, 2026-10-20): a row made with no run
+   * open cannot say what it was for, and a lookup made between two runs, for
+   * another purpose, read as the next plan's consult (F-331). The plan looks
+   * once its run is open; after that, looking is unlimited at any phase. A
+   * call droost refused or failed is no answer, so it is not looking.
    *
    * @param string $root
    *   The repository root.
@@ -252,7 +249,8 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
       ToolCallLog::read($root, $runId),
       static fn (array $call): bool => in_array($call['tool'], EvaluationReport::KNOWLEDGE_TOOLS, TRUE)
         && $call['outcome'] === 'ok'
-        && ($call['phase'] === NULL || $call['phase'] === 'plan'),
+        && $call['run'] === $runId
+        && $call['phase'] === 'plan',
     ));
   }
 
@@ -275,16 +273,25 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
    */
   private static function failedAttempts(string $root, string $runId, array $missing): string {
     $tried = [];
-    foreach (ToolCallLog::read($root, $runId) as $call) {
-      if (in_array($call['tool'], $missing, TRUE) && $call['outcome'] !== 'ok'
-        && ($call['phase'] === NULL || $call['phase'] === 'plan')) {
+    $before = [];
+    foreach (ToolCallLog::read($root) as $call) {
+      if (!in_array($call['tool'], $missing, TRUE)) {
+        continue;
+      }
+      if ($call['run'] === NULL) {
+        $before[$call['tool']] = ($before[$call['tool']] ?? 0) + 1;
+      }
+      elseif ($call['run'] === $runId && $call['outcome'] !== 'ok' && $call['phase'] === 'plan') {
         $tried[$call['tool']] = ($tried[$call['tool']] ?? 0) + 1;
       }
     }
-    if ($tried === []) {
-      return '';
-    }
     $said = [];
+    foreach ($before as $tool => $count) {
+      $said[] = sprintf('`droost %s` was called %d× before this run opened, which is not this run\'s looking: call it again now', $tool, $count);
+    }
+    if ($tried === []) {
+      return $said === [] ? '' : '; ' . implode('; ', $said);
+    }
     foreach ($tried as $tool => $count) {
       $said[] = sprintf('`droost %s` was called %d× and failed each time%s', $tool, $count, $tool === 'code:tree' ? ' (it reads the code index: build it with `droost code:index`)' : '');
     }

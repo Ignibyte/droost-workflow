@@ -366,6 +366,7 @@ final class WorkflowFacade {
       // A check-in is the human's; an answer typed with no terminal is how an
       // agent answers one, and the count alone read as four human decisions
       // where an agent's session had made all four (F-335).
+      'lead' => $state->lead,
       'answered_by_agent' => count(array_filter($state->qaHistory, static fn (mixed $q): bool => is_array($q) && ($q['answer'] ?? NULL) !== NULL && ($q['via'] ?? NULL) === 'agent')),
     ];
     return $status;
@@ -644,6 +645,10 @@ final class WorkflowFacade {
    *   The ticket this run answers (--ticket), bound when the run begins.
    *   Naming the ticket a run is already bound to is a no-op; naming any
    *   other, or binding a run that began with none, is refused.
+   * @param string|null $lead
+   *   The lead chosen for a run this call begins (`human-led` or
+   *   `autonomous`); NULL for the lever's. Naming one for a run already open
+   *   is refused: `workflow:lead` changes it.
    *
    * @return \Droost\Workflow\Mode\RunOutcome
    *   What happened. The state is persisted before this returns.
@@ -652,7 +657,7 @@ final class WorkflowFacade {
    *   When a ticket is named and no source is configured, the source has no
    *   such ticket, or the run already answers another.
    */
-  public function run(string $projectRoot, ?string $spec = NULL, ?string $ticket = NULL): RunOutcome {
+  public function run(string $projectRoot, ?string $spec = NULL, ?string $ticket = NULL, ?string $lead = NULL): RunOutcome {
     $store = new RunStateStore($projectRoot);
     $state = $store->load();
     $ticket = $ticket === NULL || trim($ticket) === '' ? NULL : trim($ticket);
@@ -670,6 +675,17 @@ final class WorkflowFacade {
         $bound = $state->workItem['id'] ?? NULL;
         throw WorkItemError::alreadyStarted($item->id, is_string($bound) ? $bound : NULL, $state->runId);
       }
+    }
+    if ($lead !== NULL && !in_array($lead, RunState::LEADS, TRUE)) {
+      throw new \InvalidArgumentException(sprintf('--lead=%s is not a lead: human-led or autonomous.', $lead));
+    }
+    // The lead is the run's, chosen when it begins (owner, 2026-10-20).
+    if ($lead !== NULL && $state !== NULL && $lead !== $state->lead) {
+      throw new \InvalidArgumentException(sprintf(
+        'This run is already %s; --lead chooses a run\'s lead when it begins. `droost workflow:lead %s` changes it (to autonomous, only from the operator\'s terminal).',
+        $state->lead,
+        $lead,
+      ));
     }
 
     if ($state === NULL) {
@@ -696,6 +712,7 @@ final class WorkflowFacade {
           ? ParityReference::digest($projectRoot, ParityReference::directory($parity['reference'] ?? NULL))
           : NULL,
         RuleFiles::hash($projectRoot, $config),
+        $lead,
       );
       if ($item !== NULL) {
         $state = $state->withWorkItem($item->binding());
@@ -937,6 +954,32 @@ final class WorkflowFacade {
   }
 
   /**
+   * Changes an open run's lead (`workflow:lead`).
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $lead
+   *   `human-led` or `autonomous`. The caller holds a move to autonomous to
+   *   the operator's terminal.
+   *
+   * @return \Droost\Workflow\State\RunState
+   *   The run, saved.
+   *
+   * @throws \Droost\Workflow\State\StateError
+   *   When there is no run.
+   */
+  public function lead(string $projectRoot, string $lead): RunState {
+    if (!in_array($lead, RunState::LEADS, TRUE)) {
+      throw new \InvalidArgumentException(sprintf('"%s" is not a lead: human-led or autonomous.', $lead));
+    }
+    $store = new RunStateStore($projectRoot);
+    $state = $this->requireRun($store)->withLead($lead);
+    $store->save($state);
+
+    return $state;
+  }
+
+  /**
    * Answers the question a paused run is waiting on.
    *
    * @param string $projectRoot
@@ -958,6 +1001,16 @@ final class WorkflowFacade {
   public function answer(string $projectRoot, string $answer, ?string $via = NULL): RunOutcome {
     $store = new RunStateStore($projectRoot);
     $state = $this->requireRun($store);
+    // A HUMAN-LED RUN IS FINISHED BY A HUMAN (owner, 2026-10-20). The agent
+    // may answer plan's, code's and test's holds; complete's comes from the
+    // operator's terminal, or the run waits.
+    if ($via === 'agent' && $state->awaitsHuman()) {
+      throw new \InvalidArgumentException(
+        'This run is human-led: its complete hold is answered by a human, from the operator\'s terminal '
+        . '(`droost workflow:answer "<answer>"` typed there). Nothing was recorded, and the run is still waiting. '
+        . 'Tell the operator the run is ready to finish.',
+      );
+    }
     $answered = $this->engine($projectRoot)->answer($state, $answer, $this->now(), $projectRoot, $via);
     $answeredEvent = [
       'question_id' => self::questionId($state, $state->awaiting ?? []),

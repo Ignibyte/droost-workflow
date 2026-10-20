@@ -224,6 +224,7 @@ final class ArgvDispatcher {
         'report' => $this->report($projectRoot),
         'run' => $this->run($projectRoot, $argv),
         'answer' => $this->answer($projectRoot, $argv),
+        'lead' => $this->lead($projectRoot, $argv),
         'swap' => $this->swap($projectRoot, $argv),
         'seeker-report' => $this->seekerReport($projectRoot, $argv),
         'declare-browser' => $this->declareBrowser($projectRoot, $argv),
@@ -584,9 +585,14 @@ final class ArgvDispatcher {
   private function run(string $projectRoot, array $argv): int {
     $spec = NULL;
     $ticket = NULL;
+    $lead = NULL;
     $count = count($argv);
     for ($i = 0; $i < $count; $i++) {
       $arg = $argv[$i];
+      if (str_starts_with($arg, '--lead=')) {
+        $lead = substr($arg, 7);
+        continue;
+      }
       if (str_starts_with($arg, '--spec=')) {
         $spec = substr($arg, 7);
         continue;
@@ -618,7 +624,15 @@ final class ArgvDispatcher {
         $spec = $argv[++$i];
       }
     }
-    $outcome = $this->facade($projectRoot)->run($projectRoot, $spec, $ticket);
+    // Choosing autonomous, where the levers would make the run human-led, is
+    // the operator's: an agent that could would finish every run it began.
+    if ($lead === 'autonomous' && !$this->operatorTerminal()
+      && (new RunStateStore($projectRoot))->load() === NULL
+      && WorkflowConfig::load($projectRoot)->lead() !== 'autonomous') {
+      $this->fail($this->noTerminalRefusal('run --lead=autonomous'));
+      return self::EXIT_USAGE;
+    }
+    $outcome = $this->facade($projectRoot)->run($projectRoot, $spec, $ticket, $lead);
     $this->say($this->encode($outcome->toArray()));
 
     // A paused run has not failed; it is waiting. Only a genuine failure
@@ -634,6 +648,37 @@ final class ArgvDispatcher {
     return in_array($outcome->outcome, [Outcome::Failed, Outcome::Blocked, Outcome::Returned], TRUE)
       ? self::EXIT_RUN_FAILED
       : self::EXIT_OK;
+  }
+
+  /**
+   * Changes the open run's lead: `lead human-led|autonomous`.
+   *
+   * Anyone may make a run human-led; only the operator's terminal may make
+   * one autonomous (owner, 2026-10-20).
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The arguments.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function lead(string $projectRoot, array $argv): int {
+    $lead = $argv[1] ?? '';
+    if (!in_array($lead, RunState::LEADS, TRUE)) {
+      $this->fail('lead takes human-led or autonomous: droost workflow:lead human-led');
+      return self::EXIT_USAGE;
+    }
+    if ($lead === RunState::LEAD_AUTONOMOUS && !$this->operatorTerminal()) {
+      $this->fail($this->noTerminalRefusal('lead autonomous'));
+      return self::EXIT_USAGE;
+    }
+    $state = $this->facade($projectRoot)->lead($projectRoot, $lead);
+    $this->say(sprintf('lead: %s — %s', $state->lead, $state->lead === RunState::LEAD_HUMAN
+      ? 'the complete hold is answered from the operator\'s terminal'
+      : 'the agent may answer every hold, complete\'s included'));
+    return self::EXIT_OK;
   }
 
   /**
@@ -1932,6 +1977,14 @@ final class ArgvDispatcher {
                    (--spec=<path> declares which spec governs the run;
                    --ticket=<id> binds it to a ticket, which moves to
                    in_progress, and to review when the run completes)
+      lead human-led|autonomous
+                       who may finish the open run: human-led (the complete
+                       hold is answered from the operator's terminal) or
+                       autonomous (the agent may answer every hold). Making a
+                       run autonomous needs the operator's terminal; `run
+                       --lead=<lead>` chooses it when a run begins, and
+                       droost.yml's `lead:` is the default (else interactive
+                       mode is human-led, agentic autonomous)
       answer <text>    answer a paused run's question (the run then advances).
                        It prints one line, not a JSON envelope: exit 0 when
                        the run moved, non-zero when a check still holds it

@@ -55,9 +55,10 @@ final class EventsVerbTest extends WorkflowTestCase {
     $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\nseekers:\n  on: false\n");
     $dir = (new RunStateStore($root))->directory();
     mkdir($dir . '/' . RunEventLog::FILENAME, 0755, TRUE);
-    // Plan is held until it has consulted the wiki and the tree (F-303); this
-    // test is about the event log, so its plan consults them, as a real one
-    // does, before the run opens.
+    // Plan is held until it has consulted the wiki and the tree (F-303), in
+    // the run (owner, 2026-10-20); this test is about the event log, so the
+    // run begins, its plan consults them, as a real one does, and the binary
+    // is asked to go on.
     mkdir($root . '/modules/custom/x', 0755, TRUE);
     file_put_contents($root . '/modules/custom/x/x.info.yml', "name: X\ntype: module\n");
     $spec = $dir . '/spec-test-run.md';
@@ -68,9 +69,10 @@ final class EventsVerbTest extends WorkflowTestCase {
       "## Grounding\n\n| Phase | Tier | Asked | Found | Evidence |\n|---|---|---|---|---|\n| plan | custom | the module | its info file | modules/custom/x/x.info.yml |\n",
       (string) file_get_contents($spec),
     ));
+    $this->dispatch(['run'], $root);
     file_put_contents($dir . '/tool-calls.jsonl', implode("\n", [
-      '{"tool":"code:wiki","outcome":"ok","at":"x","run":null,"phase":null}',
-      '{"tool":"code:tree","outcome":"ok","at":"x","run":null,"phase":null}',
+      '{"tool":"code:wiki","outcome":"ok","at":"x","run":"run-events","phase":"plan"}',
+      '{"tool":"code:tree","outcome":"ok","at":"x","run":"run-events","phase":"plan"}',
     ]) . "\n");
 
     $process = proc_open(

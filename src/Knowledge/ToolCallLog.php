@@ -23,9 +23,8 @@ use Droost\Workflow\State\RunStateStore;
  * Deliberately append-only, outside the run record (a run may not be open,
  * and a ledger that needed one would miss the calls made while deciding
  * whether to open it), and mirrored into the evidence store when a run is
- * open. A row with no run was made before one opened, and belongs to the run
- * that opened next (F-6); ofRun() says which that is, since completing a run
- * leaves the file in place and only `reset` archives it (F-331).
+ * open. A row with no run was made before one opened, and is no run's: a plan
+ * looks once its run is open (owner, 2026-10-20; F-331).
  */
 final class ToolCallLog {
 
@@ -104,8 +103,7 @@ final class ToolCallLog {
    * @param string $projectRoot
    *   The repository root.
    * @param string|null $runId
-   *   A run to filter by. With one, rows made under ANOTHER run are skipped,
-   *   and so are rows made under no run that belong to another (ofRun()).
+   *   A run to filter by: only the rows it made (ofRun()).
    *
    * @return list<array{tool: string, outcome: string, at: string, run: string|null, phase: string|null}>
    *   The calls.
@@ -150,18 +148,13 @@ final class ToolCallLog {
   }
 
   /**
-   * The rows that are one run's: its own, and the run-less rows it inherits.
+   * The rows that are one run's: the ones it made.
    *
-   * A row made with no run open belongs to the run that opened NEXT, which is
-   * when a plan grounds. Every run-less row since the last `reset` was read
-   * as this run's, and completing a run does not rotate the file, so a
-   * lookup made before an EARLIER run, or between two runs for another
-   * purpose, counted as this plan's consult (a live run's, F-331). In file
-   * order: run-less rows wait; a row of this run claims those waiting; a row
-   * of another run means they were that run's, and drops them. Rows still
-   * waiting at the end came after every run's rows, so they are the next
-   * run's: this one only when it has not called anything itself yet (a run
-   * whose rows they follow had ended when they were made).
+   * A row made with no run open belonged to the run that opened next, because
+   * a plan once grounded before `workflow:run`. It cannot say what it was
+   * for, and a lookup made between two runs for another purpose read as the
+   * next plan's consult (a live run's, F-331). Since 2026-10-20 (owner) a plan
+   * looks once its run is open, so a run's rows are the ones it made.
    *
    * @param list<string|null> $runs
    *   Each row's run, oldest first.
@@ -172,22 +165,7 @@ final class ToolCallLog {
    *   The positions of its rows, oldest first.
    */
   public static function ofRun(array $runs, string $runId): array {
-    $mine = [];
-    $waiting = [];
-    foreach ($runs as $i => $run) {
-      if ($run === NULL) {
-        $waiting[] = $i;
-      }
-      elseif ($run === $runId) {
-        array_push($mine, ...$waiting, ...[$i]);
-        $waiting = [];
-      }
-      else {
-        $waiting = [];
-      }
-    }
-
-    return $mine === [] ? $waiting : $mine;
+    return array_keys(array_filter($runs, static fn (?string $run): bool => $run === $runId));
   }
 
   /**

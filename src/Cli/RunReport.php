@@ -39,10 +39,11 @@ final class RunReport {
     $lines = [];
     $lines[] = 'Workflow run ' . self::str($run['run_id'] ?? NULL);
     $lines[] = sprintf(
-      '  started %s · effort %s · mode %s · browser %s · tasks %s',
+      '  started %s · effort %s · mode %s%s · browser %s · tasks %s',
       self::str($run['started_at'] ?? NULL),
       self::str($run['preset'] ?? NULL),
       self::str($run['effective_mode'] ?? NULL),
+      is_string($run['lead'] ?? NULL) ? ' · lead ' . $run['lead'] : '',
       self::str($run['browser'] ?? NULL, 'not declared'),
       self::str($run['tasks'] ?? NULL, 'not declared'),
     );

@@ -128,7 +128,7 @@ final class LedgerReachesTheStoreTest extends TestCase {
   public function testTheBrokenLineDoesNotStopTheRest(): void {
     file_put_contents(
       $this->root . '/droost/droost-workflow/tool-calls.jsonl',
-      "{not json\n" . json_encode(['tool' => 'droost_brief', 'outcome' => 'ok']) . "\n\n",
+      "{not json\n" . json_encode(['tool' => 'droost_brief', 'outcome' => 'ok', 'run' => 'r1']) . "\n\n",
     );
 
     $this->record('plan');
@@ -162,8 +162,8 @@ final class LedgerReachesTheStoreTest extends TestCase {
         'run' => 'r0',
         'phase' => 'code',
       ],
-      // A call made with no run open after r0's last row is THIS run's: the
-      // plan phase grounds before it opens the run (F-331 bounds it by r0).
+      // A call made with no run open is no run's: a plan looks once its run
+      // is open (owner, 2026-10-20; F-331).
       [
         'tool' => 'droost_doctor',
         'outcome' => 'ok',
@@ -183,18 +183,19 @@ final class LedgerReachesTheStoreTest extends TestCase {
     $this->record('code');
 
     $rows = $this->toolCalls();
-    $this->assertCount(2, $rows, 'this run\'s row and the pre-open one; never r0\'s');
-    $this->assertSame(['droost_doctor', 'droost_search'], array_column($rows, 'tool'));
+    $this->assertCount(1, $rows, 'this run\'s row only; never r0\'s, never a run-less one');
+    $this->assertSame(['droost_search'], array_column($rows, 'tool'));
   }
 
   /**
-   * Calls made before the run opened, and one during it, each land once.
+   * A call during the run lands once; the calls before it opened, never.
    *
    * The store had two writers: ToolCallLog wrote a row directly while a run
    * was open, and this importer counted the store's rows as if they were the
    * file's. Two calls before the run opened and one in plan left the store
    * holding `symbol, wiki, symbol`: `droost_search` lost and `droost_symbol`
-   * doubled (S4-6). The importer is the one writer now.
+   * doubled (S4-6). The importer is the one writer now, and since F-331 a
+   * call made before the run opened is no run's.
    */
   public function testCallsBeforeAndDuringTheRunLandOnceEach(): void {
     ToolCallLog::append($this->root, 'droost_search', 'ok');
@@ -207,30 +208,23 @@ final class LedgerReachesTheStoreTest extends TestCase {
     $this->record('plan');
 
     $rows = $this->toolCalls();
-    $this->assertSame(['droost_search', 'droost_symbol', 'droost_wiki'], array_column($rows, 'tool'));
-    $this->assertSame(['plan', 'plan', 'plan'], array_column($rows, 'phase'));
+    $this->assertSame(['droost_symbol'], array_column($rows, 'tool'));
+    $this->assertSame(['plan'], array_column($rows, 'phase'));
   }
 
   /**
-   * A row with no run key is a call made with no run open: this run's.
+   * A row with no run is a call made with no run open: no run's (F-331).
    */
-  public function testRowsWithNoRunAreThisRunsPreOpenCalls(): void {
-    $this->ledger([
-      [
-        'tool' => 'droost_doctor',
-        'outcome' => 'ok',
-        'at' => '2026-09-15T01:00:00+00:00',
-      ],
-      [
-        'tool' => 'droost_search',
-        'outcome' => 'ok',
-        'at' => '2026-09-15T01:00:01+00:00',
-      ],
-    ]);
+  public function testRowsWithNoRunAreNoRuns(): void {
+    file_put_contents(
+      $this->root . '/droost/droost-workflow/tool-calls.jsonl',
+      json_encode(['tool' => 'droost_doctor', 'outcome' => 'ok']) . "\n"
+      . json_encode(['tool' => 'droost_search', 'outcome' => 'ok', 'run' => NULL]) . "\n",
+    );
 
     $this->record('code');
 
-    $this->assertCount(2, $this->toolCalls(), 'unattributable rows are this run\'s, as they always were');
+    $this->assertCount(0, $this->toolCalls(), 'a lookup made between runs is not the next run\'s');
   }
 
   /**
@@ -298,7 +292,9 @@ final class LedgerReachesTheStoreTest extends TestCase {
   private function ledger(array $calls): void {
     $body = '';
     foreach ($calls as $call) {
-      $body .= json_encode($call) . "\n";
+      // A call with no run named is this test run's: a row with none is no
+      // run's (F-331), and the tests that mean that write it by hand.
+      $body .= json_encode($call + ['run' => 'r1']) . "\n";
     }
     file_put_contents($this->root . '/droost/droost-workflow/tool-calls.jsonl', $body);
   }
