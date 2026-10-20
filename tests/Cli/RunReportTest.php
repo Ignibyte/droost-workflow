@@ -37,6 +37,7 @@ final class RunReportTest extends TestCase {
           'code' => [
             'gates' => [
         ['gate' => 'phpcs', 'status' => 'passed', 'summary' => 'phpcs passed — 3 files'],
+        ['gate' => 'stylelint', 'status' => 'passed', 'labelled' => TRUE, 'summary' => 'no stylesheet in scope'],
         [
           'gate' => 'custom:config_clean',
           'status' => 'passed',
@@ -55,7 +56,14 @@ final class RunReportTest extends TestCase {
         ],
         'retries' => ['remaining' => ['phpunit' => 0], 'attempts' => ['phpunit' => 2]],
         'criteria' => ['verified' => ['AC1'], 'manual' => [], 'unverified' => ['AC2']],
-        'seeker' => ['status' => 'clean', 'critical' => 0, 'medium' => 0, 'low' => 0, 'self_reviewed' => TRUE],
+        'seeker' => [
+          'status' => 'clean',
+          'open' => 0,
+          'critical' => 0,
+          'medium' => 1,
+          'low' => 0,
+          'self_reviewed' => TRUE,
+        ],
         'seeker_history' => [['status' => 'found', 'medium' => 1], ['status' => 'clean']],
         'awaiting' => ['question' => 'Ship it?'],
         'answered' => 4,
@@ -68,6 +76,8 @@ final class RunReportTest extends TestCase {
     $this->assertMatchesRegularExpression('/phpcs\s+passed\n/', $lines, 'a plain pass prints bare');
     $this->assertMatchesRegularExpression('/custom:config_clean passed\n/', $lines, 'a tool\'s own [notice] tag is not droost\'s note');
     $this->assertStringContainsString('custom:loose   passed — [its file droost/gates/loose.php changed since this run began', $lines, 'a pass with a bracketed note keeps it');
+    $this->assertMatchesRegularExpression('/stylelint\s+passed — labelled: it ran and examined nothing — no stylesheet in scope/', $lines, 'a labelled pass is named in its row (F-326)');
+    $this->assertStringContainsString('medium 1, low 0 found, 0 still open)', $lines, 'clean beside a resolved MEDIUM says none is open (F-327)');
     $this->assertMatchesRegularExpression('/phpstan\s+off — off — by preset low/', $lines);
     $this->assertMatchesRegularExpression('/custom:mine\s+error-tool-failed — its file exited 3/', $lines);
     $this->assertStringContainsString('[budget spent after 3 attempt(s) — LAST VERDICT', $lines);

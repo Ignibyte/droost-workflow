@@ -196,6 +196,26 @@ MD
     $this->assertSame(['AC2'], $criteria['manual'], 'bold ids and escaped pipes are read through');
     $this->assertSame(['AC3', 'AC4'], $criteria['unverified'], 'an empty cell and a dash are both unverified');
     $this->assertFalse($criteria['column_missing']);
+    $this->assertSame([], $criteria['misshapen'], 'an escaped pipe is not an extra cell');
+  }
+
+  /**
+   * A row with a cell more than its header is named, and fails safe.
+   *
+   * A live spec wrote `| AC1 | … | browser || tests/x.spec.js |`: its fourth
+   * cell, the one under `Verified By`, is the empty one (F-328).
+   */
+  public function testMisshapenCriteriaRowsAreNamed(): void {
+    $root = $this->makeRootWithConfig("preset: custom\n");
+    $spec = 'droost/droost-workflow/spec-test-run.md';
+    file_put_contents($root . '/' . $spec, "# Spec\n\n## Acceptance criteria\n\n| ID | Criterion | Check | Verified By |\n|---|---|---|---|\n"
+      . "| AC1 | x | browser || `tests/x.spec.js` |\n| AC2 | x | test | `tests/y.spec.js` |\n");
+
+    $criteria = SpecContract::criteriaVerification($root, $spec);
+    $this->assertNotNull($criteria);
+    $this->assertSame(['AC1'], $criteria['misshapen']);
+    $this->assertSame(['AC1'], $criteria['unverified'], 'read as it reads: never as verified');
+    $this->assertSame(['AC2'], $criteria['verified']);
   }
 
   /**

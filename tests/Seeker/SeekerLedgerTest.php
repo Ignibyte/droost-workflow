@@ -49,6 +49,9 @@ class SeekerLedgerTest extends TestCase {
       $ledger->isClean(),
       'resolved, carried and open-LOW rows do not block',
     );
+    $record = $ledger->toRecord('t');
+    $this->assertSame(1, $record['medium'], 'the severities count every row');
+    $this->assertSame(1, $record['open'], 'only the LOW still stands (F-327)');
 
     $dirty = SeekerLedger::parse(<<<'MD'
       ## Seeker Inspection
@@ -64,6 +67,7 @@ class SeekerLedgerTest extends TestCase {
     $record = $dirty->toRecord('t');
     $this->assertSame('findings', $record['status']);
     $this->assertSame(1, $record['medium']);
+    $this->assertSame(1, $record['open']);
   }
 
   /**

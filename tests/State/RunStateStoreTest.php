@@ -455,6 +455,7 @@ class RunStateStoreTest extends WorkflowTestCase {
       'inspected' => $fresh
         ->withSeekerReport([
           'status' => 'clean',
+          'open' => 0,
           'critical' => 0,
           'medium' => 1,
           'low' => 2,

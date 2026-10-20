@@ -1932,9 +1932,15 @@ final class ArgvDispatcher {
                    (--spec=<path> declares which spec governs the run;
                    --ticket=<id> binds it to a ticket, which moves to
                    in_progress, and to review when the run completes)
-      answer <text>    answer a paused run's question (the run then advances)
+      answer <text>    answer a paused run's question (the run then advances).
+                       It prints one line, not a JSON envelope: exit 0 when
+                       the run moved, non-zero when a check still holds it
+                       (the reasons on stderr) or your answer stopped it;
+                       `status` and `report` say where it stands
       swap agentic     stop holding at phases and finish without stopping
-      seeker-report    record an adversarial inspection (ledger on stdin)
+      seeker-report [<file>]
+                       record an adversarial inspection (the ledger from the
+                       file, or on stdin)
       declare-changes  say what this run will touch, before touching it:
                        --files=<a,b> --tests=<X,Y> [--type=<kind>]
                        [--work-item=<id>]. The code

@@ -168,7 +168,21 @@ class PhaseReportTest extends TestCase {
       'invocation' => 'vendor/bin/phpcs -q',
       'inherited' => NULL,
       'new' => NULL,
+      'labelled' => FALSE,
     ], $gates[0]);
+  }
+
+  /**
+   * A labelled pass says so in its own row, not only in the phase's tally.
+   *
+   * A live run's record read `labelled: 1` and no gate row said whose
+   * (F-326).
+   */
+  public function testLabelledPassIsNamedInItsRow(): void {
+    $row = GateResult::labelledPass('stylelint', 0, 5, 'stylelint: no file in scope', 'stylelint')->toArray();
+
+    $this->assertSame('passed', $row['status']);
+    $this->assertTrue($row['labelled']);
   }
 
   /**

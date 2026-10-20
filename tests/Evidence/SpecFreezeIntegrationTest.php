@@ -586,13 +586,43 @@ final class SpecFreezeIntegrationTest extends WorkflowTestCase {
     $state = $this->driveToEnd($facade, $root, $spec);
 
     $states = [];
+    $summaries = [];
     foreach ((new EvidenceStore($root))->checklist($state->runId, 'complete') as $row) {
       if (($row['name'] ?? '') === 'criteria_table') {
         $value = $row['state'] ?? '';
         $states[] = is_scalar($value) ? (string) $value : '';
+        $summary = $row['summary'] ?? '';
+        $summaries[] = is_scalar($summary) ? (string) $summary : '';
       }
     }
     $this->assertContains('satisfied', $states);
+    // The row says what counted: here the table, as nothing was declared.
+    $this->assertStringContainsString('table counts 1 criteria', implode("\n", $summaries));
+  }
+
+  /**
+   * A table row with a cell too many is named on the satisfied row (F-328).
+   */
+  public function testMisshapenCriteriaRowIsNamed(): void {
+    $root = $this->makeRootWithConfig("preset: high\nmode: agentic\n");
+    $spec = $this->writeSpec($root);
+    file_put_contents(
+      $root . '/' . $spec,
+      "\n## Acceptance criteria\n\n| ID | Criterion | Check | Verified By |\n|---|---|---|---|\n"
+      . "| AC1 | the page renders | curl / || RinkTest::testIt |\n",
+      FILE_APPEND,
+    );
+
+    $state = $this->driveToEnd($this->facade(), $root, $spec);
+
+    $summaries = [];
+    foreach ((new EvidenceStore($root))->checklist($state->runId, 'complete') as $row) {
+      if (($row['name'] ?? '') === 'criteria_table') {
+        $summary = $row['summary'] ?? '';
+        $summaries[] = is_scalar($summary) ? (string) $summary : '';
+      }
+    }
+    $this->assertStringContainsString('1 row(s) with more or fewer cells than its header (AC1)', implode("\n", $summaries));
   }
 
   /**

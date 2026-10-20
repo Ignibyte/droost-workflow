@@ -550,7 +550,7 @@ final class SpecContract {
    * @param string $spec
    *   The governing spec, project-relative.
    *
-   * @return array{total: int, verified: list<string>, manual: list<string>, unverified: list<string>, unnamed: list<string>, column_missing: bool}|null
+   * @return array{total: int, verified: list<string>, manual: list<string>, unverified: list<string>, unnamed: list<string>, misshapen: list<string>, column_missing: bool}|null
    *   The classification — `unnamed` being the subset of `unverified` whose
    *   cell was filled in but named no test, so the refusal can say which of
    *   the two problems each row has. NULL when the spec has no
@@ -594,6 +594,7 @@ final class SpecContract {
     $manual = [];
     $unverified = [];
     $unnamed = [];
+    $misshapen = [];
     $position = 0;
     foreach (array_slice($rows, 1) as $row) {
       $cells = self::cells($row);
@@ -612,6 +613,13 @@ final class SpecContract {
         // shape of missing cell that makes the spec look BETTER than it is.
         // Numbered by its place among the body rows, so it can be found.
         $id = 'row ' . $position;
+      }
+      // A row with more or fewer cells than its header puts each cell under
+      // another's heading: `| AC1 | … | browser || tests/x.spec.js |` reads
+      // its empty fourth cell as `Verified By`. Counted as it reads, which
+      // fails safe, and named, so the reader knows why (F-328).
+      if (count($cells) !== count($header)) {
+        $misshapen[] = $id;
       }
       $value = $verifiedIndex === NULL ? '' : trim($cells[$verifiedIndex] ?? '');
       if (self::isPlaceholder($value)) {
@@ -639,6 +647,7 @@ final class SpecContract {
       'manual' => $manual,
       'unverified' => $unverified,
       'unnamed' => $unnamed,
+      'misshapen' => $misshapen,
       'column_missing' => $verifiedIndex === NULL,
     ];
   }

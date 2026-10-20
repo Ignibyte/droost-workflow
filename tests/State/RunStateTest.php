@@ -318,6 +318,7 @@ class RunStateTest extends TestCase {
 
     $record = [
       'status' => 'findings',
+      'open' => 2,
       'critical' => 1,
       'medium' => 2,
       'low' => 0,
@@ -331,6 +332,8 @@ class RunStateTest extends TestCase {
     // an array-union would have hidden the half of it that failed.
     $this->assertSame([
       'status' => 'findings',
+      // How many still stand survives the save (F-327).
+      'open' => 2,
       'critical' => 1,
       'high' => 0,
       'medium' => 2,

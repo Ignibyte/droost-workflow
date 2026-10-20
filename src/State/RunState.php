@@ -1136,6 +1136,7 @@ final class RunState {
     // state it just wrote is the failure this class guards against.
     $record = [
       'status' => $record['status'] ?? 'clean',
+      ...self::openCount($record['open'] ?? NULL),
       'critical' => (int) ($record['critical'] ?? 0),
       'high' => (int) ($record['high'] ?? 0),
       'medium' => (int) ($record['medium'] ?? 0),
@@ -1575,6 +1576,7 @@ final class RunState {
       }
       $history[] = [
         'status' => $status,
+        ...self::openCount($typed->toArray()['open'] ?? NULL),
         'critical' => $typed->int('critical'),
         // Absent before HIGH existed (0.14.18): none was recorded.
         'high' => $typed->optionalInt('high', 0),
@@ -1627,6 +1629,7 @@ final class RunState {
     }
     return [
       'status' => $status,
+      ...self::openCount($seekerNode->toArray()['open'] ?? NULL),
       'critical' => $seekerNode->int('critical'),
       'high' => $seekerNode->optionalInt('high', 0),
       'medium' => $seekerNode->int('medium'),
@@ -1640,6 +1643,24 @@ final class RunState {
       'dispatch' => $seekerNode->optionalString('dispatch', 'unverified') ?? 'unverified',
       'reported_at' => $seekerNode->string('reported_at'),
     ];
+  }
+
+  /**
+   * The seeker record's `open` count, or nothing when none was recorded.
+   *
+   * The severities count every row of an inspection, resolved and carried
+   * ones too; `open` is how many still stand (F-327). A record written
+   * before it was kept has no count, and stays without one rather than
+   * reading as "0 open".
+   *
+   * @param mixed $open
+   *   The recorded value, if any.
+   *
+   * @return array<string, int>
+   *   `['open' => n]`, or empty.
+   */
+  private static function openCount(mixed $open): array {
+    return is_int($open) ? ['open' => $open] : [];
   }
 
   /**

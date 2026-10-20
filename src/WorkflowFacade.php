@@ -867,7 +867,8 @@ final class WorkflowFacade {
       $this->recordCriteriaContract(
         $state,
         $projectRoot,
-        CriteriaVerification::resolve($projectRoot, $state->runId, $specPath) !== NULL,
+        CriteriaVerification::resolve($projectRoot, $state->runId, $specPath),
+        SpecContract::criteriaVerification($projectRoot, $specPath),
       );
     }
 
@@ -2956,16 +2957,48 @@ final class WorkflowFacade {
    *   The run.
    * @param string $projectRoot
    *   The repository.
-   * @param bool $present
-   *   Whether the spec has a criteria table.
+   * @param array{total: int, verified: list<string>, manual: list<string>, unverified: list<string>, unnamed: list<string>, misshapen: list<string>, column_missing: bool, source: string}|null $criteria
+   *   The run's criteria as counted: the declared rows when there are any,
+   *   else the spec's table. NULL when neither carries one.
+   * @param array{total: int, verified: list<string>, manual: list<string>, unverified: list<string>, unnamed: list<string>, misshapen: list<string>, column_missing: bool}|null $table
+   *   The spec's table as parsed, whichever source counted.
    *
    * @return bool
    *   Whether the level would once have refused. Kept so the signature does
    *   not churn while Phase B is built; no caller acts on it.
    */
-  private function recordCriteriaContract(RunState $state, string $projectRoot, bool $present): bool {
+  private function recordCriteriaContract(RunState $state, string $projectRoot, ?array $criteria, ?array $table): bool {
     $demanding = in_array($state->preset, ['high', 'xhigh', 'max', 'factory'], TRUE);
-    if ($present) {
+    if ($criteria !== NULL) {
+      // Say what was counted, and by what. This row said "every criterion in
+      // it was held to its `Verified By` cell" whatever counted them; on a
+      // live run the declared rows did, and the table, read alone, had every
+      // `Verified By` in the wrong cell (F-328).
+      $summary = $criteria['source'] === 'declared'
+        ? sprintf(
+          '%d criteria were declared this run and are counted by their declared proofs '
+          . '(%d verified by a test, %d manual, %d unverified); the spec\'s table does not count them.',
+          $criteria['total'],
+          count($criteria['verified']),
+          count($criteria['manual']),
+          count($criteria['unverified']),
+        )
+        : sprintf(
+          'The spec\'s `## Acceptance criteria` table counts %d criteria, each by its `Verified By` cell '
+          . '(%d verified by a test, %d manual, %d unverified).',
+          $criteria['total'],
+          count($criteria['verified']),
+          count($criteria['manual']),
+          count($criteria['unverified']),
+        );
+      if ($table !== NULL && $table['misshapen'] !== []) {
+        $summary .= sprintf(
+          ' The spec\'s table has %d row(s) with more or fewer cells than its header (%s): each '
+          . 'cell sits under another\'s heading, so read alone their `Verified By` is the wrong cell.',
+          count($table['misshapen']),
+          implode(', ', $table['misshapen']),
+        );
+      }
       // A SATISFIED row, not silence. The store is append-only and the
       // checklist reads the latest attempt per check, so returning early here
       // left an earlier `blocked` row standing as the current verdict — which
@@ -2982,8 +3015,7 @@ final class WorkflowFacade {
             'criteria_table',
             CheckState::Satisfied,
             Fault::None,
-            'The spec carries an `## Acceptance criteria` table, so every criterion in it was '
-            . 'held to its `Verified By` cell.',
+            $summary,
           ),
           $this->now(),
         );

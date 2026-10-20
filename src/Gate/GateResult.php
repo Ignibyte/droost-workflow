@@ -605,6 +605,10 @@ final class GateResult {
       'invocation' => $this->invocation,
       'inherited' => $this->inherited,
       'new' => $this->new,
+      // Which gate the phase tally's `labelled` counts: a pass that examined
+      // nothing. Without it the record said `labelled: 1` and no row said
+      // whose (a live run's record: F-326).
+      'labelled' => $this->labelledPass,
     ];
   }
 

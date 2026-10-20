@@ -22,7 +22,7 @@ use Droost\Workflow\Evidence\EvidenceStore;
  *
  * A declared criterion cannot be mistaken for a data table.
  *
- * TWO BUCKETS THE ROWS DO NOT HAVE, and dropping them is the point:
+ * THREE BUCKETS THE ROWS DO NOT HAVE, and dropping them is the point:
  *
  * - `unnamed` — a proof that is filled in and "points at nothing anyone can
  *   open". Deciding that is a regex's opinion about whether a string looks
@@ -30,6 +30,7 @@ use Droost\Workflow\Evidence\EvidenceStore;
  *   takes out of the blocking path. What a declared proof names is the test
  *   gate's question; whether it was declared is this one's.
  * - `column_missing` — a table can omit a column. Rows cannot.
+ * - `misshapen` — likewise: a declared row has no cells to miscount.
  *
  * `manual` stays, because it is not a judgement: `verify-criterion AC-1
  * manual` is a legitimate declaration and the report must print it as manual
@@ -47,7 +48,7 @@ final class CriteriaVerification {
    * @param string|null $specPath
    *   The governing spec, project-relative, for the fallback. NULL skips it.
    *
-   * @return array{total: int, verified: list<string>, manual: list<string>, unverified: list<string>, unnamed: list<string>, column_missing: bool, source: string}|null
+   * @return array{total: int, verified: list<string>, manual: list<string>, unverified: list<string>, unnamed: list<string>, misshapen: list<string>, column_missing: bool, source: string}|null
    *   The counts, with `source` naming which answered (`declared` or
    *   `parsed`), or NULL when neither source carries any criteria — which is
    *   a different fact from "none are verified" and must not read as one.
@@ -93,7 +94,7 @@ final class CriteriaVerification {
    * @param list<array{ref: string, statement: string, verified_by: string|null, verified_at: string|null, phase: string, revisions: int}> $criteria
    *   The declared criteria.
    *
-   * @return array{total: int, verified: list<string>, manual: list<string>, unverified: list<string>, unnamed: list<string>, column_missing: bool, source: string}
+   * @return array{total: int, verified: list<string>, manual: list<string>, unverified: list<string>, unnamed: list<string>, misshapen: list<string>, column_missing: bool, source: string}
    *   The counts.
    */
   private static function count(array $criteria): array {
@@ -119,6 +120,7 @@ final class CriteriaVerification {
       'manual' => $manual,
       'unverified' => $unverified,
       'unnamed' => [],
+      'misshapen' => [],
       'column_missing' => FALSE,
       'source' => 'declared',
     ];

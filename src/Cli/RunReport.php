@@ -115,6 +115,11 @@ final class RunReport {
       $reason = self::str($gate['skip_reason'] ?? NULL, '');
       $why = $reason !== '' ? $reason : self::str($gate['summary'] ?? NULL, '');
     }
+    elseif (($gate['labelled'] ?? FALSE) === TRUE) {
+      // A labelled pass examined nothing: say so in the row, as the phase's
+      // tally already counts it (F-326).
+      $why = 'labelled: it ran and examined nothing — ' . self::str($gate['summary'] ?? NULL, '');
+    }
     else {
       // A pass prints bare, except what droost bracketed onto it: "[its file …
       // changed since this run began]", "[steered by config this run changed
@@ -180,12 +185,14 @@ final class RunReport {
    */
   private static function seekerLines(array $seeker, array $history): array {
     $observations = self::int($seeker['observations'] ?? 0);
+    $open = array_key_exists('open', $seeker) ? sprintf(', %d still open', self::int($seeker['open'])) : '';
     $lines = [sprintf(
-      '  seeker: %s (critical %d, medium %d, low %d)%s%s',
+      '  seeker: %s (critical %d, medium %d, low %d found%s)%s%s',
       self::str($seeker['status'] ?? NULL),
       self::int($seeker['critical'] ?? 0),
       self::int($seeker['medium'] ?? 0),
       self::int($seeker['low'] ?? 0),
+      $open,
       $observations > 0 ? sprintf(' · %d out-of-diff observation(s) — see the spec ledger', $observations) : '',
       ($seeker['self_reviewed'] ?? FALSE) ? ' · SELF-REVIEWED, not independent' : '',
       ),
