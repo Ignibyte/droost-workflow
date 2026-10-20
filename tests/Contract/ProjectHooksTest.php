@@ -96,6 +96,28 @@ final class ProjectHooksTest extends WorkflowTestCase {
   }
 
   /**
+   * What a hook says reaches the agent, in the run's output.
+   *
+   * A hook notifies and cannot hold the run, and what it said reached only
+   * the hook record, so a project could not tell the agent to move its
+   * ticket at code (owner, 2026-10-20).
+   */
+  public function testHookNoteReachesTheRunOutput(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\nseekers: { on: false }\nhooks:\n  phase_begin: droost/hooks/begin.php\n");
+    mkdir($root . '/droost/hooks', 0755, TRUE);
+    file_put_contents($root . '/droost/hooks/begin.php', '<?php $e = json_decode(stream_get_contents(STDIN), TRUE); echo "phase " . $e["phase"] . " began\n";');
+
+    $facade = $this->facade();
+    $facade->run($root);
+    $notes = $facade->takeHookNotes();
+
+    $this->assertNotSame([], $notes);
+    $this->assertSame('phase_begin', $notes[0]['event']);
+    $this->assertStringStartsWith('phase ', $notes[0]['note']);
+    $this->assertSame([], $facade->takeHookNotes(), 'taken once');
+  }
+
+  /**
    * A facade whose every gate passes.
    *
    * @return \Droost\Workflow\WorkflowFacade

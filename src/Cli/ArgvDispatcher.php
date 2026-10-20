@@ -632,8 +632,16 @@ final class ArgvDispatcher {
       $this->fail($this->noTerminalRefusal('run --lead=autonomous'));
       return self::EXIT_USAGE;
     }
-    $outcome = $this->facade($projectRoot)->run($projectRoot, $spec, $ticket, $lead);
-    $this->say($this->encode($outcome->toArray()));
+    $facade = $this->facade($projectRoot);
+    $outcome = $facade->run($projectRoot, $spec, $ticket, $lead);
+    $document = $outcome->toArray();
+    // What the project's hooks said: a hook cannot hold the run, but it can
+    // tell the agent something, and this is where the agent reads it.
+    $notes = $facade->takeHookNotes();
+    if ($notes !== []) {
+      $document['hooks'] = $notes;
+    }
+    $this->say($this->encode($document));
 
     // A paused run has not failed; it is waiting. Only a genuine failure
     // gets a non-zero exit, so a pair-mode pause does not break a script
@@ -707,7 +715,13 @@ final class ArgvDispatcher {
       $this->fail('answer needs the answer: droost workflow:answer "yes"');
       return self::EXIT_USAGE;
     }
-    $outcome = $this->facade($projectRoot)->answer($projectRoot, $text, $this->operatorTerminal() ? 'terminal' : 'agent');
+    $facade = $this->facade($projectRoot);
+    $outcome = $facade->answer($projectRoot, $text, $this->operatorTerminal() ? 'terminal' : 'agent');
+    // An answer that moves the run fires the next phase's hooks: say what they
+    // said, as `run` does.
+    foreach ($facade->takeHookNotes() as $note) {
+      $this->say(sprintf('hook %s (%s)%s: %s', $note['event'], $note['file'], $note['ok'] ? '' : ' FAILED', $note['note']));
+    }
     $phase = $outcome->state->currentPhase;
     // Answering IS the check-in the pause was for, so the run moved on;
     // say where it now stands rather than a bare acknowledgment.

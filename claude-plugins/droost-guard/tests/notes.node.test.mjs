@@ -38,7 +38,7 @@ test('the spec is recognised by its place', () => {
   assert.equal(isSpec('droost/droost-workflow/history/run-1.spec.md'), false)
 })
 
-test('a knowledge call grounds its run, and one made under no run counts', () => {
+test('a knowledge call grounds its run, and one made under no run does not', () => {
   const ledger = [
     { tool: 'workflow:run', outcome: 'ok', run: 'run-a' },
     { tool: 'search:code', outcome: 'fail', run: 'run-a' },
@@ -47,7 +47,8 @@ test('a knowledge call grounds its run, and one made under no run counts', () =>
   ].map((r) => JSON.stringify(r)).join('\n')
   assert.equal(grounded(ledger, 'run-a'), false, 'a run verb, a failed search and a retired tool id ground nothing')
   assert.equal(grounded(ledger, 'run-b'), true)
-  assert.equal(grounded(ledger + '\n' + JSON.stringify({ tool: 'brief', outcome: 'ok', run: null }), 'run-a'), true)
+  assert.equal(grounded(ledger + '\n' + JSON.stringify({ tool: 'brief', outcome: 'ok', run: null }), 'run-a'), false, 'a lookup before the run opened is no run\'s (F-331)')
+  assert.equal(grounded(JSON.stringify({ tool: 'brief', outcome: 'ok', run: null }), null), true, 'with no run open, any lookup')
   assert.equal(grounded('not json\n', 'run-a'), false)
 })
 

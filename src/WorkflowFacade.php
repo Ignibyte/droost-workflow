@@ -99,6 +99,17 @@ final class WorkflowFacade {
   private readonly VcsInterface $vcs;
 
   /**
+   * What the project's hooks said during this call, for the caller to show.
+   *
+   * A hook notifies and cannot hold the run, and what it said reached only
+   * `hook-calls.jsonl`, so a hook had no way to tell the agent anything
+   * (owner, 2026-10-20: a project's moves the ticket to In Progress at code).
+   *
+   * @var list<array{event: string, file: string, ok: bool, note: string}>
+   */
+  private array $hookNotes = [];
+
+  /**
    * Constructs a WorkflowFacade.
    *
    * @param \Droost\Workflow\Gate\GateExecutorInterface $executor
@@ -3708,13 +3719,34 @@ final class WorkflowFacade {
       if ($hooks === []) {
         return;
       }
-      (new ProjectHooks($store->projectRoot(), $store->directory(), $hooks))->fire($type, [
+      $row = (new ProjectHooks($store->projectRoot(), $store->directory(), $hooks))->fire($type, [
         'run_id' => $state->runId,
         'phase' => is_string($payload['phase'] ?? NULL) ? $payload['phase'] : $state->currentPhase?->value,
         'work_item' => is_string($workItem) ? $workItem : NULL,
         'payload' => $payload,
       ], $state->ruleFiles, $this->now());
+      if ($row !== NULL) {
+        $this->hookNotes[] = [
+          'event' => is_string($row['event'] ?? NULL) ? $row['event'] : '',
+          'file' => is_string($row['file'] ?? NULL) ? $row['file'] : '',
+          'ok' => ($row['ok'] ?? FALSE) === TRUE,
+          'note' => is_string($row['note'] ?? NULL) ? $row['note'] : '',
+        ];
+      }
     });
+  }
+
+  /**
+   * What the project's hooks said since the last call, and forgets it.
+   *
+   * @return list<array{event: string, file: string, ok: bool, note: string}>
+   *   One row per hook told.
+   */
+  public function takeHookNotes(): array {
+    $notes = $this->hookNotes;
+    $this->hookNotes = [];
+
+    return $notes;
   }
 
   /**

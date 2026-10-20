@@ -122,8 +122,8 @@ export function isSpec(path) {
 /**
  * Whether the ledger shows droost's knowledge asked for this run.
  *
- * A row made before the run opened (`run` null) counts, as the ledger's own
- * reader keeps such rows for the run that opens next.
+ * With a run open, only its own rows count: a row made before it opened is
+ * no run's (owner, 2026-10-20; F-331). With none open, any row does.
  */
 export function grounded(ledger, runId) {
   for (const line of String(ledger ?? '').split('\n')) {
@@ -131,7 +131,7 @@ export function grounded(ledger, runId) {
     let row
     try { row = JSON.parse(line) } catch { continue }
     if (!KNOWLEDGE_TOOLS.includes(row?.tool) || row?.outcome !== 'ok') continue
-    if (row.run == null || runId == null || row.run === runId) return true
+    if (runId == null || row.run === runId) return true
   }
   return false
 }
