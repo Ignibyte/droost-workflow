@@ -845,9 +845,17 @@ complete included. `lead:` in `droost/droost.yml` sets the default (unset,
 interactive mode is human-led and agentic autonomous); `droost workflow:run
 --lead=<lead>` chooses it when a run begins; `droost workflow:lead <lead>`
 changes it. Making a run autonomous where the levers would not needs the
-operator's terminal; making one human-led is anyone's. Every answer records
-whether it came from the terminal or the agent (`via`), and the workchain
-report says how many the agent gave.
+operator's terminal; making one human-led is anyone's.
+
+The human answers the complete hold **in the session**: the agent asks with
+AskUserQuestion, the guard records the dialog's result (never its input; a
+question sent already answered is refused before it opens) in
+`hold-answers.jsonl`, which the agent cannot write, and the agent's next
+`workflow:answer` takes the human's words from there. Where the question
+wall is not wired, nothing is taken from that record. The operator's
+terminal (`droost workflow:answer "…"`) is the fallback, for any host. Every
+answer records where it came from (`via`: `agent`, `question`, `terminal`),
+and the workchain report counts them.
 
 ## Run state
 

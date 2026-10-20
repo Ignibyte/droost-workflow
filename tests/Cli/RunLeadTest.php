@@ -65,6 +65,76 @@ final class RunLeadTest extends WorkflowTestCase {
   }
 
   /**
+   * The human's answer to the agent's question finishes a human-led run.
+   *
+   * Owner, 2026-10-20: approval comes through the session, not a terminal.
+   * The guard records the dialog's RESULT (never its input) while the run
+   * waits at complete; the agent's `answer` then takes the human's words,
+   * and is refused when there are none, or when the question wall is not
+   * wired (an answer in the record could then be the agent's).
+   */
+  public function testHumanAnswerInTheSessionFinishesIt(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\nlead: human-led\nseekers:\n  on: false\n");
+    $this->assertSame(Outcome::Paused, $this->toEnd($root)->outcome);
+    $dir = (new RunStateStore($root))->directory();
+
+    // The agent fills the dialog's answers itself: refused before it opens.
+    $this->wireQuestionWall($root);
+    [$exit, , $stderr] = $this->guard($root, 'question', [
+      'tool_name' => 'AskUserQuestion',
+      'tool_input' => ['questions' => [['question' => 'Finish?']], 'answers' => ['Finish?' => 'finish it']],
+    ]);
+    $this->assertSame(2, $exit, 'a pre-answered question is the agent answering itself');
+    $this->assertStringContainsString('already filled in', $stderr);
+    $this->assertFileDoesNotExist($dir . '/hold-answers.jsonl');
+
+    // No human answer yet: the agent's answer is refused.
+    [$code] = $this->cli(['answer', 'finish it'], $root);
+    $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code);
+
+    // The human answers the dialog; the guard records the result.
+    $this->guard($root, 'answers', [
+      'tool_name' => 'AskUserQuestion',
+      'tool_input' => ['questions' => [['question' => 'Finish the run?']]],
+      'tool_response' => ['answers' => ['Finish the run?' => 'Finish it']],
+    ]);
+    $this->assertFileExists($dir . '/hold-answers.jsonl');
+
+    [$code, $out] = $this->cli(['answer', 'whatever the agent says'], $root);
+    $this->assertSame(ArgvDispatcher::EXIT_OK, $code, $out);
+    // The run finished, and went to history with the exchange.
+    $archived = glob($dir . '/history/*.json') ?: [];
+    $this->assertCount(1, $archived, 'the run completed and was archived');
+    $record = json_decode((string) file_get_contents($archived[0]), TRUE);
+    $this->assertIsArray($record);
+    $history = is_array($record['qa_history'] ?? NULL) ? $record['qa_history'] : [];
+    $last = end($history);
+    $this->assertIsArray($last);
+    $this->assertSame('Finish it', $last['answer'] ?? NULL, 'the human\'s words, not the agent\'s');
+    $this->assertSame('question', $last['via'] ?? NULL);
+  }
+
+  /**
+   * Without the question wall wired, a recorded answer is not taken.
+   */
+  public function testUnwiredQuestionWallTakesNoAnswer(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\nlead: human-led\nseekers:\n  on: false\n");
+    $this->toEnd($root);
+    $state = (new RunStateStore($root))->load();
+    $this->assertNotNull($state);
+    file_put_contents($state->awaiting === NULL ? '/dev/null' : (new RunStateStore($root))->directory() . '/hold-answers.jsonl', (string) json_encode([
+      'run' => $state->runId,
+      'phase' => 'complete',
+      'asked_at' => $state->awaiting['asked_at'] ?? '',
+      'answers' => ['Finish?' => 'Finish it'],
+    ]) . "\n");
+
+    [$code] = $this->cli(['answer', 'finish it'], $root);
+
+    $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code, 'no question wall, no answer taken from the record');
+  }
+
+  /**
    * In a human-led run the agent still answers plan's hold.
    */
   public function testAgentAnswersTheEarlierHolds(): void {
@@ -130,6 +200,27 @@ final class RunLeadTest extends WorkflowTestCase {
    */
   private function leadOf(string $root): ?string {
     return (new RunStateStore($root))->load()?->lead;
+  }
+
+  /**
+   * Wires the guard's question wall and answer recorder, as init does.
+   *
+   * @param string $root
+   *   The project.
+   */
+  private function wireQuestionWall(string $root): void {
+    @mkdir($root . '/.claude', 0755, TRUE);
+    $entry = static fn (string $mode): array => [
+      'matcher' => 'AskUserQuestion',
+      'hooks' => [
+        [
+          'type' => 'command',
+          'command' => 'php "$CLAUDE_PROJECT_DIR/bin/droost-guard" ' . $mode . ' --harness=claude',
+        ],
+      ],
+    ];
+    $hooks = ['PreToolUse' => [$entry('question')], 'PostToolUse' => [$entry('answers')]];
+    file_put_contents($root . '/.claude/settings.json', (string) json_encode(['hooks' => $hooks]));
   }
 
   /**

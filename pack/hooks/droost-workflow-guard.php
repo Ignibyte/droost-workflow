@@ -522,6 +522,27 @@ if ($mode === 'dispatched' || $mode === 'subagent-stop') {
 }
 
 // ANSWERS MODE: the human's answers to an intake's questions, on record.
+// QUESTION MODE: PreToolUse on AskUserQuestion, before the dialog opens. A
+// question is the human's to answer, and the tool's input has room for
+// answers (`answers`, `annotations`) that the dialog fills; input that
+// arrives already carrying them is the agent answering its own question,
+// which would read as the human's in the intake record and at a human-led
+// run's complete hold (owner, 2026-10-20). Refused, whatever else is open.
+if ($mode === 'question') {
+  $GLOBALS['workflow_guard_quiet'] = TRUE;
+  foreach (['answers', 'annotations'] as $key) {
+    $prefilled = $guardInput[$key] ?? NULL;
+    if ((is_array($prefilled) && $prefilled !== []) || (is_string($prefilled) && trim($prefilled) !== '')) {
+      $GLOBALS['workflow_guard_quiet'] = FALSE;
+      guard_refuse('question:prefilled', sprintf(
+        'This question arrives with its %s already filled in. A question is the human\'s to answer: ask it with `questions` only, and the dialog records what they choose.',
+        $key,
+      ));
+    }
+  }
+  exit(0);
+}
+
 // Wired to PostToolUse on AskUserQuestion, so the dialog has closed and the
 // result is what the human chose or typed. An intake's questions are its
 // Q&A with the human, and `intake check` holds `questions.md` to what is
@@ -531,6 +552,39 @@ if ($mode === 'dispatched' || $mode === 'subagent-stop') {
 // kept. Never a wall: nothing here can refuse.
 if ($mode === 'answers') {
   $GLOBALS['workflow_guard_quiet'] = TRUE;
+  // THE COMPLETE HOLD OF A HUMAN-LED RUN (owner, 2026-10-20): the human's
+  // answer to the agent's question is what finishes it, so it is recorded
+  // here, from the tool's RESULT only (what the dialog returned, never the
+  // input the agent wrote), in a file the agent cannot write. `workflow:answer`
+  // reads it back.
+  $record = json_decode((string) @file_get_contents($root . '/' . $stateDir . '/run.json'), TRUE);
+  $awaiting = is_array($record) && is_array($record['awaiting'] ?? NULL) ? $record['awaiting'] : NULL;
+  if ($awaiting !== NULL && ($awaiting['phase'] ?? NULL) === 'complete' && ($record['lead'] ?? NULL) === 'human-led' && is_string($record['run_id'] ?? NULL)) {
+    $response = $payload['tool_response'] ?? NULL;
+    $map = is_array($response) && is_array($response['answers'] ?? NULL) ? $response['answers'] : [];
+    $given = [];
+    foreach ($map as $question => $answer) {
+      if (is_string($question) && (is_string($answer) || is_array($answer))) {
+        $given[$question] = is_array($answer) ? implode(', ', array_filter($answer, 'is_string')) : $answer;
+      }
+    }
+    if ($given !== []) {
+      $line = json_encode([
+        'run' => $record['run_id'],
+        'phase' => 'complete',
+        'asked_at' => is_string($awaiting['asked_at'] ?? NULL) ? $awaiting['asked_at'] : '',
+        'answers' => $given,
+        'via' => 'AskUserQuestion',
+        'at' => date('c'),
+      ], JSON_UNESCAPED_SLASHES);
+      if ($line !== FALSE) {
+        @file_put_contents($root . '/' . $stateDir . '/hold-answers.jsonl', $line . "\n", FILE_APPEND | LOCK_EX);
+      }
+      $GLOBALS['workflow_guard_quiet'] = FALSE;
+      $GLOBALS['workflow_guard_verdict'] = 'note';
+      $GLOBALS['workflow_guard_rule'] = 'hold-answer';
+    }
+  }
   $intake = json_decode((string) @file_get_contents($root . '/' . $stateDir . '/intake.json'), TRUE);
   if (is_array($intake) && ($intake['status'] ?? NULL) === 'open' && is_string($intake['id'] ?? NULL)) {
     $answers = guard_question_answers($payload);

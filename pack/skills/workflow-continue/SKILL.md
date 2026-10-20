@@ -206,10 +206,15 @@ answer, and `options` — the answers worth offering. Present it properly:
 **A human-led run is finished by a human.** `status` shows the run's `lead`.
 In a `human-led` run you may answer the plan, code and test holds when the
 operator has told you to, and the complete hold is theirs: it holds even in
-agentic mode, and your `answer` there is refused and records nothing. Tell
-the operator the run is ready to finish and that they answer it from their
-own terminal. An `autonomous` run is yours to finish. Every answer records
-whether it came from the operator's terminal or from you.
+agentic mode. Ask them with AskUserQuestion, offering the hold's `options`
+(and fill in only `questions`: a question sent with its answers already in
+it is refused). When they have answered, run `answer` again: droost takes
+THEIR answer, as the guard recorded it from the dialog, never your words.
+With no answer of theirs on record your `answer` is refused and records
+nothing; they can also type `droost workflow:answer "…"` in a terminal
+window of their own. An `autonomous` run is yours to finish. Every answer
+records whether it came from you, from their answer to your question, or
+from their terminal.
 
 `agentic` mode never holds (but for a human-led run's complete). An operator can switch to it mid-run at any hold
 (`swap agentic`), which also releases the current pause — that is what it is

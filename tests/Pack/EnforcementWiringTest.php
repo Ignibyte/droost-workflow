@@ -85,16 +85,17 @@ final class EnforcementWiringTest extends WorkflowTestCase {
     $settings = json_decode((string) file_get_contents($root . '/.claude/settings.json'), TRUE);
     $this->assertIsArray($settings);
     // The Bash guard is added, the pre-existing guards are upgraded to the
-    // anchored path in place, and the recording-only MCP registration joins
-    // them — three PreToolUse entries, one Stop, no duplicate and no old
-    // relative path left behind (R23-F2 + R27-F1 + F-37).
+    // anchored path in place, and the recording-only MCP registration and the
+    // question wall join them — four PreToolUse entries, one Stop, no
+    // duplicate and no old relative path left behind (R23-F2 + R27-F1 + F-37).
     $new = self::guardCommand();
     $pre = self::preToolUseEntries($settings);
-    $this->assertCount(3, $pre, 'edit guard upgraded, Bash guard added, MCP recorder added');
+    $this->assertCount(4, $pre, 'edit guard upgraded, Bash guard added, MCP recorder and question wall added');
     $commands = array_column($pre, 'command');
     $this->assertContains($new . ' pre-tool-use --harness=claude', $commands);
     $this->assertContains($new . ' operator-commands --harness=claude', $commands);
     $this->assertContains($new . ' record --harness=claude', $commands);
+    $this->assertContains($new . ' question --harness=claude', $commands);
     // AND IT IS THE ONLY ONE MATCHED ON MCP. droost's own refusals running
     // over every third-party tool's arguments is the thing F-37's fix is
     // avoiding (a project's walls are the one exception, by their own

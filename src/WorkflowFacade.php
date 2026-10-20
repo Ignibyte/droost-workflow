@@ -378,6 +378,7 @@ final class WorkflowFacade {
       // agent answers one, and the count alone read as four human decisions
       // where an agent's session had made all four (F-335).
       'lead' => $state->lead,
+      'answered_by_question' => count(array_filter($state->qaHistory, static fn (mixed $q): bool => is_array($q) && ($q['via'] ?? NULL) === 'question')),
       'answered_by_agent' => count(array_filter($state->qaHistory, static fn (mixed $q): bool => is_array($q) && ($q['answer'] ?? NULL) !== NULL && ($q['via'] ?? NULL) === 'agent')),
     ];
     return $status;
@@ -965,6 +966,48 @@ final class WorkflowFacade {
   }
 
   /**
+   * The human's answer to the complete hold, as the guard recorded it.
+   *
+   * A row in `hold-answers.jsonl` (the state directory, which the agent
+   * cannot write) for this run's pending hold, written from an
+   * AskUserQuestion's result. Only where the guard refuses a question whose
+   * input arrives pre-answered: without that wiring an answer in the record
+   * could be the agent's, so nothing is taken from it.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param \Droost\Workflow\State\RunStateStore $store
+   *   The run's store.
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run, waiting at complete.
+   *
+   * @return string|null
+   *   Their answer, or NULL when there is none to take.
+   */
+  private function humanHoldAnswer(string $projectRoot, RunStateStore $store, RunState $state): ?string {
+    if (!self::guardWired($projectRoot, 'question') || !self::guardWired($projectRoot, 'answers')) {
+      return NULL;
+    }
+    $askedAt = is_string($state->awaiting['asked_at'] ?? NULL) ? $state->awaiting['asked_at'] : '';
+    $found = NULL;
+    foreach (@file($store->directory() . '/hold-answers.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+      $row = json_decode($line, TRUE);
+      if (!is_array($row) || ($row['run'] ?? NULL) !== $state->runId || ($row['asked_at'] ?? NULL) !== $askedAt || !is_array($row['answers'] ?? NULL)) {
+        continue;
+      }
+      $answers = array_filter($row['answers'], 'is_string');
+      if ($answers === []) {
+        continue;
+      }
+      $found = count($answers) === 1
+        ? (string) reset($answers)
+        : implode('; ', array_map(static fn (string $q, string $a): string => $q . ' → ' . $a, array_keys($answers), $answers));
+    }
+
+    return $found;
+  }
+
+  /**
    * Changes an open run's lead (`workflow:lead`).
    *
    * @param string $projectRoot
@@ -1013,15 +1056,23 @@ final class WorkflowFacade {
     $store = new RunStateStore($projectRoot);
     $state = $this->requireRun($store);
     // A HUMAN-LED RUN IS FINISHED BY A HUMAN (owner, 2026-10-20). The agent
-    // may answer plan's, code's and test's holds; complete's comes from the
-    // operator's terminal, or the run waits.
+    // may answer plan's, code's and test's holds; complete's is the human's:
+    // their answer to the agent's question in the session (AskUserQuestion,
+    // recorded by the guard from the dialog's result), or typed from the
+    // operator's terminal. The agent's own words are never the answer.
     if ($via === 'agent' && $state->awaitsHuman()) {
-      throw new \InvalidArgumentException(
-        'This run is human-led: its complete hold is answered by a human, from the operator\'s terminal '
-        . '(`droost workflow:answer "<answer>"`, or `ddev droost workflow:answer …`, typed in a terminal window '
-        . 'of their own; Claude Code\'s `!` runs in the agent\'s shell and is refused too). Nothing was '
-        . 'recorded, and the run is still waiting. Tell the operator the run is ready to finish.',
-      );
+      $human = $this->humanHoldAnswer($projectRoot, $store, $state);
+      if ($human === NULL) {
+        throw new \InvalidArgumentException(
+          'This run is human-led: its complete hold is answered by a human. Ask them with AskUserQuestion '
+          . '(offer the hold\'s options), then run `answer` again: droost takes THEIR answer, as the guard '
+          . 'recorded it from the dialog. Or they type `droost workflow:answer "<answer>"` (`ddev droost '
+          . 'workflow:answer …`) in a terminal window of their own; Claude Code\'s `!` runs in the agent\'s '
+          . 'shell and is refused. Nothing was recorded, and the run is still waiting.',
+        );
+      }
+      $answer = $human;
+      $via = 'question';
     }
     $answered = $this->engine($projectRoot)->answer($state, $answer, $this->now(), $projectRoot, $via);
     $answeredEvent = [

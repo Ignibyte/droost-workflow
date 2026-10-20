@@ -56,7 +56,7 @@ final class GuardShimTest extends WorkflowTestCase {
 
     $settings = (string) file_get_contents($root . '/.claude/settings.json');
     $this->assertStringContainsString('php \"$CLAUDE_PROJECT_DIR/tools/droost/vendor/droost/workflow/bin/droost-guard\" pre-tool-use --harness=claude', $settings);
-    $this->assertSame(8, substr_count($settings, 'droost-guard'), 'eight entries, all calling the entry point');
+    $this->assertSame(9, substr_count($settings, 'droost-guard'), 'nine entries, all calling the entry point');
     $this->assertFileDoesNotExist($root . '/' . PackManifest::LEGACY_GUARD, 'the copy nothing calls is gone');
   }
 

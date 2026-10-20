@@ -87,11 +87,13 @@ final class RunReport {
     }
     $released = self::int($run['released'] ?? 0);
     $byAgent = self::int($run['answered_by_agent'] ?? 0);
+    $byQuestion = self::int($run['answered_by_question'] ?? 0);
     if (self::int($run['answered'] ?? 0) > 0 || $released > 0) {
       $lines[] = sprintf(
-        '  check-ins answered: %d%s%s',
+        '  check-ins answered: %d%s%s%s',
         self::int($run['answered'] ?? 0),
         $byAgent > 0 ? sprintf(' · %d by the agent, not from the operator\'s terminal', $byAgent) : '',
+        $byQuestion > 0 ? sprintf(' · %d by the operator, answering the agent\'s question in the session', $byQuestion) : '',
         $released > 0 ? sprintf(' · %d released unanswered (a later step went on before anyone answered)', $released) : '',
       );
     }

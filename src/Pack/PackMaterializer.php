@@ -208,7 +208,7 @@ final class PackMaterializer {
     // harness, so the guard translates the payload it was handed; the guard
     // protects the package it runs from, run or no run.
     $guard = 'php "' . $this->guardEntry($root) . '"';
-    // Eight wirings of one script; three of them on PreToolUse with different
+    // Nine wirings of one script; four of them on PreToolUse with different
     // matchers, so this is a list of (event, entry) pairs and presence is
     // checked per COMMAND, not per event — an install that already carries
     // the edit guard still gets the Bash guard added (R23-F2).
@@ -277,6 +277,13 @@ final class PackMaterializer {
       ['PostToolUse', [
         'matcher' => 'AskUserQuestion',
         'hooks' => [['type' => 'command', 'command' => $guard . ' answers --harness=claude']],
+      ],
+      ],
+      // A question's input arriving with its answers filled is the agent
+      // answering itself; refused before the dialog opens (owner, 2026-10-20).
+      ['PreToolUse', [
+        'matcher' => 'AskUserQuestion',
+        'hooks' => [['type' => 'command', 'command' => $guard . ' question --harness=claude']],
       ],
       ],
     ];
