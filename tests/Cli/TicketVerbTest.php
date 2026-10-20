@@ -72,7 +72,7 @@ final class TicketVerbTest extends WorkflowTestCase {
     [$code, $out] = $this->dispatch(['ticket', 'move', 'TICKET-169', 'done'], $root);
 
     $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code);
-    $this->assertStringContainsString('droost-workflow ticket move is the operator\'s command', $out);
+    $this->assertStringContainsString('droost workflow:ticket move is the operator\'s command', $out);
     $this->assertSame($before, file_get_contents($file), 'and nothing moved');
 
     [$code] = $this->dispatch(['ticket'], $root);

@@ -1018,8 +1018,9 @@ final class WorkflowFacade {
     if ($via === 'agent' && $state->awaitsHuman()) {
       throw new \InvalidArgumentException(
         'This run is human-led: its complete hold is answered by a human, from the operator\'s terminal '
-        . '(`droost workflow:answer "<answer>"` typed there). Nothing was recorded, and the run is still waiting. '
-        . 'Tell the operator the run is ready to finish.',
+        . '(`droost workflow:answer "<answer>"`, or `ddev droost workflow:answer …`, typed in a terminal window '
+        . 'of their own; Claude Code\'s `!` runs in the agent\'s shell and is refused too). Nothing was '
+        . 'recorded, and the run is still waiting. Tell the operator the run is ready to finish.',
       );
     }
     $answered = $this->engine($projectRoot)->answer($state, $answer, $this->now(), $projectRoot, $via);

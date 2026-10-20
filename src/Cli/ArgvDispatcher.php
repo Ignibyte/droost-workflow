@@ -1949,12 +1949,13 @@ final class ArgvDispatcher {
    */
   private function noTerminalRefusal(string $command): string {
     return sprintf(
-      'droost-workflow %1$s is the operator\'s command and this shell has no '
+      'droost workflow:%1$s is the operator\'s command and this shell has no '
       . 'terminal (an agent\'s tool shell, a pipe, a script). It records a '
-      . 'HUMAN\'s decision, so a human types it: run `droost-workflow %1$s …` '
-      . 'in a terminal of your own, outside the agent\'s session. Claude '
-      . 'Code\'s `!` runs a command with no terminal, so it is refused there '
-      . 'too (F-256).',
+      . 'HUMAN\'s decision, so a human types it: run `droost workflow:%1$s …` '
+      . '(`ddev droost workflow:%1$s …` on DDEV) in a terminal window of your '
+      . 'own, outside the agent\'s session. Claude Code\'s `!` runs a command '
+      . 'in the agent\'s shell, with no terminal, so it is refused there too '
+      . '(F-256).',
       $command,
     );
   }

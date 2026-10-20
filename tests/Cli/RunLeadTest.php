@@ -57,6 +57,7 @@ final class RunLeadTest extends WorkflowTestCase {
     [$code, $out] = $this->cli(['answer', 'finish it'], $root);
     $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code, 'no terminal: the agent cannot finish it');
     $this->assertStringContainsString('human-led', $out);
+    $this->assertStringContainsString('Claude Code\'s `!`', $out, 'and that `!` is no terminal either');
     $this->assertNotNull((new RunStateStore($root))->load()?->awaiting, 'still waiting, nothing recorded');
 
     $done = $this->facade()->answer($root, 'finish it', 'terminal');
