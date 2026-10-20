@@ -1614,7 +1614,8 @@ function operator_commands_guard(string $stdin): void {
     $line = (string) preg_replace('/(?<![\w-])droost\s+workflow:/', 'droost:workflow:', $line);
     if (operator_commands_opaque_head($tokens)) {
       guard_refuse('operator-command:variable-program',
-        'This command runs whatever a variable happens to hold, so what it '
+        'This command runs whatever a variable happens to hold'
+        . guard_found_in_script($tokens, $command) . ', so what it '
         . 'actually does cannot be read here — and the operator-only verbs '
         . '(bypass, gate-waive, baseline, effort, arming a write gate) are '
         . 'exactly what that hides. Write the program name out: `bash -c "…"`, '
@@ -3298,6 +3299,9 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
             continue;
           }
         }
+        // Which file this was, so a refusal found in its lines can say so
+        // rather than quote a command they are not in (F-334).
+        $GLOBALS['guard_scripts_read'][] = $file;
         // SHELL IS TOKENISED AS SHELL. EVERY OTHER LANGUAGE IS READ AS TEXT.
         //
         // This tier exists to catch an operator verb hidden in a file —
@@ -3911,11 +3915,12 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // that feeds both walls is blind in the same way.
     if (operator_commands_opaque_head($tokens)) {
       guard_refuse('protected-path:variable-program', sprintf(
-        'This command runs whatever a variable happens to hold, so where it '
+        'This command runs whatever a variable happens to hold%s, so where it '
         . 'writes cannot be read here — and the run record, the evidence store '
         . 'and this guard are all one redirect away. Write the program name '
         . 'out. A variable is fine in an ARGUMENT; it is the program that has '
         . 'to be legible. (Refused: %s)',
+        guard_found_in_script($tokens, $command),
         trim($command),
       ));
     }
@@ -7420,6 +7425,37 @@ function guard_nudge_grounded(string $directory, ?string $run): bool {
     }
   }
   return FALSE;
+}
+
+/**
+ * Where a refused invocation was found, when it is not in the command typed.
+ *
+ * A script the command runs or feeds is read here and its lines judged with
+ * the command's own, so a refusal found in one quoted the outer command:
+ * `ddev exec "cat > /tmp/r.sh" < r.sh` was refused as running a variable,
+ * and the line holding none left its reader nothing to fix (F-334).
+ *
+ * @param list<string> $tokens
+ *   The refused invocation.
+ * @param string $command
+ *   The command as typed.
+ *
+ * @return string
+ *   '' when the invocation's program is in the command; otherwise ` — in
+ *   <file>, which this command runs or feeds: \`<line>\``.
+ */
+function guard_found_in_script(array $tokens, string $command): string {
+  $scripts = array_values(array_unique($GLOBALS['guard_scripts_read'] ?? []));
+  $plain = array_map(static fn (string $t): string => ltrim($t, "\x01"), operator_commands_unwrapped($tokens));
+  $head = trim($plain[0] ?? '', "\"'");
+  if ($scripts === [] || $head === '' || str_contains($command, $head)) {
+    return '';
+  }
+  return sprintf(
+    ' — in %s, which this command runs or feeds: `%s`',
+    implode(', ', $scripts),
+    mb_substr(implode(' ', $plain), 0, 120),
+  );
 }
 
 /**
