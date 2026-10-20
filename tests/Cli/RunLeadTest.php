@@ -106,11 +106,21 @@ final class RunLeadTest extends WorkflowTestCase {
     [$code] = $this->cli(['answer', 'finish it'], $root);
     $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code);
 
-    // The human answers the dialog; the guard records the result.
+    // A yes to some other question is no approval to finish.
     $this->guard($root, 'answers', [
       'tool_name' => 'AskUserQuestion',
-      'tool_input' => ['questions' => [['question' => 'Finish the run?']]],
-      'tool_response' => ['answers' => ['Finish the run?' => 'Finish it']],
+      'tool_input' => ['questions' => [['question' => 'Shall I run lint?']]],
+      'tool_response' => ['answers' => ['Shall I run lint?' => 'yes']],
+    ]);
+    $this->assertFileDoesNotExist($dir . '/hold-answers.jsonl', 'only the hold\'s own question is the hold\'s answer');
+
+    // The human answers the hold's own question; the guard records it.
+    $question = (new RunStateStore($root))->load()?->awaiting['question'] ?? NULL;
+    $this->assertIsString($question);
+    $this->guard($root, 'answers', [
+      'tool_name' => 'AskUserQuestion',
+      'tool_input' => ['questions' => [['question' => $question]]],
+      'tool_response' => ['answers' => [$question => 'Finish it']],
     ]);
     $this->assertFileExists($dir . '/hold-answers.jsonl');
 

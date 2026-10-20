@@ -562,9 +562,13 @@ if ($mode === 'answers') {
   if ($awaiting !== NULL && ($awaiting['phase'] ?? NULL) === 'complete' && ($record['lead'] ?? NULL) === 'human-led' && is_string($record['run_id'] ?? NULL)) {
     $response = $payload['tool_response'] ?? NULL;
     $map = is_array($response) && is_array($response['answers'] ?? NULL) ? $response['answers'] : [];
+    // THE HOLD'S OWN QUESTION, word for word: a "yes" to some other question
+    // asked while the run waits ("shall I run lint?") is not an approval to
+    // finish it.
+    $holdQuestion = is_string($awaiting['question'] ?? NULL) ? trim($awaiting['question']) : '';
     $given = [];
     foreach ($map as $question => $answer) {
-      if (is_string($question) && (is_string($answer) || is_array($answer))) {
+      if (is_string($question) && $holdQuestion !== '' && trim($question) === $holdQuestion && (is_string($answer) || is_array($answer))) {
         $given[$question] = is_array($answer) ? implode(', ', array_filter($answer, 'is_string')) : $answer;
       }
     }

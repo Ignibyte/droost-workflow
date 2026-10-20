@@ -848,8 +848,10 @@ changes it. Making a run autonomous where the levers would not needs the
 operator's terminal; making one human-led is anyone's.
 
 The human answers the complete hold **in the session**: the agent asks with
-AskUserQuestion, the guard records the dialog's result (never its input; a
-question sent already answered is refused before it opens) in
+AskUserQuestion with the hold's own question word for word, the guard
+records the dialog's result (never its input; a question sent already
+answered is refused before it opens, and an answer to any other question is
+not taken) in
 `hold-answers.jsonl`, which the agent cannot write, and the agent's next
 `workflow:answer` takes the human's words from there. Where the question
 wall is not wired, nothing is taken from that record. The operator's
