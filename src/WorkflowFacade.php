@@ -363,6 +363,10 @@ final class WorkflowFacade {
       // answered 4 and had one released by a seeker report (F-321).
       'answered' => count(array_filter($state->qaHistory, static fn (mixed $q): bool => is_array($q) && ($q['answer'] ?? NULL) !== NULL)),
       'released' => count(array_filter($state->qaHistory, static fn (mixed $q): bool => is_array($q) && ($q['answer'] ?? NULL) === NULL)),
+      // A check-in is the human's; an answer typed with no terminal is how an
+      // agent answers one, and the count alone read as four human decisions
+      // where an agent's session had made all four (F-335).
+      'answered_by_agent' => count(array_filter($state->qaHistory, static fn (mixed $q): bool => is_array($q) && ($q['answer'] ?? NULL) !== NULL && ($q['via'] ?? NULL) === 'agent')),
     ];
     return $status;
   }
@@ -939,6 +943,9 @@ final class WorkflowFacade {
    *   The repository.
    * @param string $answer
    *   What the human said.
+   * @param string|null $via
+   *   `terminal` or `agent`: where the answer came from (F-335). NULL when
+   *   the caller cannot say.
    *
    * @return \Droost\Workflow\Mode\RunOutcome
    *   What answering did — `Advanced`, `Completed`, `Failed` when the answer
@@ -948,10 +955,10 @@ final class WorkflowFacade {
    * @throws \Droost\Workflow\State\StateError
    *   When there is no run to answer.
    */
-  public function answer(string $projectRoot, string $answer): RunOutcome {
+  public function answer(string $projectRoot, string $answer, ?string $via = NULL): RunOutcome {
     $store = new RunStateStore($projectRoot);
     $state = $this->requireRun($store);
-    $answered = $this->engine($projectRoot)->answer($state, $answer, $this->now(), $projectRoot);
+    $answered = $this->engine($projectRoot)->answer($state, $answer, $this->now(), $projectRoot, $via);
     $answeredEvent = [
       'question_id' => self::questionId($state, $state->awaiting ?? []),
       'answer' => $answer,

@@ -662,7 +662,7 @@ final class ArgvDispatcher {
       $this->fail('answer needs the answer: droost workflow:answer "yes"');
       return self::EXIT_USAGE;
     }
-    $outcome = $this->facade($projectRoot)->answer($projectRoot, $text);
+    $outcome = $this->facade($projectRoot)->answer($projectRoot, $text, $this->operatorTerminal() ? 'terminal' : 'agent');
     $phase = $outcome->state->currentPhase;
     // Answering IS the check-in the pause was for, so the run moved on;
     // say where it now stands rather than a bare acknowledgment.

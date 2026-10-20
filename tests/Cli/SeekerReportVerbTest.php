@@ -76,6 +76,28 @@ final class SeekerReportVerbTest extends WorkflowTestCase {
   }
 
   /**
+   * An answer with no terminal is recorded as the agent's, and said (F-335).
+   *
+   * A check-in is the human's decision; a live run's four were all answered
+   * by the agent's own session, and the record read "answered: 4".
+   */
+  public function testAnswerWithNoTerminalIsTheAgents(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: pair\n");
+    $this->assertSame(Outcome::Paused, $this->facade()->run($root)->outcome);
+
+    [$code, $out] = $this->cli(['answer', 'build it'], $root);
+
+    $this->assertSame(ArgvDispatcher::EXIT_OK, $code, $out);
+    $history = (new RunStateStore($root))->load()->qaHistory ?? [];
+    $last = end($history);
+    $this->assertIsArray($last);
+    $this->assertSame('agent', $last['via'] ?? NULL, 'no terminal: the agent answered');
+    $run = $this->facade()->status($root)['run'];
+    $this->assertIsArray($run);
+    $this->assertSame(1, $run['answered_by_agent']);
+  }
+
+  /**
    * Runs the dispatcher, both streams into one.
    *
    * @param list<string> $argv

@@ -696,6 +696,8 @@ final class ModeEngine {
    *   The repository, so an answer that ENDS the run can be recorded as a
    *   verdict rather than only as a phase status. Empty skips that, for the
    *   callers that have no root to give.
+   * @param string|null $via
+   *   Where the answer came from (RunState::answered()).
    *
    * @return \Droost\Workflow\State\RunState
    *   The run, no longer awaiting, with the exchange recorded.
@@ -709,6 +711,7 @@ final class ModeEngine {
     string $answer,
     string $now,
     string $projectRoot = '',
+    ?string $via = NULL,
   ): RunState {
     if ($state->awaiting === NULL) {
       throw new \InvalidArgumentException(
@@ -716,7 +719,7 @@ final class ModeEngine {
       );
     }
     $asked = PendingQuestion::fromArray($state->awaiting);
-    $answered = $state->answered($answer, $now);
+    $answered = $state->answered($answer, $now, $via);
     // Most answers do nothing beyond being recorded, and that is right: for a
     // conversation hold the human's consent to advance IS the act.
     //

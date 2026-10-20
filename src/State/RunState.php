@@ -1000,17 +1000,21 @@ final class RunState {
    *   What the human said.
    * @param string $answeredAt
    *   When, as a caller-supplied ISO-8601 string.
+   * @param string|null $via
+   *   Where the answer came from: `terminal` (the operator's) or `agent` (a
+   *   command with no terminal, which is how an agent answers). NULL when
+   *   the caller cannot say.
    *
    * @return self
    *   A new instance, no longer awaiting.
    */
-  public function answered(string $answer, string $answeredAt): self {
+  public function answered(string $answer, string $answeredAt, ?string $via = NULL): self {
     $history = $this->qaHistory;
     $history[] = [
       'asked' => $this->awaiting,
       'answer' => $answer,
       'answered_at' => $answeredAt,
-    ];
+    ] + ($via === NULL ? [] : ['via' => $via]);
     return $this->rebuild(
       awaiting: NULL,
       clearAwaiting: TRUE,

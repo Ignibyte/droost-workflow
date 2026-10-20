@@ -74,6 +74,7 @@ final class RunReportTest extends TestCase {
         'awaiting' => ['question' => 'Ship it?'],
         'answered' => 4,
         'released' => 1,
+        'answered_by_agent' => 3,
       ],
     ], ['active' => TRUE, 'reason' => 'a hotfix']));
 
@@ -92,7 +93,7 @@ final class RunReportTest extends TestCase {
     $this->assertStringContainsString('SELF-REVIEWED, not independent', $lines);
     $this->assertStringContainsString('across 2 inspection(s)', $lines);
     $this->assertStringContainsString('droost workflow:answer', $lines);
-    $this->assertStringContainsString('check-ins answered: 4 · 1 released unanswered', $lines);
+    $this->assertStringContainsString('check-ins answered: 4 · 3 by the agent, not from the operator\'s terminal · 1 released unanswered', $lines, 'who answered is said (F-335)');
     $this->assertStringContainsString('require_run bypass: ACTIVE — a hotfix', $lines);
   }
 

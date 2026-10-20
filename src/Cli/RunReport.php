@@ -85,10 +85,12 @@ final class RunReport {
       $lines[] = '  waiting — answer with: droost workflow:answer "<answer>"';
     }
     $released = self::int($run['released'] ?? 0);
+    $byAgent = self::int($run['answered_by_agent'] ?? 0);
     if (self::int($run['answered'] ?? 0) > 0 || $released > 0) {
       $lines[] = sprintf(
-        '  check-ins answered: %d%s',
+        '  check-ins answered: %d%s%s',
         self::int($run['answered'] ?? 0),
+        $byAgent > 0 ? sprintf(' · %d by the agent, not from the operator\'s terminal', $byAgent) : '',
         $released > 0 ? sprintf(' · %d released unanswered (a later step went on before anyone answered)', $released) : '',
       );
     }
