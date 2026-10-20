@@ -5262,6 +5262,16 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
         . 'and `grep` read it, so does the Read tool, and `droost '
         . 'workflow:evidence` renders the whole record.';
     }
+    // THE HUMAN'S ANSWER TO A HUMAN-LED RUN'S COMPLETE HOLD (owner,
+    // 2026-10-20): what finishes the run, written by the guard from the
+    // dialog's result. A line written by hand is an approval nobody gave.
+    if ($inState[3] === 'hold-answers.jsonl') {
+      return 'That file is the human\'s answer to a human-led run\'s complete hold, '
+        . 'which the guard writes from AskUserQuestion\'s result. A line written by '
+        . 'hand is an approval the human never gave, whether the file exists yet '
+        . 'or not. Ask them with AskUserQuestion, then run `droost workflow:answer`; '
+        . 'droost takes their answer from here. Reading it is not refused.';
+    }
     if (preg_match('#^(intake\.json|intake-answers\.jsonl)$#', $inState[3]) === 1) {
       return 'That file is the intake\'s record: its state (the audit it argues '
         . 'from, whether the human approved it) or the human\'s answers to its '

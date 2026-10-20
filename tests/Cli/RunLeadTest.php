@@ -88,6 +88,20 @@ final class RunLeadTest extends WorkflowTestCase {
     $this->assertStringContainsString('already filled in', $stderr);
     $this->assertFileDoesNotExist($dir . '/hold-answers.jsonl');
 
+    // Nor can it write the human's answer itself, by any door.
+    $forges = [
+      'echo x >> droost/droost-workflow/hold-answers.jsonl',
+      'cd droost/droost-workflow && printf x > hold-answers.jsonl',
+    ];
+    foreach ($forges as $forge) {
+      [$exit] = $this->guard($root, 'operator-commands', ['tool_name' => 'Bash', 'tool_input' => ['command' => $forge]]);
+      $this->assertSame(2, $exit, $forge);
+    }
+    $write = ['file_path' => $dir . '/hold-answers.jsonl', 'content' => 'x'];
+    [$exit] = $this->guard($root, 'pre-tool-use', ['tool_name' => 'Write', 'tool_input' => $write]);
+    $this->assertSame(2, $exit, 'the Write tool');
+    $this->assertFileDoesNotExist($dir . '/hold-answers.jsonl');
+
     // No human answer yet: the agent's answer is refused.
     [$code] = $this->cli(['answer', 'finish it'], $root);
     $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code);
