@@ -49,6 +49,19 @@ final class DeprecationsTool extends ToolBase {
   public function answer(array $arguments, Site $site): array {
     $ledger = $site->deprecations();
     $symbol = self::stringArg($arguments, 'symbol');
+    $search = self::stringArg($arguments, 'search');
+    // AN EMPTY LEDGER KNOWS NOTHING (S1-5). droost ships data for the core
+    // majors it has, and on another (or a site whose major cannot be read)
+    // every lookup answered "No deprecation recorded" and every search "0":
+    // a green that could not have failed.
+    $stats = $ledger->stats();
+    if (($symbol !== '' || $search !== '') && $stats['rows'] === 0) {
+      return $this->fail(sprintf(
+        'droost has no deprecation data for core major %s, so it cannot say whether "%s" is deprecated. Read the deprecation notices in core\'s source (`@deprecated`), or upgrade droost when it ships data for this major.',
+        $stats['major'] === '' ? '(unknown: no vendor/composer/installed.json or core Drupal.php was read)' : $stats['major'],
+        $symbol !== '' ? $symbol : $search,
+      ));
+    }
     if ($symbol !== '') {
       $row = $ledger->lookup($symbol);
       if ($row === NULL) {
@@ -67,7 +80,6 @@ final class DeprecationsTool extends ToolBase {
         ['match' => $row],
       );
     }
-    $search = self::stringArg($arguments, 'search');
     if ($search !== '') {
       $rows = $ledger->search($search);
       return $this->succeed(
@@ -75,7 +87,6 @@ final class DeprecationsTool extends ToolBase {
         ['matches' => $rows],
       );
     }
-    $stats = $ledger->stats();
     return $this->succeed(
       sprintf('Deprecation ledger: %d row(s) for core major %s.', $stats['rows'], $stats['major'] === '' ? '(none)' : $stats['major']),
       ['stats' => $stats],

@@ -71,6 +71,8 @@ final class GraphTool extends ToolBase {
       return $this->fail('The "direction" must be "callers" or "dependencies".');
     }
     $limit = self::intArg($arguments, 'limit', 100, 1, 500);
+    // The graph keys names with no leading backslash (S1-6).
+    $symbol = ltrim($symbol, '\\');
     // Fetch one extra row to detect (and report) truncation.
     $edges = self::edgesFor($graph, $symbol, $direction, $limit + 1);
 
@@ -99,6 +101,26 @@ final class GraphTool extends ToolBase {
           count($shown),
           implode(', ', $shown),
         ));
+      }
+    }
+
+    // A WRONG FORM IS NOT "NO EDGES" (S1-6). The lookup is exact and
+    // case-sensitive, so a name in another case, or `Short::method`, came back
+    // as success with 0 edges, which reads as "safe to change".
+    if ($edges === [] && $resolvedFrom === '' && !self::isPseudoSymbol($symbol)) {
+      $known = self::knownForm($graph, $symbol);
+      if ($known === NULL) {
+        return $this->fail(sprintf(
+          'No symbol "%s" is in the code index, so its %s cannot be read: the name is in another form, or not indexed. `droost code:symbol %s` finds the form the index uses.',
+          $symbol,
+          $direction,
+          self::shortOf($symbol),
+        ));
+      }
+      if ($known !== $symbol) {
+        $resolvedFrom = $symbol;
+        $symbol = $known;
+        $edges = self::edgesFor($graph, $symbol, $direction, $limit + 1);
       }
     }
 
@@ -150,6 +172,75 @@ final class GraphTool extends ToolBase {
     return $direction === 'dependencies'
       ? $graph->dependencies($symbol, $limit)
       : $graph->callers($symbol, $limit);
+  }
+
+  /**
+   * Whether a symbol is a pseudo-symbol (`service:x`, `route:x`, `hook:x`).
+   *
+   * @param string $symbol
+   *   The requested symbol.
+   *
+   * @return bool
+   *   TRUE when it names no class.
+   */
+  private static function isPseudoSymbol(string $symbol): bool {
+    return preg_match('/^[a-z_]+:(?!:)/', $symbol) === 1;
+  }
+
+  /**
+   * The form the index uses for a symbol, or NULL when it holds none.
+   *
+   * The symbol itself when indexed as written; else its one case-insensitive
+   * match; for `Class::method`, the class's form (a short class name
+   * resolved when it is unique) with the method kept.
+   *
+   * @param \Droost\Engine\Search\Graph\CodeGraphStorageInterface $graph
+   *   The graph.
+   * @param string $symbol
+   *   The requested symbol.
+   *
+   * @return string|null
+   *   The indexed form, or NULL.
+   */
+  private static function knownForm(CodeGraphStorageInterface $graph, string $symbol): ?string {
+    $parts = explode('::', $symbol, 2);
+    $class = $parts[0];
+    $member = $parts[1] ?? NULL;
+    $exact = NULL;
+    $folded = [];
+    foreach ($graph->findSymbols($class, 50) as $row) {
+      $fqcn = is_string($row['fqcn'] ?? NULL) ? $row['fqcn'] : '';
+      if ($fqcn === $class) {
+        $exact = $fqcn;
+      }
+      elseif (strcasecmp($fqcn, $class) === 0) {
+        $folded[] = $fqcn;
+      }
+    }
+    $found = $exact ?? (count($folded) === 1 ? $folded[0] : NULL);
+    if ($found === NULL && self::isBareShortName($class)) {
+      $candidates = $graph->resolveShortName($class, 2);
+      $found = count($candidates) === 1 ? $candidates[0] : NULL;
+    }
+    if ($found === NULL) {
+      return NULL;
+    }
+    return $member === NULL ? $found : $found . '::' . $member;
+  }
+
+  /**
+   * The short name of a symbol, for `code:symbol`.
+   *
+   * @param string $symbol
+   *   The symbol.
+   *
+   * @return string
+   *   Its last segment, without a member.
+   */
+  private static function shortOf(string $symbol): string {
+    $class = explode('::', $symbol, 2)[0];
+    $parts = explode('\\', $class);
+    return (string) end($parts);
   }
 
   /**

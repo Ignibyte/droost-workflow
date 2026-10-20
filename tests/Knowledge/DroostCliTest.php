@@ -146,6 +146,33 @@ final class DroostCliTest extends TestCase {
   }
 
   /**
+   * A wrong name form is never read as "no edges" (S1-6).
+   *
+   * The lookup is exact, so a leading backslash or another case came back
+   * as success with 0 edges, which reads as "nothing calls this".
+   */
+  public function testGraphNameFormIsNeverNoEdges(): void {
+    $this->droost(['code:index']);
+
+    $this->assertSame(0, $this->droost(['code:graph', '\\Drupal\\camps\\CampList']), $this->str('message'));
+    $this->assertSame(0, $this->droost(['code:graph', 'drupal\\camps\\camplist']), $this->str('message'));
+    $this->assertStringContainsString('resolved from', $this->str('message'));
+    $this->assertSame(1, $this->droost(['code:graph', 'Drupal\\camps\\NoSuchClass']));
+    $this->assertStringContainsString('No symbol', $this->str('message'));
+  }
+
+  /**
+   * With no deprecation data for the core major, a lookup says so (S1-5).
+   */
+  public function testDeprecationsWithNoDataSayNothingIsKnown(): void {
+    $core = ['name' => 'drupal/core', 'version' => '12.0.0'];
+    $this->put($this->root, 'composer.lock', (string) json_encode(['packages' => [$core]]));
+    $this->put($this->root, 'web/core/lib/Drupal.php', "<?php\nclass Drupal {\n  const VERSION = '12.0.0';\n}\n");
+    $this->assertSame(1, $this->droost(['code:deprecations', 'hide']), $this->str('message'));
+    $this->assertStringContainsString('no deprecation data', $this->str('message'));
+  }
+
+  /**
    * The arch search reads the files before an index, and the index after.
    */
   public function testArchSearchFromFilesThenFromTheIndex(): void {
