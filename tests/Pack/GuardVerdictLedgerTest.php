@@ -4,6 +4,13 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Pack;
 
+use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\Evidence\EvaluationReport;
+use Droost\Workflow\Evidence\EvidenceRecorder;
+use Droost\Workflow\Evidence\EvidenceStore;
+use Droost\Workflow\Gate\PhaseReport;
+use Droost\Workflow\State\RunState;
 use Droost\Workflow\Tests\WorkflowTestCase;
 
 /**
@@ -116,6 +123,41 @@ final class GuardVerdictLedgerTest extends WorkflowTestCase {
     $this->assertSame('plan-wall', $row['rule']);
     $this->assertSame('plan', $row['phase']);
     $this->assertSame('pre-tool-use', $row['mode']);
+  }
+
+  /**
+   * A call made inside a subagent is recorded as that subagent's (F-336).
+   *
+   * A live run's four refusals were a background research subagent's, and
+   * the diary filed them as the run agent's. The hook's input names the
+   * subagent (`agent_id`, `agent_type`); the run agent's carries neither.
+   */
+  public function testSubagentCallIsRecordedAsTheSubagents(): void {
+    $root = $this->rootWithRun('code', 'soft');
+
+    $this->guard($root, 'operator-commands', [
+      'tool_input' => ['command' => 'ls'],
+      'agent_id' => 'a1',
+      'agent_type' => 'php-qa-research',
+    ]);
+    $raw = file($root . '/droost/droost-workflow/guard-calls.jsonl', FILE_IGNORE_NEW_LINES) ?: [];
+    $sub = json_decode((string) end($raw), TRUE);
+    $this->guard($root, 'operator-commands', ['tool_input' => ['command' => 'ls']]);
+    $raw = file($root . '/droost/droost-workflow/guard-calls.jsonl', FILE_IGNORE_NEW_LINES) ?: [];
+    $own = json_decode((string) end($raw), TRUE);
+
+    $this->assertIsArray($sub);
+    $this->assertSame('php-qa-research', $sub['subagent'] ?? NULL);
+    $this->assertIsArray($own);
+    $this->assertArrayNotHasKey('subagent', $own, 'the run agent\'s own call names no subagent');
+
+    // And the evidence says so.
+    $config = WorkflowConfig::fromArray(['mode' => 'agentic', 'preset' => 'medium'], 'test');
+    $state = RunState::begin('run-ledger', '2026-10-20T00:00:00+00:00', $config);
+    (new EvidenceRecorder($root))->recordPhase($state, 'code', new PhaseReport(Phase::Code, []));
+    $report = (new EvaluationReport(new EvidenceStore($root)))->render('run-ledger');
+    $this->assertStringContainsString('were made inside a subagent', $report);
+    $this->assertStringContainsString('`php-qa-research` (1 call(s), 0 refused)', $report);
   }
 
   /**

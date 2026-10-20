@@ -261,6 +261,7 @@ final class EvidenceRecorder {
           is_string($row['rule'] ?? NULL) && $row['rule'] !== '' ? $row['rule'] : NULL,
           is_string($row['at'] ?? NULL) ? $row['at'] : NULL,
           is_string($row['tool'] ?? NULL) && $row['tool'] !== '' ? $row['tool'] : NULL,
+          is_string($row['subagent'] ?? NULL) && $row['subagent'] !== '' ? $row['subagent'] : NULL,
         );
       }
       return;

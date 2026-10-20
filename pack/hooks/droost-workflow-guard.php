@@ -346,6 +346,11 @@ $recordCall = static function () use ($root, $stateDir): void {
   if (is_string($agent) && $agent !== '') {
     $row['agent'] = $agent;
   }
+  // Made inside a subagent (F-336): not the run agent's own call.
+  $subagent = $GLOBALS['workflow_guard_subagent'] ?? NULL;
+  if (is_string($subagent) && !in_array($GLOBALS['workflow_guard_mode'] ?? '', ['dispatched', 'launched'], TRUE)) {
+    $row['subagent'] = $subagent;
+  }
   // And who it is, so a teammate's return is read back to its type (F-333).
   foreach (['name' => 'workflow_guard_agent_name', 'agent_id' => 'workflow_guard_agent_id'] as $key => $global) {
     $value = $GLOBALS[$global] ?? NULL;
@@ -399,6 +404,13 @@ $GLOBALS['workflow_guard_continued'] = $stopHookActive;
 // The session and its transcript, for the host record the diary writes.
 $GLOBALS['workflow_guard_session'] = is_string($payload['session_id'] ?? NULL) ? $payload['session_id'] : NULL;
 $GLOBALS['workflow_guard_transcript'] = is_string($payload['transcript_path'] ?? NULL) ? $payload['transcript_path'] : NULL;
+// WHICH AGENT MADE THE CALL (F-336). A hook that fires inside a subagent is
+// handed `agent_id` and `agent_type`; the main session's calls carry neither.
+// A live run's four refusals were a background research subagent's, and the
+// diary filed them as the run's.
+$GLOBALS['workflow_guard_subagent'] = is_string($payload['agent_id'] ?? NULL) && $payload['agent_id'] !== ''
+  ? substr(is_string($payload['agent_type'] ?? NULL) && $payload['agent_type'] !== '' ? $payload['agent_type'] : 'subagent', 0, 120)
+  : NULL;
 
 // THE TOOL'S NAME, recorded and never acted on here. Every other branch in
 // this file infers what is happening from `tool_input` — a `command` key means

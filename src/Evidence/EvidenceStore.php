@@ -60,7 +60,7 @@ final class EvidenceStore {
    * build does not know about costs it nothing. A store written by an older one
    * is migrated up in place.
    */
-  public const int SCHEMA_VERSION = 14;
+  public const int SCHEMA_VERSION = 15;
 
   /**
    * Substrings that identify a browser tool in a host's tool name.
@@ -234,6 +234,7 @@ final class EvidenceStore {
         12 => $this->migrateToV12($pdo),
         13 => $this->migrateToV13($pdo),
         14 => $this->migrateToV14($pdo),
+        15 => $this->migrateToV15($pdo),
         default => NULL,
       };
       // Stamped per rung, so an interrupted upgrade resumes where it stopped
@@ -340,7 +341,8 @@ final class EvidenceStore {
         mode     TEXT NOT NULL,
         verdict  TEXT NOT NULL,
         rule     TEXT,
-        at       TEXT NOT NULL
+        at       TEXT NOT NULL,
+        subagent TEXT
       );
       CREATE INDEX IF NOT EXISTS guard_call_by_run ON guard_call (run_id, phase, mode);
       CREATE INDEX IF NOT EXISTS guard_call_by_tool ON guard_call (run_id, phase, tool);
@@ -2224,6 +2226,9 @@ final class EvidenceStore {
    * @param string|null $tool
    *   The tool the hook fired on, as the host named it, or NULL when the host
    *   sent no name. Recorded, never enforced on — see migrateToV8().
+   * @param string|null $subagent
+   *   The subagent that made the call (its type), or NULL for the run
+   *   agent's own (F-336).
    */
   public function recordGuardCall(
     string $runId,
@@ -2233,10 +2238,37 @@ final class EvidenceStore {
     ?string $rule = NULL,
     ?string $at = NULL,
     ?string $tool = NULL,
+    ?string $subagent = NULL,
   ): void {
     $this->connection()
-      ->prepare('INSERT INTO guard_call (run_id, phase, tool, mode, verdict, rule, at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      ->execute([$runId, $phase, $tool, $mode, $verdict, $rule, $at ?? date('c')]);
+      ->prepare('INSERT INTO guard_call (run_id, phase, tool, mode, verdict, rule, at, subagent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      ->execute([$runId, $phase, $tool, $mode, $verdict, $rule, $at ?? date('c'), $subagent]);
+  }
+
+  /**
+   * The guard calls subagents made, by subagent.
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return list<array{subagent: string, calls: int, refusals: int}>
+   *   One row per subagent type, most calls first.
+   */
+  public function guardCallsBySubagent(string $runId): array {
+    $statement = $this->connection()->prepare(
+      "SELECT subagent, COUNT(*) AS calls, SUM(CASE WHEN verdict = 'refuse' THEN 1 ELSE 0 END) AS refusals "
+      . 'FROM guard_call WHERE run_id = ? AND subagent IS NOT NULL GROUP BY subagent ORDER BY calls DESC, subagent',
+    );
+    $statement->execute([$runId]);
+    $out = [];
+    foreach (self::rows($statement) as $row) {
+      $out[] = [
+        'subagent' => is_string($row['subagent'] ?? NULL) ? $row['subagent'] : '',
+        'calls' => is_numeric($row['calls'] ?? NULL) ? (int) $row['calls'] : 0,
+        'refusals' => is_numeric($row['refusals'] ?? NULL) ? (int) $row['refusals'] : 0,
+      ];
+    }
+    return $out;
   }
 
   /**
@@ -2764,7 +2796,8 @@ final class EvidenceStore {
         mode     TEXT NOT NULL,
         verdict  TEXT NOT NULL,
         rule     TEXT,
-        at       TEXT NOT NULL
+        at       TEXT NOT NULL,
+        subagent TEXT
       );
       CREATE INDEX IF NOT EXISTS guard_call_by_run ON guard_call (run_id, phase, mode);
       CREATE INDEX IF NOT EXISTS guard_call_by_tool ON guard_call (run_id, phase, tool);
@@ -3040,6 +3073,25 @@ SQL);
   private function migrateToV14(\PDO $pdo): void {
     try {
       $pdo->exec('ALTER TABLE seeker_finding ADD COLUMN inspector TEXT');
+    }
+    catch (\PDOException) {
+      // Already there — V1's DDL carries it for a new store.
+    }
+  }
+
+  /**
+   * V15 — which guard calls a subagent made.
+   *
+   * The guard filed every call under the open run, and a live run's four
+   * refusals were a background research subagent's (F-336). NULL is the run
+   * agent's own call, or one recorded before this version.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   */
+  private function migrateToV15(\PDO $pdo): void {
+    try {
+      $pdo->exec('ALTER TABLE guard_call ADD COLUMN subagent TEXT');
     }
     catch (\PDOException) {
       // Already there — V1's DDL carries it for a new store.

@@ -2011,8 +2011,38 @@ final class EvaluationReport {
         $counts['crash'] > 0 ? sprintf(', %d crash(es)', $counts['crash']) : '',
         self::code($requested),
       )
+      . $this->subagentCalls($runId)
       . self::verdictReading($counts['invoked'])
       . self::untestedWalls($requested, $counts['refuse'], $counts['nudge']);
+  }
+
+  /**
+   * Which of the guard's calls a subagent made, not the run agent (F-336).
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return string
+   *   A paragraph, or '' when no subagent call was recorded.
+   */
+  private function subagentCalls(string $runId): string {
+    $by = $this->store->guardCallsBySubagent($runId);
+    if ($by === []) {
+      return '';
+    }
+    $calls = array_sum(array_column($by, 'calls'));
+    $refusals = array_sum(array_column($by, 'refusals'));
+    return sprintf(
+      "\n**%d of these, %d refusal(s) among them, were made inside a subagent**, not by\n"
+      . "the run agent: %s. A refusal there is the guard working on a\n"
+      . "subagent's command; it says nothing about the run agent's.\n",
+      $calls,
+      $refusals,
+      implode(', ', array_map(
+        static fn (array $row): string => sprintf('%s (%d call(s), %d refused)', self::code($row['subagent']), $row['calls'], $row['refusals']),
+        $by,
+      )),
+    );
   }
 
   /**
