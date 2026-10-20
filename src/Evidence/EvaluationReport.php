@@ -2093,6 +2093,17 @@ final class EvaluationReport {
         ORDER BY c.phase, c.name, c.attempt, f.seq',
       [$runId],
     );
+    // The newest attempt of each check, so a finding a later attempt
+    // superseded says so instead of standing as the run's (F-324: spec-shape
+    // observations the agent had since answered read as current).
+    $newest = [];
+    foreach ($this->rows(
+      'SELECT phase, kind, name, MAX(attempt) AS attempt, (SELECT state FROM check_result c2 WHERE c2.run_id = c.run_id AND c2.phase = c.phase AND c2.kind = c.kind AND c2.name = c.name ORDER BY attempt DESC LIMIT 1) AS state
+         FROM check_result c WHERE run_id = ? GROUP BY phase, kind, name',
+      [$runId],
+    ) as $row) {
+      $newest[self::text($row, 'phase') . '|' . self::text($row, 'kind') . '|' . self::text($row, 'name')] = $row;
+    }
 
     $out = "## 8. Findings\n\n"
       . "Two different things share this heading in the template, and only one\n"
@@ -2112,8 +2123,12 @@ final class EvaluationReport {
       }
       foreach ($grouped as $group) {
         $head = $group[0];
+        $latest = $newest[self::text($head, 'phase') . '|' . self::text($head, 'kind') . '|' . self::text($head, 'name')] ?? NULL;
+        $superseded = $latest !== NULL && (self::number($latest, 'attempt') ?? 0) > (self::number($head, 'attempt') ?? 0)
+          ? sprintf(' — **superseded** by attempt %s (%s)', self::cell(self::number($latest, 'attempt')), self::stateLabel(self::text($latest, 'state')))
+          : '';
         $out .= sprintf(
-          "\n#### %s — %s, attempt %s — %s (%s), %d finding%s\n\n",
+          "\n#### %s — %s, attempt %s — %s (%s), %d finding%s%s\n\n",
           self::code(self::text($head, 'name')),
           self::code(self::text($head, 'phase')),
           self::cell(self::number($head, 'attempt')),
@@ -2121,6 +2136,7 @@ final class EvaluationReport {
           self::faultLabel(self::text($head, 'fault')),
           count($group),
           count($group) === 1 ? '' : 's',
+          $superseded,
         );
         $cells = [];
         foreach (array_slice($group, 0, self::MAX_FINDING_ROWS) as $finding) {

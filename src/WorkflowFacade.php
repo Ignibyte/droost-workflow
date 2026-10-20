@@ -855,7 +855,10 @@ final class WorkflowFacade {
     // were never wrong about what the document said — only about whether that
     // should end a run.
     $observations = $this->specShapeObservations($projectRoot, $specPath, $phase, $state->runId);
-    if ($observations !== []) {
+    if ($observations !== [] || $this->specShapeWasObserved($projectRoot, $state->runId, $phase)) {
+      // An attempt that finds nothing still records, once an earlier one
+      // found something: otherwise the earlier row stays the newest, and the
+      // report says the spec lacks what the agent has since added (F-324).
       $this->recordSpecShape($state, $projectRoot, $phase, $observations);
     }
     if ($specPath !== NULL && $phase === Phase::Complete) {
@@ -2843,6 +2846,33 @@ final class WorkflowFacade {
   }
 
   /**
+   * Whether an earlier attempt of this phase recorded spec-shape observations.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $runId
+   *   The run.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase.
+   *
+   * @return bool
+   *   TRUE when the newest spec/shape row of this phase still holds some.
+   */
+  private function specShapeWasObserved(string $projectRoot, string $runId, Phase $phase): bool {
+    try {
+      foreach ((new EvidenceStore($projectRoot))->checklist($runId, $phase->value) as $row) {
+        if (($row['kind'] ?? NULL) === 'spec' && ($row['name'] ?? NULL) === 'shape') {
+          return ($row['state'] ?? NULL) !== CheckState::Satisfied->value;
+        }
+      }
+    }
+    catch (\Throwable) {
+      return FALSE;
+    }
+    return FALSE;
+  }
+
+  /**
    * Records spec-shape observations as one non-blocking check.
    *
    * `CheckState::Recorded` renders as "recorded (not blocking)" and
@@ -2860,6 +2890,26 @@ final class WorkflowFacade {
    *   What specShapeObservations() found.
    */
   private function recordSpecShape(RunState $state, string $projectRoot, Phase $phase, array $observations): void {
+    if ($observations === []) {
+      try {
+        (new EvidenceStore($projectRoot))->record(
+          $state->runId,
+          $phase->value,
+          new CheckRecord(
+            'spec',
+            'shape',
+            CheckState::Satisfied,
+            Fault::None,
+            'no spec-shape observation now: what an earlier attempt found missing from the document is there.',
+          ),
+          $this->now(),
+        );
+      }
+      catch (\Throwable) {
+        // The store is unreachable; the phase's own audit already says so.
+      }
+      return;
+    }
     $findings = [];
     foreach ($observations as $o) {
       $findings[] = [
