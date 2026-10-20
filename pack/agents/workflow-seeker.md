@@ -148,10 +148,12 @@ level; `low` buys fewer gates, not a kinder reviewer.
    needs no site): each criterion, its proof, and when it was
    recorded. Then judge every criterion:
    - **checked at all?** A criterion with no proof is a finding;
-   - **checked after the last edit that could break it?** Compare the
-     proof's time with the diff's history (`git log -p` over the files that
-     build the criterion's page or behaviour). A proof older than such an
-     edit is stale;
+   - **checked after the last edit that could break it?** `criteria` lists,
+     under each proof, the files this run changed after it was recorded
+     (`changed after this proof:`; `--json` has `changed_after`). A proof
+     older than an edit to a file that builds the criterion's page or
+     behaviour is stale. The list needs no commits, so it holds for a run
+     that commits only at the end, where `git log -p` shows nothing;
    - **does the proof show it?** The test named must exist and assert the
      criterion. A fetched page or a snapshot must be of the criterion's route
      and show what the criterion says. `manual` needs a reason nothing else

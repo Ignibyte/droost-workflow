@@ -1049,6 +1049,10 @@ final class ArgvDispatcher {
           ? '  [not checked]'
           : sprintf('  [checked %s, in %s: %s]', $criterion['verified_at'] ?? '?', $criterion['phase'], $criterion['verified_by']),
       ));
+      // What this run changed after the proof was recorded (F-289).
+      if ($criterion['changed_after'] !== NULL && $criterion['changed_after'] !== []) {
+        $this->say('    changed after this proof: ' . implode(', ', $criterion['changed_after']));
+      }
     }
 
     return self::EXIT_OK;

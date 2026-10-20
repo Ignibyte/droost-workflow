@@ -1683,16 +1683,46 @@ final class WorkflowFacade {
   /**
    * The open run's criteria, each with its latest proof and when.
    *
+   * And `changed_after`: the files this run changed whose last modification
+   * is later than the proof, so a proof older than an edit that could break
+   * it can be seen without a commit history. The seeker judged that with
+   * `git log -p`, and a run that commits only at the end has none (F-289).
+   *
    * @param string $projectRoot
    *   The repository.
    *
-   * @return list<array{ref: string, statement: string, verified_by: string|null, verified_at: string|null, phase: string, revisions: int}>
-   *   The criteria, in the order they were declared.
+   * @return list<array{ref: string, statement: string, verified_by: string|null, verified_at: string|null, phase: string, revisions: int, changed_after: list<string>|null}>
+   *   The criteria, in the order they were declared. `changed_after` is NULL
+   *   for a criterion with no proof, or when the run's diff cannot be read.
    */
   public function criteria(string $projectRoot): array {
     $state = $this->requireRun(new RunStateStore($projectRoot));
+    $changed = $state->baseCommit !== NULL && $this->vcs->isRepository($projectRoot)
+      ? $this->vcs->changedFiles($projectRoot, $state->baseCommit)
+      : NULL;
+    $changed = $changed === NULL ? NULL : $state->ownChanges($changed, $projectRoot);
+    $root = rtrim($projectRoot, '/');
+    $out = [];
+    foreach ((new EvidenceStore($projectRoot))->specCriteria($state->runId) as $criterion) {
+      $proved = $criterion['verified_at'] === NULL ? FALSE : strtotime($criterion['verified_at']);
+      $after = NULL;
+      if ($changed !== NULL && $proved !== FALSE) {
+        $after = [];
+        foreach ($changed as $file) {
+          // The run's own record is not code that could break a criterion.
+          if (str_starts_with($file, RunStateStore::STATE_DIR . '/')) {
+            continue;
+          }
+          $modified = @filemtime($root . '/' . $file);
+          if ($modified !== FALSE && $modified > $proved) {
+            $after[] = $file;
+          }
+        }
+      }
+      $out[] = $criterion + ['changed_after' => $after];
+    }
 
-    return (new EvidenceStore($projectRoot))->specCriteria($state->runId);
+    return $out;
   }
 
   /**
