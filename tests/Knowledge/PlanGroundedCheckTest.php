@@ -94,7 +94,27 @@ final class PlanGroundedCheckTest extends WorkflowTestCase {
     $this->assertStringContainsString('code:wiki ×1', $record->summary);
     $this->assertStringContainsString('code:tree ×1', $record->summary);
     $this->assertStringContainsString('the code index is absent', $record->summary, 'the index status is said');
+    $this->assertStringContainsString('3 of them made before the run opened', $record->summary, 'run-less looking is said as such (F-331)');
     $this->assertSame(PlanGroundedCheck::PROVIDER, $record->provider);
+  }
+
+  /**
+   * A lookup made before an earlier run is not this plan's consult (F-331).
+   *
+   * A run-less call belongs to the run that opened next; with the ledger
+   * never rotated on completion, every one since the last reset counted.
+   */
+  public function testLookingBeforeAnEarlierRunIsNotThisPlans(): void {
+    $root = $this->project();
+    $this->ledger($root, [
+      ...self::looked(),
+      ['tool' => 'code:symbol', 'outcome' => 'ok', 'at' => 'y', 'run' => 'run-before', 'phase' => 'plan'],
+    ]);
+
+    $record = $this->verdict($root);
+
+    $this->assertSame(CheckState::Blocked, $record->state, $record->summary);
+    $this->assertStringContainsString('`droost code:wiki` and `droost code:tree`', $record->summary);
   }
 
   /**

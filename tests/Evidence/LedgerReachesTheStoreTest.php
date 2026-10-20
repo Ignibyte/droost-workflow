@@ -162,21 +162,21 @@ final class LedgerReachesTheStoreTest extends TestCase {
         'run' => 'r0',
         'phase' => 'code',
       ],
+      // A call made with no run open after r0's last row is THIS run's: the
+      // plan phase grounds before it opens the run (F-331 bounds it by r0).
+      [
+        'tool' => 'droost_doctor',
+        'outcome' => 'ok',
+        'at' => '2026-09-15T01:59:59+00:00',
+        'run' => NULL,
+        'phase' => NULL,
+      ],
       [
         'tool' => 'droost_search',
         'outcome' => 'ok',
         'at' => '2026-09-15T02:00:00+00:00',
         'run' => 'r1',
         'phase' => 'plan',
-      ],
-      // A call made with no run open is THIS run's: the plan phase grounds
-      // before it opens the run, and reset has already archived the last one.
-      [
-        'tool' => 'droost_doctor',
-        'outcome' => 'ok',
-        'at' => '2026-09-15T02:00:01+00:00',
-        'run' => NULL,
-        'phase' => NULL,
       ],
     ]);
 

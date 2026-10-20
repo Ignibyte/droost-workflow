@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Droost\Workflow\Evidence;
 
 use Droost\Workflow\Gate\PhaseReport;
+use Droost\Workflow\Knowledge\ToolCallLog;
 use Droost\Workflow\State\RunState;
 
 /**
@@ -151,12 +152,12 @@ final class EvidenceRecorder {
    * for this run is counting what this reader already moved. A row's own
    * phase is kept when it has one; the phase being recorded fills in the
    * rest. A row's `run` is NULL when no run was open —
-   * and those rows are THIS run's too. The plan phase grounds, writes the
-   * spec and only then opens the run, so every knowledge call that grounding
-   * makes lands before run.json exists; skipping them would report the run as
-   * having asked the codebase nothing, at the phase where it asked most.
-   * `reset` archives the file, so a NULL row can only belong to the run that
-   * opens next. Rows naming ANOTHER run are the ones excluded.
+   * and those rows are THIS run's too when this is the run that opened next.
+   * The plan phase grounds, writes the spec and only then opens the run, so
+   * every knowledge call that grounding makes lands before run.json exists;
+   * skipping them would report the run as having asked the codebase nothing,
+   * at the phase where it asked most. Which run-less rows are this run's is
+   * ToolCallLog::ofRun()'s to say (F-331).
    *
    * @param \Droost\Workflow\Evidence\EvidenceStore $store
    *   The store.
@@ -183,10 +184,10 @@ final class EvidenceRecorder {
         }
         $rows[] = $row;
       }
-      $mine = array_values(array_filter(
-        $rows,
-        static fn (array $row): bool => in_array($row['run'] ?? NULL, [$runId, NULL], TRUE),
-      ));
+      $mine = array_map(
+        static fn (int $i): array => $rows[$i],
+        ToolCallLog::ofRun(array_map(static fn (array $row): ?string => is_string($row['run'] ?? NULL) ? $row['run'] : NULL, $rows), $runId),
+      );
       foreach (array_slice($mine, $store->toolCallCount($runId)) as $row) {
         $store->recordToolCall(
           $runId,

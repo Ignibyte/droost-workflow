@@ -45,18 +45,39 @@ final class ToolCallLogTest extends WorkflowTestCase {
   }
 
   /**
-   * A run reads its own calls and the unattributed ones, never another's.
+   * A run reads its own calls and the run-less ones it opened after.
    */
   public function testRunReadsItsOwnCalls(): void {
     $root = $this->makeRoot();
     $this->ledger($root, [
       ['tool' => 'droost_symbol', 'outcome' => 'ok', 'at' => 'a', 'run' => NULL, 'phase' => NULL],
       ['tool' => 'droost_search', 'outcome' => 'ok', 'at' => 'b', 'run' => 'run-2', 'phase' => 'plan'],
-      ['tool' => 'droost_graph', 'outcome' => 'ok', 'at' => 'c', 'run' => 'run-1', 'phase' => 'plan'],
+      ['tool' => 'droost_wiki', 'outcome' => 'ok', 'at' => 'c', 'run' => NULL, 'phase' => NULL],
+      ['tool' => 'droost_graph', 'outcome' => 'ok', 'at' => 'd', 'run' => 'run-1', 'phase' => 'plan'],
     ]);
 
-    $this->assertSame(['droost_symbol', 'droost_graph'], array_column(ToolCallLog::read($root, 'run-1'), 'tool'));
-    $this->assertCount(3, ToolCallLog::read($root));
+    $this->assertSame(['droost_wiki', 'droost_graph'], array_column(ToolCallLog::read($root, 'run-1'), 'tool'));
+    $this->assertSame(['droost_symbol', 'droost_search'], array_column(ToolCallLog::read($root, 'run-2'), 'tool'));
+    $this->assertCount(4, ToolCallLog::read($root));
+  }
+
+  /**
+   * A run-less row made before an EARLIER run is that run's, not the next's.
+   *
+   * Completing a run leaves the file in place, so every run-less row since
+   * the last reset counted for every later run (F-331).
+   */
+  public function testRunLessRowsBelongToTheRunThatOpenedNext(): void {
+    $root = $this->makeRoot();
+    $this->ledger($root, [
+      ['tool' => 'code:wiki', 'outcome' => 'ok', 'at' => 'a', 'run' => NULL, 'phase' => NULL],
+      ['tool' => 'code:tree', 'outcome' => 'ok', 'at' => 'b', 'run' => NULL, 'phase' => NULL],
+      ['tool' => 'code:symbol', 'outcome' => 'ok', 'at' => 'c', 'run' => 'run-2', 'phase' => 'plan'],
+      ['tool' => 'code:graph', 'outcome' => 'ok', 'at' => 'd', 'run' => NULL, 'phase' => NULL],
+    ]);
+
+    $this->assertSame(['code:graph'], array_column(ToolCallLog::read($root, 'run-3'), 'tool'), 'only what came after run 2');
+    $this->assertSame(['code:wiki', 'code:tree', 'code:symbol'], array_column(ToolCallLog::read($root, 'run-2'), 'tool'));
   }
 
   /**

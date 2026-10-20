@@ -166,15 +166,20 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
 
     $tools = array_count_values(array_column($asked, 'tool'));
     ksort($tools);
+    // Grounding before the run opens counts, as the flow intends; the reader
+    // is told how much of the looking that was, since a run-less call cannot
+    // say what it was made for (F-331).
+    $before = count(array_filter($asked, static fn (array $call): bool => $call['run'] === NULL));
 
     return [
       $this->record(
         CheckState::Satisfied,
         Fault::None,
         sprintf(
-          'plan looked: %d knowledge call(s) this run (%s), and %d Grounding citation(s) resolve%s; the code index is %s',
+          'plan looked: %d knowledge call(s) this run (%s)%s, and %d Grounding citation(s) resolve%s; the code index is %s',
           count($asked),
           implode(', ', array_map(static fn (string $tool, int $n): string => $tool . ' ×' . $n, array_keys($tools), $tools)),
+          $before === 0 ? '' : sprintf(', %d of them made before the run opened', $before),
           count($citations['resolved']),
           $citations['unresolved'] === [] ? '' : sprintf(' (%d more do not)', count($citations['unresolved'])),
           $citations['index'],
