@@ -1403,14 +1403,40 @@ final class WorkflowFacade {
       return 'unverified';
     }
     $floor = strtotime(self::lastLedgerAt($state));
-    $returned = [];
+    $rows = [];
     foreach (@file(dirname($store->path()) . '/guard-calls.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
       $row = json_decode($line, TRUE);
-      if (!is_array($row)
-        || ($row['mode'] ?? NULL) !== 'dispatched'
+      if (is_array($row)) {
+        $rows[] = $row;
+      }
+    }
+    // What each agent the Agent tool started IS, by its id and its name: the
+    // tool's input says its type, and a teammate's SubagentStop says only its
+    // name (F-333). A stop with neither on record keeps what it says, which is
+    // the type wherever the harness says the type.
+    $typeOf = ['agent_id' => [], 'name' => []];
+    foreach ($rows as $row) {
+      if (in_array($row['tool'] ?? NULL, ['Agent', 'Task'], TRUE) && is_string($row['agent'] ?? NULL)) {
+        foreach (['agent_id', 'name'] as $key) {
+          if (is_string($row[$key] ?? NULL) && $row[$key] !== '') {
+            $typeOf[$key][$row[$key]] = $row['agent'];
+          }
+        }
+      }
+    }
+    $returned = [];
+    foreach ($rows as $row) {
+      if (($row['mode'] ?? NULL) !== 'dispatched'
         || ($row['run'] ?? NULL) !== $state->runId
-        || !is_string($row['agent'] ?? NULL)
-        || preg_match('/(^|:)workflow-seeker$/', $row['agent']) !== 1) {
+        || !is_string($row['agent'] ?? NULL)) {
+        continue;
+      }
+      $agent = $row['agent'];
+      if (!in_array($row['tool'] ?? NULL, ['Agent', 'Task'], TRUE)) {
+        $id = is_string($row['agent_id'] ?? NULL) ? $row['agent_id'] : '';
+        $agent = $typeOf['agent_id'][$id] ?? $typeOf['name'][$agent] ?? $agent;
+      }
+      if (preg_match('/(^|:)workflow-seeker$/', $agent) !== 1) {
         continue;
       }
       $at = is_string($row['at'] ?? NULL) ? strtotime($row['at']) : FALSE;

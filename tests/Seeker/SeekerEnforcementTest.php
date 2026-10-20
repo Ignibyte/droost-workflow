@@ -120,6 +120,69 @@ final class SeekerEnforcementTest extends WorkflowTestCase {
   }
 
   /**
+   * A named seeker is a teammate: its spawn is a launch, its stop its return.
+   *
+   * The Agent tool answers `teammate_spawned` for a named agent, which was
+   * read as the return, and the teammate's SubagentStop names it by its name,
+   * which was not read as a seeker at all (F-333). And a general-purpose
+   * agent named `workflow-seeker` is not one.
+   */
+  public function testNamedSeekerIsTeammate(): void {
+    $root = $this->wired("preset: custom\nmode: agentic\n");
+    $this->toInspection($root);
+
+    $spawn = $this->dispatch($root, 'workflow-seeker', 'dispatched', [
+      'tool_input' => ['name' => 'seeker-1'],
+      'tool_response' => [
+        'status' => 'teammate_spawned',
+        'agentId' => 'aseeker-1-x',
+        'agent_type' => 'workflow-seeker',
+        'name' => 'seeker-1',
+      ],
+    ]);
+    $this->assertSame('launched', $spawn['mode'], 'a spawn is a launch');
+    try {
+      $this->facade()->recordSeeker($root, self::OPEN_MEDIUM);
+      $this->fail('a ledger filed on a spawn is refused');
+    }
+    catch (SeekerError $e) {
+      $this->assertStringContainsString('no workflow-seeker has returned', $e->getMessage());
+    }
+
+    // An impostor: a general-purpose teammate named like the seeker.
+    $this->dispatch($root, 'general-purpose', 'dispatched', [
+      'tool_input' => ['name' => 'workflow-seeker'],
+      'tool_response' => ['status' => 'teammate_spawned', 'agentId' => 'aimpostor', 'name' => 'workflow-seeker'],
+    ]);
+    $this->dispatch($root, 'workflow-seeker', 'subagent-stop', [
+      'agent_type' => 'workflow-seeker',
+      'last_assistant_message' => self::OPEN_MEDIUM,
+    ]);
+    try {
+      $this->facade()->recordSeeker($root, self::OPEN_MEDIUM);
+      $this->fail('a general-purpose agent named workflow-seeker is not a seeker');
+    }
+    catch (SeekerError $e) {
+      $this->assertStringContainsString('no workflow-seeker has returned', $e->getMessage());
+    }
+
+    // The seeker returns, named by its name: that is a seeker's return, and
+    // the ledger is held to what it wrote.
+    $this->dispatch($root, 'workflow-seeker', 'subagent-stop', [
+      'agent_type' => 'seeker-1',
+      'last_assistant_message' => "Done.\n\n" . self::OPEN_MEDIUM,
+    ]);
+    $this->assertSame('verified', $this->facade()->recordSeeker($root, self::OPEN_MEDIUM)['dispatch']);
+
+    // Continued by message, it returns again: a seeker's second return.
+    $this->dispatch($root, 'workflow-seeker', 'subagent-stop', [
+      'agent_type' => 'seeker-1',
+      'last_assistant_message' => self::CLEAN,
+    ]);
+    $this->assertSame('verified', $this->facade()->recordSeeker($root, self::CLEAN)['dispatch']);
+  }
+
+  /**
    * A self-review is taken as one: no round, and no release of a held finding.
    *
    * The pack's status update after fixes (F-44) is the main agent's ledger,
@@ -300,9 +363,11 @@ final class SeekerEnforcementTest extends WorkflowTestCase {
    *   The row's run, mode and agent.
    */
   private function dispatch(string $root, string $type, string $mode = 'dispatched', array $extra = []): array {
+    $input = ['subagent_type' => $type, 'prompt' => 'inspect'] + (is_array($extra['tool_input'] ?? NULL) ? $extra['tool_input'] : []);
+    unset($extra['tool_input']);
     [$code] = $this->guard($root, $mode, [
       'tool_name' => 'Agent',
-      'tool_input' => ['subagent_type' => $type, 'prompt' => 'inspect'],
+      'tool_input' => $input,
     ] + $extra);
     $this->assertSame(0, $code, 'recording never refuses');
     $path = $root . '/droost/droost-workflow/guard-calls.jsonl';

@@ -346,6 +346,13 @@ $recordCall = static function () use ($root, $stateDir): void {
   if (is_string($agent) && $agent !== '') {
     $row['agent'] = $agent;
   }
+  // And who it is, so a teammate's return is read back to its type (F-333).
+  foreach (['name' => 'workflow_guard_agent_name', 'agent_id' => 'workflow_guard_agent_id'] as $key => $global) {
+    $value = $GLOBALS[$global] ?? NULL;
+    if (is_string($value) && $value !== '') {
+      $row[$key] = $value;
+    }
+  }
   // WHAT IT RETURNED, as a ledger digest, so an independent ledger is held to
   // the rows the seeker wrote (0.14.19).
   $ledger = $GLOBALS['workflow_guard_ledger'] ?? NULL;
@@ -464,22 +471,38 @@ if ($mode === 'record') {
 // for nothing; a return is a `completed` result here, or SubagentStop (mode
 // `subagent-stop`), which carries the subagent's final message. Either way
 // the ledger it wrote is kept as a digest the ledger filed must match.
+//
+// A NAMED AGENT IS A TEAMMATE (F-333). Given a `name`, the Agent tool starts a
+// teammate and answers `status: teammate_spawned` at once, which this read as
+// a return: a live run's seeker was counted returned the second it launched,
+// with no ledger to hold the filed one to. Any status but `completed` is a
+// launch now. And a teammate's SubagentStop names it by its NAME, not its
+// type, so the launch row keeps both, and seeker-report reads the type back
+// through them: a general-purpose agent named `workflow-seeker` is not one.
 if ($mode === 'dispatched' || $mode === 'subagent-stop') {
   if ($mode === 'dispatched') {
     $type = $guardInput['subagent_type'] ?? NULL;
     $response = $payload['tool_response'] ?? NULL;
     $text = guard_response_text($response);
-    $launched = (is_array($response) && ($response['status'] ?? NULL) === 'async_launched')
-      || str_contains($text, 'Async agent launched');
+    $status = is_array($response) ? ($response['status'] ?? NULL) : NULL;
+    $launched = is_string($status)
+      ? $status !== 'completed'
+      : str_contains($text, 'Async agent launched') || str_contains($text, 'Spawned successfully');
+    $name = $guardInput['name'] ?? NULL;
+    $agentId = is_array($response) ? ($response['agentId'] ?? $response['agent_id'] ?? NULL) : NULL;
   }
   else {
     $type = $payload['agent_type'] ?? NULL;
     $text = is_string($payload['last_assistant_message'] ?? NULL) ? $payload['last_assistant_message'] : '';
     $launched = FALSE;
+    $name = NULL;
+    $agentId = $payload['agent_id'] ?? NULL;
     $GLOBALS['workflow_guard_tool'] = 'SubagentStop';
   }
   $GLOBALS['workflow_guard_mode'] = $launched ? 'launched' : 'dispatched';
   $GLOBALS['workflow_guard_agent'] = is_string($type) && $type !== '' ? substr($type, 0, 120) : 'general-purpose';
+  $GLOBALS['workflow_guard_agent_name'] = is_string($name) && $name !== '' ? substr($name, 0, 120) : NULL;
+  $GLOBALS['workflow_guard_agent_id'] = is_string($agentId) && $agentId !== '' ? substr($agentId, 0, 120) : NULL;
   if (!$launched) {
     $GLOBALS['workflow_guard_ledger'] = guard_ledger_digest($text);
   }
