@@ -1332,6 +1332,7 @@ final class WorkflowFacade {
         $state->currentPhase instanceof Phase ? $state->currentPhase->value : 'code',
         count($state->seekerHistory),
         $ledger->findings,
+        $ledger->selfReviewed ? 'self-reviewed' : 'independent',
       );
     }
     catch (\Throwable) {

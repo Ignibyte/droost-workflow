@@ -1268,11 +1268,20 @@ final class EvaluationReport {
     // counted once, and "open" is the latest round's word about it.
     $table = [];
     $latest = [];
+    // The same, read only from rounds a seeker inspected: the engine releases
+    // a hold on nothing else, and the author marking a finding resolved is
+    // the author's word (F-332).
+    $latestIndependent = [];
     $perRound = [];
     $clean = [];
+    $self = [];
     foreach ($rows as $row) {
       $round = self::number($row, 'round') ?? 0;
       $status = self::text($row, 'status') ?? '';
+      $selfReviewed = self::text($row, 'inspector') === 'self-reviewed';
+      if ($selfReviewed) {
+        $self[$round] = TRUE;
+      }
       if (strtolower($status) === 'clean') {
         $clean[$round] = TRUE;
         $perRound[$round] ??= 0;
@@ -1281,23 +1290,35 @@ final class EvaluationReport {
       $perRound[$round] = ($perRound[$round] ?? 0) + 1;
       // The rows arrive ordered by round, so the last write per finding is
       // the latest round that mentioned it.
-      $latest[(self::text($row, 'phase') ?? '') . "\0" . (self::text($row, 'ref') ?? '')] = $status;
+      $key = (self::text($row, 'phase') ?? '') . "\0" . (self::text($row, 'ref') ?? '');
+      $latest[$key] = $status;
+      if (!$selfReviewed) {
+        $latestIndependent[$key] = $status;
+      }
       $table[] = [
         self::code(self::text($row, 'ref')),
-        self::cell($round),
+        $selfReviewed ? self::cell($round) . ' (self-reviewed)' : self::cell($round),
         self::escape(strtoupper(self::text($row, 'severity') ?? '')),
         self::code(self::text($row, 'location')),
         self::escape(self::text($row, 'finding') ?? ''),
         self::escape($status),
       ];
     }
-    $open = count(array_filter($latest, static fn (string $status): bool => stripos($status, 'open') !== FALSE));
+    $isOpen = static fn (string $status): bool => stripos($status, 'open') !== FALSE;
+    $open = count(array_filter($latest, $isOpen));
+    // A finding only self-reviewed rounds ever mentioned is the author's own
+    // and stands as they left it; one a seeker raised stands as the last
+    // seeker left it.
+    $openIndependent = count(array_filter([...$latest, ...$latestIndependent], $isOpen));
     ksort($perRound);
     $roundLines = [];
     foreach ($perRound as $round => $count) {
-      $roundLines[] = isset($clean[$round])
+      $line = isset($clean[$round])
         ? sprintf('- round %d: clean — the inspection found nothing', $round)
         : sprintf('- round %d: %d finding%s', $round, $count, $count === 1 ? '' : 's');
+      $roundLines[] = isset($self[$round])
+        ? $line . ' — SELF-REVIEWED: the author\'s own status update, not an inspection; it releases no hold'
+        : $line;
     }
 
     return $heading
@@ -1318,7 +1339,13 @@ final class EvaluationReport {
         count($perRound),
         count($perRound) === 1 ? '' : 's',
         $open,
-      );
+      )
+      . ($openIndependent === $open ? '' : sprintf(
+        "\n**%d still open as the last seeker left them.** The difference is the\n"
+        . "author's own word in a self-reviewed round: the engine releases no hold\n"
+        . "on it, and a reader should not either without reading the fix.\n",
+        $openIndependent,
+      ));
   }
 
   /**

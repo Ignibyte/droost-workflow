@@ -294,6 +294,33 @@ final class EvaluationReportTest extends TestCase {
   }
 
   /**
+   * A self-reviewed round is labelled, and its "resolved" is not a seeker's.
+   *
+   * The engine releases a hold only on a seeker's ledger, and §4d counted the
+   * author's own status update alike: a live run read "0 still open" because
+   * the author marked an independent MEDIUM resolved (F-332).
+   */
+  public function testSelfReviewedRoundIsLabelledAndCountedApart(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'max']);
+    $f1 = [
+      'id' => 'F1',
+      'severity' => 'MEDIUM',
+      'location' => 'tests/a.spec.js',
+      'finding' => 'passes with the fix reverted',
+    ];
+    $store->recordSeekerFindings('r1', 'code', 1, [$f1 + ['status' => 'open']], 'independent');
+    $store->recordSeekerFindings('r1', 'code', 2, [$f1 + ['status' => 'resolved']], 'self-reviewed');
+
+    $report = (new EvaluationReport($store))->render('r1');
+
+    $this->assertStringContainsString('1 distinct finding across 2 rounds; 0 still open', $report);
+    $this->assertStringContainsString('- round 2: 1 finding — SELF-REVIEWED', $report);
+    $this->assertStringContainsString('| 2 (self-reviewed) |', $report);
+    $this->assertStringContainsString('**1 still open as the last seeker left them.**', $report);
+  }
+
+  /**
    * An environment block prints its remedy; nothing else may.
    *
    * A remedy printed beside work the agent must simply do reads as a way out of

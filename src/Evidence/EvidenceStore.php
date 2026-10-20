@@ -60,7 +60,7 @@ final class EvidenceStore {
    * build does not know about costs it nothing. A store written by an older one
    * is migrated up in place.
    */
-  public const int SCHEMA_VERSION = 13;
+  public const int SCHEMA_VERSION = 14;
 
   /**
    * Substrings that identify a browser tool in a host's tool name.
@@ -233,6 +233,7 @@ final class EvidenceStore {
         11 => $this->migrateToV11($pdo),
         12 => $this->migrateToV12($pdo),
         13 => $this->migrateToV13($pdo),
+        14 => $this->migrateToV14($pdo),
         default => NULL,
       };
       // Stamped per rung, so an interrupted upgrade resumes where it stopped
@@ -409,7 +410,8 @@ final class EvidenceStore {
         severity  TEXT NOT NULL,
         location  TEXT NOT NULL DEFAULT '',
         finding   TEXT NOT NULL DEFAULT '',
-        status    TEXT NOT NULL DEFAULT ''
+        status    TEXT NOT NULL DEFAULT '',
+        inspector TEXT
       );
       CREATE INDEX IF NOT EXISTS seeker_by_run ON seeker_finding (run_id, round);
       SQL);
@@ -1466,19 +1468,22 @@ final class EvidenceStore {
    *   Which inspection this is.
    * @param list<array<string, mixed>> $findings
    *   The parsed ledger rows.
+   * @param string|null $inspector
+   *   `independent` or `self-reviewed`, as the ledger declared it; NULL when
+   *   the caller does not know.
    */
-  public function recordSeekerFindings(string $runId, string $phase, int $round, array $findings): void {
+  public function recordSeekerFindings(string $runId, string $phase, int $round, array $findings, ?string $inspector = NULL): void {
     $pdo = $this->connection();
     // One transaction, because this is a DELETE followed by inserts: a crash
     // between them would leave the round with its previous findings erased and
     // its new ones unwritten, which reads as a clean inspection. Losing a
     // finding is the failure this table exists to stop.
-    $this->writeTransaction($pdo, function () use ($pdo, $runId, $phase, $round, $findings): void {
+    $this->writeTransaction($pdo, function () use ($pdo, $runId, $phase, $round, $findings, $inspector): void {
       $pdo->prepare('DELETE FROM seeker_finding WHERE run_id = ? AND phase = ? AND round = ?')
         ->execute([$runId, $phase, $round]);
       $insert = $pdo->prepare(
-        'INSERT INTO seeker_finding (run_id, phase, round, ref, severity, location, finding, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO seeker_finding (run_id, phase, round, ref, severity, location, finding, status, inspector)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
       );
       foreach ($findings as $finding) {
         $insert->execute([
@@ -1490,6 +1495,7 @@ final class EvidenceStore {
           self::text($finding, 'location'),
           self::text($finding, 'finding'),
           self::text($finding, 'status'),
+          $inspector,
         ]);
       }
       // A CLEAN ROUND LEAVES A ROW. One row per finding meant a round that
@@ -1501,7 +1507,7 @@ final class EvidenceStore {
       // is `clean`, which no finding ever carries, so the open-findings
       // reader skips it by the filter it already applies.
       if ($findings === []) {
-        $insert->execute([$runId, $phase, $round, '—', '', '', 'inspection filed: no findings', 'clean']);
+        $insert->execute([$runId, $phase, $round, '—', '', '', 'inspection filed: no findings', 'clean', $inspector]);
       }
     });
   }
@@ -3016,6 +3022,27 @@ SQL);
       catch (\PDOException) {
         // Already there — V1's DDL carries it for a new store.
       }
+    }
+  }
+
+  /**
+   * V14 — who inspected each seeker round.
+   *
+   * The engine releases a hold only on a seeker's ledger, never on the
+   * author's self-review; the record counted both alike, so a live run's
+   * evidence said "0 still open" on the strength of the author marking an
+   * independent finding resolved (F-332). NULL on every round recorded before
+   * this version: who inspected it was not kept.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   */
+  private function migrateToV14(\PDO $pdo): void {
+    try {
+      $pdo->exec('ALTER TABLE seeker_finding ADD COLUMN inspector TEXT');
+    }
+    catch (\PDOException) {
+      // Already there — V1's DDL carries it for a new store.
     }
   }
 

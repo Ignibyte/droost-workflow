@@ -8,6 +8,7 @@ use Droost\Workflow\Config\ConfigError;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\WorkflowConfig;
+use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
@@ -138,6 +139,11 @@ final class SeekerEnforcementTest extends WorkflowTestCase {
     $this->facade()->recordSeeker($root, self::OPEN_MEDIUM);
     $this->facade()->recordSeeker($root, $selfReview);
     $this->assertSame(Outcome::InspectionDue, $this->facade()->run($root)->outcome, 'the seeker\'s open MEDIUM still holds');
+    // And the record says whose word each round was (F-332).
+    $runId = (string) (new RunStateStore($root))->load()?->runId;
+    $inspectors = array_column((new EvidenceStore($root))->seekerFindings($runId), 'inspector', 'round');
+    $this->assertSame('independent', $inspectors[2] ?? NULL);
+    $this->assertSame('self-reviewed', $inspectors[3] ?? NULL);
 
     $this->dispatch($root, 'workflow-seeker');
     $this->facade()->recordSeeker($root, self::CLEAN);
