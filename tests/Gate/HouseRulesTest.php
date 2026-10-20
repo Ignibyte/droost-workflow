@@ -92,6 +92,7 @@ final class HouseRulesTest extends WorkflowTestCase {
 
     $this->assertSame(GateStatus::Off, $result->status);
     $this->assertStringContainsString('no house rule is judged by a gate', $result->summary);
+    $this->assertStringContainsString('no house rule is judged by a gate', (string) $result->skipReason, 'the reason rides as the skip reason, which the report prints (F-330)');
   }
 
   /**

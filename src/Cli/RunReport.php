@@ -66,8 +66,18 @@ final class RunReport {
     if (is_array($run['criteria'] ?? NULL)) {
       $lines[] = self::criteriaLine($run['criteria']);
     }
+    $history = is_array($run['seeker_history'] ?? NULL) ? array_values($run['seeker_history']) : [];
+    $latest = $history === [] ? NULL : $history[count($history) - 1];
     if (is_array($run['seeker'] ?? NULL)) {
-      array_push($lines, ...self::seekerLines($run['seeker'], is_array($run['seeker_history'] ?? NULL) ? $run['seeker_history'] : []));
+      array_push($lines, ...self::seekerLines($run['seeker'], $history));
+    }
+    elseif (is_array($latest)) {
+      // The current verdict is cleared at every advance, because the next
+      // phase has not been inspected, so a finished run has none; and this
+      // printed nothing, hiding a live run's two inspections and the defect
+      // the first one caught. The trail is the record (F-329).
+      $at = self::str($latest['phase'] ?? NULL, '');
+      array_push($lines, ...self::seekerLines($latest, $history, $at === '' ? 'latest inspection' : 'latest inspection, at ' . $at));
     }
     // A paused run's question is the one thing its human must see here.
     if (is_array($run['awaiting'] ?? NULL)) {
@@ -109,7 +119,10 @@ final class RunReport {
     // not.
     $why = '';
     if ($status === 'off') {
+      // A result built off without a skip reason still has its summary, and
+      // a bare `off` is the one thing this row must never print (F-330).
       $why = self::str($gate['skip_reason'] ?? NULL, '');
+      $why = $why !== '' ? $why : self::str($gate['summary'] ?? NULL, '');
     }
     elseif ($status !== 'passed') {
       $reason = self::str($gate['skip_reason'] ?? NULL, '');
@@ -179,15 +192,18 @@ final class RunReport {
    *   The current inspection.
    * @param array<mixed> $history
    *   Every inspection.
+   * @param string $which
+   *   Which inspection `$seeker` is, when it is not the current verdict.
    *
    * @return list<string>
    *   The rows.
    */
-  private static function seekerLines(array $seeker, array $history): array {
+  private static function seekerLines(array $seeker, array $history, string $which = ''): array {
     $observations = self::int($seeker['observations'] ?? 0);
     $open = array_key_exists('open', $seeker) ? sprintf(', %d still open', self::int($seeker['open'])) : '';
     $lines = [sprintf(
-      '  seeker: %s (critical %d, medium %d, low %d found%s)%s%s',
+      '  seeker%s: %s (critical %d, medium %d, low %d found%s)%s%s',
+      $which === '' ? '' : ' (' . $which . ')',
       self::str($seeker['status'] ?? NULL),
       self::int($seeker['critical'] ?? 0),
       self::int($seeker['medium'] ?? 0),

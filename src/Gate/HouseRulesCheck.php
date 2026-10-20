@@ -64,7 +64,10 @@ final class HouseRulesCheck {
   public static function run(array $house, ?array $added, ?array $changed, string $projectRoot, ?callable $runner = NULL): GateResult {
     $rules = array_values(array_filter($house, static fn (array $rule): bool => ($rule['judge'] ?? NULL) === 'gate'));
     if ($rules === []) {
-      return new GateResult(self::GATE, GateStatus::Off, summary: 'house_rules off — no house rule is judged by a gate (rules.house, judge: gate)');
+      // Through off(), so the reason rides as the skip reason too: built by
+      // hand it had none, and the workchain report printed a bare `off`
+      // (F-330).
+      return GateResult::off(self::GATE, 'no house rule is judged by a gate (rules.house, judge: gate)');
     }
     $files = $added ?? $changed;
     if ($files === NULL) {
