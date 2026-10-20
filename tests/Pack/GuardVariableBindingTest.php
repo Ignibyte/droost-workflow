@@ -92,6 +92,28 @@ final class GuardVariableBindingTest extends WorkflowTestCase {
   }
 
   /**
+   * A wildcard outside the project reaches nothing; one above it reaches it.
+   *
+   * A live run's `ddev exec "rm -f /tmp/export-*.csv"` (the container's /tmp)
+   * was refused as expanding "across the project root": a directory outside
+   * the project resolved to no relative path, which read as the root.
+   */
+  public function testWildcardOutsideTheProjectIsNotTheRoot(): void {
+    $root = $this->liveRoot();
+    $elsewhere = $this->makeRoot();
+
+    [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => 'rm -f ' . $elsewhere . '/export-*.csv']]);
+    $this->assertSame(0, $exit, $stderr);
+    [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => 'ddev exec "rm -f ' . $elsewhere . '/export-*.csv"']]);
+    $this->assertSame(0, $exit, $stderr);
+
+    [$exit] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => 'rm -rf ' . dirname($root) . '/*']]);
+    $this->assertSame(2, $exit, 'a directory above the project still reaches it');
+    [$exit] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => 'rm -rf .claude/hooks/*']]);
+    $this->assertSame(2, $exit);
+  }
+
+  /**
    * A refusal found in a script the command feeds names the script (F-334).
    *
    * A live run's `ddev exec "cat > /tmp/rector.sh" < rector.sh` was refused

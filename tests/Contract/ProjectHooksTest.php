@@ -118,6 +118,20 @@ final class ProjectHooksTest extends WorkflowTestCase {
   }
 
   /**
+   * A hook that ran and said nothing is not shown to the agent.
+   */
+  public function testSilentHookIsNotShown(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\nseekers: { on: false }\nhooks:\n  phase_begin: droost/hooks/begin.php\n");
+    mkdir($root . '/droost/hooks', 0755, TRUE);
+    file_put_contents($root . '/droost/hooks/begin.php', '<?php exit(0);');
+
+    $facade = $this->facade();
+    $facade->run($root);
+
+    $this->assertSame([], $facade->takeHookNotes(), 'nothing said, nothing shown');
+  }
+
+  /**
    * A facade whose every gate passes.
    *
    * @return \Droost\Workflow\WorkflowFacade

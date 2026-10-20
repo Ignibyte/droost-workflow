@@ -3756,7 +3756,10 @@ final class WorkflowFacade {
         'work_item' => is_string($workItem) ? $workItem : NULL,
         'payload' => $payload,
       ], $state->ruleFiles, $this->now());
-      if ($row !== NULL) {
+      // What it said, or that it failed: a hook that ran and printed nothing
+      // has nothing to tell the agent, and "told" at every phase read as a
+      // message (a live run's).
+      if ($row !== NULL && (($row['said'] ?? FALSE) === TRUE || ($row['ok'] ?? FALSE) !== TRUE)) {
         $this->hookNotes[] = [
           'event' => is_string($row['event'] ?? NULL) ? $row['event'] : '',
           'file' => is_string($row['file'] ?? NULL) ? $row['file'] : '',

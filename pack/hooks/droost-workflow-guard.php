@@ -6798,6 +6798,28 @@ function wildcard_directory_refusal(string $directory, string $root, string $sta
   if ($landing !== '') {
     $landing = trim($landing, '/');
   }
+  // OUTSIDE THE PROJECT, NOTHING IS IN REACH but a store configured there.
+  // A directory outside the project resolves to no project-relative path,
+  // and that empty path was read as the project root: `rm -f /tmp/x*.csv`
+  // (and the same through `ddev exec "…"`, the container's /tmp) was refused
+  // as expanding across the hook that is this enforcement (a live run's).
+  // A directory ABOVE the project still reaches it (`rm -rf /*`), real paths
+  // compared, since /tmp may be a link to the directory the project is in.
+  $realDirectory = realpath($directory);
+  $realRoot = realpath($root);
+  $above = static fn (string $dir, string $inner): bool => str_starts_with(rtrim($inner, '/') . '/', rtrim($dir, '/') . '/');
+  $ancestor = $above($path, $rootPath)
+    || ($realDirectory !== FALSE && $realRoot !== FALSE && $above($realDirectory, $realRoot));
+  if ($landing === '' && !$ancestor && !str_starts_with($path . '/', $rootPath . '/')) {
+    $store = normalised_path(dirname(guard_evidence_path($root, $stateDir)));
+    return str_starts_with($store . '/', rtrim($path, '/') . '/')
+      ? sprintf(
+        'This shell command expands a wildcard across `%s`, which holds the run\'s evidence store. '
+        . 'The shell expands it; this guard sees a `*` and never the names it becomes. Name the file you mean.',
+        $directory,
+      )
+      : '';
+  }
 
   // Protected as a TREE: everything under these is enforcement, so a wildcard
   // that reaches them from ABOVE is refused too. `rm -r droost/*` takes the run

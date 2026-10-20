@@ -110,7 +110,7 @@ final class ProjectHooks {
    * @param array<string, mixed> $event
    *   The JSON it is handed.
    *
-   * @return array{ok: bool, exit: int|null, note: string}
+   * @return array{ok: bool, exit: int|null, note: string, said?: bool}
    *   The outcome.
    */
   private function run(string $name, string $file, array $event): array {
@@ -144,6 +144,9 @@ final class ProjectHooks {
       'ok' => $exit === 0,
       'exit' => $exit,
       'note' => mb_substr($said === '' ? ($exit === 0 ? 'told' : 'exited ' . $exit) : strtok($said, "\n"), 0, 300),
+      // Whether the hook said anything: the agent is shown only what it said,
+      // or that it failed (a live run's read "told" at every phase).
+      'said' => $said !== '',
     ];
   }
 
