@@ -7,6 +7,7 @@ namespace Droost\Workflow\Evidence;
 use Droost\Workflow\Gate\PhaseReport;
 use Droost\Workflow\Knowledge\ToolCallLog;
 use Droost\Workflow\State\RunState;
+use Droost\Workflow\State\RunStateStore;
 
 /**
  * Writes a phase's checklist to the evidence store.
@@ -164,7 +165,7 @@ final class EvidenceRecorder {
    *   The phase these calls are being attributed to.
    */
   private function ingestToolCalls(EvidenceStore $store, string $runId, string $phase): void {
-    foreach (['droost/droost-workflow', '.droost-workflow'] as $dir) {
+    foreach ($this->stateDirs() as $dir) {
       $path = rtrim($this->projectRoot, '/') . '/' . $dir . '/tool-calls.jsonl';
       if (!is_file($path)) {
         continue;
@@ -224,7 +225,7 @@ final class EvidenceRecorder {
    *   The phase to attribute them to; the ledger cannot know it.
    */
   private function ingestGuardCalls(EvidenceStore $store, string $runId, string $phase): void {
-    foreach (['droost/droost-workflow', '.droost-workflow'] as $dir) {
+    foreach ($this->stateDirs() as $dir) {
       $path = rtrim($this->projectRoot, '/') . '/' . $dir . '/guard-calls.jsonl';
       if (!is_file($path)) {
         continue;
@@ -266,6 +267,21 @@ final class EvidenceRecorder {
       }
       return;
     }
+  }
+
+  /**
+   * The state directories to read a ledger from, the resolved one first.
+   *
+   * As ToolCallLog::read() resolves them, so the reader and this importer
+   * never disagree about where the ledger is (S4-22).
+   *
+   * @return list<string>
+   *   Project-relative directories.
+   */
+  private function stateDirs(): array {
+    $resolved = RunStateStore::resolveStateDir(rtrim($this->projectRoot, '/'));
+
+    return array_values(array_unique([$resolved, RunStateStore::STATE_DIR, RunStateStore::LEGACY_STATE_DIR]));
   }
 
 }

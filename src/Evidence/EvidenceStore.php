@@ -182,13 +182,6 @@ final class EvidenceStore {
   }
 
   /**
-   * Brings the schema up to SCHEMA_VERSION.
-   *
-   * @param \PDO $pdo
-   *   The connection.
-   */
-
-  /**
    * Brings the schema up to SCHEMA_VERSION, one version at a time.
    *
    * A step ladder rather than a chain of `if ($at < N)`: the last rung of a

@@ -642,9 +642,9 @@ final class DeclarationAudit {
       $untouched = array_map(self::normalise(...), $this->untouchedScaffolds);
       $anyTests = array_values(array_filter($subject, static fn (string $file): bool => self::isTestFile($file)));
       $generated = array_values(array_filter($anyTests, static fn (string $file): bool => in_array(self::normalise($file), $untouched, TRUE)));
-      // AND A TEST DRUSH GENERATED, which no record names (F-77). The router
-      // sends a unit test to `drush generate test:unit`, whose only test
-      // asserts TRUE, so the placeholder is read off the file itself.
+      // AND A TEST DRUSH GENERATED, which no record names (F-77). A unit test
+      // is made with `drush generate test:unit`, whose only test asserts
+      // TRUE, so the placeholder is read off the file itself.
       $placeholders = array_values(array_filter(
         array_diff($anyTests, $generated),
         fn (string $file): bool => $this->isGeneratorPlaceholder($file),

@@ -2049,7 +2049,7 @@ final class ArgvDispatcher {
       declare-note     anything else the spec would have said in prose:
                        `declare-note grounding "Drupal\node\Entity\Node"
                        "the entity the listing reads"`. Kinds are open —
-                       grounding, tooling, decision, or a contributed step's
+                       grounding, decision, or a contributed step's
       declare-browser  record the session's browser tier (playwright-mcp,
                        native, none)
       declare-tasks    record the host task surface this session can drive,

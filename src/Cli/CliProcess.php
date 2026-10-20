@@ -11,10 +11,13 @@ namespace Droost\Workflow\Cli;
  * so that "what can this package execute, and how" is answerable by opening
  * a single file.
  *
- * argv is always an array — never a shell string, and never passed through a
- * shell. Combined with GateSettings constraining tool arguments to characters
- * no shell would interpret, that makes command injection structurally absent
- * rather than merely unlikely.
+ * argv is always an array, never a shell string built from what an agent
+ * typed. A shell runs only where a project's own command is the point: a
+ * custom gate's `run:` and a house rule's `cmd:` go through `/bin/sh -c` as
+ * written in droost.yml, which the guard keeps from the agent during a run.
+ * Combined with GateSettings constraining tool arguments to characters no
+ * shell would interpret, command injection from the run is structurally
+ * absent rather than merely unlikely.
  */
 final class CliProcess {
 

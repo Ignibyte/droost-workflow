@@ -172,10 +172,18 @@ final class AgentsBlock {
         : 'failed';
     }
     $current = (string) file_get_contents($path);
+    // A BEGIN with no END after it is a block someone cut: appending a second
+    // one would leave the orphan to swallow the file the next time (S6-19).
+    $begin = strpos($current, self::BEGIN);
+    if ($begin !== FALSE && strpos($current, self::END, $begin) === FALSE) {
+      return 'failed';
+    }
     $pattern = '/' . preg_quote(self::BEGIN, '/') . '.*?'
       . preg_quote(self::END, '/') . '\n?/s';
     if (preg_match($pattern, $current) === 1) {
-      $updated = (string) preg_replace($pattern, $block, $current);
+      // A callback, so a `$1` or `\\` in the block is text, not a
+      // back-reference (S6-19).
+      $updated = (string) preg_replace_callback($pattern, static fn (): string => $block, $current, 1);
       if ($updated === $current) {
         return 'kept';
       }

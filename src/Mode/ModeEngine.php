@@ -254,14 +254,8 @@ final class ModeEngine {
     // gates just measured; before advancing, because a blocked check has to
     // stop a phase exactly as a failed gate does — otherwise contributing one
     // is contributing a comment.
-    // BOTH RUN, then the verdict. Short-circuiting here would mean an unmet
-    // step suppressed the contributed checks' rows entirely, so a run that
-    // failed the browser step would report nothing about jira or snyk either
-    // and the agent would fix one thing per pass with no idea what else was
-    // waiting.
-    $stepsMet = $this->recordPhaseSteps($state, $phase, $projectRoot);
     $checksMet = $this->adjudicateChecks($state, $phase, $projectRoot);
-    if (!$stepsMet || !$checksMet) {
+    if (!$checksMet) {
       $stuck = $this->stuckOutcome($state, $phase, $projectRoot, $report, $now);
 
       // A contributed check or a spec condition, not a gate: nothing was spent
@@ -959,48 +953,6 @@ final class ModeEngine {
       $detail,
       $options,
     );
-  }
-
-  /**
-   * The steps this phase owes, recorded as rows, one per pass.
-   *
-   * THE ENGINE ROUTES AND THE AGENT EXECUTES. A step is a thing the agent was
-   * told to do that leaves a trace something other than the agent wrote: a
-   * count of rows, present or absent. No severity is read, no prose is
-   * parsed, no opinion is weighed.
-   *
-   * **There are none at present, and that is a decision rather than a gap.**
-   * The one step this ever carried was `browser_review`, which counted
-   * Playwright MCP calls in the guard's diary to answer "did the agent look
-   * at its work". It worked — verified live in `P4-KCH-4` and `P4-KCH-6` —
-   * and it was replaced on purpose:
-   *
-   * - **a tool call leaves nothing behind.** One `browser_navigate`
-   *   satisfied it, and the regression test still had to be written
-   *   afterwards from memory. A committed spec is the verification AND the
-   *   artefact, and it re-runs on every later ticket.
-   * - **it was cheap to fake.** `P4-KCH-4` made 32 calls and `P4-KCH-6` made
-   *   4; both read `satisfied`. A spec has to pass against the running site.
-   * - **two sources for one fact.** With the `playwright` gate on at every
-   *   preset, a step that asked the same question from a different ledger is
-   *   the redundancy Phase B3 removed from route resolution.
-   *
-   * The guard still RECORDS every MCP call — that is F-37's fix and it stays,
-   * because `EvidenceStore::browserToolCalls()` now reports exploration in
-   * the evaluation instead of gating on it.
-   *
-   * @param \Droost\Workflow\State\RunState $state
-   *   The run.
-   * @param \Droost\Workflow\Config\Phase $phase
-   *   The phase whose gates have just passed.
-   * @param string $projectRoot
-   *   The repository.
-   *
-   * @return bool
-   *   TRUE when no step blocks the phase.
-   */
-  private function recordPhaseSteps(RunState $state, Phase $phase, string $projectRoot): bool {
-    return TRUE;
   }
 
   /**
