@@ -91,6 +91,11 @@ form, say), run it again with `--routes=/that,/other`.
   shown twice (a listing and a home-page block), never two types.
 - **A section that "shows" one record** is a spotlight: a View block or a
   reference field, not a type of its own.
+- **A field that "names a record of" another set** (the data section says
+  so, with how many values matched) holds a reference written as the other
+  record's name: every camp's `location` is one of the rinks. Model it as a
+  reference to that type, never as text, or put it to the human when a value
+  might one day name something the site does not list.
 - **A broken image** (the audit marks it, and its slot says how many of
   the items' images are broken) holds content nobody has seen. Never say
   what it shows from its file name or alt text: say it is missing, and ask

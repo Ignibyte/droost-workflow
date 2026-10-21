@@ -263,6 +263,27 @@ test('a smooth-scrolling page is read to its last section', { skip: !PW_CWD && '
 
 // F-263: the audit names a typeface the source declares and never draws, so
 // the intake asks. United's redesign declared General Sans and never loaded it.
+test('a field whose every value names another set\'s record is a reference, and the audit says so (F-342)', () => {
+  const camps = { id: 'd:data.ts#CAMPS', kind: 'records', name: 'CAMPS', count: 4, fields: [{ name: 'title' }, { name: 'location' }, { name: 'ages' }],
+    values: [{ title: 'Power Skating', location: 'Pepsi Ice Midwest', ages: '8-14' }, { title: 'Goalie Clinic', location: 'Central Park Ice Arena', ages: '10-18' },
+      { title: 'Skills Camp', location: 'Cable Dahmer Arena', ages: '6-16' }, { title: 'Learn to Skate', location: 'Pepsi Ice Midwest', ages: '4-8' }] };
+  const rinks = { id: 'd:data.ts#RINKS', kind: 'records', name: 'RINKS', count: 3, fields: [{ name: 'name' }, { name: 'city' }],
+    values: [{ name: 'Pepsi Ice Midwest', city: 'Overland Park' }, { name: 'Central Park Ice Arena', city: 'Kansas City' }, { name: 'Cable Dahmer Arena', city: 'Independence' }] };
+  const data = src.withReferences([camps, rinks]);
+  assert.deepEqual(data[0].refs, [{ field: 'location', to: 'd:data.ts#RINKS', by: 'name', matched: 4, of: 4 }]);
+  assert.equal(data[1].refs, undefined, 'a set whose values name nothing else refers to nothing');
+
+  // One value that names no rink: not a reference, and nothing is claimed.
+  const stray = { ...camps, values: [...camps.values, { title: 'Pond Day', location: 'Lake Jacomo', ages: 'all' }] };
+  assert.equal(src.withReferences([stray, rinks])[0].refs, undefined, 'every value must name a record, or it is text');
+  // A value every record shares names nothing in particular.
+  const one = { ...camps, values: camps.values.map((v) => ({ ...v, location: 'Pepsi Ice Midwest' })) };
+  assert.equal(src.withReferences([one, rinks])[0].refs, undefined, 'one distinct value is not evidence of a reference');
+
+  const md = src.markdown({ source: { url: 'http://a/' }, at: 'now', routes: [], frame: { header: { links: [] }, footer: { links: [] } }, pages: [], data, notes: [] });
+  assert.match(md, /location names a record of `d:data\.ts#RINKS` by its name \(4 of 4 values\): a reference to it, not text/);
+});
+
 test('a typeface never drawn is named in the audit', () => {
   const a = { source: { url: 'http://a/' }, at: 'now', routes: [], frame: { header: { links: [] }, footer: { links: [] } }, pages: [], data: [], notes: [], typefaces: [{ family: 'General Sans', texts: 120, drawn: false }, { family: 'Chillax', texts: 53, drawn: true }] };
   const md = src.markdown(a);
