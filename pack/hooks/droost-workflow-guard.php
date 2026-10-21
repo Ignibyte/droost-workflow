@@ -6975,6 +6975,24 @@ function baseline_dir_guard(string $stdin, string $root, string $stateDir): void
   if ($refusal !== '') {
     guard_refuse('protected-path:editor', sprintf('%s (Refused: %s)', $refusal, $file));
   }
+  // A NEW FILE IN THE STATE DIRECTORY, FROM THE EDITOR (F-345). The shell may
+  // make one there, to hand a script to the container in one command (copy,
+  // run, remove: see enforcement_refusal_for()). The editor cannot: a file it
+  // makes is already there when the next command runs it, every file already
+  // there is protected, and it is left for the operator to remove. The spec is
+  // the one file here that is the agent's.
+  $relativeFile = ltrim(substr(normalised_path($file), strlen(normalised_path($root))), '/');
+  if (str_starts_with(normalised_path($file), normalised_path($root))
+    && preg_match('#^(droost/droost-workflow|\.droost-workflow)/(.+)$#', $relativeFile, $inState) === 1
+    && preg_match('#^(tmp-)?spec(-[A-Za-z0-9._-]+)?\.md$#', $inState[2]) !== 1
+    && !is_file($root . '/' . $relativeFile)) {
+    guard_refuse('protected-path:editor', sprintf(
+      'That would be a new file in droost\'s state directory, made with the editor, which the shell could then neither run nor remove: '
+      . 'the guard protects every file already there. Keep scratch files outside the project (your scratchpad), and hand one to the DDEV container '
+      . 'by piping it in: `ddev exec sh -c \'cat > /tmp/<name>\' < <file>`. The spec is the one file here that is yours. (Refused: %s)',
+      $file,
+    ));
+  }
   // The evidence store belongs here for the same reason the baseline does: it
   // is the run's own record, and a record the subject can edit is not evidence.
   // EvidenceStore's docblock says "rows droost wrote and the agent cannot", and

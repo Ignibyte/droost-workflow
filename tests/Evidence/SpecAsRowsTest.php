@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Evidence;
 
+use Droost\Workflow\Driver\RenderedRoutes;
 use Droost\Workflow\Evidence\EvaluationReport;
 use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Tests\WorkflowTestCase;
@@ -41,6 +42,35 @@ final class SpecAsRowsTest extends WorkflowTestCase {
     $this->assertSame(['/rinks', '/camps'], array_column($routes, 'path'));
     $this->assertSame('still the listing', $routes[0]['reason'], 'the latest revision answers');
     $this->assertSame('code', $routes[0]['phase']);
+  }
+
+  /**
+   * A path declared again with another status replaces it (F-346).
+   *
+   * The status rides on the path (`/terms@403`), and the revision was keyed
+   * on the whole string, so declaring `/terms` again with a corrected status
+   * added a second route beside the first. KCH-A run 2 declared two legal
+   * pages `@403`, found Drupal CMS answers an unpublished page with 404, and
+   * could neither declare that nor take the 403 back.
+   */
+  public function testRedeclaredPathWithAnotherStatusReplacesIt(): void {
+    $store = $this->store();
+    $store->declareRoute('r1', 'plan', '/', NULL, self::NOW);
+    $store->declareRoute('r1', 'plan', '/terms@403', 'unpublished until staff write it', self::NOW);
+    $store->declareRoute('r1', 'code', '/terms@404', 'Drupal CMS answers an unpublished page with 404', self::NOW);
+
+    $routes = $store->specRoutes('r1');
+    $this->assertSame(['/', '/terms@404'], array_column($routes, 'path'), 'one route per path, the newest');
+    $this->assertSame('code', $routes[1]['phase']);
+  }
+
+  /**
+   * A page that must not be served yet is declared with 404 or 410 (F-346).
+   */
+  public function testAnAbsentPageIsDeclarable(): void {
+    $this->assertTrue(RenderedRoutes::declarable(404));
+    $this->assertTrue(RenderedRoutes::declarable(410));
+    $this->assertFalse(RenderedRoutes::declarable(500), 'an error is never what a page is declared to answer');
   }
 
   /**

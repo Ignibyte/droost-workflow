@@ -1631,9 +1631,10 @@ final class EvaluationReport {
   private function declaredSpec(string $runId): string {
     $heading = "## 4e. The declared spec — structure written by a tool call\n\n";
     $routes = $this->rows(
-      'SELECT path, phase, reason FROM spec_route r WHERE run_id = ? AND revision = (
-         SELECT MAX(revision) FROM spec_route WHERE run_id = r.run_id AND path = r.path)
-       ORDER BY (SELECT MIN(rowid) FROM spec_route WHERE run_id = r.run_id AND path = r.path)',
+      // One route per path, the newest (F-346), as EvidenceStore::specRoutes().
+      'SELECT path, phase, reason FROM spec_route r WHERE run_id = ? AND rowid = (
+         SELECT MAX(rowid) FROM spec_route WHERE run_id = r.run_id AND CASE WHEN instr(path, \'@\') > 0 THEN substr(path, 1, instr(path, \'@\') - 1) ELSE path END = CASE WHEN instr(r.path, \'@\') > 0 THEN substr(r.path, 1, instr(r.path, \'@\') - 1) ELSE r.path END)
+       ORDER BY (SELECT MIN(rowid) FROM spec_route WHERE run_id = r.run_id AND CASE WHEN instr(path, \'@\') > 0 THEN substr(path, 1, instr(path, \'@\') - 1) ELSE path END = CASE WHEN instr(r.path, \'@\') > 0 THEN substr(r.path, 1, instr(r.path, \'@\') - 1) ELSE r.path END)',
       [$runId],
     );
     $criteria = $this->rows(

@@ -938,6 +938,7 @@ final class ArgvDispatcher {
       match (TRUE) {
         $status === 200 => '',
         in_array($status, RenderedRoutes::REDIRECTS, TRUE) => sprintf(' (must redirect an anonymous visitor with %d)', $status),
+        in_array($status, RenderedRoutes::ABSENT, TRUE) => sprintf(' (must not be served to an anonymous visitor yet: %d)', $status),
         default => sprintf(' (must refuse an anonymous visitor with %d)', $status),
       },
       $page['kind'] === NULL ? '' : sprintf(' — a %s, built as %s%s', $page['kind'], $page['owner'], $page['except'] === NULL ? '' : ' (an exception: ' . $page['except'] . ')'),
@@ -2029,8 +2030,10 @@ final class ArgvDispatcher {
                        listing"`. A page that must refuse an anonymous
                        visitor (an admin listing) takes `--status=403`, one
                        that sends them elsewhere its redirect
-                       (`--status=303`); declaring a path again
-                       replaces it. Repeatable and idempotent. `## Routes` stays
+                       (`--status=303`), one held back until an editor
+                       publishes it `--status=404`; declaring a path
+                       again replaces it, whatever its status.
+                       Repeatable and idempotent. `## Routes` stays
                        in the spec for a human; nothing mechanical reads it,
                        so a fenced list or a heading in the wrong place can no
                        longer cost a run

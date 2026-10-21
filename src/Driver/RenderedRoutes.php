@@ -35,16 +35,26 @@ final class RenderedRoutes {
   public const REDIRECTS = [301, 302, 303, 307, 308];
 
   /**
+   * The statuses of a page that must not be served to a visitor yet.
+   *
+   * A page held back until an editor publishes it (a privacy page with no
+   * text yet) answers 404 on Drupal CMS, or 410 once it is gone for good: a
+   * declaration the run could not make (F-346, KCH-A run 2), so it declared
+   * a 403 the site never answers.
+   */
+  public const ABSENT = [404, 410];
+
+  /**
    * Whether a route may be declared to answer with a status.
    *
    * @param int $status
    *   The status.
    *
    * @return bool
-   *   TRUE for 200, one of REFUSALS or one of REDIRECTS.
+   *   TRUE for 200, one of REFUSALS, REDIRECTS or ABSENT.
    */
   public static function declarable(int $status): bool {
-    return $status === 200 || in_array($status, [...self::REFUSALS, ...self::REDIRECTS], TRUE);
+    return $status === 200 || in_array($status, [...self::REFUSALS, ...self::REDIRECTS, ...self::ABSENT], TRUE);
   }
 
   /**

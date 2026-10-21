@@ -1899,11 +1899,14 @@ final class EvidenceStore {
    */
   public function specRoutes(string $runId): array {
     $statement = $this->connection()->prepare(
+      // One route per PATH, the newest declaration of it (F-346): the status
+      // rides on the path (`/terms@403`), so a path declared again with a
+      // corrected status is the same route, and replaces it.
       'SELECT path, phase, reason, declared_at, kind, owner, exception FROM spec_route r
-        WHERE run_id = ? AND revision = (
-          SELECT MAX(revision) FROM spec_route WHERE run_id = r.run_id AND path = r.path
+        WHERE run_id = ? AND rowid = (
+          SELECT MAX(rowid) FROM spec_route WHERE run_id = r.run_id AND CASE WHEN instr(path, \'@\') > 0 THEN substr(path, 1, instr(path, \'@\') - 1) ELSE path END = CASE WHEN instr(r.path, \'@\') > 0 THEN substr(r.path, 1, instr(r.path, \'@\') - 1) ELSE r.path END
         )
-        ORDER BY (SELECT MIN(rowid) FROM spec_route WHERE run_id = r.run_id AND path = r.path)'
+        ORDER BY (SELECT MIN(rowid) FROM spec_route WHERE run_id = r.run_id AND CASE WHEN instr(path, \'@\') > 0 THEN substr(path, 1, instr(path, \'@\') - 1) ELSE path END = CASE WHEN instr(r.path, \'@\') > 0 THEN substr(r.path, 1, instr(r.path, \'@\') - 1) ELSE r.path END)'
     );
     $statement->execute([$runId]);
     $out = [];

@@ -1686,9 +1686,10 @@ final class WorkflowFacade {
     }
     if (!RenderedRoutes::declarable($status)) {
       throw new \InvalidArgumentException(sprintf(
-        'A route is declared to render (200), to refuse an anonymous visitor (%s) or to redirect one (%s) — got %d',
+        'A route is declared to render (200), to refuse an anonymous visitor (%s), to redirect one (%s) or to be absent until it is published (%s) — got %d',
         implode(' or ', RenderedRoutes::REFUSALS),
         implode(', ', RenderedRoutes::REDIRECTS),
+        implode(' or ', RenderedRoutes::ABSENT),
         $status,
       ));
     }
