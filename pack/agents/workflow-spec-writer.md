@@ -40,8 +40,9 @@ the ceremony does not.
 
 **Two sections are NOT optional at either weight.** `## Grounding` is what the
 `plan_grounded` check reads: plan does not close until its citations resolve
-and the run has asked droost's knowledge. `## Routes` is what the rendered
-check falls back on; a missing one is recorded. Both are short:
+and the run has asked droost's knowledge. `## Routes` is the human's copy of the
+routes the run declares with `declare-route`; a missing one is recorded. Both
+are short:
 
 ```markdown
 ## Grounding
@@ -76,7 +77,7 @@ Both weights build on the researcher's findings, never on assumption. Where
 a finding is marked UNVERIFIED, the spec carries that marker forward.
 
 **When the spec file already exists, extend it — never replace it.** A
-work-item intake (`/droost:work` and its kin) writes the first half before you
+project's own work-item command (a tracker bridge's, say) writes the first half before you
 are dispatched: the request as the ticket states it, the acceptance criteria
 the developer agreed (possibly already written back to the tracker), their
 testing expectations, the track. Keep every one of those sections and the

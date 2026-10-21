@@ -14,11 +14,12 @@ record and the report from drifting apart.
 ## Entry gate
 
 - Every earlier phase this run configured has passed.
-- **The seeker checkpoint does NOT hold here.** It is a Code-phase
-  mechanism (`ModeEngine`: `$phase === Phase::Code`), and this line used to
-  say it "holds here too", which is false and bought a sixth inspection on a
-  measured run whose code phase had already filed five. Do not dispatch one
-  out of habit.
+- **The seeker checkpoint holds here only when the lever file says
+  `seekers.at_complete: true`**, and then `run` answers `inspection-due` until
+  an inspection filed during complete is recorded. Otherwise it is a
+  code-phase mechanism, and this line once said it "holds here too", which
+  bought a sixth inspection on a measured run whose code phase had already
+  filed five. Read the `outcome`; do not dispatch one out of habit.
 - **The real gap, stated instead of papered over:** the test phase writes
   source — the browser spec, and usually fixes to the suite — and no seeker
   ever reads it, because the only checkpoint fired before that code existed.
@@ -137,14 +138,16 @@ three questions, lighter medium.
 
 **Present the gate report before you say anything is done.** Not a summary
 of it — the report: every gate the run was configured for, and what happened
-to each one. Four outcomes, none interchangeable:
+to each one. None of these outcomes is interchangeable with another:
 
 | Outcome | What it means |
 |---|---|
-| passed | the gate ran and the artefact satisfied it |
+| passed | the gate ran and the artefact satisfied it (a labelled pass examined nothing, and says so) |
 | failed | the gate ran and the artefact did not |
+| reported | the gate ran in `report` mode and found problems; the phase advanced — **not a pass** |
 | skipped, no site | the gate could not run — **this is not a pass** |
-| tool missing | the gate was enabled but its tool was not installed |
+| tool missing, or could not run | the gate was enabled and its tool was not installed, or crashed before it judged anything |
+| waived | the operator waived it for this run, with a reason — **not a pass** |
 | off | the preset (or the lever file) turned the gate off — **not a pass** either; name the level that decided it |
 
 Then present, in order:

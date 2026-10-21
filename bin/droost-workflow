@@ -3,11 +3,10 @@
 
 /**
  * @file
- * The standalone Droost Workflow surface.
+ * The retired name of `droost workflow:<verb>`.
  *
- * Runs the same pipeline as the live-site surface, in any Drupal repo, with
- * no booted site. Site-dependent gates report "skipped, no site" rather than
- * being quietly left out of the result.
+ * Runs the same verbs as `droost workflow:<verb>`, and says on stderr which
+ * one it stands for, so a caller parsing stdout reads the same as before.
  */
 
 declare(strict_types=1);

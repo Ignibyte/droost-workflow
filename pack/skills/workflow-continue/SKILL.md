@@ -178,7 +178,7 @@ the loop is:
 
 1. `/droost:workflow:status` — see the levers and where the run stands.
 2. Do the current phase's work, per its `workflow-<phase>` skill.
-3. Invoke the run surface — the engine executes the gates due at this phase,
+3. Run `droost workflow:run` — the engine executes the gates due at this phase,
    records the report into run state, and advances, holds for inspection,
    holds to converse (interactive mode), or fails.
 4. If you declared a task surface at start, mark this phase's task completed
@@ -270,16 +270,17 @@ frozen when the run begins, and it is what the engine dispatches from.
 
 The project's own gates are files or commands declared in `droost/droost.yml`
 (`gates.<id>` with `run: droost/gates/<file>` or `cmd:` — semgrep, behat,
-anything). Each runs as its own process: exit 0 passes, 1 fails, and anything
-else — a missing file or tool, a crash, a timeout — is recorded as did not
-run, never as passed.
+anything). Each runs as its own process: exit 0 passes, 1 fails, 4 is a
+labelled pass (it ran and examined nothing), and anything else — a missing
+file or tool, a crash, a timeout — is recorded as did not run, never as
+passed.
 
 ## Before you start
 
 Load the `workflow-<phase>` skill for the phase you are about to work, and
-read `.claude/partials/droost-usage.md` — particularly the part about which
-tools need a booted site, since that determines what this run can honestly
-check.
+read `.claude/partials/droost-usage.md` — particularly "What needs what":
+what droost answers from files and what only the running site can tell you,
+since that determines what this run can honestly check.
 
 Sub-agents exist for the heavy lifting: `workflow-researcher` grounds the
 plan in the real site or repo, `workflow-spec-writer` drafts the spec at

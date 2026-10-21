@@ -3,9 +3,10 @@
 Copy this file per round. Fill every cell or write `—` and say why in §7.3.
 An empty cell is an unmeasured thing wearing the costume of a measured one.
 
-> **The one rule the rest hangs from.** `run.json` is writable by the agent —
-> the wall guards only `modules/custom` and `themes/custom` — so `phases` is
-> the subject's claim about itself. **Score `gate_results`. Never `phases`.**
+> **The one rule the rest hangs from.** `phases` in `run.json` is the
+> record's summary of itself, and the guard that keeps the agent out of
+> `run.json` holds only where the host runs its hooks. **Score
+> `gate_results`. Never `phases`.**
 
 ---
 
@@ -331,7 +332,7 @@ is a false claim of coverage.
 |---|---|---|
 | ~~Enforcement effectiveness~~ | **NO LONGER BLIND, as of 2026-09-15, and it was the largest one here.** The guard appends one line per invocation to `guard-calls.jsonl`, ingested at phase close, so whether the hook was THERE is a row. `run.json` still stores only the **requested** level and `{requested, effective, reason}` is still computed at read time — `effective` infers from the declared host, a claim about a claim — which is why the two must be read together. | Read §7a of the generated evaluation. **No rows on a round claiming `hard` is the finding**: either the hook never ran, or it ran on a build older than the ledger. From droost/workflow 0.10.13 every row carries a verdict: `refuse` (with the rule that refused), `nudge` (a soft wall that let the call through), `crash` or `allow`, so its counts are totals. Rows from an older guard say `invoked`, meaning "it ran; this row does not say what it decided", and any of them makes the refusal count a FLOOR. **Zero refusals at `hard` is not proof that the walls hold**: it means nothing this run did reached one |
 | ~~Knowledge-layer usage~~ | **NO LONGER BLIND.** Every tool result appends to `tool-calls.jsonl`, so "was the codebase asked" is a fact with a count, not a doctrine. | Report it in §4a rather than listing it here |
-| ~~Write-gate decisions~~ | **NO LONGER BLIND** for tool refusals: a gate refusal returns through `fail()` and lands in the ledger with `outcome: fail`. Drush-surface arming is still unlogged. | Count refusals in §4a |
+| ~~Write-gate decisions~~ | **NO LONGER BLIND** for tool refusals: a gate refusal returns through `fail()` and lands in the ledger with `outcome: fail`. Arming through the retired Drupal module's drush commands was never logged. | Count refusals in §4a |
 | Search quality | With no embedding backend, conceptual queries return **empty-but-successful** | Indistinguishable from "nothing exists" |
 | Wiki accuracy | Freshness is a source hash; `--all-stale` re-stamps without reading prose | "Fresh" is not "true" — nothing checks accuracy anywhere |
 | `<add this round's own>` | | |

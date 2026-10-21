@@ -35,9 +35,9 @@ browser tier, the base commit and baseline hash the run froze, and the
 `enforcement` block — what the run requested and what it amounts to on the
 declared host: `advisory` where the host runs no pre-tool hooks, because the
 write wall and the phase guard are hooks and cannot fire there.
-This survives sessions and surfaces: a run started against a live site is
-readable from a plain checkout, and a fresh session recovers a run's
-position by running `status`, never from memory.
+This survives sessions: the run is a file, readable from a plain checkout
+with no site, and a fresh session recovers a run's position by running
+`status`, never from memory.
 
 ## Report honestly
 

@@ -52,7 +52,7 @@ the browser gate already uses). Run the server **where the audit runs**:
 under DDEV the audit runs in the web container, so serve the source there
 too (`ddev exec …`), or give the audit a URL the container reaches.
 
-- **Static HTML**: `vendor/bin/droost-source serve <folder> --port 4321`,
+- **Static HTML**: `tools/droost/vendor/bin/droost-source serve <folder> --port 4321`,
   in the background; add `--static` to the audit so each HTML file is read
   as a route.
 - **A Replit or Vite app** (`package.json`, often a pnpm workspace): install

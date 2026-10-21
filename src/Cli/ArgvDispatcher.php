@@ -1157,7 +1157,7 @@ final class ArgvDispatcher {
    * @param list<string> $argv
    *   The arguments: --json for the machine-readable result, --phase=<phase>
    *   for a phase other than test, --base=<ref> to read what changed since a
-   *   commit.
+   *   commit, --skip=<gate,…> to leave gates out.
    *
    * @return int
    *   The exit code: 0 when no gate blocks, 1 when one does.
@@ -2031,8 +2031,11 @@ final class ArgvDispatcher {
                        visitor (an admin listing) takes `--status=403`, one
                        that sends them elsewhere its redirect
                        (`--status=303`), one held back until an editor
-                       publishes it `--status=404`; declaring a path
-                       again replaces it, whatever its status.
+                       publishes it `--status=404` (`410` once it is gone
+                       for good); declaring a path again replaces it,
+                       whatever its status. A page also takes `--kind=` and
+                       `--owner=` (what it is, what builds it), and
+                       `--except=` where it breaks the owner's rules.
                        Repeatable and idempotent. `## Routes` stays
                        in the spec for a human; nothing mechanical reads it,
                        so a fenced list or a heading in the wrong place can no
@@ -2078,13 +2081,17 @@ final class ArgvDispatcher {
                        record instead of running them again, while the tree
                        is unchanged
       gate [--json] [--phase=code|test|complete] [--base=<ref>]
+           [--skip=<gate,…>]
                        run one phase's gates (test by default) outside any
                        run, from the lever file as a run would freeze it, and
                        keep nothing: no run is opened or advanced, no evidence
                        written, no retry spent. Ticket-scoped gates read what
                        changed since --base, or their full set without it.
-                       Refused while this project's run is at test. Exit 0
-                       when no gate blocks, 1 when one does
+                       --skip=<gate,…> leaves gates out (recorded off): the
+                       browser suite runs for real against the site, and
+                       --skip=playwright leaves it out. Refused while this
+                       project's run is at test. Exit 0 when no gate blocks,
+                       1 when one does
       reset [--force]  clear a finished run (archives its record to
                        the state dir's history/); --force abandons a live one
       rules [--json]   the site's rules: each house rule (rules.house) with its

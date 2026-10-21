@@ -68,7 +68,7 @@ not to re-derive a verdict.
   code, and the gate runs them itself. A plain `npx playwright test` is
   yours, and is not recorded.
 - **strict** (`flow: strict`, the default from `high` up): the engine runs the functional gates here:
-  phpunit, coverage, mutation and playwright. **The static
+  phpunit, coverage, mutation, playwright and parity. **The static
   pair runs here too, over the tests you write in this phase**, and before
   phpunit: a test method named in lowerCamel, or a fixture phpstan cannot
   follow, fails phpcs or phpstan here rather than surfacing at complete.
@@ -218,8 +218,9 @@ The spec's acceptance-criteria table has a `Verified By` column, empty since
 the plan. For every row, write the test that proves it — the PHPUnit method
 or class, or the Playwright spec — or `manual — <reason>` when no test can,
 saying why. This is the traceability link between what was promised and what
-was checked: `complete` refuses to gate while any cell is empty, and the
-report prints manual as manual, never as passed. A criterion you cannot map
+was checked: `complete` records each empty cell by name
+(`criteria_verified`), and the report prints manual as manual, never as
+passed. A criterion you cannot map
 to a test or to an honest manual reason is a criterion this run has not met;
 say so in the spec rather than leaving the cell blank.
 

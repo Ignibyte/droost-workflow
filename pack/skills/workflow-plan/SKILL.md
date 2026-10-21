@@ -260,6 +260,10 @@ Then produce the spec:
    droost workflow:declare-route /admin/content/registrations --status=403 "editors only"
    ```
 
+   A page that sends an anonymous visitor elsewhere is declared with its
+   redirect (`--status=303`), and one held back until an editor publishes it
+   with `--status=404` (`410` once it is gone for good).
+
    In the section it is `/admin/content/registrations (403)`. Declaring a
    path again replaces its expectation, so a route declared bare that turns
    out to be admin-only is corrected by declaring it again with its status.
@@ -328,9 +332,9 @@ trims depth, never the discipline. The `workflow-researcher` agent grounds the
 facts and `workflow-spec-writer` drafts the artefact at either weight; review
 what it drafted rather than rubber-stamping it.
 
-## When intake already wrote the spec
+## When a work-item command already wrote the spec
 
-A work-item command (`/droost:work <KEY>`) may have written
+A project's own work-item command (a tracker bridge's, say) may have written
 `droost/droost-workflow/spec-<KEY>.md` before this phase began: the request,
 the agreed acceptance criteria, the testing expectations, the track. That file
 is the run's document — extend it with the grounding, the approach and the
@@ -349,7 +353,7 @@ The engine runs no shell gates at this phase. It runs one check,
 `droost code:tree` were consulted and the spec's Grounding citations resolve. Static analysis
 first fires at code, on code that exists.
 
-In pair mode the run pauses here and asks before continuing — even though no
+In interactive mode the run pauses here and asks before continuing — even though no
 gates ran. That is the cheapest moment in the whole pipeline to be told you
 understood the request wrong.
 

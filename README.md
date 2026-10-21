@@ -35,6 +35,7 @@ GPL.
 
 ```bash
 mkdir -p tools/droost
+composer init -d tools/droost -n --name=local/droost-tools   # a Composer project of its own, for config to write to
 composer config -d tools/droost platform.php 8.3.0   # the PHP droost runs under (the site's, e.g. the web container's)
 composer require -d tools/droost droost/workflow
 tools/droost/vendor/bin/droost init       # the pack, the guard's hooks, AGENTS.md, droost/droost.yml
@@ -292,15 +293,29 @@ moment it IS installed `required: true` makes this a real wall.
 
 **Parity is the site held to the source it rebuilds.** A reference is a
 page of that source (a design, or the site being replaced) read once with
-`vendor/bin/droost-parity capture --source <url> --routes /,/about` and kept
-in the project under `droost/parity/`: every visible element that carries
-text, with its box and the computed style that decides how it looks. The gate
-runs `droost-parity judge`, reads the same routes on the site with the
+`tools/droost/vendor/bin/droost-parity capture --source <url> --routes
+/,/about` and kept in the project under `droost/parity/`: every visible
+element that carries text (a button input's value included), with its box,
+the extent of its text, and the computed style that decides how it looks. The
+gate runs `droost-parity judge` (the project's `vendor/bin/droost-parity` when
+it has one, else the package's own), reads the same routes on the site with the
 project's own Playwright, and fails a route whose text is missing or out of
 order, whose type, colour or place differs past a stated tolerance (every
-heading's type must match), or whose header and footer differ (D1 to D7, each
-named in the finding). A page it
-cannot read is INVALID and fails closed, never a pass. With no reference
+heading's type must match; a text's place is its own extent when both readings
+carry one, its box otherwise), or whose header and footer differ (D1 to D7,
+each named in the finding). A page it
+cannot read is INVALID and fails closed, never a pass.
+
+The site judged is `--base` when given; else, inside DDEV's container,
+`DDEV_PRIMARY_URL`; else the project's DDEV site from `.ddev/config.yaml` (its
+`name`, or the directory's when it has none, and `project_tld`); else
+`DDEV_PRIMARY_URL`, `PLAYWRIGHT_BASE_URL` or `DROOST_PARITY_BASE_URL`. Every
+verdict says `judged at <url> (from <where>)`. A capture records where it was
+read (`read_on`: the platform and the browser) in the reference's manifest,
+and a judge on another platform reads INVALID with nothing judged, since the
+same page lays out differently in another platform's browser: judge where
+the reference was read, or capture it again where the gate runs. A reference
+with no `read_on` is judged anywhere, as before. With no reference
 captured it is a labelled pass that measured nothing, so it is on at every
 preset; `required: true` makes a missing reference a failure, and `scope:
 frame` judges only the header and footer, for a ticket that builds the frame
@@ -330,7 +345,9 @@ page held whole would fail on each. `decided.json` beside the readings names
 them, `{"set_aside": [{"route": "/about", "text": "Learn More", "decided":
 "Q6", "why": "…"}]}` (`"route": "*"` for every page): the judge leaves each
 text, and a header link with that label, out of the route's reference, and its
-verdict lists every one with its decision. An entry with no decision, one
+verdict lists every one with its decision. A text set aside takes its space
+with it: the texts below it in its column, under the same heading, may sit higher by its
+height and the gap above it, no more. An entry with no decision, one
 citing no question of the intake (`droost/intake/questions.md`), or one
 naming a text the captured page does not show is INVALID, so the file can
 record decisions and nothing else. It is part of the reference, so its digest
@@ -701,16 +718,19 @@ time. The row says so ("recorded at …, on this tree: not run again"). An edit
 after the recording, a tool that could not run, or a level at `reuse: never`
 (every level above low) runs the suite. What is taken is always droost's own
 run of the tool, never an account of one. `droost workflow:gate [--json]
-[--phase=code|test|complete] [--base=<ref>]` (0.14.17) runs one phase's
+[--phase=code|test|complete] [--base=<ref>] [--skip=<gate,…>]` (0.14.17) runs one phase's
 gates, test by default, with no run at all: the lever file frozen as a run
 would freeze it, nothing kept (no run opened, no evidence written, no retry
 spent). A ticket-scoped gate reads what
 changed since `--base` (a landing's pre-merge commit), or its full set without
-one. It exits 0 when no gate blocks, 1 when one does, and 2 when refused: while
+one. `--skip=<gate,…>` leaves gates out, each recorded `off`; the browser suite
+runs for real against the site, and the check says so before it starts
+(`--skip=playwright` leaves it out). It exits 0 when no gate blocks, 1 when one
+does, and 2 when refused: while
 the project's run is at test, or for a base that names no commit. `--json`
-prints `{phase, preset, base, passed, gates: [{gate, status, outcome, summary,
-exit_code, duration_ms}]}`, `outcome` one of pass, fail, skipped or
-reported. P6 run 23 measured
+prints `{phase, preset, base, passed, gates: [{gate, status, outcome, labelled,
+summary, exit_code, duration_ms}]}`, `outcome` one of pass, fail, skipped or
+reported, and `labelled` true for a pass that examined nothing. P6 run 23 measured
 what the strict flow costs at the bottom of the dial: its 279-test browser
 suite ran three times in 86 minutes, for a ticket whose own tests were two
 files. `wiki_fresh` is due only here, and only here
@@ -797,14 +817,15 @@ droost workflow:intake ask --file=<the batch, in droost/intake/>   # a host with
 droost workflow:intake approve          # once the human has said yes
 ```
 
-- **`droost-source`** (`vendor/bin/droost-source`, Node, the project's own
+- **`droost-source`** (`tools/droost/vendor/bin/droost-source`, Node, the project's own
   Playwright) reads the served source and its files once, the same way every
   time: the routes (the router's table, a crawl, a pattern's instances), each
   page's outline, sections, repeated structures (each slot: a field that
   varies or a label that does not, its values' pattern, the record field it
   shows), forms, media, the frame's menus and the tokens, and the data the
   files declare (records, the interfaces that type them, database tables,
-  API paths; a template's empty schema says so). `intake audit` runs it and
+  API paths; a template's empty schema says so; a field whose every value
+  names a record of another set, a reference rather than text). `intake audit` runs it and
   records `audit.json`'s sha256 where the agent cannot write. `serve <dir>`
   serves a static source.
 - **The agent** writes, in `droost/intake/`: `model.md`, a `## Constructs`
@@ -869,10 +890,8 @@ using it until that directory is gone):
 { "v": 1, "run_id": "...", "phases": { "plan": "passed", "code": "active" } }
 ```
 
-On the filesystem for the same reason the levers are. If run state lived only
-in Drupal's State API, a run started against a live site could not be resumed,
-inspected, or even described from a plain checkout — and the two surfaces would
-be two pipelines sharing a name.
+On the filesystem for the same reason the levers are: a run can be resumed,
+inspected and described from a plain checkout, with no site at all.
 
 Writes go through a temporary file and a rename, so a run that dies mid-write
 leaves the previous state intact. A state file that cannot be parsed is never
@@ -966,6 +985,7 @@ after), and a shared partial on using droost. It writes:
 .claude/templates/evaluation.md
 .claude/settings.json        # the guard's hook entries, merged in
 AGENTS.md                    # droost's blocks, created when absent
+CLAUDE.md                    # Claude Code's pointer to AGENTS.md
 droost/droost.yml            # only if you don't already have one
 ```
 
@@ -990,9 +1010,9 @@ are appended to `.gitignore` if they are not already there.
 The guard is droost's code and ships in the package; it is never copied into
 the project. Each agent harness's hook configuration gets one line per
 event, calling the guard from where the package is installed. For Claude
-Code, `init` writes eight entries into `.claude/settings.json` (PreToolUse
-on Edit/Write, on Bash and on `mcp__.*`; PostToolUse for the nudge, for
-Agent/Task and for AskUserQuestion; Stop; SubagentStop), each running
+Code, `init` writes nine entries into `.claude/settings.json` (PreToolUse
+on Edit/Write, on Bash, on `mcp__.*` and on AskUserQuestion; PostToolUse for
+the nudge, for Agent/Task and for AskUserQuestion; Stop; SubagentStop), each running
 `php <package>/bin/droost-guard <verb> --harness=claude` (`droost guard
 <verb>` is the same guard). Before a tool call it applies droost's rules and
 the project's walls; after an event it runs the project's hooks.
@@ -1001,7 +1021,9 @@ It refuses, from the agent: out-of-phase edits while a run is open
 (`enforcement`), custom-code edits with no run at all (`require_run`), edits
 to the run's record, the evidence store, the baseline, the lever file and the
 project's rule files during a run, and edits to its own wiring
-(`.claude/settings.json`) and to the package (`tools/droost/`) at any time.
+(`.claude/settings.json`) and to the package (`tools/droost/`) at any time,
+as it refuses a new file the editor would make in the state directory (the
+spec is the one file there that is the agent's).
 And it refuses the operator's commands from the agent's shell, in every
 spelling (`droost workflow:<verb>` from any install path, the retired
 `droost-workflow <verb>`, and drush's), naming back the one used:
