@@ -445,7 +445,7 @@ class RunStateStoreTest extends WorkflowTestCase {
    *   The run.
    */
   private function buildRun(string $shape): RunState {
-    $config = WorkflowConfig::builtIn();
+    $config = WorkflowConfig::fromArray([], '<built-in defaults>', Provenance::BuiltIn);
     $fresh = RunState::begin('run-1', '2026-07-27T09:00:00+00:00', $config);
 
     return match ($shape) {

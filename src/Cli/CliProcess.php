@@ -45,7 +45,7 @@ final class CliProcess {
   public static function run(array $argv, string $cwd, int $timeout): array {
     // STDIN IS A PIPE CLOSED AT ONCE, never the caller's (F-84). With no
     // descriptor 0 the child inherited this process's stdin, and in
-    // `drush mcp:server` that is the protocol pipe, open for the session.
+    // the retired module's `drush mcp:server` that was the protocol pipe.
     // infection with no config asked its setup questions there, and
     // stylelint and prettier handed no files read their code from it: each
     // blocked until the gate's timeout, and anything the client sent

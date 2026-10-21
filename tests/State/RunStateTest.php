@@ -212,7 +212,7 @@ class RunStateTest extends TestCase {
    * A run that has ended cannot be restarted by advancing.
    */
   public function testAnEndedRunCannotAdvance(): void {
-    $config = WorkflowConfig::builtIn();
+    $config = WorkflowConfig::fromArray([], '<built-in defaults>', Provenance::BuiltIn);
     $ended = new RunState(
       'r',
       't',
@@ -365,7 +365,7 @@ class RunStateTest extends TestCase {
    * — so this asserts both halves at once.
    */
   public function testReInspectionKeepsWhatEarlierOnesCaught(): void {
-    $state = RunState::begin('run-1', 't0', WorkflowConfig::builtIn());
+    $state = RunState::begin('run-1', 't0', WorkflowConfig::fromArray([], '<built-in defaults>', Provenance::BuiltIn));
 
     $caught = $state->withSeekerReport([
       'status' => 'findings',
@@ -454,7 +454,7 @@ class RunStateTest extends TestCase {
    * reported exactly what an independently-cleared run reported.
    */
   public function testSelfReviewIsCarriedIntoTheRecord(): void {
-    $state = RunState::begin('run-1', 't0', WorkflowConfig::builtIn());
+    $state = RunState::begin('run-1', 't0', WorkflowConfig::fromArray([], '<built-in defaults>', Provenance::BuiltIn));
 
     $selfReviewed = $state->withSeekerReport([
       'status' => 'clean',
@@ -589,7 +589,7 @@ class RunStateTest extends TestCase {
     return RunState::begin(
       'run-1',
       '2026-07-27T09:00:00+00:00',
-      WorkflowConfig::builtIn(),
+      WorkflowConfig::fromArray([], '<built-in defaults>', Provenance::BuiltIn),
     );
   }
 

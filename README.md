@@ -1026,7 +1026,8 @@ as it refuses a new file the editor would make in the state directory (the
 spec is the one file there that is the agent's).
 And it refuses the operator's commands from the agent's shell, in every
 spelling (`droost workflow:<verb>` from any install path, the retired
-`droost-workflow <verb>`, and drush's), naming back the one used:
+`droost-workflow <verb>`, and the colon spelling `droost:workflow:<verb>`),
+handing back a command the operator can run:
 
 | Refused from the agent's shell | What is still the agent's to run |
 |---|---|
@@ -1035,7 +1036,6 @@ spelling (`droost workflow:<verb>` from any install path, the retired
 | `droost workflow:bypass` | `bypass --off`, which tightens |
 | `droost workflow:effort <level>` | bare `effort` (reports) and `effort <level> --preview` (prices it) |
 | `droost workflow:ticket move <id> <state>` | `ticket list`, `ticket show` and `ticket new` (a follow-up, filed in backlog) |
-| arming a write gate on a site still running droost's retired Drupal module (`droost:gate allow_* on`, or `config:set droost.settings allow_* true`) | disarming the same gate, which tightens |
 | `droost workflow:intake abandon`, `intake answer` | `intake start`, `intake audit`, `intake check`, `intake status`, `intake ask`, and `intake approve` once the human has said yes; asking the human through AskUserQuestion, whose answers the guard records |
 | a script `operator_only` names | — |
 

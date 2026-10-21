@@ -104,7 +104,6 @@ final class ContributedCheckIntegrationTest extends WorkflowTestCase {
       static fn (): string => '2026-09-13T00:00:00+00:00',
       static fn (): string => 'run-checks',
       NULL,
-      NULL,
       $checks,
     );
   }

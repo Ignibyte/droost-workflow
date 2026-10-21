@@ -130,7 +130,6 @@ final class WorkflowFacadeHostEnforcementTest extends WorkflowTestCase {
       new RunStateOnlySink(),
       static fn (): string => '2026-09-08T00:00:00+00:00',
       static fn (): string => 'run-host',
-      NULL,
       $vcs,
     );
   }

@@ -250,7 +250,7 @@ final class PackMaterializer {
       // entry can refuse nothing: it adds a note beside the result when the
       // agent searches core, contrib or vendor, hand-writes a file a
       // generator makes, or writes its spec before consulting droost with
-      // it. The Claude mod carries the same notes where this is absent.
+      // it.
       ['PostToolUse', [
         'matcher' => 'Bash|Grep|Glob|Write|Edit|MultiEdit',
         'hooks' => [['type' => 'command', 'command' => $guard . ' nudge --harness=claude']],

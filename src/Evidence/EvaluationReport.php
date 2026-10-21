@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Droost\Workflow\Evidence;
 
 use Droost\Workflow\Config\GateSettings;
-use Droost\Workflow\Spec\SpecContract;
 
 /**
  * Renders a round's evaluation from the store, and stops where it must.
@@ -50,17 +49,14 @@ final class EvaluationReport {
   /**
    * The tools that answer a question about a codebase.
    *
-   * THE canonical list, and the only one. droost's `GroundingResolver` — which
-   * needs Drupal's database to resolve a citation against the symbol graph —
-   * imports this constant; the dependency runs that way and only that way,
-   * because droost requires this package and this package must boot without
-   * Drupal. Never import anything of droost's here.
+   * THE canonical list, and the only one: `PlanGroundedCheck` reads it, and
+   * the guard's nudge keeps the same names.
    *
-   * It was a copy on each side until 2026-09-15, with a docblock asking the
-   * next reader to keep them in step. Two lists nobody could diff from either
-   * side is the shape that has cost this project most: had they drifted, a run
-   * that grounded itself through the new tool would have rendered as a run
-   * that asked the codebase nothing.
+   * It was a copy in the retired module and here until 2026-09-15, with a
+   * docblock asking the next reader to keep them in step. Two lists nobody
+   * could diff from either side is the shape that has cost this project
+   * most: had they drifted, a run that grounded itself through the new tool
+   * would have rendered as a run that asked the codebase nothing.
    *
    * Every knowledge command the AGENTS block and the skills name is on this
    * list (F-49: when the directive named tools this list did not credit, an
@@ -236,7 +232,7 @@ final class EvaluationReport {
       "---\n",
       $this->gateVerdicts($runId, $checks),
       $this->toolLedger($runId),
-      $this->grounding($runId),
+      $this->grounding(),
       // 4c BEFORE 4d. These were assembled the other way round, so a reader
       // scrolling a 700-line document met §4d and then §4a…§4b…§4d…§4c — an
       // evaluation whose own sections are out of order is a small thing that
@@ -600,12 +596,7 @@ final class EvaluationReport {
       [
         self::code('work_item'),
         'see §1',
-        'declared with `--work-item`, and read by any contributed check that asks',
-      ],
-      [
-        'write gates — the seven `allow_*`',
-        self::NOT_RECORDED,
-        'a tool REFUSAL reaches the ledger as `outcome: fail` (§4a); the arming does not',
+        'the ticket the run bound: `--work-item`, or the `work_item.provider` source',
       ],
     ];
 
@@ -1792,94 +1783,23 @@ final class EvaluationReport {
   }
 
   /**
-   * Section 4b — whether the spec's grounding citations reached anything.
+   * Section 4b — where the run's grounding is recorded.
    *
-   * @param string $runId
-   *   The run.
+   * It printed a per-tier table from `grounding_row`, which only the retired
+   * module's resolver wrote (2026-10-21): off Drupal the table was always
+   * empty. `plan_grounded` resolves the spec's table and records its verdict
+   * as a check, and §4a is the ledger, so the section points at both.
    *
    * @return string
    *   The section.
    */
-  private function grounding(string $runId): string {
-    $rows = $this->rows(
-      'SELECT * FROM grounding_row WHERE run_id = ? ORDER BY tier, phase',
-      [$runId],
-    );
-    $heading = "## 4b. Grounding — the three tiers, and whether each was reached\n\n";
-    if ($rows === []) {
-      return $heading
-        . "**The store holds no grounding rows for this run.** That is not a\n"
-        . "verdict on the round's grounding. `plan_grounded` resolves the\n"
-        . "spec's table at plan and records its verdict among the checks (§4),\n"
-        . "and §4a says whether any knowledge command was called at all. The\n"
-        . "two halves fail independently, and a pass on one tells you nothing\n"
-        . "about the other.\n";
-    }
-
-    // The three tiers appear whether or not the spec claimed them. A tier
-    // with no rows is a reading in itself — most often the `contrib` one,
-    // which is the tier whose absence means nobody asked whether a module
-    // already does this.
-    $tiers = [];
-    foreach (SpecContract::TIERS as $tier) {
-      $tiers[$tier] = ['rows' => 0, 'cited' => 0, 'resolved' => 0, 'stores' => []];
-    }
-    foreach ($rows as $row) {
-      $tier = (string) (self::text($row, 'tier') ?? '');
-      $tiers[$tier] ??= ['rows' => 0, 'cited' => 0, 'resolved' => 0, 'stores' => []];
-      $tiers[$tier]['rows']++;
-      $tiers[$tier]['cited'] += self::text($row, 'citation') === NULL ? 0 : 1;
-      $tiers[$tier]['resolved'] += (self::number($row, 'resolved') ?? 0) === 1 ? 1 : 0;
-      $store = self::text($row, 'store');
-      if ($store !== NULL) {
-        $tiers[$tier]['stores'][$store] = $store;
-      }
-    }
-
-    $summary = [];
-    foreach ($tiers as $tier => $facts) {
-      $stores = $facts['stores'];
-      $summary[] = [
-        self::code($tier),
-        (string) $facts['rows'],
-        (string) $facts['cited'],
-        (string) $facts['resolved'],
-        $stores === [] ? self::NOT_RECORDED : self::cell(implode(', ', $stores)),
-      ];
-    }
-
-    $detail = [];
-    foreach ($rows as $row) {
-      $detail[] = [
-        self::code(self::text($row, 'tier')),
-        self::code(self::text($row, 'phase')),
-        self::cell(self::text($row, 'asked')),
-        self::cell(self::text($row, 'found')),
-        self::code(self::text($row, 'citation')),
-        (self::number($row, 'resolved') ?? 0) === 1 ? 'yes' : 'no',
-      ];
-    }
-
-    return $heading
-      . self::table(
-        ['Tier', 'Rows', 'Cited', 'Citations that resolved', 'Store that answered'],
-        $summary,
-      )
-      . "\n- **A tier with rows but no resolvable citation is not grounded.**\n"
-      . "  Prose in `Found` is the agent's account of itself; the citation is\n"
-      . "  what the site confirms.\n"
-      . "- **Half two is §4a, not this table.** A citation proves the symbol\n"
-      . "  exists and can be copied out of a file. The ledger is what makes the\n"
-      . "  lookup a fact.\n"
-      . "- **Core resolves without being indexed.** A core citation is answered\n"
-      . "  by the code index when it holds core, else by where PSR-4 puts the\n"
-      . "  class's file, or off the filesystem — the `Store that answered`\n"
-      . "  column above says which.\n"
-      . "\n### Every row\n\n"
-      . self::table(
-        ['Tier', 'Phase', 'Asked', 'Found', 'Citation', 'Resolved'],
-        $detail,
-      );
+  private function grounding(): string {
+    return "## 4b. Grounding — the three tiers, and whether each was reached\n\n"
+      . "`plan_grounded` resolves the spec's `## Grounding` table at plan and\n"
+      . "records its verdict among the checks (§4): each citation, and whether\n"
+      . "it resolved in this project. §4a says whether any knowledge command\n"
+      . "was called at all. The two halves fail independently, and a pass on\n"
+      . "one tells you nothing about the other.\n";
   }
 
   /**

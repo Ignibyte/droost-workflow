@@ -87,7 +87,7 @@ final class HarnessSetup {
     $header = $coreVersion === ''
       ? sprintf("# Droost — Drupal version unknown, PHP %s\n\n", $php)
       : sprintf("# Droost — Drupal %s, PHP %s\n\n", $coreVersion, $php);
-    $context = new InstallContext($header . self::DIRECTIVE, NULL);
+    $context = new InstallContext($header . self::DIRECTIVE);
     $result = new InstallResult();
     foreach ($chosen as $installer) {
       $installer->install($root, $context, $result);

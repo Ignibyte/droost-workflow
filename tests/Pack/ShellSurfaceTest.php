@@ -255,38 +255,6 @@ final class ShellSurfaceTest extends WorkflowTestCase {
   }
 
   /**
-   * Arming a write gate is the operator's act in every spelling.
-   *
-   * Three of them reach the same config object, and only the first was
-   * matched: the drush verb, the dotted config key, and PHP.
-   */
-  public function testEverySpellingOfArmingWriteGatesIsRefused(): void {
-    $root = $this->lab();
-    foreach ([
-      'the drush verb' => 'drush droost:gate allow_entity_write on',
-      'config:set' => 'drush cset droost.settings allow_entity_write true',
-      'a dotted key' => 'drush cset droost.settings.allow_entity_write true',
-      'php:eval' => 'drush php:eval "\\Drupal::configFactory()'
-      . "->getEditable('droost.settings')->set('allow_entity_write', TRUE)->save();\"",
-    ] as $label => $command) {
-      [$exit, , $stderr] = $this->shell($root, $command);
-      $this->assertSame(2, $exit, $label . ' arms a write gate');
-      $this->assertStringContainsString('OPERATOR', $stderr, $label . ' says whose decision it is');
-    }
-
-    // Disarming is a tightening, and reading is a question. Both are the
-    // agent's to do — asking for a gate rather than arming it is the whole
-    // behaviour this rule exists to produce.
-    foreach ([
-      'drush droost:gate allow_entity_write off',
-      'drush php:eval "print \\Drupal::config(\'droost.settings\')->get(\'allow_entity_write\');"',
-    ] as $command) {
-      [$exit, , $stderr] = $this->shell($root, $command);
-      $this->assertSame(0, $exit, $command . ' is not arming: ' . $stderr);
-    }
-  }
-
-  /**
    * A command whose PROGRAM NAME is a variable is refused, not read past.
    *
    * The master key of round five, and it needed no pre-step. `$runs` asked
@@ -648,7 +616,7 @@ final class ShellSurfaceTest extends WorkflowTestCase {
     foreach (['bash link.sh', './link.sh'] as $command) {
       [$exit, , $stderr] = $this->shell($root, $command);
       $this->assertSame(2, $exit, $command . ' is do.sh, and do.sh runs the verb');
-      $this->assertStringContainsString('droost:workflow:bypass', $stderr, 'judged by what it says');
+      $this->assertStringContainsString('workflow:bypass', $stderr, 'judged by what it says');
     }
     foreach (['./bin/drush status', 'bash bin/drush status'] as $command) {
       [$exit, , $stderr] = $this->shell($root, $command);
@@ -2084,8 +2052,10 @@ final class ShellSurfaceTest extends WorkflowTestCase {
     $this->assertStringContainsString('droost-workflow bypass', $cli);
     $this->assertStringNotContainsString('droost:workflow:bypass', $cli);
 
-    [, , $drush] = $this->shell($root, 'drush droost:workflow:bypass "x"');
-    $this->assertStringContainsString('droost:workflow:bypass', $drush);
+    // The colon spelling was the retired module's drush verb; the refusal
+    // hands over the droost command, which is what a shell has now.
+    [, , $colon] = $this->shell($root, 'drush droost:workflow:bypass "x"');
+    $this->assertStringContainsString('`droost workflow:bypass …`', $colon);
   }
 
 }

@@ -919,7 +919,7 @@ MD;
 
     };
     $clock = static fn (): string => '2026-10-08T00:00:00+00:00';
-    return new WorkflowFacade($executor, new RunStateOnlySink(), $clock, static fn (): string => 'run-intake', NULL, $vcs);
+    return new WorkflowFacade($executor, new RunStateOnlySink(), $clock, static fn (): string => 'run-intake', $vcs);
   }
 
   /**

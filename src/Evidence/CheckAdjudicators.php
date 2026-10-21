@@ -47,17 +47,16 @@ final class CheckAdjudicators implements CheckAdjudicatorInterface {
   }
 
   /**
-   * The library's checks, then a site's, for a door to hand the facade.
+   * The library's checks, for the `droost` command to hand the facade.
    *
-   * @param \Droost\Workflow\Evidence\CheckAdjudicatorInterface|null $site
-   *   Checks a door adds beside the library's own (none since droost left
-   *   Drupal; the seam stays for one that does), or NULL.
+   * The retired module added its own checks beside these through an argument
+   * here; nothing else ever did, and it went on 2026-10-21.
    *
    * @return self
    *   The adjudicator.
    */
-  public static function withLibraryChecks(?CheckAdjudicatorInterface $site = NULL): self {
-    return $site === NULL ? new self(new PlanGroundedCheck()) : new self(new PlanGroundedCheck(), $site);
+  public static function withLibraryChecks(): self {
+    return new self(new PlanGroundedCheck());
   }
 
   /**
@@ -88,7 +87,7 @@ final class CheckAdjudicators implements CheckAdjudicatorInterface {
               CheckState::Blocked,
               Fault::Environment,
               'The contributed checks could not be adjudicated: ' . $e::class,
-              'Check the log of the module contributing checks, then run the phase again.',
+              'Check what the adjudicator that threw could not read, then run the phase again.',
           ),
         ];
       }

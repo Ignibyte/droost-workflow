@@ -422,36 +422,16 @@ final class EvaluationReportTest extends TestCase {
   }
 
   /**
-   * Grounding names all three tiers, including the one with no rows.
-   *
-   * An absent tier is a reading, not a gap. Most often it is `contrib`, whose
-   * absence means nobody asked whether a module already does this — the most
-   * valuable row in the table and the easiest to leave out.
+   * The grounding section points at the check and the ledger, not a verdict.
    */
-  public function testGroundingNamesEveryTierIncludingTheEmptyOne(): void {
-    $store = new EvidenceStore($this->root);
-    $store->connection()->prepare(
-      'INSERT INTO grounding_row (run_id, phase, tier, asked, found, citation, resolved, store)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    )->execute(['r1', 'plan', 'custom', 'is there a rink bundle?', 'nothing matched', 'none:rink', 1, 'symbol graph']);
-
-    $report = (new EvaluationReport($store))->render('r1');
-
-    $this->assertStringContainsString('| `custom` | 1 | 1 | 1 | symbol graph |', $report);
-    $this->assertStringContainsString('| `contrib` | 0 | 0 | 0 | ' . EvaluationReport::NOT_RECORDED . ' |', $report);
-    $this->assertStringContainsString('| `core` | 0 | 0 | 0 | ', $report);
-  }
-
-  /**
-   * With no grounding rows the section says so rather than implying a verdict.
-   */
-  public function testGroundingWithNoRowsSaysSoPlainly(): void {
+  public function testGroundingPointsAtTheCheckAndTheLedger(): void {
     $this->seed();
 
     $report = (new EvaluationReport(new EvidenceStore($this->root)))->render('r1');
 
-    $this->assertStringContainsString('**The store holds no grounding rows for this run.**', $report);
-    $this->assertStringContainsString('That is not a', $report);
+    $this->assertStringContainsString('## 4b. Grounding', $report);
+    $this->assertStringContainsString('`plan_grounded` resolves the spec', $report);
+    $this->assertStringContainsString('§4a says whether any knowledge command', $report);
   }
 
   /**
@@ -1207,42 +1187,6 @@ final class EvaluationReportTest extends TestCase {
       $report,
       'the lever table says off, not "not recorded"',
     );
-  }
-
-  /**
-   * Section 4b does not contradict its own table about core (F-28).
-   *
-   * The prose asserted "core resolves against the brain, and only the brain,"
-   * and that "a round reporting core citations resolving against the symbol
-   * graph has a wrong probe, not a finding." The autoloader fallback landed in
-   * the grounding redesign and was verified live in KCH-3, after which the
-   * table four lines above printed `brain, autoloader` while the paragraph
-   * below denied it. Harmless where the table is read; dangerous where the
-   * prose is, because it tells a reader that a correct observation is a broken
-   * instrument.
-   */
-  public function testSection4bDoesNotDenyTheStoresItReports(): void {
-    $store = new EvidenceStore($this->root);
-    $store->upsertRun('r1', ['preset' => 'medium', 'seekers' => 'on']);
-    $store->recordGroundingRow(
-      'r1',
-      'code',
-      'core',
-      'the node entity class',
-      'Drupal\\node\\Entity\\Node',
-      'Drupal\\node\\Entity\\Node',
-      TRUE,
-      'autoloader',
-    );
-
-    $report = (new EvaluationReport($store))->render('r1');
-
-    $this->assertStringNotContainsString(
-      'and only the brain',
-      $report,
-      'the prose may not deny a store the table can print',
-    );
-    $this->assertStringContainsString('autoloader', $report);
   }
 
 }

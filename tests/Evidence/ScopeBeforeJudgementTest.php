@@ -121,7 +121,6 @@ final class ScopeBeforeJudgementTest extends WorkflowTestCase {
       new RunStateOnlySink(),
       static fn (): string => '2026-09-13T00:00:00+00:00',
       static fn (): string => 'run-scope',
-      NULL,
       $vcs,
     );
   }

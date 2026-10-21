@@ -38,12 +38,10 @@
  *     run the agent cannot advance.
  *
  *   php .claude/hooks/droost-workflow-guard.php operator-commands
- *     Wired to the Bash tool. Refuses `droost:workflow:gate-waive`,
- *     `droost:workflow:bypass` (granting; `--off` re-arms the wall and is
- *     allowed) and ARMING a droost write gate (`droost:gate <flag> on`,
- *     `config:set droost.settings allow_* true`; disarming is allowed) from
- *     the agent's own shell, run or no run — plus writing the baseline and
- *     moving the effort dial, which is five commands, and the README's table
+ *     Wired to the Bash tool. Refuses `droost workflow:gate-waive` and
+ *     `droost workflow:bypass` (granting; `--off` re-arms the wall and is
+ *     allowed) from the agent's own shell, run or no run — plus writing the
+ *     baseline and moving the effort dial, and the README's table
  *     lists them with what stays the agent's. Each is the operator's
  *     signature; "CLI-only" never excluded an agent, which has a shell — round
  *     23 watched a subject run the waiver itself after the operator picked it
@@ -619,8 +617,7 @@ if ($mode === 'answers') {
 // is written, and ask droost instead of walking core and contrib. It never
 // says how to build (owner, 2026-10-15). Each note is
 // a diary row (verdict `note`), so a record shows the nudge and what the agent
-// did next; a call that earns nothing leaves no row. The Claude mod carries
-// the same notes in the same words where this floor is not installed.
+// did next; a call that earns nothing leaves no row.
 if ($mode === 'nudge') {
   $GLOBALS['workflow_guard_quiet'] = TRUE;
   // A generator's files go in the scaffold record before anything else.
@@ -1598,10 +1595,10 @@ function guard_question_answers(array $payload): array {
  * `droost:workflow:gate-waive`, `droost:workflow:bypass` and
  * `droost:workflow:effort <level>` exist so a human can loosen the pipeline
  * deliberately — a waiver or bypass with a recorded reason, or the effort
- * dial moved in a reviewable line. They have no MCP surface, but an agent
- * running with permissions bypassed has a shell, and Drush is a shell command
- * — so the harness is where the agent's hand has to be stopped. Recognises
- * the full command names and the Drush aliases (dwfgw, dwfby, dwfe);
+ * dial moved in a reviewable line. An agent running with permissions bypassed
+ * has a shell — so the harness is where the agent's hand has to be stopped.
+ * Recognises `droost workflow:<verb>`, the `droost-workflow <verb>` alias and
+ * the colon spelling `droost:workflow:<verb>`;
  * `bypass --off` re-arms the wall, and a bare `effort` or an `effort <level>
  * --preview` only reports, so those are always allowed. The adoption baseline
  * (`droost:workflow:baseline`, `droost-workflow baseline`) is the operator's
@@ -1645,8 +1642,8 @@ function operator_commands_guard(string $stdin): void {
     guard_refuse('operator-command:substitution',
       'This command builds a droost command out of a substitution, so what it '
       . 'actually runs cannot be read here — and the operator-only verbs '
-      . '(bypass, gate-waive, baseline, effort, arming a write gate) are '
-      . 'exactly what that hides. Write the drush command out in full. If you '
+      . '(bypass, gate-waive, baseline, effort) are '
+      . 'exactly what that hides. Write the command out in full. If you '
       . 'genuinely need a computed argument, compute it into a variable on its '
       . 'own line first; it is the VERB that has to be legible.');
   }
@@ -1654,8 +1651,8 @@ function operator_commands_guard(string $stdin): void {
   // let each answer come from a different command: `bypass "hotfix"; echo
   // --off` read its exemption out of the `echo`, `"droost:workflow:byp"ass`
   // defeated every verb because quoting splits a word to a regex and joins it
-  // to the shell, and `droost:gate allow_entity_write "on"` armed a write gate
-  // because `"on"` is not `on`.
+  // to the shell, and the retired module's `droost:gate allow_entity_write
+  // "on"` armed a write gate because `"on"` is not `on`.
   foreach (with_find_exec_commands(operator_commands_invocations($command)) as $tokens) {
     // A MULTI-WORD token is a quoted argument — a commit message, a PR body, a
     // sentence being echoed — and a verb inside one is prose, not an
@@ -1676,11 +1673,9 @@ function operator_commands_guard(string $stdin): void {
     // THE droost COMMAND SPELLS EVERY VERB `droost workflow:<verb>` (droost
     // off Drupal, 2026-10-19), from wherever it is installed
     // (`tools/droost/vendor/bin/droost workflow:bypass`). The verbs below are
-    // matched in drush's spelling, so the new one is read as that spelling
-    // here, and the line as written is kept to name it back. Without this the
-    // command every pack file now teaches granted the operator's bypass from
-    // the agent's own shell.
-    $spoken = $line;
+    // matched in the colon spelling, so the new one is read as that spelling
+    // here. Without this the command every pack file now teaches granted the
+    // operator's bypass from the agent's own shell.
     $line = (string) preg_replace('/(?<![\w-])droost\s+workflow:/', 'droost:workflow:', $line);
     if (operator_commands_opaque_head($tokens)) {
       guard_refuse('operator-command:variable-program',
@@ -1740,11 +1735,11 @@ function operator_commands_guard(string $stdin): void {
     // bypass from the agent's own shell, past a wall that refuses the drush
     // spelling of the identical act. A verb is the same act whichever surface
     // spells it.
-    if (preg_match('/droost:workflow:gate-waive\b|(?<![\w-])dwfgw\b'
+    if (preg_match('/droost:workflow:gate-waive\b'
       . '|droost-workflow\s+gate-waive\b/', $line) === 1) {
       $which = 'gate-waive';
     }
-    elseif (preg_match('/(?:droost:workflow:baseline|(?<![\w-])dwfbl|droost-workflow\s+baseline)\b/', $line) === 1
+    elseif (preg_match('/(?:droost:workflow:baseline|droost-workflow\s+baseline)\b/', $line) === 1
       && !operator_commands_flagged($tokens, ['--status', '--measure'])) {
       // Writing or refreshing the baseline decides what counts as inherited
       // debt for every later run. The bill (--measure) and the record
@@ -1752,12 +1747,12 @@ function operator_commands_guard(string $stdin): void {
       // to baseline; the write is the operator's.
       $which = 'baseline';
     }
-    elseif (preg_match('/droost:workflow:bypass\b|(?<![\w-])dwfby\b'
+    elseif (preg_match('/droost:workflow:bypass\b'
       . '|droost-workflow\s+bypass\b/', $line) === 1
       && !operator_commands_flagged($tokens, ['--off'])) {
       $which = 'bypass';
     }
-    elseif (preg_match('/(?:droost:workflow:effort|(?<![\w-])dwfe'
+    elseif (preg_match('/(?:droost:workflow:effort'
       . '|droost-workflow\s+effort)\b/', $line) === 1
       && !operator_commands_flagged($tokens, ['--preview'])
       && array_intersect($tokens, ['custom', 'low', 'medium', 'high', 'xhigh', 'max', 'factory', 'light']) !== []) {
@@ -1781,64 +1776,41 @@ function operator_commands_guard(string $stdin): void {
     // are the human's: an agent never answers its own question. Approval is
     // the agent's to run once the human has said yes in the session (owner,
     // 2026-10-08), so it is not refused here; the guard records that yes
-    // from AskUserQuestion like every other answer. `dwfin` is the drush
-    // alias. Checking, reading and asking (`intake ask`) stay the agent's.
-    // Options may stand between the command and its verb (drush takes
-    // `dwfin --via=cockpit answer …`), so they are skipped, not required
-    // absent: a verb found only when it comes first is a bypass.
-    elseif (preg_match('/(?:droost-workflow\s+' . $options . '|droost:workflow:)intake\s+' . $options . 'abandon\b|(?<![\w-])dwfin\s+' . $options . 'abandon\b/', $line) === 1) {
+    // from AskUserQuestion like every other answer. Checking, reading and
+    // asking (`intake ask`) stay the agent's. Options may stand between the
+    // command and its verb (`intake --via=cockpit answer …`), so they are
+    // skipped, not required absent: a verb found only when it comes first is
+    // a bypass.
+    elseif (preg_match('/(?:droost-workflow\s+' . $options . '|droost:workflow:)intake\s+' . $options . 'abandon\b/', $line) === 1) {
       $which = 'intake abandon';
     }
-    elseif (preg_match('/(?:droost-workflow\s+' . $options . '|droost:workflow:)intake\s+' . $options . 'answer\b|(?<![\w-])dwfin\s+' . $options . 'answer\b/', $line) === 1) {
+    elseif (preg_match('/(?:droost-workflow\s+' . $options . '|droost:workflow:)intake\s+' . $options . 'answer\b/', $line) === 1) {
       $which = 'intake answer';
-    }
-    elseif (operator_commands_arms_write_gate($tokens)
-      || operator_commands_php_arms_write_gate($tokens)) {
-      // ARMING a write gate is the operator's act too (round 25, R25-F2: the
-      // subject asked for allow_entity_write rather than arming it — this makes
-      // asking the only path). Disarming is a tightening and is not matched.
-      $which = 'gate (arming a write gate)';
     }
     if ($which === NULL) {
       continue;
     }
-    $gate = str_starts_with($which, 'gate (');
-    // Name it back in the spelling that was USED. Every one of these verbs
-    // now exists on two surfaces, and telling an operator to run the drush
-    // command on a project with no Drupal is advice they cannot take.
-    $words = array_map(static fn (string $w): string => preg_quote($w, '/'), explode(' ', $which));
-    $cli = !$gate && preg_match('/droost-workflow\s+' . $options . implode('\s+' . $options, $words) . '\b/', $line) === 1;
-    $droost = !$gate && !$cli && preg_match('/(?<![\w-])droost\s+workflow:/', $spoken) === 1;
-    $name = match (TRUE) {
-      $gate => 'droost:gate',
-      $cli => 'droost-workflow ' . $which,
-      $droost => 'droost workflow:' . $which,
-      default => 'droost:workflow:' . $which,
-    };
-    // The rule tag is the verb, which is what an evaluator wants to see
-    // counted.
-    //
-    // The RUNNABLE command, which is not the same string as the verb's name.
-    // A drush verb is not a command without `drush` in front of it, and the
-    // hand-over line is the whole point of this refusal: printing
-    // `droost:workflow:gate-waive …` gives the operator something their
-    // shell does not have. The standalone binary IS the command, so it stands
-    // alone. Caught by GuardTest, which pins the hand-over's exact shape.
+    // Name it back as a command the operator can run: the deprecated
+    // `droost-workflow` alias when that was used, else `droost workflow:`.
+    // The colon spelling was the retired module's drush verb, and no shell
+    // has it now. The rule tag is the verb, which is what an evaluator wants
+    // to see counted. Caught by GuardTest, which pins the hand-over's shape.
     //
     // AND A TERMINAL OF THEIR OWN (F-256). The refusal used to say "in Claude
     // Code: `! …`", and Claude Code's `!` gives a command no terminal: the
     // operator who followed it was refused as the agent is.
-    $handover = ($cli || $droost) ? $name : 'drush ' . $name;
+    $words = array_map(static fn (string $w): string => preg_quote($w, '/'), explode(' ', $which));
+    $cli = preg_match('/droost-workflow\s+' . $options . implode('\s+' . $options, $words) . '\b/', $line) === 1;
+    $name = $cli ? 'droost-workflow ' . $which : 'droost workflow:' . $which;
     guard_refuse('operator-command:' . $which, sprintf(
       '%1$s is the OPERATOR\'s command — an agent may propose it, never run it. '
       . 'Show the operator the exact command with your reason and ask them to '
       . 'run it in a terminal of THEIR own, outside this session: `%2$s …`. '
       . 'Not with Claude Code\'s `!`, which runs a command with no terminal, '
       . 'so it is refused there as it is here. Continue once they say it is '
-      . 'done. The record must carry a human\'s decision, not yours.%3$s',
+      . 'done. The record must carry a human\'s decision, not yours.',
       $name,
-      $handover,
-      $gate ? ' (Disarming a gate — `off` — needs no operator; only arming does.)' : '',
+      $name,
     ));
   }
 }
@@ -2038,134 +2010,6 @@ function operator_commands_opaque_head(array $tokens): bool {
   // quoted payload is dropped as prose. A reviewer used it to overwrite this
   // file and take `stop` from 2 to 0.
   return str_starts_with($head, '$') || str_contains($head, '`');
-}
-
-/**
- * Whether an argument list arms a droost write gate.
- *
- * Both spellings: `droost:gate allow_x on` and `config:set droost.settings
- * allow_x true`. Read from tokens, because the value arrived quoted — `"on"` —
- * and a raw-string match let a write gate be armed. Flags may sit anywhere;
- * only the ORDER of the gate name and its value matters.
- *
- * @param list<string> $tokens
- *   The argument list.
- *
- * @return bool
- *   TRUE when this command arms one.
- */
-function operator_commands_arms_write_gate(array $tokens): bool {
-  $arming = ['on', 'true', '1', 'yes', 'arm', 'armed'];
-  // `droost:install` (alias `droost`) arms the gates it is told to: with
-  // `--gates=<flags|all>` or the deprecated `--scaffold`. With neither it
-  // keeps what is armed (F-286); with `--gates=none` it arms nothing.
-  foreach ($tokens as $index => $token) {
-    if (!in_array(strtolower($token), ['droost:install', 'droost'], TRUE)) {
-      continue;
-    }
-    foreach (array_slice($tokens, $index + 1) as $offset => $option) {
-      $lower = strtolower($option);
-      if (preg_match('/^--gates(?:=(.*))?$/', $lower, $m) === 1) {
-        $value = $m[1] ?? strtolower($tokens[$index + 2 + $offset] ?? '');
-        if (!in_array(trim($value, "'\" "), ['none', 'no', 'n', 'false', 'off', '0', ''], TRUE)) {
-          return TRUE;
-        }
-      }
-      if (preg_match('/^--scaffold(?:=(.*))?$/', $lower, $m) === 1
-        && !in_array(trim($m[1] ?? 'yes', "'\" "), ['no', 'n', 'false', 'off', '0'], TRUE)) {
-        return TRUE;
-      }
-    }
-  }
-  $words = array_values(array_filter(
-    $tokens,
-    static fn (string $token): bool => !str_starts_with($token, '-'),
-  ));
-  $verb = NULL;
-  foreach ($words as $index => $word) {
-    $lower = strtolower($word);
-    if ($lower === 'droost:gate' || $lower === 'dgate') {
-      $verb = $index;
-      break;
-    }
-    if (in_array($lower, ['config:set', 'config-set', 'cset'], TRUE)) {
-      // The settings object has to be named for this to be droost's gate.
-      $next = strtolower($words[$index + 1] ?? '');
-      if ($next === 'droost.settings') {
-        $verb = $index + 1;
-        break;
-      }
-      // The DOTTED spelling is the same command. `drush cset
-      // droost.settings.allow_entity_write true` names the key in one token,
-      // which read as neither the object nor the flag, and armed a write gate
-      // with the guard watching. Drush accepts both forms; so does this.
-      if (preg_match('/^droost\.settings\.(allow_\w+)$/i', $next) === 1
-        && in_array(strtolower($words[$index + 2] ?? ''), $arming, TRUE)) {
-        return TRUE;
-      }
-    }
-  }
-  if ($verb === NULL) {
-    return FALSE;
-  }
-  $flag = $words[$verb + 1] ?? '';
-  $value = $words[$verb + 2] ?? '';
-
-  return preg_match('/^allow_\w+$/i', $flag) === 1
-    && in_array(strtolower($value), $arming, TRUE);
-}
-
-/**
- * Whether a line of PHP arms a droost write gate.
- *
- * `drush php:eval` is a runner, so the tokeniser already hands the PHP through
- * as its own invocation — and then every matcher looked for `droost:gate` or
- * `config:set` and found neither, because this spelling has no drush verb at
- * all:
- *
- *     drush php:eval "\Drupal::configFactory()
- *       ->getEditable('droost.settings')
- *       ->set('allow_entity_write', TRUE)->save();"
- *
- * Same config object, same key, same effect, and it was permitted. The shape to
- * match is not a verb but the three things that have to be present for the
- * write to mean anything: droost's settings, an allow_* key, and a truthy.
- *
- * @param list<string> $tokens
- *   The invocation's tokens.
- *
- * @return bool
- *   TRUE when the invocation writes a droost allow_* switch on.
- */
-function operator_commands_php_arms_write_gate(array $tokens): bool {
-  // Flattened from the tokens rather than matched against PHP source, because
-  // by the time this sees it there is no PHP source left. The tokeniser splits
-  // on grouping punctuation and marks `>` as a redirect, so
-  // `->set('allow_entity_write', TRUE)` arrives as `-`, `\x01set`,
-  // `allow_entity_write,`, `TRUE`. A pattern written against the code an agent
-  // typed matches none of that, which is why the first cut of this permitted
-  // the write it was added to refuse.
-  $flat = strtolower(implode(' ', array_map(
-    static fn (string $token): string => ltrim($token, "\x01"),
-    $tokens,
-  )));
-  // `$settings['droost']['allow_entity_write'] = TRUE;` is the arming that
-  // actually takes effect — GateState reads exactly that shape. The config
-  // spelling below is kept because an operator may reasonably TRY it, and
-  // refusing a no-op costs nothing; this is the one that works.
-  if (preg_match('/settings.{0,4}droost|droost.{0,4}settings|droost_workflow/', $flat) !== 1) {
-    return FALSE;
-  }
-  if (preg_match('/allow_\w+/', $flat) !== 1) {
-    return FALSE;
-  }
-  // Something that WRITES, and something truthy. Reading the switch is not
-  // arming it — `\Drupal::config('droost.settings')->get('allow_entity_write')`
-  // is a perfectly good thing for an agent to ask, and asking is the behaviour
-  // this whole rule is trying to produce.
-  return (preg_match('/(?<![a-z_])(set|setmultiple|save|seteditable|setsetting)(?![a-z_])/', $flat) === 1
-    || str_contains($flat, '='))
-    && preg_match('/(?<![a-z_])(true|1|on)(?![a-z_0-9])/', $flat) === 1;
 }
 
 /**
@@ -2731,8 +2575,8 @@ function guard_named_root(): string {
  * One tokeniser, because three ad-hoc scanners over the raw string each missed
  * a different thing and each fix reopened another's hole:
  *
- *   * `droost:gate allow_entity_write "on"` armed a write gate — the value was
- *     matched as a raw word and `"on"` is not `on`;
+ *   * the retired module's `droost:gate allow_entity_write "on"` armed a
+ *     write gate — the value was matched as a raw word and `"on"` is not `on`;
  *   * `drush "droost:workflow:byp"ass` defeated every verb, because quoting
  *     splits a word to a regex and JOINS it to the shell;
  *   * `bypass "hotfix"; echo --off` read the `--off` from a different command
@@ -3628,7 +3472,7 @@ function operator_commands_closing_paren(string $command, int $open): int {
  *   The invocation's unwrapped tokens.
  *
  * @return bool
- *   TRUE when a `droost:workflow:*` verb, its `dwf*` alias, or a
+ *   TRUE when a `droost:workflow:*` verb, a `droost workflow:*` one, or a
  *   `droost-workflow` verb is followed by `--help` or `-h` and nothing else
  *   but redirection targets, or is the whole argument of `drush help`.
  */
@@ -3639,7 +3483,7 @@ function operator_commands_help_only(array $plain): bool {
   )));
   $verb = NULL;
   foreach ($words as $index => $word) {
-    if (preg_match('/^(?:droost:workflow:[a-z-]+|dwf[a-z]+)$/', $word) === 1) {
+    if (preg_match('/^droost:workflow:[a-z-]+$/', $word) === 1) {
       $verb = $index;
       break;
     }
@@ -5110,7 +4954,8 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
   // So the places a mod is loaded from are the operator's, run or no run:
   // the mods Claude writes (`~/.claude/dev-mods/`), installed plugins
   // (`~/.claude/plugins/`), Claude Code's own state (`~/.claude.json`, which
-  // holds trust and MCP servers), and droost's own mod in the project.
+  // holds trust and MCP servers), and the mod directory an earlier droost
+  // copied into a project, which Claude Code still loads once registered.
   if (preg_match('#(^|/)\.claude/(dev-mods|plugins|droost-plugins)(/|$)#', $relative) === 1
     || preg_match('#(^|/)\.claude\.json$#', $relative) === 1) {
     return 'That is where Claude Code loads plugins and mods from, or the file '
@@ -5171,34 +5016,14 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
       . 'never by writing the file.';
   }
 
-  // WHERE THE WRITE GATES ACTUALLY LIVE. `Drupal\droost\GateState` reads the
-  // seven `allow_*` switches out of `$settings['droost']` in a dedicated
-  // `settings.droost.php` beside settings.php — deliberately not in config, so
-  // a `config:export`/`config:import` cannot arm them on another site. This
-  // guard was matching `droost.settings` config, which GateState never reads:
-  // it refused a command that does nothing and permitted the file that arms
-  // every destructive gate droost has. Writing it is the operator's act at a
-  // TTY, per environment, which is the whole design of putting it there.
-  if (preg_match('#(^|/)settings\.droost\.php$#', $relative) === 1) {
-    return 'That file IS the write-gate arming of a site that still runs '
-      . 'droost\'s retired Drupal module — the `allow_*` switches that '
-      . 'authorise destructive work, kept outside config precisely so that '
-      . 'arming one is a human decision made per environment at a terminal. '
-      . 'An agent writing its own is not obtaining permission. Show the '
-      . 'OPERATOR what you need and why, and let them decide.';
-  }
-  // settings.php too, because `$settings['droost'][…]` set there is honoured
-  // as the base GateState overlays. A different file, the same arming.
+  // The site's settings.php: its database credentials and hash salt.
   // AND THE FILES IT INCLUDES (F-199). On DDEV, settings.php includes
   // settings.ddev.php, and the stock file offers settings.local.php: either
-  // sets `$settings['droost']` as surely as settings.php does, and the Write
-  // tool was allowed both.
+  // sets what settings.php does, and the Write tool was allowed both.
   if (preg_match('#(^|/)sites/[^/]+/settings(?:\.[A-Za-z0-9_-]+)?\.php$#', $relative) === 1) {
     return 'That is the site\'s settings.php or a file it includes: the file '
-      . 'holding the database credentials and the hash salt, and on a site '
-      . 'still running droost\'s retired module the base of its write gates, '
-      . 'so an edit to it can arm destructive work. Ask the OPERATOR for '
-      . 'whatever this needs.';
+      . 'holding the database credentials and the hash salt. Ask the OPERATOR '
+      . 'for whatever this needs.';
   }
 
   if (preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/bypass\.json$#', $relative) === 1) {
@@ -5675,10 +5500,8 @@ function guard_parity_reference(string $root, string $stateDir): string {
  */
 function operator_verb_pattern(): string {
   return '/droost:workflow:(gate-waive|baseline|bypass|effort)\b'
-    . '|(?<![\w-])(dwfgw|dwfbl|dwfby|dwfe)\b'
     . '|droost-workflow\s+(baseline|gate-waive|bypass|effort)\b'
-    . '|(?:droost-workflow\s+|droost:workflow:)ticket\s+move\b'
-    . '|(?:droost:gate|(?<![\w-])dgate)\b/';
+    . '|(?:droost-workflow\s+|droost:workflow:)ticket\s+move\b/';
 }
 
 /**
@@ -7378,7 +7201,7 @@ function unresolved_checks(string $root, string $stateDir, mixed $runId, string 
 }
 
 /**
- * The words of each note, identical to the Claude mod's (`NOTES`).
+ * The words of each note.
  *
  * A function, not a constant: a `const` at the foot of this file is not yet
  * defined when the code above it runs, where a function is.
@@ -7530,7 +7353,7 @@ function guard_nudge(string $directory, string $tool, array $input, array $respo
  *
  * With a run open, only its own rows count: a row made before it opened is
  * no run's (owner, 2026-10-20; F-331). With none open, any row does. The
- * list is the evidence report's KNOWLEDGE_TOOLS and the mod's.
+ * list is the evidence report's KNOWLEDGE_TOOLS.
  */
 function guard_nudge_grounded(string $directory, ?string $run): bool {
   $knowledge = [

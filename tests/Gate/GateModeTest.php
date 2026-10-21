@@ -7,6 +7,7 @@ namespace Droost\Workflow\Tests\Gate;
 use Droost\Workflow\Config\ConfigError;
 use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Config\Phase;
+use Droost\Workflow\Config\Provenance;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Evidence\CheckRecord;
@@ -34,7 +35,7 @@ final class GateModeTest extends WorkflowTestCase {
    * Block is every gate's default, and saying so records nothing.
    */
   public function testBlockIsTheDefaultAndIsNotRecorded(): void {
-    $config = WorkflowConfig::builtIn();
+    $config = WorkflowConfig::fromArray([], '<built-in defaults>', Provenance::BuiltIn);
     $this->assertSame(GateSettings::DEFAULT_MODE, $config->gate('eslint')->mode());
     $this->assertArrayNotHasKey('mode', $config->gate('eslint')->toArray());
 

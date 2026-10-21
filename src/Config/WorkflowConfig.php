@@ -310,16 +310,6 @@ final class WorkflowConfig {
   }
 
   /**
-   * The configuration in force when a project ships no lever file.
-   *
-   * @return self
-   *   The factory defaults, marked as built-in.
-   */
-  public static function builtIn(): self {
-    return self::fromArray([], '<built-in defaults>', Provenance::BuiltIn);
-  }
-
-  /**
    * Resolves a decoded mapping into a configuration.
    *
    * @param array<array-key, mixed> $raw

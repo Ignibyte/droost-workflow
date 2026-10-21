@@ -2194,7 +2194,6 @@ final class ArgvDispatcher {
       $this->clock,
       $this->ids,
       NULL,
-      NULL,
       // The library's own checks (plan_grounded) are the checks there are.
       CheckAdjudicators::withLibraryChecks(),
       $this->workItemSource($projectRoot),

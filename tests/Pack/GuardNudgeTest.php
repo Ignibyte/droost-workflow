@@ -175,23 +175,6 @@ final class GuardNudgeTest extends WorkflowTestCase {
   }
 
   /**
-   * The guard and the Claude mod say each note in the same words.
-   *
-   * A record reads the same whichever of the two said it, so the two copies
-   * are compared here rather than trusted to stay in step.
-   */
-  public function testTheModAndTheGuardSayTheSame(): void {
-    $base = dirname(__DIR__, 2);
-    $guard = (string) file_get_contents($base . '/pack/hooks/droost-workflow-guard.php');
-    $mod = (string) file_get_contents($base . '/claude-plugins/droost-guard/hooks/register.js');
-    foreach (['ground', 'traverse'] as $kind) {
-      $this->assertSame(1, preg_match("/'" . $kind . "' => '((?:[^'\\\\]|\\\\.)*)'/", $guard, $php), $kind . ' in the guard');
-      $this->assertSame(1, preg_match("/\\b" . $kind . ": '((?:[^'\\\\]|\\\\.)*)'/", $mod, $js), $kind . ' in the mod');
-      $this->assertSame(stripslashes($php[1]), stripslashes($js[1]), $kind);
-    }
-  }
-
-  /**
    * The settings wire the nudge after the call, never before it.
    */
   public function testTheNudgeIsWiredAfterTheCall(): void {

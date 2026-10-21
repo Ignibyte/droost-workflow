@@ -22,11 +22,9 @@ use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Config\GateSettings;
-use Droost\Workflow\Event\NullWorkflowListener;
 use Droost\Workflow\Event\RunEventLog;
 use Droost\Workflow\Intake\IntakeError;
 use Droost\Workflow\Intake\IntakeService;
-use Droost\Workflow\Event\WorkflowListenerInterface;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Evidence\CheckAdjudicatorInterface;
 use Droost\Workflow\Evidence\CheckRecord;
@@ -89,11 +87,6 @@ final class WorkflowFacade {
   private const string DECLARED_SOURCE = 'declared';
 
   /**
-   * Observes lifecycle transitions. A notification, never the record.
-   */
-  private readonly WorkflowListenerInterface $listener;
-
-  /**
    * Answers where the tree is (base commit) and what changed since.
    */
   private readonly VcsInterface $vcs;
@@ -121,11 +114,6 @@ final class WorkflowFacade {
    *   from the surface rather than from a value object.
    * @param callable(): string $ids
    *   Returns a fresh run identifier.
-   * @param \Droost\Workflow\Event\WorkflowListenerInterface|null $listener
-   *   Observes lifecycle transitions (run start, phase change, completion).
-   *   Optional and defaults to a no-op, so the CLI and every existing caller
-   *   are unaffected; the Drupal surfaces inject a bridge that re-broadcasts to
-   *   hooks. A notification, never the record — see the interface.
    * @param \Droost\Workflow\Vcs\VcsInterface|null $vcs
    *   Version-control facts: the base commit frozen at begin and the files
    *   changed since. Defaults to the git binary; a test injects a fake.
@@ -146,13 +134,11 @@ final class WorkflowFacade {
     private readonly QuestionSinkInterface $sink,
     private readonly mixed $clock,
     private readonly mixed $ids,
-    ?WorkflowListenerInterface $listener = NULL,
     ?VcsInterface $vcs = NULL,
     private readonly ?CheckAdjudicatorInterface $checks = NULL,
     private readonly ?WorkItemSourceInterface $workItems = NULL,
     private readonly ?CockpitEventRelay $relay = NULL,
   ) {
-    $this->listener = $listener ?? new NullWorkflowListener();
     $this->vcs = $vcs ?? new CliVcs(CliProcess::run(...));
   }
 
@@ -751,12 +737,10 @@ final class WorkflowFacade {
         'spec' => $state->specPath,
         'base_commit' => $state->baseCommit,
       ]);
-      $this->notify(fn () => $this->listener->onRunStart($state));
       // The run's first phase is now active: the first cycle step begins.
       if ($state->currentPhase !== NULL) {
         $begin = $state->currentPhase;
         $this->event($store, $state, 'phase.began', ['phase' => $begin->value]);
-        $this->notify(fn () => $this->listener->onPhaseBegin($state, $begin));
       }
     }
 
@@ -3747,7 +3731,7 @@ final class WorkflowFacade {
   }
 
   /**
-   * Announces a run's advance or completion to the listener, if it moved.
+   * Records a run's advance or completion in the event log, if it moved.
    *
    * Derived purely from the resulting state so both run() and answer() share
    * it: a NULL current phase is completion, a changed current phase is an
@@ -3765,25 +3749,20 @@ final class WorkflowFacade {
       // The final phase ended; then the run completed (its event is written
       // by the caller, which holds the outcome).
       $this->event($store, $after, 'phase.ended', ['phase' => $from->value]);
-      $this->notify(fn () => $this->listener->onPhaseEnd($after, $from));
-      $this->notify(fn () => $this->listener->onRunComplete($after));
       return;
     }
     if ($after->currentPhase !== $from) {
       $to = $after->currentPhase;
       // The left phase ended, the run changed phase, the entered phase began.
       $this->event($store, $after, 'phase.ended', ['phase' => $from->value]);
-      $this->notify(fn () => $this->listener->onPhaseEnd($after, $from));
-      $this->notify(fn () => $this->listener->onPhaseChange($after, $from, $to));
       $this->event($store, $after, 'phase.began', ['phase' => $to->value]);
-      $this->notify(fn () => $this->listener->onPhaseBegin($after, $to));
     }
   }
 
   /**
    * Appends one event to the run-event log, after the state it records.
    *
-   * The engine's record, not a listener's notification: written at every
+   * The engine's record, not a notification: written at every
    * point the run's state is persisted, and a log that cannot be written is
    * reported once and never stops the run.
    *
@@ -3875,7 +3854,7 @@ final class WorkflowFacade {
    * In cockpit mode, carries what the log holds past the cursor.
    *
    * Never failing the run: the relay stops itself after one failure, and
-   * anything it raises is swallowed as a listener's would be.
+   * anything it raises is swallowed (notify()).
    */
   private function relayEvents(): void {
     if ($this->relay !== NULL) {
@@ -3933,12 +3912,11 @@ final class WorkflowFacade {
   }
 
   /**
-   * Delivers a lifecycle callback, swallowing any failure it raises.
+   * Delivers a notification, swallowing any failure it raises.
    *
-   * A listener is a notification, never the record: the transition is already
-   * persisted, so a listener that throws must not turn a saved, correct run
-   * into a failed one — the state-first/listener-second contract the pause
-   * path keeps, applied to lifecycle events.
+   * A notification is never the record: the transition is already persisted,
+   * so one that throws must not turn a saved, correct run into a failed one —
+   * the state-first/notification-second contract the pause path keeps.
    *
    * @param callable(): void $emit
    *   The callback to run.
@@ -3948,7 +3926,7 @@ final class WorkflowFacade {
       $emit();
     }
     catch (\Throwable) {
-      // Intentionally swallowed: a broken listener cannot break a run.
+      // Intentionally swallowed: a broken notification cannot break a run.
     }
   }
 

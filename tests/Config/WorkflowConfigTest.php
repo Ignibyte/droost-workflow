@@ -308,7 +308,7 @@ class WorkflowConfigTest extends WorkflowTestCase {
     file_put_contents($root . '/web/core/lib/Drupal.php', "<?php\n");
 
     $config = WorkflowConfig::load($root);
-    $builtIn = WorkflowConfig::builtIn();
+    $builtIn = WorkflowConfig::fromArray([], '<built-in defaults>', Provenance::BuiltIn);
 
     $this->assertSame('max', $config->preset);
     $this->assertSame($expected, $config->provenance);
