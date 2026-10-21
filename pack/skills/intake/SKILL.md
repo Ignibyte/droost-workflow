@@ -101,6 +101,10 @@ form, say), run it again with `--routes=/that,/other`.
   what it shows from its file name or alt text: say it is missing, and ask
   the human what it held. If a record's name, price or text might be drawn
   into it, that is a question, not a field.
+- **An image's alt text is a claim, not its content**, broken or not. A
+  photo the source hotlinks from elsewhere, recommended for the site, is
+  looked at first: one source's "Hockey player on ice" was a basketball in
+  a hoop, and an intake recommended copying it on the strength of its alt.
 - **A value worked out from another** is shown, not stored: initials from a
   name, a full name from its parts, a "FREE" for a price of 0. A record field
   of the source can be one (a mock data file stores what a template should
