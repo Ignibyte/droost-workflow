@@ -54,6 +54,7 @@ final class WorkflowConfig {
     'walls',
     'operator_only',
     'lead',
+    'panel',
   ];
 
   /**
@@ -190,6 +191,9 @@ final class WorkflowConfig {
    *   agent's shell, as it refuses bypass and gate-waive.
    * @param string|null $leadLever
    *   `lead:` as written, or NULL to follow the mode (lead()).
+   * @param array<string, array{title: string, run: string, timeout: int}> $panelTabs
+   *   The project's own tabs in the run panel, by id: a title, and the file
+   *   that prints the tab (`panel.tabs`).
    */
   private function __construct(
     public readonly Mode $mode,
@@ -216,6 +220,7 @@ final class WorkflowConfig {
     public readonly array $walls = [],
     public readonly array $operatorOnly = [],
     public readonly ?string $leadLever = NULL,
+    public readonly array $panelTabs = [],
   ) {}
 
   /**
@@ -485,6 +490,7 @@ final class WorkflowConfig {
         self::readWalls($root, $source),
         self::readOperatorOnly($root, $source),
         self::readLead($root, $source),
+        self::readPanelTabs($root, $source),
       );
     }
     catch (DataError $e) {
@@ -596,6 +602,67 @@ final class WorkflowConfig {
       ];
     }
     return $walls;
+  }
+
+  /**
+   * Reads the project's own run panel tabs: `panel.tabs.<id>`.
+   *
+   * Each is a title and a file droost runs to print the tab (PanelTabRunner),
+   * with a timeout in seconds (default 5, at most 30): the panel redraws
+   * every few seconds, and a slow tab would hold the whole pane.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   *
+   * @return array<string, array{title: string, run: string, timeout: int}>
+   *   Tab id => its title, file and timeout.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When a tab is malformed: a bad id, one of droost's own, no title, a
+   *   file outside the project, or an option it does not take.
+   */
+  private static function readPanelTabs(TypedArray $root, string $source): array {
+    $panel = $root->optionalChild('panel');
+    if ($panel === NULL) {
+      return [];
+    }
+    foreach ($panel->keys() as $key) {
+      if ($key !== 'tabs') {
+        throw ConfigError::unknownSetting($source, 'panel.' . $key, ['tabs']);
+      }
+    }
+    $node = $panel->optionalChild('tabs');
+    if ($node === NULL) {
+      return [];
+    }
+    $tabs = [];
+    foreach ($node->keys() as $id) {
+      $owner = 'panel.tabs.' . $id;
+      if (preg_match('#^[a-z0-9][a-z0-9_-]*$#', $id) !== 1) {
+        throw ConfigError::invalidCustomGate($source, $owner, 'a tab id is lowercase letters, digits, "_" and "-"');
+      }
+      if (in_array($id, ['spec', 'activity', 'gates', 'seeker'], TRUE)) {
+        throw ConfigError::invalidCustomGate($source, $owner, 'spec, activity, gates and seeker are droost\'s own tabs; give this one another id');
+      }
+      $tab = $node->child($id);
+      foreach ($tab->keys() as $key) {
+        if (!in_array($key, ['title', 'run', 'timeout'], TRUE)) {
+          throw ConfigError::invalidCustomGate($source, $owner, sprintf('unknown option "%s" (accepted: title, run, timeout)', $key));
+        }
+      }
+      $title = trim($tab->string('title'));
+      if ($title === '' || mb_strlen($title) > 24) {
+        throw ConfigError::invalidCustomGate($source, $owner, 'title is the tab\'s label, 1 to 24 characters');
+      }
+      $tabs[$id] = [
+        'title' => $title,
+        'run' => GateSettings::readRuleFile($tab, 'run', $source, $owner),
+        'timeout' => $tab->has('timeout') ? $tab->intInRange('timeout', 1, 30) : 5,
+      ];
+    }
+    return $tabs;
   }
 
   /**

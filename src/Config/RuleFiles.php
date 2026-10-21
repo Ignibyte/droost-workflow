@@ -42,6 +42,11 @@ final class RuleFiles {
     foreach ($config->walls as $wall) {
       $paths[] = $wall['run'];
     }
+    // A panel tab only draws, but what it draws is what a person reads about
+    // the run: frozen with the rest, so a run cannot rewrite its own tab.
+    foreach ($config->panelTabs as $tab) {
+      $paths[] = $tab['run'];
+    }
     $paths[] = ConfigLocator::AGENTS;
 
     $hashes = [];

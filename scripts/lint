@@ -80,8 +80,8 @@ if command -v node >/dev/null 2>&1; then
   LEGS=4
   # The intake's reader. Its browser case runs only where a Playwright is
   # named (DROOST_SOURCE_PLAYWRIGHT_CWD) and says it was skipped otherwise.
-  run_leg "droost-source and droost-parity (node --test)" \
-    node --test tests/Source/source.node.test.cjs tests/Parity/parity.node.test.cjs
+  run_leg "droost-source, droost-parity and the droost mod's pane (node --test)" \
+    node --test tests/Source/source.node.test.cjs tests/Parity/parity.node.test.cjs claude-plugins/droost/tests/view.node.test.mjs
 else
   printf '  \033[33mSKIP\033[0m  droost-source and droost-parity: no node on this machine\n'
 fi

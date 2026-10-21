@@ -1,0 +1,7 @@
+{
+  "name": "droost",
+  "owner": { "name": "droost" },
+  "plugins": [
+    { "name": "droost", "source": "./droost", "description": "droost's run panel: the run's phases, spec, activity, gates and seeker, and a project's own tabs" }
+  ]
+}

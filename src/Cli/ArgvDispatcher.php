@@ -14,6 +14,7 @@ use Droost\Workflow\Config\WorkItemSettings;
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Driver\RenderedRoutes;
 use Droost\Workflow\Evidence\EvidenceError;
+use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Event\RunEventLog;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\ShellGateExecutor;
@@ -24,6 +25,9 @@ use Droost\Workflow\Intake\IntakeStore;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Pack\PackError;
+use Droost\Workflow\Panel\ActivityLog;
+use Droost\Workflow\Panel\PanelTabRunner;
+use Droost\Workflow\Panel\RunPanel;
 use Droost\Workflow\Seeker\SeekerError;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
@@ -260,6 +264,8 @@ final class ArgvDispatcher {
         'specs' => $this->specs($projectRoot),
         'gate' => $this->gate($projectRoot, $argv),
         'relay' => $this->relay($projectRoot),
+        'panel' => $this->panel($projectRoot, $argv),
+        'say' => $this->activity($projectRoot, $argv),
         default => $this->unknown($verb),
       };
     }
@@ -1995,6 +2001,114 @@ final class ArgvDispatcher {
   }
 
   /**
+   * The run panel: `panel [--json]`.
+   *
+   * What the droost mod draws (RunPanel), as JSON with `--json`, and as a
+   * few lines without: the run, its phases, and each tab's badge.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The verb's arguments.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function panel(string $projectRoot, array $argv): int {
+    $config = WorkflowConfig::load($projectRoot);
+    $facade = $this->facade($projectRoot);
+    $status = $facade->status($projectRoot);
+    $run = is_array($status['run'] ?? NULL) && is_string($status['run']['run_id'] ?? NULL) ? $status['run'] : NULL;
+    $runId = $run === NULL || !is_string($run['run_id'] ?? NULL) ? NULL : $run['run_id'];
+    $open = $run !== NULL && ($run['archived'] ?? FALSE) !== TRUE;
+    $criteria = [];
+    $findings = [];
+    if ($open) {
+      try {
+        $criteria = $facade->criteria($projectRoot);
+      }
+      catch (\Throwable) {
+        // A run whose criteria cannot be read still has a panel.
+      }
+    }
+    if ($runId !== NULL) {
+      try {
+        $findings = (new EvidenceStore($projectRoot))->seekerFindings($runId);
+      }
+      catch (\Throwable) {
+        // No store yet, or one that cannot be read: the Seeker tab says none.
+      }
+    }
+    $summary = $run === NULL ? NULL : RunPanel::summary($run);
+    $runner = new PanelTabRunner($projectRoot);
+    $tabs = [];
+    foreach ($config->panelTabs as $id => $tab) {
+      $tabs[$id] = ['title' => $tab['title']] + $runner->run($id, $tab, $summary);
+    }
+    $document = RunPanel::document(
+      $run,
+      $criteria,
+      $findings,
+      (new ActivityLog($projectRoot))->forRun($runId),
+      $tabs,
+      ($this->clock)(),
+    );
+    if (in_array('--json', $argv, TRUE)) {
+      $this->say($this->encode($document));
+      return self::EXIT_OK;
+    }
+    $this->say($summary === NULL
+      ? 'No run: the panel shows the project\'s own tabs only.'
+      : sprintf('Run %s · %s · %s', $summary['id'] ?? '?', $summary['phase'] ?? 'done', $summary['state']));
+    $this->say(implode(' › ', array_map(static fn (array $p): string => $p['label'] . ' ' . $p['status'], $document['phases'])));
+    foreach ($document['tabs'] as $tab) {
+      $badge = $tab['badge'] === NULL ? '' : ' (' . $tab['badge'] . ')';
+      $this->say(sprintf('  %s%s%s', $tab['title'], $badge, $tab['error'] === NULL ? '' : ' — ' . $tab['error']));
+    }
+
+    return self::EXIT_OK;
+  }
+
+  /**
+   * What the agent says it is doing: `say "<text>" [--detail=<…>]`.
+   *
+   * A line in the panel's Activity tab, stamped with the open run. The
+   * agent's own account, recorded as that, never as evidence.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The verb's arguments.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function activity(string $projectRoot, array $argv): int {
+    $detail = NULL;
+    $words = [];
+    foreach (array_slice($argv, 1) as $argument) {
+      if (str_starts_with($argument, '--detail=')) {
+        $detail = substr($argument, strlen('--detail='));
+        continue;
+      }
+      $words[] = $argument;
+    }
+    $text = trim(implode(' ', $words));
+    if ($text === '') {
+      $this->fail('Usage: droost workflow:say "<what you are doing>" [--detail="<a file, a count, a name>"]');
+      return self::EXIT_USAGE;
+    }
+    $state = (new RunStateStore($projectRoot))->load();
+    if (!(new ActivityLog($projectRoot))->append($text, $detail, $state?->runId, ($this->clock)())) {
+      $this->fail('The activity line could not be written to the state directory.');
+      return self::EXIT_USAGE;
+    }
+    $this->say('said: ' . $text);
+
+    return self::EXIT_OK;
+  }
+
+  /**
    * One verb's lines of the usage, for `<verb> help`.
    *
    * Read out of the usage text, so the two can never say different things. A
@@ -2174,6 +2288,13 @@ final class ArgvDispatcher {
                        cursor to the cockpit now (they also go after every
                        event and when every command ends); exits 0 when
                        nothing is left to send, 1 otherwise
+      panel [--json]   the run panel the droost mod draws: the run, its
+                       phases, a question it waits on, and tabs (Spec,
+                       Activity, Gates, Seeker, then the project's own
+                       from droost.yml panel.tabs)
+      say "<what>" [--detail=<…>]
+                       tell the panel what you are doing now (its Activity
+                       tab): your own account, never evidence
       ticket           this project's tickets, with work_item.provider:
                        markdown or droost_cockpit: `ticket list
                        [--status=<state>]`, `ticket show <id>`, `ticket new

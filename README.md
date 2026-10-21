@@ -458,11 +458,12 @@ under `php`; anything else is executed.
 | **wall** — asked before a tool call | `walls.<id>: { tools: <regex over the tool's name>, run: droost/walls/<file> }` | `tool`, `tool_name`, `input`, `project_root` | exit 0 allows, exit 2 refuses with the reason on stderr; a wall that crashes, is missing or times out (10 s) refuses — its silence is never consent |
 | **hook** — told about the run | `hooks: { run_start \| phase_begin \| phase_end \| run_complete: droost/hooks/<file> }` | the event: `phase`, `run_id`, `work_item` | recorded in `hook-calls.jsonl`, and its first line shown to the agent in `workflow:run` (`hooks` in the envelope) and `workflow:answer`; a hook never holds the run |
 | **operator-only script** | `operator_only: [droost/bin/<script>]` | — | the guard refuses it from the agent's shell, as it refuses `droost workflow:bypass` |
+| **panel tab** — a tab in the run panel | `panel: { tabs: { <id>: { title: <label>, run: droost/panel/<file>, timeout: <s, default 5> } } }`; `.ts`/`.js` run under node (which strips TypeScript's types) | `project_root`, `tab`, and `run` (the open run's id, state, phase, preset, lead, work item, spec), or `null` | one JSON object on stdout: `{"badge": "3/4", "sections": [...]}`, sections of kind `text`, `fields`, `checklist` or `list` ([The run panel](#the-run-panel-and-the-droost-mod)); one that fails, times out or prints anything else shows why in its place |
 
 **The rules are frozen.** A run records every gate, hook and wall file's hash
 when it begins (`rule_files` in `run.json`), and names a gate file that
 changed since at its gate. While the run is open the guard refuses writes to
-`droost/droost.yml`, `droost/gates/`, `droost/hooks/`, `droost/walls/` and
+`droost/droost.yml`, `droost/gates/`, `droost/hooks/`, `droost/walls/`, `droost/panel/` and
 `droost/agents.md`. **Trust is review**: only files committed in the
 repository run, and droost fetches nothing.
 
@@ -1004,6 +1005,45 @@ refreshed at all — it is version-controlled intent you wrote. `.claude/setting
 is merged (an existing file keeps everything else it holds; one that cannot
 be parsed is refused, not replaced), and the state directory's ignore lines
 are appended to `.gitignore` if they are not already there.
+
+## The run panel, and the droost mod
+
+`droost workflow:panel --json` is the run as a panel: the run (ticket, level,
+lead, state), its four phases, a question it waits on, and tabs. droost's own
+are **Spec** (the spec and each criterion with its proof), **Activity**
+(what the agent said it is doing, with `droost workflow:say "<what>"
+[--detail=<…>]`, labelled as its own account), **Gates** (each phase's
+verdicts, a pass that examined nothing, a gate a level turned off and one
+that could not run told apart from a pass) and **Seeker** (each finding and
+how it closed). A project's own tabs follow, from `panel.tabs` (the table
+above). A tab is sections of four kinds:
+
+| kind | holds |
+|---|---|
+| `text` | `text` |
+| `fields` | `items: [{label, value}]` |
+| `checklist` | `items: [{text, done, note?}]` |
+| `list` | `items: [{text, detail?, tag?, tone?: ok \| warn \| bad \| info \| muted}]` |
+
+Each may carry a `title`. What does not fit is dropped and the tab says so,
+so a project tab can be written against this and nothing else.
+
+**The droost mod** draws it in Claude Code: a pane (`/droost-panel`; it
+opens by itself when a session starts with a run under way) with the
+Drupal drop, the phases, a tab per tab, and the run's line under the
+prompt. It asks `droost workflow:panel --json` every three seconds and
+draws what comes back; it refuses nothing and writes nothing. It ships in
+this package (`claude-plugins/`), and installing it is the operator's act
+(the guard refuses an agent's):
+
+```
+claude plugin marketplace add ./tools/droost/vendor/droost/workflow/claude-plugins
+claude plugin install droost@droost --scope project
+```
+
+or, for one session, `claude --plugin-dir tools/droost/vendor/droost/workflow/claude-plugins/droost`.
+Where droost runs in a container, set the plugin's `droost_command` (for
+example `ddev droost`).
 
 ## The guard, and each harness's shim
 

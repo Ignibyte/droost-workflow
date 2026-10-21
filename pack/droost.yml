@@ -260,6 +260,14 @@ gates:
 # walls:
 #   tracker_writes: { tools: "^mcp__atlassian__(create|edit|transition)", run: droost/walls/tracker-writes.php }
 
+# panel: the project's own tabs in the run panel (`droost workflow:panel`, the
+# droost mod's pane), after droost's Spec, Activity, Gates and Seeker. Each
+# file gets the open run as JSON on stdin and prints {"badge", "sections"}
+# (README: The run panel). .ts and .js run under node.
+# panel:
+#   tabs:
+#     ticket: { title: Ticket, run: droost/panel/ticket.ts }
+
 # operator_only: scripts of the project's own that only a person may run from
 # their terminal (arming tracker writes, say). The guard refuses them from
 # the agent's shell, as it refuses `droost workflow:bypass`.

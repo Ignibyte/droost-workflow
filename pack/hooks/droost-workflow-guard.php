@@ -5178,10 +5178,12 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
   // the AGENTS block. A run froze their hashes when it began, and the gate
   // that runs a changed file names it — but an agent that can rewrite the
   // gate judging it has replaced the verdict, so the earlier word is here.
-  if (preg_match('#^droost/(gates|hooks|walls)(/|$)#', $relative) === 1
+  // And the run panel's tab files (`droost/panel/`): a tab only draws, but
+  // what it draws is what a person reads about the run.
+  if (preg_match('#^droost/(gates|hooks|walls|panel)(/|$)#', $relative) === 1
     || $relative === 'droost/agents.md') {
-    return 'That is one of the project\'s own rules: a gate, hook or wall file '
-      . 'droost/droost.yml runs, or the text it adds to AGENTS.md. A run is under '
+    return 'That is one of the project\'s own rules: a gate, hook, wall or panel '
+      . 'tab file droost/droost.yml runs, or the text it adds to AGENTS.md. A run is under '
       . 'way, and it is held to these as they stood when it began; a gate you '
       . 'can rewrite is not a gate. Read them as much as you like. Change them '
       . 'before a run, or ask the OPERATOR.';
@@ -6319,6 +6321,7 @@ function enforcement_protected_files(string $root, string $stateDir): array {
     'droost/gates',
     'droost/hooks',
     'droost/walls',
+    'droost/panel',
   ];
   foreach (array_unique($walked) as $tree) {
     if ($tree === '' || !is_dir($root . '/' . $tree)) {

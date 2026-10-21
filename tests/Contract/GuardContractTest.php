@@ -22,6 +22,7 @@ final class GuardContractTest extends WorkflowTestCase {
       'droost/gates/scan.php',
       'droost/hooks/start.php',
       'droost/walls/w.php',
+      'droost/panel/ticket.ts',
       'droost/agents.md',
     ];
     foreach ($rules as $file) {
