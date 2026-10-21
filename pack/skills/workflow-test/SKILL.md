@@ -204,9 +204,13 @@ part of the reference, frozen with it: a text you find set aside wrongly, or
 one that should be, is the operator's to change before a run, never yours
 during one. A capture refuses a source whose declared typeface is
 never drawn; a reference is only ever read in the faces the source shows. A view fails on the first
-of D1 to D7 it misses, and the finding says which elements; run it as the
-gate does, where the phase runs (on DDEV, `ddev exec tools/droost/vendor/bin/droost-parity
-judge`).
+of D1 to D7 it misses, and the finding says which elements. The reference
+says where it was read (`read_on` in its manifest): a page lays out
+differently in another platform's browser, so it is judged only on the
+platform it was read on, and anywhere else the gate reads INVALID with
+nothing judged. Run droost where the reference was read (on DDEV, the host
+when it was read on the host; in the container, `ddev exec`, when it was read
+there); which one is the operator's, never yours to pick by the verdict.
 
 ## Fill `Verified By`
 
