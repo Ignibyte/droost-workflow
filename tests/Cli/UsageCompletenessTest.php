@@ -75,4 +75,77 @@ final class UsageCompletenessTest extends TestCase {
     }
   }
 
+  /**
+   * Every verb answers help, and help changes nothing.
+   *
+   * `droost workflow:run help` opened a run: `run` ignored a word it did not
+   * know, and the AGENTS block promises `droost <command> help` explains one
+   * (a live project, 2026-10-21). Each spelling, on every verb, in a project
+   * directory that must be exactly as it was afterwards.
+   */
+  public function testEveryVerbAnswersHelpAndTouchesNothing(): void {
+    $root = sys_get_temp_dir() . '/dwf-help-' . bin2hex(random_bytes(4));
+    mkdir($root . '/droost', 0755, TRUE);
+    file_put_contents($root . '/droost/droost.yml', "preset: low\n");
+    $before = $this->tree($root);
+
+    try {
+      $this->assertEveryVerbAnswersHelp($root, $before);
+    }
+    finally {
+      exec('rm -rf ' . escapeshellarg($root));
+    }
+  }
+
+  /**
+   * Asks every verb for help, in each spelling, against one project.
+   *
+   * @param string $root
+   *   The project.
+   * @param list<string> $before
+   *   Its paths before.
+   */
+  private function assertEveryVerbAnswersHelp(string $root, array $before): void {
+    foreach ($this->dispatchableVerbs() as $verb) {
+      foreach (['help', '--help', '-h'] as $ask) {
+        $lines = [];
+        $sink = function (string $line) use (&$lines): void {
+          $lines[] = $line;
+        };
+        $code = (new ArgvDispatcher(
+          $sink,
+          $sink,
+          static fn (): string => '2026-10-21T00:00:00+00:00',
+          static fn (): string => 'run-help',
+        ))->dispatch([$verb, $ask, '--project=' . $root], $root);
+
+        $this->assertSame(0, $code, sprintf('`%s %s` is a help request', $verb, $ask));
+        $this->assertStringStartsWith('droost workflow:' . $verb, implode("\n", $lines), sprintf('`%s %s` names the verb', $verb, $ask));
+        $this->assertSame($before, $this->tree($root), sprintf('`%s %s` changed the project', $verb, $ask));
+      }
+    }
+  }
+
+  /**
+   * Every path under a directory, sorted.
+   *
+   * @param string $root
+   *   The directory.
+   *
+   * @return list<string>
+   *   The paths, relative to it.
+   */
+  private function tree(string $root): array {
+    $paths = [];
+    $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::SELF_FIRST);
+    foreach ($iterator as $file) {
+      if ($file instanceof \SplFileInfo) {
+        $paths[] = substr($file->getPathname(), strlen($root) + 1);
+      }
+    }
+    sort($paths);
+
+    return $paths;
+  }
+
 }

@@ -136,6 +136,17 @@ final class ArgvDispatcher {
       $this->usage();
       return $verb === '' ? self::EXIT_USAGE : self::EXIT_OK;
     }
+    // HELP BEFORE ANY VERB ACTS. `droost workflow:run help` opened a run: the
+    // verbs read their own arguments, `run` ignored a word it did not know,
+    // and the AGENTS block promises `droost <command> help` explains one (a
+    // live project, 2026-10-21: a reviewer looking up a flag opened a run).
+    // `help` as the first word, or `--help` / `-h` anywhere, answers here and
+    // touches nothing; a later bare `help` stays a value (an answer, a reason).
+    $rest = array_slice($argv, 1);
+    if (in_array($rest[0] ?? '', ['help', '--help', '-h'], TRUE)
+      || array_intersect($rest, ['--help', '-h']) !== []) {
+      return $this->verbHelp($verb);
+    }
 
     // `--project` on EVERY verb. When drush and MCP were doors too (until
     // 2026-10-19) they took one and this binary did not, so the same
@@ -1980,7 +1991,61 @@ final class ArgvDispatcher {
    * Prints how to use this.
    */
   private function usage(): void {
-    $this->say(<<<'TXT'
+    $this->say(self::usageText());
+  }
+
+  /**
+   * One verb's lines of the usage, for `<verb> help`.
+   *
+   * Read out of the usage text, so the two can never say different things. A
+   * verb listed more than once (`ticket`, `intake`: what the agent runs, and
+   * what is the operator's) gets every entry.
+   *
+   * @param string $verb
+   *   The verb asked about.
+   *
+   * @return int
+   *   The exit code: 0, or the usage code for a verb that does not exist.
+   */
+  private function verbHelp(string $verb): int {
+    $entries = [];
+    $current = NULL;
+    foreach (explode("\n", self::usageText()) as $line) {
+      if (preg_match('/^  (\S+)/', $line, $match) === 1) {
+        $current = $match[1] === $verb ? count($entries) : NULL;
+        if ($current !== NULL) {
+          $entries[$current] = [$line];
+        }
+        continue;
+      }
+      if ($current !== NULL && preg_match('/^   /', $line) === 1) {
+        $entries[$current][] = $line;
+        continue;
+      }
+      $current = NULL;
+    }
+    if ($entries === []) {
+      return $this->unknown($verb);
+    }
+    $this->say(sprintf('droost workflow:%s', $verb));
+    $this->say('');
+    foreach ($entries as $lines) {
+      $this->say(implode("\n", $lines));
+    }
+    $this->say('');
+    $this->say('--project=<path> works on every verb. `droost workflow:help` lists them all.');
+
+    return self::EXIT_OK;
+  }
+
+  /**
+   * The usage, as text.
+   *
+   * @return string
+   *   Every verb and what it does.
+   */
+  private static function usageText(): string {
+    return <<<'TXT'
     droost-workflow — the phased, gated pipeline, standalone.
 
       init             install the pack (AGENTS.md on every host, plus
@@ -2170,7 +2235,7 @@ final class ArgvDispatcher {
     has no lever file, so the run reports built-in defaults as though the
     project had none.
 
-    TXT);
+    TXT;
   }
 
   /**
