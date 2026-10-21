@@ -232,8 +232,9 @@ gates:
   # (block | report) and `timeout` (seconds, default 600).
   #
   # The verdict is the exit code: 0 passed, 1 failed, and the output is the
-  # gate's report. Anything else — a missing file, a crash, a timeout, exit 3
-  # or any other code — is recorded as NOT RUN, never as passed. The file's
+  # gate's report; 4 is "ran and examined nothing", recorded as a labelled
+  # pass. Anything else — a missing file, a crash, a timeout, exit 3 or any
+  # other code — is recorded as NOT RUN, never as passed. The file's
   # hash is frozen when a run begins, and the guard refuses an edit to it
   # while a run is under way. Uncomment to use:
   # gitleaks:     { phase: code, run: droost/gates/gitleaks.php, mode: report }

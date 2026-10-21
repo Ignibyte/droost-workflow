@@ -127,6 +127,32 @@ final class GateFileContractTest extends WorkflowTestCase {
   }
 
   /**
+   * Exit 4 is a gate file saying it ran and examined nothing (F-340).
+   *
+   * A file had no way to say so: exit 0 was a measured pass, so a lint over
+   * a project with no component read `passed`, and any other code read as
+   * not run, though the file ran and found nothing to read. Exit 4 is the
+   * labelled pass droost's own gates give an empty scope: a pass that the
+   * record says measured nothing.
+   */
+  public function testExitFourIsLabelledPass(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/gates', 0755, TRUE);
+    file_put_contents($root . '/droost/gates/g.php', '<?php echo "\ncomponent_lint examined nothing: the project has no custom SDC.\n"; exit(4);');
+    $result = $this->executor()->execute($this->gate('droost/gates/g.php'), $root);
+    $this->assertSame(GateStatus::Passed, $result->status);
+    $this->assertTrue($result->labelledPass, 'a pass that measured nothing says so');
+    $this->assertSame(4, $result->exitCode);
+    $this->assertStringContainsString('examined nothing: the project has no custom SDC', $result->summary, 'the file\'s own reason');
+    $this->assertTrue($result->toArray()['labelled'], 'the record carries it');
+
+    file_put_contents($root . '/droost/gates/g.php', '<?php echo "1 SDC meets the requirements.\n"; exit(0);');
+    $measured = $this->executor()->execute($this->gate('droost/gates/g.php'), $root);
+    $this->assertSame(GateStatus::Passed, $measured->status);
+    $this->assertFalse($measured->labelledPass, 'exit 0 is a measured pass');
+  }
+
+  /**
    * The verdict a gate file prints last is its summary, plain (F-317).
    *
    * The tool a gate file wraps prints first (gitleaks' coloured log, a

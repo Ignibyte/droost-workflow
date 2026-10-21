@@ -47,6 +47,14 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   public const EXIT_KILLED = 124;
 
   /**
+   * The exit code a project's gate file gives when it examined nothing.
+   *
+   * Read as a labelled pass (F-340): the file ran, and there was nothing for
+   * it to judge, which the record must not show as a measured pass.
+   */
+  public const EXIT_EXAMINED_NOTHING = 4;
+
+  /**
    * What counts as analysable, per gate that accepts a `paths` lever.
    *
    * Used only to tell "this path holds nothing for the tool" from "the tool
@@ -1940,7 +1948,10 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    * own process from the project root — `php <file>` for a .php file, the
    * file itself otherwise — with the run's JSON on stdin and
    * DROOST_PROJECT_ROOT and DROOST_GATE in its environment. Exit 0 passed,
-   * exit 1 failed, and the output is the gate's report. Anything else is the
+   * exit 1 failed, and the output is the gate's report. Exit 4 is the file
+   * saying it ran and examined nothing (no file it reads, nothing to check):
+   * a labelled pass, as droost's own gates give an empty scope, never a
+   * plain one (F-340). Anything else is the
    * gate saying it could not judge (exit 3 is how a gate says so on purpose):
    * a missing file, one that is not executable, a crash, a timeout or any
    * other exit is recorded as NOT RUN with its reason, never as passed — a
@@ -2031,6 +2042,15 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
           ? sprintf('%s passed — %s', $gate->name, self::lastLine($stdout !== '' ? $stdout : 'its file exited 0'))
           : sprintf('%s failed (exit 1): %s', $gate->name, self::lastLine($stdout !== '' ? $stdout : $stderr)),
         $findings,
+        $invocation,
+      );
+    }
+    if ($exit === self::EXIT_EXAMINED_NOTHING) {
+      return GateResult::labelledPass(
+        $gate->name,
+        $exit,
+        $elapsed,
+        sprintf('%s passed — it ran and examined nothing: %s', $gate->name, self::lastLine($stdout !== '' ? $stdout : 'its file exited 4')),
         $invocation,
       );
     }
