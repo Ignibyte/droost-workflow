@@ -17,7 +17,8 @@
  *   D3  each pair: the same typeface, size within 2px, weight within 100, the
  *       same case as rendered; every heading, and 95% of the rest
  *   D4  each pair: text colour and the colour it sits on within 12 (CIE76)
- *   D5  each pair: x within 16px, width within 15% (or 24px), and y within
+ *   D5  each pair: x within 16px, width within 15% (or 24px), of the text
+ *       itself when both readings carry its extent (F-349), and y within
  *       24px of where it sits below its section's heading
  *   D6  the header's links: the same labels and targets, in order; a target
  *       is where the link goes, not how it is spelled (F-258): a page of the
@@ -287,15 +288,32 @@ async function read(browser, url, width, clock = null) {
       if (after) s += (s ? ' ' : '') + after;
       return s.replace(/\s+/g, ' ').trim();
     };
+    // A button input shows its value, and has no text node to read (F-349).
+    const isButton = (el) => el.tagName === 'INPUT' && ['submit', 'button', 'reset'].includes((el.type || '').toLowerCase());
+    // The text's own extent, which D5 holds when both readings carry it
+    // (F-349): a block element is as wide as its column whatever its text.
+    const textBox = (el) => {
+      let left = Infinity; let right = -Infinity;
+      for (const n of el.childNodes) {
+        if (n.nodeType !== 3 || !n.textContent.trim()) continue;
+        const range = document.createRange();
+        range.selectNodeContents(n);
+        for (const rr of range.getClientRects()) {
+          if (rr.width > 0) { left = Math.min(left, rr.left); right = Math.max(right, rr.right); }
+        }
+      }
+      return left === Infinity ? {} : { tx: Math.round(left + scrollX), tw: Math.round(right - left) };
+    };
     const texts = [];
     for (const el of document.body.querySelectorAll('*')) {
       if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'PATH', 'TEMPLATE'].includes(el.tagName)) continue;
-      const own = ownText(el);
+      const own = isButton(el) ? (el.value || '').replace(/\s+/g, ' ').trim() : ownText(el);
       if (!own || !visible(el)) continue;
       const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
       texts.push({
         tag: el.tagName.toLowerCase(), text: own,
         x: Math.round(r.left + scrollX), y: Math.round(r.top + scrollY), w: Math.round(r.width), h: Math.round(r.height),
+        ...textBox(el),
         font: s.fontFamily.split(',')[0].replace(/["']/g, '').trim(), size: px(s.fontSize), weight: Number(s.fontWeight),
         transform: s.textTransform, color: s.color, ground: ground(el),
         link: el.closest('a') ? el.closest('a').getAttribute('href') : null,
@@ -532,8 +550,12 @@ function judge(reference, site, scope, aside = new Set()) {
     // that much higher, and no lower than it always could.
     const lift = setAside.filter((a) => region(a) === r && a.y >= base[0] && a.y + a.h <= d.y).reduce((n, a) => n + a.space, 0);
     const why = [];
-    if (Math.abs(d.x - s.x) > 16) why.push(`x ${s.x} for ${d.x}`);
-    if (Math.abs(d.w - s.w) > Math.max(24, 0.15 * d.w)) why.push(`width ${s.w} for ${d.w}`);
+    // The text's own extent when both readings carry it (F-349), its box
+    // otherwise: a reference read before keeps the measure it was read with.
+    const own = Number.isFinite(d.tx) && Number.isFinite(s.tx);
+    const [dX, dW, sX, sW] = own ? [d.tx, d.tw, s.tx, s.tw] : [d.x, d.w, s.x, s.w];
+    if (Math.abs(dX - sX) > 16) why.push(`x ${sX} for ${dX}`);
+    if (Math.abs(dW - sW) > Math.max(24, 0.15 * dW)) why.push(`width ${sW} for ${dW}`);
     if (sy > dy + 24 || sy < dy - lift - 24) why.push(`${sy}px below its heading for ${dy}` + (lift ? ` (${lift}px set aside above it)` : ''));
     else if (lift && Math.abs(dy - sy) > 24) { liftedPairs++; liftedMost = Math.max(liftedMost, lift); }
     if (why.length) bad5.push(show(d) + ': ' + why.join(', '));

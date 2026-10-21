@@ -108,6 +108,23 @@ test('the site judged is the project\'s before the environment\'s, and says wher
   assert.equal(parity.siteBase({}, env, root).base, `https://${path.basename(root).toLowerCase().replace(/[^a-z0-9-]/g, '-')}.ddev.site`, 'with no name, DDEV names the project after its directory');
 });
 
+// F-349: D5 held an element's box, not its text. A block-level <label> is as
+// wide as its column, so KCH-A's contact form failed D5 on four labels whose
+// text sits exactly where the design's does (width 281 for 45).
+test('D5 holds a text\'s own extent when both readings carry it, its box otherwise', () => {
+  const label = (w, tw) => ({ text: 'Name', tag: 'label', x: 40, y: 200, w, h: 20, tx: 40, tw, font: 'Inter', size: 14, weight: 500, transform: 'none', color: 'rgb(31, 41, 55)', ground: 'rgb(255, 255, 255)', inHeader: false, inFooter: false });
+  const head = { text: 'Contact', tag: 'h2', x: 40, y: 100, w: 300, h: 30, tx: 40, tw: 120, font: 'Oswald', size: 30, weight: 700, transform: 'uppercase', color: 'rgb(31, 41, 55)', ground: 'rgb(255, 255, 255)', inHeader: false, inFooter: false };
+  const ref = { ...reading('http://localhost:5199/contact', []), texts: [head, label(45, 45)] };
+  const site = { ...reading('https://club.ddev.site/contact', []), texts: [head, label(281, 45)] };
+  const d5 = (rows) => rows.find((r) => r.id === 'D5');
+  assert.equal(d5(parity.judge(ref, site, 'page')).verdict, 'PASS', 'the same text in a wider box is the same text');
+  const moved = { ...site, texts: [head, { ...label(281, 45), tx: 120 }] };
+  assert.equal(d5(parity.judge(ref, moved, 'page')).verdict, 'FAIL', 'text that moved 80px still fails');
+  const old = (t) => { const { tx, tw, ...rest } = t; return rest; };
+  const refOld = { ...ref, texts: ref.texts.map(old) };
+  assert.equal(d5(parity.judge(refOld, site, 'page')).verdict, 'FAIL', 'a reference read before has boxes only, and is judged on boxes');
+});
+
 test('a header link set aside by decision leaves D6 too', () => {
   const ref = reading('http://localhost:4323/', [['Internet', '/internet.html'], ['Spanish', '#']]);
   const site = reading('https://united.ddev.site/', [['Internet', '/internet']]);
