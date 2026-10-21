@@ -486,6 +486,25 @@ function siteBase(opt, env, cwd) {
   return { base: '', from: '' };
 }
 
+/**
+ * Why the reference cannot be judged here, or '' (F-351).
+ *
+ * A page lays out differently in another platform's browser: KCH-A's home
+ * ticker failed D5 in DDEV's Linux container and passed on the macOS host it
+ * was read on, and the run chose where to judge. The judge holds the site
+ * where the reference was read; a reference that does not say where is judged
+ * as it always was.
+ *
+ * @param {object} manifest the reference's manifest.
+ * @param {string} platform where this judge runs (process.platform).
+ * @returns {string}
+ */
+function readOnElsewhere(manifest, platform) {
+  const at = manifest && manifest.read_on && manifest.read_on.platform;
+  if (!at || at === platform) return '';
+  return `the reference was read on ${at} (${manifest.read_on.browser || 'browser unrecorded'}) and this judge runs on ${platform}: the same page lays out differently in another platform's browser, so nothing was judged. Judge where the reference was read, or capture it again where the gate runs`;
+}
+
 function judge(reference, site, scope, aside = new Set()) {
   // A text set aside takes its space with it (F-343): what sat below it in its
   // column moves up on a site that leaves it out. Its space is its height and
@@ -652,6 +671,7 @@ async function capture(opt) {
   const { chromium } = playwright();
   fs.mkdirSync(out, { recursive: true });
   const browser = await chromium.launch({ args: ['--disable-blink-features=AutomationControlled'] });
+  const readWith = browser.version();
   const captured = [];
   const specs = routes.map(routeSpec);
   const readings = [];
@@ -686,7 +706,9 @@ async function capture(opt) {
     finish({ status: 'invalid', summary: `the source declares ${refused.map(([f, n]) => `${f} (on ${n} texts)`).join(', ')} and never draws ${refused.length === 1 ? 'it' : 'them'}: a reference read now measures a fallback face. Make the source load ${refused.length === 1 ? 'it' : 'them'} (a decided copy, if the client chose ${refused.length === 1 ? 'the face' : 'the faces'}), or capture as it is with --accept-unloaded "${refused.map(([f]) => f).join(',')}", which the manifest records. Nothing was written.`, routes: captured, unloaded: Object.fromEntries(refused) }, EXIT.invalid);
   }
   for (const { file, reading } of readings) fs.writeFileSync(path.join(out, file), JSON.stringify(reading, null, 1));
-  const manifest = { source, width, routes: specs.map((x) => x.route), captured_at: new Date().toISOString() };
+  // Where it was read (F-351): the same page lays out differently in another
+  // platform's browser, so the judge holds the site where the reference was read.
+  const manifest = { source, width, routes: specs.map((x) => x.route), captured_at: new Date().toISOString(), read_on: { platform: process.platform, browser: readWith } };
   if (undrawn.size) manifest.acceptedUnloaded = Object.fromEntries(undrawn);
   const moved = specs.filter((x) => x.from !== x.route);
   if (moved.length) manifest.from = Object.fromEntries(moved.map((x) => [x.route, x.from]));
@@ -740,6 +762,8 @@ async function judgeCommand(opt) {
   if (decided.error) finish({ status: 'invalid', summary: decided.error }, EXIT.invalid);
   const aside = decided.entries;
   const against = manifest.source ? ` against ${manifest.source}` + (manifest.captured_at ? ` (captured ${manifest.captured_at})` : '') : '';
+  const elsewhere = readOnElsewhere(manifest, process.platform);
+  if (elsewhere) finish({ status: 'invalid', summary: elsewhere }, EXIT.invalid);
   const { chromium } = playwright();
   const browser = await chromium.launch({ args: ['--disable-blink-features=AutomationControlled'] });
   const results = [];
@@ -777,4 +801,4 @@ if (require.main === module) {
     .catch((e) => finish({ status: 'invalid', summary: 'the runner failed: ' + String(e && e.message || e).slice(0, 300) }, EXIT.invalid));
 }
 
-module.exports = { siteBase, linkTarget, judge, readDecided, asideFor, read, routeSpec, facesInPage, liveTexts };
+module.exports = { readOnElsewhere, siteBase, linkTarget, judge, readDecided, asideFor, read, routeSpec, facesInPage, liveTexts };

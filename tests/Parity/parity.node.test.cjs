@@ -129,6 +129,15 @@ test('D5 holds a text\'s own extent when both readings carry it, its box otherwi
   assert.equal(d5(parity.judge(refOld, site, 'page')).verdict, 'FAIL', 'a reference read before has boxes only, and is judged on boxes');
 });
 
+// F-351: KCH-A's home page failed D5 in DDEV's Linux container and passed on
+// the macOS host the reference was read on; the run chose where to judge.
+test('a reference read on one platform is not judged on another', () => {
+  const read = { read_on: { platform: 'darwin', browser: '156.0' } };
+  assert.equal(parity.readOnElsewhere(read, 'darwin'), '', 'where it was read');
+  assert.match(parity.readOnElsewhere(read, 'linux'), /read on darwin \(156\.0\) and this judge runs on linux/);
+  assert.equal(parity.readOnElsewhere({}, 'linux'), '', 'a reference that does not say where is judged as it was');
+});
+
 test('a header link set aside by decision leaves D6 too', () => {
   const ref = reading('http://localhost:4323/', [['Internet', '/internet.html'], ['Spanish', '#']]);
   const site = reading('https://united.ddev.site/', [['Internet', '/internet']]);
