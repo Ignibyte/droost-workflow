@@ -9,8 +9,9 @@ namespace Droost\Workflow\Gate;
  *
  * Eight words, and the ones that mean "it did not run" or "it did not block"
  * are deliberately not one word. A gate the lever file turned off is a choice
- * someone made; a gate whose tool is not installed is a broken setup; a gate that found problems in report mode is a finding nobody may
- * mistake for a pass. Same absence of a blocking result, opposite meanings —
+ * someone made; a gate whose tool is not installed is a broken setup; a gate
+ * that found problems in report mode is a finding nobody may mistake for a
+ * pass. Same absence of a blocking result, opposite meanings —
  * collapsing them is how "fast mode" and "nothing was checked" become
  * indistinguishable in a report, which is the failure this whole package
  * exists to prevent.
