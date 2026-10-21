@@ -130,7 +130,15 @@ final class HouseRulesCheck {
       }
       $total += count($files);
       $read[] = sprintf('%s read %d added file(s)', $id, count($files));
-      foreach (self::breaks(self::text($rule['check'] ?? NULL, ''), $files, $projectRoot) as $file => $why) {
+      // Timed, and never under a millisecond when it read a file (F-347): a
+      // built-in check runs in-process in microseconds, and `duration_ms: 0`
+      // is what the record reads as "the tool never spawned".
+      $started = hrtime(TRUE);
+      $breaks = self::breaks(self::text($rule['check'] ?? NULL, ''), $files, $projectRoot);
+      if ($files !== []) {
+        $elapsed += max(1, (int) ceil((hrtime(TRUE) - $started) / 1_000_000));
+      }
+      foreach ($breaks as $file => $why) {
         $findings[] = [
           'file' => $file,
           'line' => 0,
