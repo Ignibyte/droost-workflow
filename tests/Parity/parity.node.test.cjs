@@ -66,6 +66,26 @@ test('a text set aside by decision is left out of the reference, and only that t
   assert.equal(d2(parity.judge(ref, lost, 'page', new Set(['learn more']))).verdict, 'FAIL', 'a text no decision names is still held');
 });
 
+// F-343: a text set aside takes its space with it. KCH-A run 2 met it: the
+// client left the placeholder phone off (Q7), the gate left the phone out of
+// the reference, and the copyright line below it, 40px higher on the site
+// because the phone's row is gone, failed D5 against where it sat beside it.
+test('the texts below a set-aside text are judged without the space it took (D5)', () => {
+  const ref = page('http://localhost:5199/', [['Contact', 'h3', 100], ['info@club.example', 'a', 140], ['(816) 555-0199', 'a', 180], ['© 2026 The Club.', 'p', 300]]);
+  const lifted = page('https://club.ddev.site/', [['Contact', 'h3', 100], ['info@club.example', 'a', 140], ['© 2026 The Club.', 'p', 260]]);
+  const d5 = (rows) => rows.find((r) => r.id === 'D5');
+  const aside = new Set(['(816) 555-0199']);
+  const pass = d5(parity.judge(ref, lifted, 'page', aside));
+  assert.equal(pass.verdict, 'PASS', JSON.stringify(pass));
+  assert.match(pass.said, /1 pair\(s\) judged without the 40px of texts set aside above them/);
+  // The space is the set-aside text's, and no more: 100px higher still fails.
+  const far = page('https://club.ddev.site/', [['Contact', 'h3', 100], ['info@club.example', 'a', 140], ['© 2026 The Club.', 'p', 200]]);
+  assert.equal(d5(parity.judge(ref, far, 'page', aside)).verdict, 'FAIL', 'the allowance is the space set aside, not a blank cheque');
+  // A text above the set-aside one is judged as it always was.
+  const moved = page('https://club.ddev.site/', [['Contact', 'h3', 100], ['info@club.example', 'a', 100], ['© 2026 The Club.', 'p', 260]]);
+  assert.equal(d5(parity.judge(ref, moved, 'page', aside)).verdict, 'FAIL', 'only what sits below the set-aside text is lifted');
+});
+
 test('a header link set aside by decision leaves D6 too', () => {
   const ref = reading('http://localhost:4323/', [['Internet', '/internet.html'], ['Spanish', '#']]);
   const site = reading('https://united.ddev.site/', [['Internet', '/internet']]);

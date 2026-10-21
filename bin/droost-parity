@@ -437,6 +437,14 @@ function matchingBlocks(a, b) {
 }
 
 function judge(reference, site, scope, aside = new Set()) {
+  // A text set aside takes its space with it (F-343): what sat below it in its
+  // column moves up on a site that leaves it out. Its space is its height and
+  // the gap above it, read from the reference text nearest above it in its
+  // column (the same x, within 16px).
+  const setAside = (reference.texts || []).filter((e) => aside.has(norm(e.text))).map((a) => {
+    const above = (reference.texts || []).filter((e) => e !== a && Math.abs(e.x - a.x) <= 16 && e.y + e.h <= a.y).sort((p, q) => q.y + q.h - (p.y + p.h))[0];
+    return { ...a, space: a.h + (above ? a.y - (above.y + above.h) : 0) };
+  });
   let D = (reference.texts || []).filter((e) => !aside.has(norm(e.text))); let S = site.texts || [];
   if (aside.size) reference = { ...reference, navLinks: (reference.navLinks || []).filter((a) => !aside.has(norm(a.text || ''))) };
   if (['frame', 'header', 'footer'].includes(scope)) {
@@ -486,20 +494,25 @@ function judge(reference, site, scope, aside = new Set()) {
   else row('D4', ok && pairs.length > 0, said + (bad4.length ? '; ' + bad4.slice(0, 8).join('; ') : ''));
   const region = (e) => (e.inFooter ? 'footer' : e.inHeader ? 'header' : 'main');
   const tops = { header: [(reference.header || {}).y || 0, (site.header || {}).y || 0], footer: [(reference.footer || {}).y || 0, (site.footer || {}).y || 0] };
-  const last = {}; const bad5 = [];
+  const last = {}; const bad5 = []; let liftedPairs = 0; let liftedMost = 0;
   for (const [d, s] of pairs) {
     const r = region(d);
     if (['h1', 'h2', 'h3'].includes(d.tag)) last[r] = [d.y, s.y];
     const base = last[r] || tops[r] || last.main || [0, 0];
     const dy = d.y - base[0]; const sy = s.y - base[1];
+    // The space set aside between its heading and it: the site may hold it
+    // that much higher, and no lower than it always could.
+    const lift = setAside.filter((a) => region(a) === r && a.y >= base[0] && a.y + a.h <= d.y).reduce((n, a) => n + a.space, 0);
     const why = [];
     if (Math.abs(d.x - s.x) > 16) why.push(`x ${s.x} for ${d.x}`);
     if (Math.abs(d.w - s.w) > Math.max(24, 0.15 * d.w)) why.push(`width ${s.w} for ${d.w}`);
-    if (Math.abs(dy - sy) > 24) why.push(`${sy}px below its heading for ${dy}`);
+    if (sy > dy + 24 || sy < dy - lift - 24) why.push(`${sy}px below its heading for ${dy}` + (lift ? ` (${lift}px set aside above it)` : ''));
+    else if (lift && Math.abs(dy - sy) > 24) { liftedPairs++; liftedMost = Math.max(liftedMost, lift); }
     if (why.length) bad5.push(show(d) + ': ' + why.join(', '));
   }
   [ok, said] = share(bad5, pairs.length, 0.95);
-  row('D5', ok && pairs.length > 0, said + (bad5.length ? '; ' + bad5.slice(0, 8).join('; ') : ''));
+  const liftSaid = liftedPairs ? `; ${liftedPairs} pair(s) judged without the ${liftedMost}px of texts set aside above them` : '';
+  row('D5', ok && pairs.length > 0, said + liftSaid + (bad5.length ? '; ' + bad5.slice(0, 8).join('; ') : ''));
   const links = (r) => (r.navLinks || []).map((a) => [norm(a.text), linkTarget(a.href, r.url)]);
   const dn = links(reference); const sn = links(site);
   if (scope !== 'footer') row('D6', JSON.stringify(dn) === JSON.stringify(sn) && dn.length > 0, `reference ${dn.length} links, site ${sn.length}` + (JSON.stringify(dn) === JSON.stringify(sn) ? '' : `; reference ${JSON.stringify(dn)}; site ${JSON.stringify(sn)}`));

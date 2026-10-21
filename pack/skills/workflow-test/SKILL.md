@@ -187,8 +187,8 @@ When a ticket rebuilds a source (a design, or a site being replaced), the
 reference in `droost/parity/` it passes labelled, having compared nothing.
 
 ```bash
-vendor/bin/droost-parity judge                               # every route, as the reference holds it
-vendor/bin/droost-parity judge --scope frame --pages /       # the frame everywhere, / whole
+tools/droost/vendor/bin/droost-parity judge                             # every route, as the reference holds it
+tools/droost/vendor/bin/droost-parity judge --scope frame --pages /       # the frame everywhere, / whole
 ```
 
 Run it with the scope and pages the gate's levers name (`status` shows them
@@ -205,7 +205,7 @@ one that should be, is the operator's to change before a run, never yours
 during one. A capture refuses a source whose declared typeface is
 never drawn; a reference is only ever read in the faces the source shows. A view fails on the first
 of D1 to D7 it misses, and the finding says which elements; run it as the
-gate does, where the phase runs (on DDEV, `ddev exec vendor/bin/droost-parity
+gate does, where the phase runs (on DDEV, `ddev exec tools/droost/vendor/bin/droost-parity
 judge`).
 
 ## Fill `Verified By`

@@ -734,9 +734,11 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   when every configured path holds nothing the tool reads.
    */
   private function prepare(GateSettings $gate, string $root): array {
-    $binary = $gate->name === 'wiki_fresh'
-      ? ($this->droost ?? self::droostBinary($root))
-      : $root . '/' . $this->binaryFor($gate->name);
+    $binary = match ($gate->name) {
+      'wiki_fresh' => $this->droost ?? self::droostBinary($root),
+      'parity' => self::parityBinary($root),
+      default => $root . '/' . $this->binaryFor($gate->name),
+    };
     $argv = $this->argvFor($gate, $binary, $root);
     // NULL when the gate carries no paths lever (the tool discovers the
     // repo's own config); a list otherwise — possibly empty, see below.
@@ -852,6 +854,26 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   }
 
   /**
+   * The parity runner: the project's, else this package's own (F-344).
+   *
+   * The droost command installs in its own vendor directory
+   * (`tools/droost/`), so a project has no `vendor/bin/droost-parity` and the
+   * gate read "could not run" on every run. The runner ships in this package,
+   * as droost does.
+   *
+   * @param string $root
+   *   The project root.
+   *
+   * @return string
+   *   The absolute path.
+   */
+  public static function parityBinary(string $root): string {
+    $project = $root . '/vendor/bin/droost-parity';
+
+    return is_file($project) ? $project : dirname(__DIR__, 2) . '/bin/droost-parity';
+  }
+
+  /**
    * Runs a gate, against the whole tree or against a baseline.
    *
    * @param \Droost\Workflow\Config\GateSettings $gate
@@ -945,7 +967,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         0,
         0,
         sprintf(
-          'parity passed — no reference in %s, so no page was compared (capture one with `vendor/bin/droost-parity capture --source <url> --routes /,…`)',
+          'parity passed — no reference in %s, so no page was compared (capture one with `tools/droost/vendor/bin/droost-parity capture --source <url> --routes /,…`)',
           self::parityReference($gate),
         ),
         $invocation,
@@ -1413,10 +1435,10 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     if ($summary === NULL && $exit === 127) {
       // The runner is a Node script: no Node, and the shell says 127 before
       // the runner can say anything. The same honesty as a missing browser.
-      return GateResult::ran($gate->name, GateStatus::Reported, $exit, $elapsed, 'parity could not run: no Node to run vendor/bin/droost-parity with, so no page was compared', [], $invocation);
+      return GateResult::ran($gate->name, GateStatus::Reported, $exit, $elapsed, 'parity could not run: no Node to run droost-parity with, so no page was compared', [], $invocation);
     }
     if ($summary === NULL) {
-      return GateResult::toolFailed($gate->name, $exit, 'the runner printed no verdict', 'run `vendor/bin/droost-parity judge` in the project root to see why', $invocation);
+      return GateResult::toolFailed($gate->name, $exit, 'the runner printed no verdict', 'run `droost-parity judge` (tools/droost/vendor/bin/droost-parity) in the project root to see why', $invocation);
     }
     $said = is_string($summary['summary'] ?? NULL) ? $summary['summary'] : '';
     $routes = is_array($summary['routes'] ?? NULL) ? $summary['routes'] : [];

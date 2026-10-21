@@ -619,10 +619,16 @@ final class WorkflowFacade {
       $under = $gate->option('root');
       $under = is_string($under) && trim($under, '/') !== '' ? trim($under, '/') . '/' : '';
       $binary = $under . ShellGateExecutor::binaryPathFor($name);
+      $present = is_file($root . '/' . $binary);
+      if ($name === 'parity' && !$present) {
+        // The runner ships in droost's own package (F-344).
+        $binary = ShellGateExecutor::parityBinary($root);
+        $present = is_file($binary);
+      }
       $row = [
         'on' => $gate->on,
         'binary' => $binary,
-        'present' => is_file($root . '/' . $binary),
+        'present' => $present,
       ];
       if ($name === 'phpunit' || $name === 'coverage') {
         $row['suite_config'] = is_file($root . '/' . $under . 'phpunit.xml')
