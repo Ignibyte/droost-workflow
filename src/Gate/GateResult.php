@@ -345,34 +345,6 @@ final class GateResult {
   }
 
   /**
-   * Why a gate that asks droost or a site did not run, when nothing answered.
-   */
-  public const NO_SITE = 'nothing answered it here (its tool is not installed, or the site it asks is down) — the gate did not run, and it is not a pass';
-
-  /**
-   * A gate that needs a booted site when there is none.
-   *
-   * @param string $gate
-   *   The gate name.
-   * @param string $reason
-   *   Why no site was available.
-   *
-   * @return self
-   *   The result.
-   */
-  public static function skippedNoSite(
-    string $gate,
-    string $reason = self::NO_SITE,
-  ): self {
-    return new self(
-      $gate,
-      GateStatus::SkippedNoSite,
-      summary: 'not run — ' . $reason,
-      skipReason: $reason,
-    );
-  }
-
-  /**
    * A gate whose tool is not installed.
    *
    * ONE SENTENCE FOR FOUR DIFFERENT FAULTS. This constructor is the only way

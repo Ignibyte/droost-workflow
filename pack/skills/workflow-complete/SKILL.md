@@ -145,7 +145,6 @@ to each one. None of these outcomes is interchangeable with another:
 | passed | the gate ran and the artefact satisfied it (a labelled pass examined nothing, and says so) |
 | failed | the gate ran and the artefact did not |
 | reported | the gate ran in `report` mode and found problems; the phase advanced — **not a pass** |
-| skipped, no site | the gate could not run — **this is not a pass** |
 | tool missing, or could not run | the gate was enabled and its tool was not installed, or crashed before it judged anything |
 | waived | the operator waived it for this run, with a reason — **not a pass** |
 | off | the preset (or the lever file) turned the gate off — **not a pass** either; name the level that decided it |

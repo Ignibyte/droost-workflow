@@ -133,7 +133,7 @@ class PhaseReportTest extends TestCase {
         [['file' => 'a.php']],
         'vendor/bin/phpcs -q',
       ))
-      ->with(GateResult::skippedNoSite('rendered_check'))
+      ->with(new GateResult('rendered_check', GateStatus::SkippedNoSite))
       ->with(GateResult::off('mutation'))
       ->with(GateResult::toolMissing('phpstan', 'vendor/bin/phpstan analyse'));
 
@@ -183,21 +183,6 @@ class PhaseReportTest extends TestCase {
 
     $this->assertSame('passed', $row['status']);
     $this->assertTrue($row['labelled']);
-  }
-
-  /**
-   * A skip always carries the reason it was skipped.
-   */
-  public function testSkipsCarryTheirReason(): void {
-    $result = GateResult::skippedNoSite('wiki_fresh');
-
-    // Asserted through the constant rather than a copy of its text: this
-    // string reaches the CLI's output, run.json and the report, and a test
-    // holding its own copy just means the wording drifts in two places.
-    $this->assertSame(GateResult::NO_SITE, $result->skipReason);
-    $this->assertStringContainsString('not run', $result->summary);
-    // And it says what the absence is NOT: a pass.
-    $this->assertStringContainsString('not a pass', (string) $result->skipReason);
   }
 
   /**

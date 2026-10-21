@@ -46,9 +46,10 @@ phase" both hold, and each has a class you can point at:
 
 1. **Config and run state readable without Drupal** — `droost.workflow.yml` at
    the repo root, run state in `.droost-workflow/run.json` beside it.
-2. **The gate set degrades honestly** — `Gate\NullSiteDriver` is the whole
-   answer: a run with no booted site records `skipped, no site` per gate
-   instead of passing.
+2. **The gate set degrades honestly** — a gate that could not run records
+   why (`error-tool-missing`, `error-tool-failed`, which block) instead of
+   passing. (`NullSiteDriver` and its `skipped, no site` left with the
+   Drupal site, 2026-10-21.)
 
 ## Where it sits
 

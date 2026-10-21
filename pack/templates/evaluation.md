@@ -108,7 +108,7 @@ A green is not a measurement. Classify every one.
 | playwright `passed`, empty suite | no — and **unlabeled** below `max` |
 | `off — by preset <level>` | no — honest, not a pass |
 | `off — by the lever file` | no — the repo disarmed it |
-| `skipped-no-site` | no — `wiki_fresh`'s command could not run |
+| `skipped-no-site` | no — retired 2026-10-21; only a record written before reads it |
 | `error-tool-missing` | no — **blocks**; a project gate file that is missing or could not start |
 | `error-tool-failed` | no — crashed, timed out, or a project gate file exited anything but 0 or 1 |
 | `reported` | a finding that did not block |

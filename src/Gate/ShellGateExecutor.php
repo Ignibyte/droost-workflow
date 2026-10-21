@@ -239,17 +239,6 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   }
 
   /**
-   * Shell gates whose tool being absent means "not run", not "broken setup".
-   *
-   * The wiki_fresh gate asks droost itself; a checkout without it reports
-   * the gate not run with its reason, because `skipped-no-site` lets a phase
-   * advance and `error-tool-missing` does not.
-   *
-   * @var list<string>
-   */
-  private const array SITE_SHELL_GATES = ['wiki_fresh'];
-
-  /**
    * Constructs a ShellGateExecutor.
    *
    * @param callable(list<string>, string, int): array{int, string, string} $runner
@@ -975,15 +964,11 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     }
 
     if (!is_file($prepared['binary'])) {
-      // A gate whose tool is droost itself, asked where droost is not
-      // installed. As `toolMissing` it BLOCKED, at complete,
-      // which is the last phase; levers freeze at begin so turning it off then
-      // does not help; and the only way out was `reset --force` and redoing
-      // three phases. No standalone run could finish at the levers `init`
-      // itself writes.
-      if (in_array($gate->name, self::SITE_SHELL_GATES, TRUE)) {
-        return GateResult::skippedNoSite($gate->name);
-      }
+      // wiki_fresh's tool is droost itself, which falls back on its own
+      // binary (droostBinary()), so an absent one is a broken install: it
+      // blocks like any gate whose tool is missing. It used to read
+      // `skipped-no-site` and let the phase advance unmeasured; that status
+      // left with the Drupal site it named (2026-10-21).
       // PLAYWRIGHT IS THE ONE EXCEPTION, and it is a deliberate one. Since
       // the browser check moved from a Playwright MCP call to a committed
       // spec file, this gate is ON at every preset — a run must leave a
@@ -1012,6 +997,13 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
           . '`npm i -D @playwright/test && npx playwright install chromium`.',
           [],
           $invocation,
+        );
+      }
+      if ($gate->name === 'wiki_fresh') {
+        return GateResult::toolMissing(
+          $gate->name,
+          $invocation,
+          'droost is not where this gate looked for it, so the wiki was not read. Reinstall droost (`composer install -d tools/droost`), then the phase again; if that cannot be done now, the OPERATOR can waive the gate from a terminal (`droost workflow:gate-waive wiki_fresh "<reason>"`).',
         );
       }
       // A missing tool outranks an empty scope: the environment being broken
@@ -1225,12 +1217,17 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     }
 
     // `droost code:wiki status` exits 3 when it could not run (no project it
-    // can read, an index it cannot open): the gate did not run, and that is
-    // recorded with its reason, never as a pass or as a stale wiki.
-    if (in_array($gate->name, self::SITE_SHELL_GATES, TRUE) && $exit === 3) {
-      return GateResult::skippedNoSite(
+    // can read, an index it cannot open): the gate did not run. That is a
+    // broken environment, and it blocks like any gate that could not measure,
+    // never a pass or a stale wiki. It used to read `skipped-no-site`, which
+    // let the phase advance with the wiki unread (2026-10-21).
+    if ($gate->name === 'wiki_fresh' && $exit === 3) {
+      return GateResult::toolFailed(
         $gate->name,
-        'droost code:wiki status could not run (exit 3): ' . self::firstLine($stderr !== '' ? $stderr : $stdout),
+        $exit,
+        'droost code:wiki status: ' . self::firstLine($stderr !== '' ? $stderr : $stdout),
+        'run `droost code:index` (and `droost doctor` to see what droost cannot read), then the phase again; the wiki was not read, so this is not a pass. If the environment cannot be fixed now, the OPERATOR can waive the gate from a terminal (`droost workflow:gate-waive wiki_fresh "<reason>"`).',
+        $invocation,
       );
     }
 

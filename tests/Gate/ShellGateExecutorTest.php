@@ -1531,21 +1531,13 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
-   * No droost means nothing to ask, not a broken environment.
+   * No droost is a broken install, and it blocks; with droost the gate runs.
    *
-   * `wiki_fresh` runs `droost code:wiki status`. On a checkout with no droost
-   * it reported `error-tool-missing`, which BLOCKS — at `complete`, the last
-   * phase, with levers frozen since `begin` so turning it off no longer helps.
-   * The only way out was `reset --force` and redoing three phases, so no
-   * standalone run could finish at the levers `init` itself writes.
-   *
-   * The first fix moved the gate into `GateRunner::SITE_GATES`, which
-   * dispatches to the site driver — and `DrupalSiteDriver::supports()` names
-   * three gates, so on a REAL site it became `toolMissing` there instead. The
-   * same wall, moved onto the surface a real run uses. Both halves are asserted
-   * here so neither can come back.
+   * It used to read `skipped-no-site`, which let the phase advance with the
+   * wiki unread: a broken environment rendered as an ordinary fact. That
+   * status left with the Drupal site it named (2026-10-21).
    */
-  public function testWikiFreshSkipsWithoutDroostAndRunsWithIt(): void {
+  public function testWikiFreshBlocksWithoutDroostAndRunsWithIt(): void {
     $bare = $this->makeRoot();
     $executor = new ShellGateExecutor(
       static fn (array $argv): array => [0, '', ''],
@@ -1554,14 +1546,11 @@ class ShellGateExecutorTest extends WorkflowTestCase {
     );
 
     $absent = $executor->execute(new GateSettings('wiki_fresh', TRUE), $bare);
-    $this->assertSame(GateStatus::SkippedNoSite, $absent->status);
-    $this->assertFalse(
-      $absent->status->blocksAdvance(),
-      'a checkout with no site must still be able to finish a run',
-    );
+    $this->assertSame(GateStatus::ErrorToolMissing, $absent->status);
+    $this->assertTrue($absent->status->blocksAdvance(), 'a wiki nobody read is not a pass');
+    $this->assertStringContainsString('gate-waive wiki_fresh', (string) $absent->remedy);
 
-    // And where drush IS present the gate really runs, rather than having been
-    // quietly switched off by the fix for the case above.
+    // And where droost IS present the gate really runs.
     $withDrush = $this->rootWithBinaries(['droost']);
     $spawned = NULL;
     $running = new ShellGateExecutor(
@@ -1582,13 +1571,13 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
-   * The wiki command that could not run is not run, never a pass.
+   * The wiki command that could not run blocks, never a pass.
    *
    * Exit 3 is the command saying it could not read the project: the gate
-   * records that with the command's own reason, and the phase may advance
-   * over it as it may over any gate that did not run.
+   * records that with the command's own reason, and the phase holds until
+   * droost can read it or the operator waives the gate.
    */
-  public function testWikiFreshCouldNotRunIsNotRun(): void {
+  public function testWikiFreshCouldNotRunBlocks(): void {
     $root = $this->rootWithBinaries(['droost']);
     $executor = new ShellGateExecutor(
       static fn (array $argv): array => [3, '', "the code index cannot be opened\n"],
@@ -1597,9 +1586,11 @@ class ShellGateExecutorTest extends WorkflowTestCase {
 
     $result = $executor->execute(new GateSettings('wiki_fresh', TRUE), $root);
 
-    $this->assertSame(GateStatus::SkippedNoSite, $result->status);
-    $this->assertFalse($result->status->isPass());
-    $this->assertStringContainsString('the code index cannot be opened', (string) $result->skipReason);
+    $this->assertSame(GateStatus::ErrorToolFailed, $result->status);
+    $this->assertTrue($result->status->blocksAdvance());
+    $this->assertSame(3, $result->exitCode);
+    $this->assertStringContainsString('the code index cannot be opened', $result->summary);
+    $this->assertStringContainsString('droost code:index', (string) $result->remedy);
   }
 
   /**
