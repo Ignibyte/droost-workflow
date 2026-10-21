@@ -106,6 +106,10 @@ test('the site judged is the project\'s before the environment\'s, and says wher
   assert.deepEqual(parity.siteBase({ base: 'https://other.example' }, env, root), { base: 'https://other.example', from: '--base' }, 'the gate\'s own lever first');
   fs.writeFileSync(path.join(root, '.ddev', 'config.yaml'), 'type: drupal11\ndocroot: web\n');
   assert.equal(parity.siteBase({}, env, root).base, `https://${path.basename(root).toLowerCase().replace(/[^a-z0-9-]/g, '-')}.ddev.site`, 'with no name, DDEV names the project after its directory');
+  // F-350: inside the web container the project is /var/www/html, so its
+  // directory names nothing; DDEV's own URL is right there, and comes first.
+  const inside = { ...env, IS_DDEV_PROJECT: 'true', DDEV_PRIMARY_URL: 'https://club.ddev.site' };
+  assert.deepEqual(parity.siteBase({}, inside, root), { base: 'https://club.ddev.site', from: 'DDEV_PRIMARY_URL' }, 'inside the container, DDEV\'s own URL');
 });
 
 // F-349: D5 held an element's box, not its text. A block-level <label> is as

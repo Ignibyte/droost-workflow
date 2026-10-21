@@ -68,7 +68,8 @@
  * The file is part of the reference, so it is frozen with the run.
  *
  * The site's base URL, the project's before the environment's (F-348): --base,
- * else the project's DDEV site (`.ddev/config.yaml`'s name and project_tld),
+ * else, inside DDEV's container, DDEV_PRIMARY_URL (F-350), else the project's
+ * DDEV site (`.ddev/config.yaml`'s name and project_tld),
  * else DDEV_PRIMARY_URL, PLAYWRIGHT_BASE_URL or DROOST_PARITY_BASE_URL. Every
  * verdict says which site it judged and where that address came from: an
  * environment variable is the run's to set, and a site no one names is no
@@ -468,6 +469,9 @@ function matchingBlocks(a, b) {
  */
 function siteBase(opt, env, cwd) {
   if (opt.base && opt.base !== true) return { base: String(opt.base), from: '--base' };
+  // Inside DDEV's web container the project is /var/www/html, so its
+  // directory names nothing, and DDEV's own URL is right there (F-350).
+  if (env.IS_DDEV_PROJECT === 'true' && env.DDEV_PRIMARY_URL) return { base: String(env.DDEV_PRIMARY_URL), from: 'DDEV_PRIMARY_URL' };
   const ddev = path.join(cwd, '.ddev', 'config.yaml');
   if (fs.existsSync(ddev)) {
     const text = fs.readFileSync(ddev, 'utf8');
