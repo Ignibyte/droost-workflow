@@ -1988,6 +1988,9 @@ final class WorkflowFacade {
           $result->status === GateStatus::Reported => 'reported',
           default => 'skipped',
         },
+        // A pass that examined nothing, named as the run record names it
+        // (F-326), so the check's JSON does not read it as measured (F-341).
+        'labelled' => $result->labelledPass,
         'summary' => $result->summary,
         'exit_code' => $result->exitCode,
         'duration_ms' => $result->durationMs,

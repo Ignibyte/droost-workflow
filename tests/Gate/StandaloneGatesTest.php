@@ -135,6 +135,27 @@ class StandaloneGatesTest extends WorkflowTestCase {
   }
 
   /**
+   * A pass that examined nothing says so in the check's JSON (F-341).
+   *
+   * The run record carries `labelled` (F-326); the run-less check printed
+   * status, outcome and summary only, so its JSON read a labelled pass as a
+   * measured one.
+   */
+  public function testLabelledPassIsNamed(): void {
+    $root = $this->project("preset: low\n");
+    $empty = GateResult::labelledPass('playwright', 0, 1, 'playwright passed — no spec to run', 'playwright');
+    $result = $this->facade($this->gates(['playwright' => [$empty]]))->gates($root);
+    $rows = array_column($result['gates'], NULL, 'gate');
+    $this->assertTrue($rows['playwright']['labelled'] ?? NULL, 'the labelled pass is named');
+    $this->assertSame('pass', $rows['playwright']['outcome']);
+    foreach ($rows as $gate => $row) {
+      if ($gate !== 'playwright') {
+        $this->assertFalse($row['labelled'] ?? NULL, $gate . ': a measured result is not labelled');
+      }
+    }
+  }
+
+  /**
    * The CLI: --json, the exit codes, and a phase it refuses.
    */
   public function testTheVerb(): void {
