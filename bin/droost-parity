@@ -66,8 +66,12 @@
  * set aside is a recorded decision about the reference, never a way round it.
  * The file is part of the reference, so it is frozen with the run.
  *
- * The site's base URL: --base, else DROOST_PARITY_BASE_URL, PLAYWRIGHT_BASE_URL
- * or DDEV_PRIMARY_URL (the address the site's own browser suite uses).
+ * The site's base URL, the project's before the environment's (F-348): --base,
+ * else the project's DDEV site (`.ddev/config.yaml`'s name and project_tld),
+ * else DDEV_PRIMARY_URL, PLAYWRIGHT_BASE_URL or DROOST_PARITY_BASE_URL. Every
+ * verdict says which site it judged and where that address came from: an
+ * environment variable is the run's to set, and a site no one names is no
+ * record of what passed.
  * Playwright is the project's own (node_modules/playwright).
  *
  * Exit: 0 every route as the reference; 1 a route differs; 2 a route could
@@ -436,6 +440,30 @@ function matchingBlocks(a, b) {
   return blocks.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
 }
 
+/**
+ * The site to judge, and where its address came from (F-348).
+ *
+ * @param {object} opt the parsed options (--base).
+ * @param {object} env the environment.
+ * @param {string} cwd the project root.
+ * @returns {{base: string, from: string}}
+ */
+function siteBase(opt, env, cwd) {
+  if (opt.base && opt.base !== true) return { base: String(opt.base), from: '--base' };
+  const ddev = path.join(cwd, '.ddev', 'config.yaml');
+  if (fs.existsSync(ddev)) {
+    const text = fs.readFileSync(ddev, 'utf8');
+    // With no `name:`, DDEV names the project after its directory.
+    const name = (text.match(/^name:\s*['"]?([A-Za-z0-9._-]+)['"]?\s*$/m) || [])[1] || path.basename(path.resolve(cwd)).toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    const tld = (text.match(/^project_tld:\s*['"]?([A-Za-z0-9.-]+)['"]?\s*$/m) || [])[1] || 'ddev.site';
+    if (name) return { base: `https://${name}.${tld}`, from: '.ddev/config.yaml' };
+  }
+  for (const key of ['DDEV_PRIMARY_URL', 'PLAYWRIGHT_BASE_URL', 'DROOST_PARITY_BASE_URL']) {
+    if (env[key]) return { base: String(env[key]), from: key };
+  }
+  return { base: '', from: '' };
+}
+
 function judge(reference, site, scope, aside = new Set()) {
   // A text set aside takes its space with it (F-343): what sat below it in its
   // column moves up on a site that leaves it out. Its space is its height and
@@ -669,8 +697,9 @@ async function judgeCommand(opt) {
   if (unheld.length) finish({ status: 'invalid', summary: `${unheld.join(', ')} ${unheld.length === 1 ? 'is' : 'are'} to be judged whole and the reference holds no reading of ${unheld.length === 1 ? 'it' : 'them'} at ${primary}px: capture ${unheld.length === 1 ? 'it' : 'them'} from the source` }, EXIT.invalid);
   const present = views.map((v) => v.route);
   if (!present.length) finish({ status: 'nothing', summary: `no reference to compare with in ${path.relative(process.cwd(), dir) || dir} (capture one with: droost-parity capture --source <url> --routes /,…)` }, EXIT.nothing);
-  const base = (opt.base && opt.base !== true ? String(opt.base) : '') || process.env.DROOST_PARITY_BASE_URL || process.env.PLAYWRIGHT_BASE_URL || process.env.DDEV_PRIMARY_URL || '';
-  if (!base) finish({ status: 'invalid', summary: 'no site to read: pass --base, or set DROOST_PARITY_BASE_URL' }, EXIT.invalid);
+  const { base, from } = siteBase(opt, process.env, process.cwd());
+  if (!base) finish({ status: 'invalid', summary: 'no site to read: pass --base, run under DDEV, or set DROOST_PARITY_BASE_URL' }, EXIT.invalid);
+  const judged = `; judged at ${base} (from ${from})`;
   // A reference read off the site it judges agrees with it whatever the site
   // looks like: a green that could not have failed.
   const origin = (u) => { try { return new URL(u).host.toLowerCase(); } catch (e) { return String(u).toLowerCase(); } };
@@ -707,12 +736,12 @@ async function judgeCommand(opt) {
   const counted = widths.length > 1 ? `${results.length} view(s) (${routes.length} route(s) at ${widths.join(' and ')}px)` : `${results.length} route(s)`;
   const held = `${scope} scope` + (pages.length ? `; page scope for ${pages.join(', ')} at ${primary}px` : '') + (liveBy.length ? `; live texts not judged (they follow the clock): ${liveBy.join(', ')}` : '');
   if (failedRoutes.length) {
-    finish({ status: 'fail', scope, source: manifest.source || null, summary: `${failedRoutes.length} of ${counted} differ from the reference${against}: ` + failedRoutes.map((r) => `${r.name} ${r.rows.filter((x) => x.verdict === 'FAIL').map((x) => x.id).join('+')}`).join(', ') + asideSaid(aside), routes: detail, skipped, set_aside: aside }, EXIT.fail);
+    finish({ status: 'fail', scope, source: manifest.source || null, summary: `${failedRoutes.length} of ${counted} differ from the reference${against}: ` + failedRoutes.map((r) => `${r.name} ${r.rows.filter((x) => x.verdict === 'FAIL').map((x) => x.id).join('+')}`).join(', ') + judged + asideSaid(aside), base, base_from: from, routes: detail, skipped, set_aside: aside }, EXIT.fail);
   }
   if (invalidRoutes.length) {
-    finish({ status: 'invalid', scope, summary: `${invalidRoutes.length} of ${counted} could not be judged: ` + invalidRoutes.map((r) => r.name).join(', ') + asideSaid(aside), routes: detail, skipped, set_aside: aside }, EXIT.invalid);
+    finish({ status: 'invalid', scope, summary: `${invalidRoutes.length} of ${counted} could not be judged: ` + invalidRoutes.map((r) => r.name).join(', ') + judged + asideSaid(aside), base, base_from: from, routes: detail, skipped, set_aside: aside }, EXIT.invalid);
   }
-  finish({ status: 'pass', scope, source: manifest.source || null, summary: `${counted} as the reference${against} (D1–D7, ${held})` + (skipped.length ? `; no reference for ${skipped.join(', ')}` : '') + asideSaid(aside), routes: detail, skipped, set_aside: aside }, EXIT.pass);
+  finish({ status: 'pass', scope, source: manifest.source || null, summary: `${counted} as the reference${against} (D1–D7, ${held})` + (skipped.length ? `; no reference for ${skipped.join(', ')}` : '') + judged + asideSaid(aside), base, base_from: from, routes: detail, skipped, set_aside: aside }, EXIT.pass);
 }
 
 if (require.main === module) {
@@ -722,4 +751,4 @@ if (require.main === module) {
     .catch((e) => finish({ status: 'invalid', summary: 'the runner failed: ' + String(e && e.message || e).slice(0, 300) }, EXIT.invalid));
 }
 
-module.exports = { linkTarget, judge, readDecided, asideFor, read, routeSpec, facesInPage, liveTexts };
+module.exports = { siteBase, linkTarget, judge, readDecided, asideFor, read, routeSpec, facesInPage, liveTexts };

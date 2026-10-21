@@ -86,6 +86,28 @@ test('the texts below a set-aside text are judged without the space it took (D5)
   assert.equal(d5(parity.judge(ref, moved, 'page', aside)).verdict, 'FAIL', 'only what sits below the set-aside text is lifted');
 });
 
+// F-348: the site judged was whatever the run's environment named, and the
+// record did not say which. KCH-A run 3's agent set DROOST_PARITY_BASE_URL
+// itself (droost ran on the host, where DDEV sets no URL); pointed at a copy
+// of the design, the judge would have compared the source with itself.
+test('the site judged is the project\'s before the environment\'s, and says where it came from', () => {
+  const fs = require('fs'); const os = require('os');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'parity-base-'));
+  const none = {};
+  assert.deepEqual(parity.siteBase({}, none, root), { base: '', from: '' }, 'nothing names a site');
+  assert.deepEqual(parity.siteBase({}, { DROOST_PARITY_BASE_URL: 'http://localhost:5200' }, root), { base: 'http://localhost:5200', from: 'DROOST_PARITY_BASE_URL' });
+
+  fs.mkdirSync(path.join(root, '.ddev'));
+  fs.writeFileSync(path.join(root, '.ddev', 'config.yaml'), 'name: club\ntype: drupal11\n');
+  const env = { DROOST_PARITY_BASE_URL: 'http://localhost:5200', PLAYWRIGHT_BASE_URL: 'http://localhost:5201' };
+  assert.deepEqual(parity.siteBase({}, env, root), { base: 'https://club.ddev.site', from: '.ddev/config.yaml' }, 'the project\'s own DDEV site wins over an environment variable');
+  fs.writeFileSync(path.join(root, '.ddev', 'config.yaml'), 'name: club\nproject_tld: test\n');
+  assert.equal(parity.siteBase({}, env, root).base, 'https://club.test');
+  assert.deepEqual(parity.siteBase({ base: 'https://other.example' }, env, root), { base: 'https://other.example', from: '--base' }, 'the gate\'s own lever first');
+  fs.writeFileSync(path.join(root, '.ddev', 'config.yaml'), 'type: drupal11\ndocroot: web\n');
+  assert.equal(parity.siteBase({}, env, root).base, `https://${path.basename(root).toLowerCase().replace(/[^a-z0-9-]/g, '-')}.ddev.site`, 'with no name, DDEV names the project after its directory');
+});
+
 test('a header link set aside by decision leaves D6 too', () => {
   const ref = reading('http://localhost:4323/', [['Internet', '/internet.html'], ['Spanish', '#']]);
   const site = reading('https://united.ddev.site/', [['Internet', '/internet']]);
