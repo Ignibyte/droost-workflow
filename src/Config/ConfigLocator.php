@@ -79,19 +79,6 @@ final class ConfigLocator {
   }
 
   /**
-   * The lever file to read or write, as an absolute path.
-   *
-   * @param string $root
-   *   The project root.
-   *
-   * @return string
-   *   The absolute path.
-   */
-  public static function absolute(string $root): string {
-    return rtrim($root, '/') . '/' . self::relative($root);
-  }
-
-  /**
    * Whether the project still keeps its levers at the old root name.
    *
    * @param string $root
@@ -131,32 +118,6 @@ final class ConfigLocator {
    */
   public static function isLeverPath(string $relative): bool {
     return $relative === self::PATH || $relative === self::LEGACY;
-  }
-
-  /**
-   * Whether a project-relative path is one of the run's frozen rules.
-   *
-   * The lever file, the AGENTS text and every file under the gate, hook and
-   * wall directories: what a run is held to, and what the guard refuses to
-   * let the agent rewrite while one is under way.
-   *
-   * @param string $relative
-   *   The normalised project-relative path.
-   *
-   * @return bool
-   *   TRUE when the path is part of the rules.
-   */
-  public static function isRulePath(string $relative): bool {
-    if (self::isLeverPath($relative) || $relative === self::AGENTS) {
-      return TRUE;
-    }
-    foreach (self::RULE_DIRS as $dir) {
-      if ($relative === $dir || str_starts_with($relative, $dir . '/')) {
-        return TRUE;
-      }
-    }
-
-    return FALSE;
   }
 
 }

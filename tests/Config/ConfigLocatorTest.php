@@ -71,27 +71,6 @@ final class ConfigLocatorTest extends WorkflowTestCase {
   }
 
   /**
-   * The rules a run is held to are named by path.
-   */
-  public function testRulePaths(): void {
-    $rules = [
-      'droost/droost.yml',
-      'droost.workflow.yml',
-      'droost/agents.md',
-      'droost/gates/x.php',
-      'droost/walls/a/b.php',
-      'droost/hooks',
-    ];
-    foreach ($rules as $path) {
-      $this->assertTrue(ConfigLocator::isRulePath($path), $path);
-    }
-    $others = ['droost/wiki/x.md', 'droost/droost-workflow/spec.md', 'droost/gatesx/y.php', 'x/droost/droost.yml'];
-    foreach ($others as $path) {
-      $this->assertFalse(ConfigLocator::isRulePath($path), $path);
-    }
-  }
-
-  /**
    * The guard, which has no autoloader, reads the same lever file.
    *
    * `require_run` is the lever the guard reads itself, so it is what shows

@@ -45,11 +45,6 @@ final class SemanticIndexer {
   private const float MAX_FAIL_RATIO = 0.5;
 
   /**
-   * The bookkeeping keys this layer writes.
-   */
-  public const array META_KEYS = ['embeddings', 'embeddings_model', 'embeddings_dimension', 'embeddings_reason'];
-
-  /**
    * Constructs a SemanticIndexer.
    *
    * @param \PDO $pdo

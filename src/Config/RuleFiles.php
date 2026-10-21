@@ -12,7 +12,7 @@ namespace Droost\Workflow\Config;
  * each one's sha256 when it begins, so a gate whose file changed under the
  * run says so at its verdict rather than judging by a rule the run never
  * agreed to — and the guard refuses an edit to any of them while a run is
- * under way (ConfigLocator::isRulePath()).
+ * under way (the guard's own rule-path check; probe-rule-freeze holds it).
  */
 final class RuleFiles {
 

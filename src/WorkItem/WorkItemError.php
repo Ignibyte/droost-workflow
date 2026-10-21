@@ -140,17 +140,4 @@ final class WorkItemError extends \RuntimeException {
     return new self('move tickets in the cockpit: in cockpit mode its queue owns their state, and it reads a run\'s progress from the run\'s events.');
   }
 
-  /**
-   * The source cannot perform an operation.
-   *
-   * @param string $what
-   *   The operation.
-   *
-   * @return self
-   *   The error.
-   */
-  public static function unsupported(string $what): self {
-    return new self(sprintf('this work-item source cannot %s.', $what));
-  }
-
 }

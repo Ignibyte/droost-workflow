@@ -2092,7 +2092,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $gate->name,
       $exit,
       sprintf('did not run to a verdict: %s', self::firstLine($stderr !== '' ? $stderr : $stdout)),
-      sprintf('A gate file answers 0 (passed) or 1 (failed); exit %d is the file saying it could not judge, or a crash. Nothing was judged, and this is not a pass.', $exit),
+      sprintf('A gate file answers 0 (passed), 1 (failed) or 4 (examined nothing); exit %d is the file saying it could not judge, or a crash. Nothing was judged, and this is not a pass.', $exit),
       $invocation,
     );
   }
