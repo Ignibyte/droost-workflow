@@ -163,15 +163,10 @@ function sizeButton(el, minimized, onSize) {
   })
 }
 
-// The run as pills: its ticket (else its id), its level, who leads it.
-const LEAD_TONE = { 'human-led': 'warn', autonomous: 'ok' }
+// The run as a pill: its ticket, else its id.
 export function runPills(run) {
   if (!run) return []
-  return [
-    { text: run.work_item || run.id || 'run', tone: 'info' },
-    run.preset ? { text: run.preset, tone: 'muted' } : null,
-    run.lead ? { text: run.lead === 'human-led' ? 'human led' : run.lead, tone: LEAD_TONE[run.lead] || 'muted' } : null,
-  ].filter(Boolean)
+  return [{ text: run.work_item || run.id || 'run', tone: 'info' }]
 }
 
 function runBadges(el, run) {
@@ -239,16 +234,15 @@ function tabRow(el, doc, current, onTab) {
 
 // The whole pane. `state` is { tab, error, minimized, placement, bodyRows,
 // bodyColumns }; `onTab(id)` switches tabs and `onSize()` toggles minimized
-// and maximized. The tabs sit between two rules with a row of air outside
-// each, so the run is above them and the open tab below.
+// and maximized. The tabs sit between two rules with a row of air under
+// them, so the run is above them and the open tab below.
 //
 // Docked beside the transcript (`placement: 'dock'`), a column:
 //
-//   (drop) droost   [EMT-425] [custom] [human led]   — minimize
+//   (drop) droost          [EMT-425]          — minimize
 //   (drop)
 //
 //   ✓ Plan › ● Code › ○ Test › ○ Complete
-//
 //   ─────────────────────────────────────
 //    ≡  ↯  ◈ 3/4  ⌕  ± 4
 //   ─────────────────────────────────────
@@ -260,8 +254,7 @@ function tabRow(el, doc, current, onTab) {
 // Inline above the prompt, rows:
 //
 //   (drop) droost   ✓ Plan › ● Code › ○ Test › ○ Complete   — minimize
-//                    [EMT-425] [custom] [human led]
-//
+//                              [EMT-425]
 //   ─────────────────────────────────────
 //    ≡  ↯  ◈ 3/4  ⌕  ± 4
 //   ─────────────────────────────────────
@@ -327,7 +320,6 @@ export function paneTree(el, doc, state, onTab, surface, onSize = () => {}) {
         key: 'hold',
         flexDirection: 'row',
         columnGap: 1,
-        marginTop: 1,
         children: [
           Text({ color: TONES.warn, bold: true, children: ['Waiting on you'] }),
           Text({ wrap: 'wrap', children: [doc.hold.question] }),
@@ -343,7 +335,7 @@ export function paneTree(el, doc, state, onTab, surface, onSize = () => {}) {
       Box({
         key: 'tabbar',
         flexDirection: 'column',
-        marginY: 1,
+        marginBottom: 1,
         children: [rule(el, 'rule-top', state.bodyColumns), tabs, rule(el, 'rule-bottom', state.bodyColumns)],
       }),
     )

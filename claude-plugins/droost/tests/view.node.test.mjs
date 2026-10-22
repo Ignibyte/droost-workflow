@@ -50,7 +50,7 @@ test('the pane draws the phases, a tab per tab, and the open tab', () => {
   assert.deepEqual(all(tree, 'Button').map((b) => b.props.label), ['— minimize', 'Spec', 'Gates', 'Ticket'])
   assert.ok(words.includes(' ≡ ') && words.includes(' ◈ 1/2 ') && words.includes(' T '), 'a tab is its icon and badge; the spec its icon alone')
   assert.ok(words.includes(' examined nothing '), 'a pass that examined nothing says so')
-  assert.ok(words.includes(' PROJ-142 ') && words.includes(' medium ') && words.includes(' autonomous '), 'the run as pills')
+  assert.ok(words.includes(' PROJ-142 ') && !words.includes(' medium ') && !words.includes(' autonomous '), 'the ticket alone')
   assert.ok(!words.some((w) => w.includes('Run ')), 'the ticket alone, no "Run"')
   assert.equal(all(tree, 'Box').filter((b) => b.props.borderStyle).length, 0, 'nothing framed')
   assert.equal(all(tree, 'Image').length, 1, 'the drop, in a terminal')
@@ -126,7 +126,7 @@ test('docked, the pills sit between the name and minimize, the phases under them
   const rows = tree.props.children
   const [brand, run, size] = header(tree).props.children
   assert.deepEqual(texts(brand), ['droost'])
-  assert.deepEqual(texts(run), [' PROJ-142 ', ' medium ', ' autonomous '])
+  assert.deepEqual(texts(run), [' PROJ-142 '])
   assert.equal(run.props.justifyContent, 'center')
   assert.equal(size.props.label, '— minimize')
   assert.equal(rows[1].props.key, 'phasebox')
@@ -150,24 +150,21 @@ test('a tab icon is one cell: droost\'s own drawn, a project\'s its initial', ()
   assert.equal(tabIcon({ id: 'ticket', title: 'ticket' }), 'T')
 })
 
-test('the tabs sit between two rules the width of the body, a row of air outside each', () => {
+test('the tabs sit between two rules the width of the body, a row of air under them', () => {
   for (const placement of ['dock', 'inline']) {
     const rows = paneTree(el, DOC, { tab: 'spec', placement, bodyColumns: 52 }, () => {}, 'terminal').props.children
     const at = rows.findIndex((r) => r && r.props.key === 'tabbar')
     const bar = rows[at]
-    assert.equal(bar.props.marginY, 1)
+    assert.equal(bar.props.marginBottom, 1)
+    assert.equal(bar.props.marginTop, undefined, 'no row above the top rule')
     assert.deepEqual(bar.props.children.map((c) => c.props.key), ['rule-top', 'tabs', 'rule-bottom'])
     assert.deepEqual(texts(bar.props.children[0]), ['─'.repeat(52)])
     assert.equal(rows[at + 1].props.key, 'body')
   }
 })
 
-test('the run pills: the ticket (else the id), the level, the lead, each toned', () => {
-  assert.deepEqual(runPills({ id: 'run-b37048e955e1', work_item: 'EMT-425', preset: 'custom', lead: 'human-led' }), [
-    { text: 'EMT-425', tone: 'info' },
-    { text: 'custom', tone: 'muted' },
-    { text: 'human led', tone: 'warn' },
-  ])
-  assert.deepEqual(runPills({ id: 'run-1', lead: 'autonomous' }), [{ text: 'run-1', tone: 'info' }, { text: 'autonomous', tone: 'ok' }])
+test('the run pill is the ticket, else the id', () => {
+  assert.deepEqual(runPills({ id: 'run-b37048e955e1', work_item: 'EMT-425', preset: 'custom', lead: 'human-led' }), [{ text: 'EMT-425', tone: 'info' }])
+  assert.deepEqual(runPills({ id: 'run-1', lead: 'autonomous' }), [{ text: 'run-1', tone: 'info' }])
   assert.deepEqual(runPills(null), [])
 })
