@@ -2037,8 +2037,14 @@ final class ArgvDispatcher {
     $config = WorkflowConfig::load($projectRoot);
     $facade = $this->facade($projectRoot);
     $status = $facade->status($projectRoot);
-    $run = is_array($status['run'] ?? NULL) && is_string($status['run']['run_id'] ?? NULL) ? $status['run'] : NULL;
-    $runId = $run === NULL || !is_string($run['run_id'] ?? NULL) ? NULL : $run['run_id'];
+    // One check of each: the record, then its id. Asking the id twice read
+    // as a redundant check to the oldest phpstan the constraints allow, and
+    // the 8.3/lowest leg failed on it.
+    $run = is_array($status['run'] ?? NULL) ? $status['run'] : NULL;
+    $runId = $run !== NULL && is_string($run['run_id'] ?? NULL) ? $run['run_id'] : NULL;
+    if ($runId === NULL) {
+      $run = NULL;
+    }
     $open = $run !== NULL && ($run['archived'] ?? FALSE) !== TRUE;
     $criteria = [];
     $findings = [];
