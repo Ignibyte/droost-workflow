@@ -88,7 +88,7 @@ final class RunPanelTest extends WorkflowTestCase {
     $this->assertSame('Creating the plan type', $items[0]['text'] ?? NULL);
     $this->assertSame('17:02', $items[0]['tag'] ?? NULL);
     $this->assertCount(1, $items, 'another run\'s line is not this run\'s');
-    $this->assertStringContainsString('own account', (string) json_encode($activity['sections'][1]));
+    $this->assertStringContainsString('own account', (string) json_encode($activity['sections'][0]));
   }
 
   /**
@@ -111,7 +111,7 @@ final class RunPanelTest extends WorkflowTestCase {
     $this->assertIsArray($list);
     $this->assertIsArray($list[0]);
     $this->assertNull($list[0]['tone'], 'an unknown tone is none');
-    $this->assertSame(['section 2: kind must be one of text, fields, checklist, list'], $cleaned['dropped']);
+    $this->assertSame(['section 2: kind must be one of text, markdown, fields, checklist, list'], $cleaned['dropped']);
     $this->assertSame([], PanelSections::clean([['kind' => 'text']])['sections'], 'a list is not a tab');
   }
 
@@ -140,8 +140,9 @@ final class RunPanelTest extends WorkflowTestCase {
    * Droost.yml declares the tabs; droost's own ids and bad files are refused.
    */
   public function testTabsAreDeclaredInTheLeverFile(): void {
-    $root = $this->makeRootWithConfig("preset: low\npanel:\n  tabs:\n    ticket: { title: Ticket, run: droost/panel/ticket.ts, timeout: 3 }\n");
+    $root = $this->makeRootWithConfig("preset: low\npanel:\n  open: always\n  tabs:\n    ticket: { title: Ticket, run: droost/panel/ticket.ts, timeout: 3 }\n");
     $config = WorkflowConfig::load($root);
+    $this->assertSame('always', $config->panelOpen);
     $this->assertSame(['ticket' => ['title' => 'Ticket', 'run' => 'droost/panel/ticket.ts', 'timeout' => 3]], $config->panelTabs);
     $this->assertArrayHasKey('droost/panel/ticket.ts', RuleFiles::hash($root, $config), 'frozen at begin with the other rule files');
 
@@ -150,6 +151,7 @@ final class RunPanelTest extends WorkflowTestCase {
       "panel:\n  tabs:\n    t: { title: T, run: /etc/passwd }\n" => 'must name a file in the project',
       "panel:\n  tabs:\n    t: { title: T, run: droost/panel/t.php, colour: red }\n" => 'unknown option "colour"',
       "panel:\n  tabs:\n    t: { run: droost/panel/t.php }\n" => 'title',
+      "panel:\n  open: sometimes\n" => 'must be auto, always or never',
     ] as $yaml => $expected) {
       try {
         WorkflowConfig::load($this->makeRootWithConfig("preset: low\n" . $yaml));
@@ -186,6 +188,47 @@ final class RunPanelTest extends WorkflowTestCase {
     $this->assertIsArray($document);
     $this->assertSame(RunPanel::SCHEMA, $document['schema'] ?? NULL);
     $this->assertNull($document['run'] ?? NULL);
+  }
+
+  /**
+   * The spec tab draws the spec itself, and Activity what the guard saw.
+   */
+  public function testSpecIsReadAndActivityShowsWhatWasDone(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0755, TRUE);
+    $row = static fn (string $run, string $tool, string $mode, string $verdict, ?string $subject, string $at): string => (string) json_encode(
+      [
+        'run' => $run,
+        'tool' => $tool,
+        'mode' => $mode,
+        'verdict' => $verdict,
+        'subject' => $subject,
+        'at' => '2026-10-21T' . $at . '+00:00',
+      ],
+    );
+    file_put_contents($root . '/droost/droost-workflow/guard-calls.jsonl', implode("\n", [
+      $row('run-1', 'Edit', 'pre-tool-use', 'allow', 'web/x.css', '17:01:00'),
+      $row('run-1', 'Bash', 'operator-commands', 'refuse', 'droost workflow:bypass', '17:02:00'),
+      $row('run-1', 'Bash', 'pre-tool-use', 'allow', 'droost workflow:bypass', '17:02:00'),
+      $row('run-2', 'Write', 'pre-tool-use', 'allow', NULL, '17:03:00'),
+    ]) . "\n");
+    $actions = (new ActivityLog($root))->actions('run-1');
+    $this->assertCount(2, $actions, 'one shell call asked twice is one call; another run\'s is not this run\'s');
+    $this->assertTrue($actions[1]['refused']);
+
+    $run = [
+      'run_id' => 'run-1',
+      'phases' => [],
+      'current_phase' => 'code',
+      'spec' => 'droost/droost-workflow/tmp-spec.md',
+    ];
+    $document = RunPanel::document($run, [], [], [], [], 'now', "# R05\n\nThe contact page.", $actions, 'always');
+    $this->assertSame('always', $document['open']);
+    $spec = $this->tab($document, 'spec');
+    $this->assertSame(['kind' => 'markdown', 'title' => NULL, 'text' => "# R05\n\nThe contact page."], $spec['sections'][0]);
+    $did = $this->items($this->tab($document, 'activity'), 1);
+    $this->assertSame('Edit · web/x.css', $did[0]['text'] ?? NULL);
+    $this->assertSame('refused', $did[1]['tag'] ?? NULL);
   }
 
   /**

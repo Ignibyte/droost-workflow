@@ -7,19 +7,19 @@ namespace Droost\Workflow\Panel;
 /**
  * The few shapes a panel tab may hold, and the cleaning of a project's.
  *
- * A tab is a list of sections, each one of four kinds: `text`, `fields`
- * (label and value pairs), `checklist` (items done or not) and `list` (items
- * with a detail, a tag and a tone). The mod draws these and nothing else, so
- * a project's tab file can say anything that fits them and nothing that does
- * not: what does not fit is dropped, and the tab says so rather than
- * drawing half of it.
+ * A tab is a list of sections, each one of five kinds: `text`, `markdown`,
+ * `fields` (label and value pairs), `checklist` (items done or not) and
+ * `list` (items with a detail, a tag and a tone). The mod draws these and
+ * nothing else, so a project's tab file can say anything that fits them and
+ * nothing that does not: what does not fit is dropped, and the tab says so
+ * rather than drawing half of it.
  */
 final class PanelSections {
 
   /**
    * The section kinds a tab may hold.
    */
-  public const KINDS = ['text', 'fields', 'checklist', 'list'];
+  public const KINDS = ['text', 'markdown', 'fields', 'checklist', 'list'];
 
   /**
    * The tones an item may carry.
@@ -36,6 +36,11 @@ final class PanelSections {
    * At most this many characters in one string.
    */
   public const MAX_TEXT = 2000;
+
+  /**
+   * At most this many characters of markdown: what the mod's Markdown draws.
+   */
+  public const MAX_MARKDOWN = 9500;
 
   /**
    * Cleans a tab file's document into a badge and sections.
@@ -91,9 +96,9 @@ final class PanelSections {
       return sprintf('kind must be one of %s', implode(', ', self::KINDS));
     }
     $out = ['kind' => $kind, 'title' => self::short($section['title'] ?? NULL, 80)];
-    if ($kind === 'text') {
-      $text = self::short($section['text'] ?? NULL, self::MAX_TEXT);
-      return $text === NULL ? 'a text section needs "text"' : $out + ['text' => $text];
+    if ($kind === 'text' || $kind === 'markdown') {
+      $text = self::short($section['text'] ?? NULL, $kind === 'markdown' ? self::MAX_MARKDOWN : self::MAX_TEXT);
+      return $text === NULL ? sprintf('a %s section needs "text"', $kind) : $out + ['text' => $text];
     }
     $items = [];
     foreach (is_array($section['items'] ?? NULL) ? array_slice(array_values($section['items']), 0, self::MAX_ITEMS) : [] as $item) {

@@ -97,4 +97,50 @@ final class ActivityLog {
     return array_slice($entries, -$limit);
   }
 
+  /**
+   * What the agent did, from the guard's diary: each call it made, as asked.
+   *
+   * Rows the guard wrote before a call (and the record-only registration's),
+   * for one run, with what the call touched where the diary says (a file, a
+   * shell program): a fact the guard saw, beside what the agent says.
+   *
+   * @param string|null $runId
+   *   The run, or NULL.
+   * @param int $limit
+   *   The most recent calls kept.
+   *
+   * @return list<array{at: string, tool: string, subject: string|null, refused: bool}>
+   *   The calls, oldest first.
+   */
+  public function actions(?string $runId, int $limit = 15): array {
+    $path = (new RunStateStore($this->projectRoot))->directory() . '/guard-calls.jsonl';
+    $lines = is_file($path) ? @file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
+    $calls = [];
+    foreach ($lines === FALSE ? [] : $lines as $line) {
+      $row = json_decode($line, TRUE);
+      if (!is_array($row) || ($row['run'] ?? NULL) !== $runId || !is_string($row['tool'] ?? NULL)) {
+        continue;
+      }
+      if (!in_array($row['mode'] ?? NULL, ['pre-tool-use', 'record', 'operator-commands'], TRUE)) {
+        continue;
+      }
+      $call = [
+        'at' => is_string($row['at'] ?? NULL) ? $row['at'] : '',
+        'tool' => $row['tool'],
+        'subject' => is_string($row['subject'] ?? NULL) ? $row['subject'] : NULL,
+        'refused' => ($row['verdict'] ?? NULL) === 'refuse',
+      ];
+      // One shell call is asked by two of the guard's registrations; it is one
+      // call.
+      $last = $calls === [] ? NULL : $calls[count($calls) - 1];
+      if ($last !== NULL && $last['at'] === $call['at'] && $last['tool'] === $call['tool'] && $last['subject'] === $call['subject']) {
+        $calls[count($calls) - 1]['refused'] = $last['refused'] || $call['refused'];
+        continue;
+      }
+      $calls[] = $call;
+    }
+
+    return array_slice($calls, -$limit);
+  }
+
 }

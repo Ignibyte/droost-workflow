@@ -264,7 +264,10 @@ gates:
 # droost mod's pane), after droost's Spec, Activity, Gates and Seeker. Each
 # file gets the open run as JSON on stdin and prints {"badge", "sections"}
 # (README: The run panel). .ts and .js run under node.
+# `open` is when the droost mod opens the panel by itself: auto (a run is
+# under way, the default), always, or never.
 # panel:
+#   open: always
 #   tabs:
 #     ticket: { title: Ticket, run: droost/panel/ticket.ts }
 

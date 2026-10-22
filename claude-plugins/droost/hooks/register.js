@@ -1,34 +1,40 @@
 // droost's run panel, inside Claude Code: a pane with the run's phases and
-// tabs, and the run's line under the prompt.
+// tabs.
 //
 // Everything it shows comes from `droost workflow:panel --json`, asked every
 // few seconds: droost builds the panel (its own tabs and the project's, from
-// droost.yml `panel.tabs`), and this only draws it. It refuses nothing and
-// writes nothing; the guard, reached through .claude/settings.json, is what
-// holds a run. `/droost-panel` opens the pane; it opens itself, unfocused,
-// when a session starts with a run under way.
+// droost.yml `panel.tabs`), and this only draws it. `/droost-panel` opens the
+// pane. It opens by itself as droost.yml `panel.open` says: `auto` (the
+// default) when a run is under way, `always` at every session, `never` only
+// when asked.
+//
+// While it is loaded the agent's own task list (TaskCreate) is turned away:
+// the panel is the run's list, and `droost workflow:say` is how the agent adds
+// to what it shows.
 
-import { paneTree, pickTab, statusText } from './view.js'
+import { paneTree, pickTab } from './view.js'
 
 const PANE = 'droost'
 const EVERY_MS = 3000
+const TURNED_AWAY =
+  'Not here: droost\'s run panel is this session\'s task list (its phases, the spec\'s criteria and their proofs). ' +
+  'Say what you are doing with `droost workflow:say "<what>" --detail="<file, count or name>"` and carry on.'
 
-// What the pane shows: the last document, the tab open, and why droost could
-// not be asked, if it could not.
+// What the pane shows: the last document, the tab open, its size, and why
+// droost could not be asked, if it could not.
 let doc = null
-let tab = 'activity'
+let tab = 'spec'
 let error = ''
-let updatedAt = ''
 let asking = false
 let minimized = false
+let opened = ''
 
-// How the pane asks to be seated. Maximized: as much as the layout spares,
-// tall above the prompt and wide in the dock beside a fullscreen transcript.
-// Minimized: the phase line alone. Requests, not grants: a size the person
-// dragged the pane to wins.
+// How the pane asks to be seated: maximized as large as the layout allows,
+// the dock as wide as it gives, minimized the phase line alone. Requests, not
+// grants: a size the person dragged the pane to wins.
 const SIZE = {
-  max: { id: PANE, title: 'droost', rows: 200, columns: 160 },
-  min: { id: PANE, title: 'droost', rows: 1, columns: 48 },
+  max: { id: PANE, title: 'droost', rows: 200, columns: 400 },
+  min: { id: PANE, title: 'droost', rows: 1, columns: 60 },
 }
 
 // How to run droost: the operator's setting, else the project's install.
@@ -42,7 +48,7 @@ async function command($, options) {
   return null
 }
 
-// Asks droost for the panel, and redraws.
+// Asks droost for the panel, opens the pane when it should, and redraws.
 async function refresh($, options) {
   if (asking) return
   asking = true
@@ -55,7 +61,6 @@ async function refresh($, options) {
       if (out.exitCode === 0) {
         doc = JSON.parse(out.stdout)
         error = ''
-        updatedAt = new Date().toLocaleTimeString()
       } else {
         error = (out.stderr || out.stdout || 'exit ' + out.exitCode).split('\n')[0].slice(0, 200)
       }
@@ -65,7 +70,13 @@ async function refresh($, options) {
   } finally {
     asking = false
   }
-  $.ui.status(statusText(doc))
+  // `auto`: once for each run that starts under way; never again for the
+  // same run, so a pane the person closed stays closed.
+  const run = doc && doc.run
+  if (doc && doc.open === 'auto' && run && run.state !== 'completed' && run.id && run.id !== opened) {
+    opened = run.id
+    await $.ui.open(minimized ? SIZE.min : SIZE.max)
+  }
   $.ui.invalidate('ui.render')
 }
 
@@ -73,7 +84,7 @@ export function register(on, options) {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'droost-panel', description: 'Open droost\'s run panel: phases, spec, activity, gates, seeker' })
     await refresh($, options)
-    if (doc && doc.run && doc.run.state !== 'completed') {
+    if (doc && doc.open === 'always') {
       await $.ui.open(SIZE.max)
     }
     $.clock.every(EVERY_MS, () => refresh($, options))
@@ -87,12 +98,20 @@ export function register(on, options) {
     return {}
   })
 
+  // The agent's task list, while the panel is the run's: described as such,
+  // kept behind ToolSearch, and turned away with where to go instead.
+  on('tool.describe', { tool: 'TaskCreate' }, async ($, e) => ({ ...e, description: TURNED_AWAY, isDeferred: true }))
+  on('tool.describe', { tool: 'TodoWrite' }, async ($, e) => ({ ...e, description: TURNED_AWAY, isDeferred: true }))
+  on('tool.call', { tool: 'TaskCreate' }, async () => ({ deny: TURNED_AWAY }))
+  on('tool.call', { tool: 'TodoWrite' }, async () => ({ deny: TURNED_AWAY }))
+
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)
     const el = $.ui.resolve(e)
     const shown = pickTab(doc, tab)
     if (shown) tab = shown.id
-    return paneTree(el, doc, { tab, error, updatedAt, minimized }, (id) => {
+    const state = { tab, error, minimized, bodyRows: e.props?.scroll?.bodyRows }
+    return paneTree(el, doc, state, (id) => {
       tab = id
       $.ui.invalidate('ui.render')
     }, e.surface, async () => {

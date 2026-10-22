@@ -356,6 +356,17 @@ $recordCall = static function () use ($root, $stateDir): void {
       $row[$key] = $value;
     }
   }
+  // WHAT IT TOUCHED, in a few words: a project file, or a shell program and
+  // the word after it (never its arguments past that, which can hold a
+  // secret). The run panel's Activity tab reads it.
+  $subject = guard_call_subject(
+    is_string($GLOBALS['workflow_guard_tool'] ?? NULL) ? $GLOBALS['workflow_guard_tool'] : '',
+    is_array($GLOBALS['workflow_guard_input'] ?? NULL) ? $GLOBALS['workflow_guard_input'] : [],
+    $root,
+  );
+  if ($subject !== NULL) {
+    $row['subject'] = $subject;
+  }
   // WHAT IT RETURNED, as a ledger digest, so an independent ledger is held to
   // the rows the seeker wrote (0.14.19).
   $ledger = $GLOBALS['workflow_guard_ledger'] ?? NULL;
@@ -440,6 +451,9 @@ if ($translated !== $payload) {
   $guardInput = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
 }
 $guardEvent = guard_event($mode, $payload);
+// What the call touched, for the diary's `subject` (the run panel's Activity
+// tab shows what the agent did, not only what it says it did).
+$GLOBALS['workflow_guard_input'] = $guardInput;
 
 // RECORD MODE ENDS HERE, and ending here is the whole design (F-37).
 //
@@ -7201,6 +7215,64 @@ function unresolved_checks(string $root, string $stateDir, mixed $runId, string 
     'summary' => (string) ($row['summary'] ?? ''),
     'remedy' => (string) ($row['remedy'] ?? ''),
   ], $rows);
+}
+
+/**
+ * What a tool call touched, in a few words, for the diary.
+ *
+ * A file the editor writes, by its path in the project (one outside it is
+ * named only as that); a shell command by its program and at most two words
+ * after it, stopping at the first flag, quote, assignment or long word, so an
+ * argument that holds a secret never reaches the diary; a skill or subagent
+ * by its name. Anything else: NULL.
+ *
+ * @param string $tool
+ *   The tool's name.
+ * @param array<mixed> $input
+ *   The call's input.
+ * @param string $root
+ *   The project root.
+ *
+ * @return string|null
+ *   The subject.
+ */
+function guard_call_subject(string $tool, array $input, string $root): ?string {
+  if (in_array($tool, ['Write', 'Edit', 'MultiEdit', 'NotebookEdit'], TRUE)) {
+    $path = $input['file_path'] ?? $input['notebook_path'] ?? NULL;
+    if (!is_string($path) || $path === '') {
+      return NULL;
+    }
+    $prefix = rtrim($root, '/') . '/';
+    if (str_starts_with($path, $prefix)) {
+      return mb_substr(substr($path, strlen($prefix)), 0, 160);
+    }
+    return str_starts_with($path, '/') ? '(a file outside the project)' : mb_substr($path, 0, 160);
+  }
+  if ($tool === 'Bash' && is_string($input['command'] ?? NULL)) {
+    $words = preg_split('/\s+/', trim(strtok($input['command'], "\n") ?: '')) ?: [];
+    $kept = [];
+    foreach ($words as $word) {
+      if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*=/', $word) === 1 && $kept === []) {
+        continue;
+      }
+      if (preg_match('#^[A-Za-z0-9_.:/@+-]{1,40}$#', $word) !== 1 || str_starts_with($word, '-')) {
+        break;
+      }
+      $kept[] = $kept === [] ? basename($word) : $word;
+      if (count($kept) === 3) {
+        break;
+      }
+    }
+    return $kept === [] ? NULL : implode(' ', $kept);
+  }
+  if ($tool === 'Skill' && is_string($input['skill'] ?? NULL)) {
+    return mb_substr($input['skill'], 0, 80);
+  }
+  if (in_array($tool, ['Agent', 'Task'], TRUE)) {
+    $what = $input['description'] ?? $input['subagent_type'] ?? NULL;
+    return is_string($what) ? mb_substr($what, 0, 80) : NULL;
+  }
+  return NULL;
 }
 
 /**

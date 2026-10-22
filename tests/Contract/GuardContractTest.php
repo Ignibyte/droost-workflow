@@ -43,6 +43,34 @@ final class GuardContractTest extends WorkflowTestCase {
   }
 
   /**
+   * The diary names what a call touched, and never a command's arguments.
+   *
+   * The run panel's Activity tab shows it beside what the agent says.
+   */
+  public function testTheDiaryNamesWhatEachCallTouched(): void {
+    $root = $this->project();
+    $this->openRun($root);
+    $this->write($root, 'web/themes/custom/x.css');
+    $this->shell($root, 'composer require drupal/webform --with-all-dependencies');
+    $this->shell($root, 'curl -H "Authorization: Bearer s3cr3t" https://example.com');
+    $this->shell($root, 'TOKEN=abc123 deploy secret-sk-000000000000000000000000000000000000000000');
+
+    $subjects = [];
+    foreach (file($root . '/droost/droost-workflow/guard-calls.jsonl', FILE_IGNORE_NEW_LINES) ?: [] as $line) {
+      $row = json_decode($line, TRUE);
+      if (is_array($row) && is_string($row['subject'] ?? NULL)) {
+        $subjects[] = $row['subject'];
+      }
+    }
+    $this->assertContains('web/themes/custom/x.css', $subjects);
+    $this->assertContains('composer require drupal/webform', $subjects);
+    $this->assertContains('curl', $subjects, 'a flag stops the subject');
+    $this->assertContains('deploy', $subjects, 'an assignment is skipped, a long word stops it');
+    $this->assertStringNotContainsString('s3cr3t', implode(' ', $subjects));
+    $this->assertStringNotContainsString('abc123', implode(' ', $subjects));
+  }
+
+  /**
    * The installed package is droost itself, run or no run.
    */
   public function testThePackageIsAlwaysProtected(): void {

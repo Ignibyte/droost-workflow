@@ -2045,13 +2045,24 @@ final class ArgvDispatcher {
     foreach ($config->panelTabs as $id => $tab) {
       $tabs[$id] = ['title' => $tab['title']] + $runner->run($id, $tab, $summary);
     }
+    $spec = NULL;
+    $specPath = is_array($run) && is_string($run['spec'] ?? NULL) ? $run['spec'] : NULL;
+    if ($specPath !== NULL) {
+      $file = str_starts_with($specPath, '/') ? $specPath : rtrim($projectRoot, '/') . '/' . $specPath;
+      $read = is_file($file) ? @file_get_contents($file, FALSE, NULL, 0, 200000) : FALSE;
+      $spec = is_string($read) ? $read : NULL;
+    }
+    $log = new ActivityLog($projectRoot);
     $document = RunPanel::document(
       $run,
       $criteria,
       $findings,
-      (new ActivityLog($projectRoot))->forRun($runId),
+      $log->forRun($runId),
       $tabs,
       ($this->clock)(),
+      $spec,
+      $log->actions($runId),
+      $config->panelOpen,
     );
     if (in_array('--json', $argv, TRUE)) {
       $this->say($this->encode($document));

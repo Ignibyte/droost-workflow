@@ -21,7 +21,8 @@ namespace Droost\Workflow\Panel;
  * @phpstan-type Summary array{id: string|null, state: string, phase: string|null, preset: string|null, mode: string|null, lead: string|null, work_item: string|null, spec: string|null, started_at: string|null}
  * @phpstan-type Phase array{id: string, label: string, status: string, attempts: int}
  * @phpstan-type Tab array{id: string, title: string, source: string, badge: string|null, sections: list<array<string, mixed>>, error: string|null}
- * @phpstan-type Document array{schema: string, generated_at: string, run: Summary|null, phases: list<Phase>, hold: array{question: string}|null, tabs: list<Tab>}
+ * @phpstan-type Document array{schema: string, generated_at: string, open: string, run: Summary|null, phases: list<Phase>, hold: array{question: string}|null, tabs: list<Tab>}
+ * @phpstan-type Action array{at: string, tool: string, subject: string|null, refused: bool}
  * @phpstan-type Criterion array{ref: string, statement: string, verified_by: string|null}
  */
 final class RunPanel {
@@ -51,16 +52,32 @@ final class RunPanel {
    *   The project's tabs, already run.
    * @param string $now
    *   The time, ISO 8601.
+   * @param string|null $spec
+   *   The spec's markdown, or NULL when there is none to read.
+   * @param list<Action> $actions
+   *   What the agent did, from the guard's diary.
+   * @param string $open
+   *   When the mod opens the panel by itself: auto, always or never.
    *
    * @return Document
    *   The document.
    */
-  public static function document(?array $run, array $criteria, array $findings, array $activity, array $projectTabs, string $now): array {
+  public static function document(
+    ?array $run,
+    array $criteria,
+    array $findings,
+    array $activity,
+    array $projectTabs,
+    string $now,
+    ?string $spec = NULL,
+    array $actions = [],
+    string $open = 'auto',
+  ): array {
     $tabs = $run === NULL
       ? []
       : [
-        self::specTab($run, $criteria),
-        self::activityTab($activity),
+        self::specTab($run, $criteria, $spec),
+        self::activityTab($activity, $actions),
         self::gatesTab($run),
         self::seekerTab($run, $findings),
       ];
@@ -78,6 +95,7 @@ final class RunPanel {
     return [
       'schema' => self::SCHEMA,
       'generated_at' => $now,
+      'open' => $open,
       'run' => $run === NULL ? NULL : self::summary($run),
       'phases' => self::phases($run),
       'hold' => self::hold($run),
@@ -182,17 +200,13 @@ final class RunPanel {
    *   The run record.
    * @param list<Criterion> $criteria
    *   The criteria.
+   * @param string|null $spec
+   *   The spec's markdown, or NULL.
    *
    * @return Tab
    *   The tab.
    */
-  private static function specTab(array $run, array $criteria): array {
-    $fields = [];
-    foreach (['spec' => 'Spec', 'work_item' => 'Ticket', 'base_commit' => 'Base commit'] as $key => $label) {
-      if (is_string($run[$key] ?? NULL) && $run[$key] !== '') {
-        $fields[] = ['label' => $label, 'value' => $key === 'base_commit' ? substr($run[$key], 0, 12) : $run[$key]];
-      }
-    }
+  private static function specTab(array $run, array $criteria, ?string $spec = NULL): array {
     $items = [];
     $proven = 0;
     foreach ($criteria as $criterion) {
@@ -205,8 +219,17 @@ final class RunPanel {
       ];
     }
     $sections = [];
-    if ($fields !== []) {
-      $sections[] = ['kind' => 'fields', 'title' => NULL, 'items' => $fields];
+    if ($spec !== NULL && trim($spec) !== '') {
+      $sections[] = [
+        'kind' => 'markdown',
+        'title' => NULL,
+        'text' => mb_strlen($spec) > PanelSections::MAX_MARKDOWN
+          ? mb_substr($spec, 0, PanelSections::MAX_MARKDOWN - 60) . "\n\n… (the rest is in the spec file)"
+          : $spec,
+      ];
+    }
+    elseif (is_string($run['spec'] ?? NULL)) {
+      $sections[] = self::text(NULL, 'The spec is not written yet: plan writes it.');
     }
     // A finished run is archived, and its criteria are read from the open run
     // only: its record still says how many there were and how many a test
@@ -215,18 +238,22 @@ final class RunPanel {
     $total = is_int($recorded['total'] ?? NULL) ? $recorded['total'] : 0;
     $verified = is_array($recorded['verified'] ?? NULL) ? count($recorded['verified']) : 0;
     if ($items === [] && $total > 0) {
-      $sections[] = self::text('Acceptance criteria', sprintf(
+      $sections[] = self::text('Proofs', sprintf(
         '%d of %d proven by a test. The run is archived; `droost workflow:evidence` has each criterion and its proof.',
         $verified,
         $total,
       ));
-      return self::tab('spec', 'Spec', $verified . '/' . $total, $sections);
+      return self::tab('spec', 'Spec', $verified . '/' . $total . ' proven', $sections);
     }
     $sections[] = $items === []
-      ? self::text('Acceptance criteria', 'None declared yet: plan declares them with `droost workflow:declare-criterion`.')
-      : ['kind' => 'checklist', 'title' => 'Acceptance criteria', 'items' => $items];
+      ? self::text('Proofs', 'No criterion declared yet: plan declares them with `droost workflow:declare-criterion`.')
+      : [
+        'kind' => 'checklist',
+        'title' => sprintf('Proofs: %d of %d criteria proven', $proven, count($items)),
+        'items' => $items,
+      ];
 
-    return self::tab('spec', 'Spec', $items === [] ? NULL : $proven . '/' . count($items), $sections);
+    return self::tab('spec', 'Spec', $items === [] ? NULL : $proven . '/' . count($items) . ' proven', $sections);
   }
 
   /**
@@ -234,11 +261,13 @@ final class RunPanel {
    *
    * @param list<array{at: string, text: string, detail: string|null}> $activity
    *   The entries.
+   * @param list<Action> $actions
+   *   What the guard saw the agent do.
    *
    * @return Tab
    *   The tab.
    */
-  private static function activityTab(array $activity): array {
+  private static function activityTab(array $activity, array $actions = []): array {
     $items = [];
     $last = count($activity) - 1;
     foreach ($activity as $index => $entry) {
@@ -249,13 +278,25 @@ final class RunPanel {
         'tone' => $index === $last ? 'info' : 'ok',
       ];
     }
-    $note = self::text(NULL, 'The agent writes these (`droost workflow:say "<what>"`). They are its own account; '
-      . 'the Gates tab is what droost measured.');
-    $sections = $items === []
-      ? [self::text(NULL, 'Nothing said yet.'), $note]
-      : [['kind' => 'list', 'title' => NULL, 'items' => $items], $note];
+    $did = [];
+    foreach ($actions as $action) {
+      $did[] = [
+        'text' => $action['subject'] === NULL ? $action['tool'] : $action['tool'] . ' · ' . $action['subject'],
+        'detail' => NULL,
+        'tag' => $action['refused'] ? 'refused' : (strlen($action['at']) >= 16 ? substr($action['at'], 11, 5) : NULL),
+        'tone' => $action['refused'] ? 'bad' : 'muted',
+      ];
+    }
+    $sections = [
+      $items === []
+        ? self::text('It says (its own account)', 'Nothing yet: the agent says what it is doing with `droost workflow:say "<what>"`.')
+        : ['kind' => 'list', 'title' => 'It says (its own account)', 'items' => $items],
+    ];
+    if ($did !== []) {
+      $sections[] = ['kind' => 'list', 'title' => 'It did (the guard saw these calls)', 'items' => $did];
+    }
 
-    return self::tab('activity', 'Activity', $items === [] ? NULL : (string) count($items), $sections);
+    return self::tab('activity', 'Activity', NULL, $sections);
   }
 
   /**

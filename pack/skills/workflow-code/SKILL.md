@@ -80,7 +80,9 @@ one piece at a time.
 ### Work through the acceptance criteria, checking as you go
 
 **The spec's acceptance criteria are this phase's to-do list.** Put them in
-your task list, then work through them, one at a time or a few together:
+your task list (where the droost mod is loaded, the run panel is that list,
+and the task tools are turned away: say each step with `droost
+workflow:say`), then work through them, one at a time or a few together:
 
 1. **Build it.**
 2. **Check it**, the way its `Check` column says, or another way that shows

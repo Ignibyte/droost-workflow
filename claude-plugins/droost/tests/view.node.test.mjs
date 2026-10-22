@@ -2,10 +2,10 @@
 // what was drawn, so the tree can be read without Claude Code.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { base64, dropImage, paneTree, pickTab, statusText } from '../hooks/view.js'
+import { base64, dropImage, paneTree, pickTab } from '../hooks/view.js'
 
 const make = (type) => (props) => ({ type, props })
-const el = { Box: make('Box'), Text: make('Text'), Button: make('Button'), Image: make('Image'), Svg: make('Svg') }
+const el = { Box: make('Box'), Text: make('Text'), Button: make('Button'), Image: make('Image'), Svg: make('Svg'), Markdown: make('Markdown') }
 
 // Every string drawn anywhere in a tree, in order.
 function texts(node, out = []) {
@@ -43,18 +43,14 @@ const DOC = {
   ],
 }
 
-test('the status line names the run, the phases and the gates, in plain text', () => {
-  assert.equal(statusText(DOC), 'PROJ-142 · Plan ✓ › Code ● › Test › Complete · gates 1/2')
-  assert.equal(statusText({ ...DOC, hold: { question: 'q' } }).endsWith('· waiting on you'), true)
-  assert.equal(statusText({ ...DOC, run: null }), undefined, 'no run clears the line')
-})
-
 test('the pane draws the phases, a tab per tab, and the open tab', () => {
   const tree = paneTree(el, DOC, { tab: 'gates', error: '', updatedAt: '17:02' }, () => {}, 'terminal')
   const words = texts(tree)
   assert.ok(words.includes('✓ Plan') && words.includes('● Code') && words.includes('○ Test'))
   assert.deepEqual(all(tree, 'Button').map((b) => b.props.label), ['— minimize', 'Spec 1/2', 'Gates 1/2', 'Ticket'])
   assert.ok(words.includes(' examined nothing '), 'a pass that examined nothing says so')
+  assert.ok(words.includes('Run PROJ-142 · medium · autonomous'), 'the run line')
+  assert.equal(all(tree, 'Box').filter((b) => b.props.borderStyle === 'round').length, 3, 'a bordered box per tab')
   assert.equal(all(tree, 'Image').length, 1, 'the drop, in a terminal')
   assert.equal(all(tree, 'Svg').length, 0)
 })
@@ -102,4 +98,10 @@ test('minimized, the pane is the phase line and the maximize button, nothing els
   assert.ok(texts(tree).includes('● Code'))
   all(tree, 'Button')[0].props.onPress()
   assert.equal(toggled, 1)
+})
+
+test('the spec is drawn as markdown', () => {
+  const doc = { ...DOC, tabs: [{ id: 'spec', title: 'Spec', badge: '0/5 proven', error: null, sections: [{ kind: 'markdown', title: null, text: '# R05\n\nThe contact page.' }] }] }
+  const tree = paneTree(el, doc, { tab: 'spec' }, () => {}, 'terminal')
+  assert.equal(all(tree, 'Markdown')[0].props.text, '# R05\n\nThe contact page.')
 })

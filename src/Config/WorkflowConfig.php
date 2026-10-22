@@ -194,6 +194,9 @@ final class WorkflowConfig {
    * @param array<string, array{title: string, run: string, timeout: int}> $panelTabs
    *   The project's own tabs in the run panel, by id: a title, and the file
    *   that prints the tab (`panel.tabs`).
+   * @param string $panelOpen
+   *   When the droost mod opens the run panel by itself (`panel.open`): auto,
+   *   always or never.
    */
   private function __construct(
     public readonly Mode $mode,
@@ -221,6 +224,7 @@ final class WorkflowConfig {
     public readonly array $operatorOnly = [],
     public readonly ?string $leadLever = NULL,
     public readonly array $panelTabs = [],
+    public readonly string $panelOpen = 'auto',
   ) {}
 
   /**
@@ -491,6 +495,7 @@ final class WorkflowConfig {
         self::readOperatorOnly($root, $source),
         self::readLead($root, $source),
         self::readPanelTabs($root, $source),
+        self::readPanelOpen($root, $source),
       );
     }
     catch (DataError $e) {
@@ -629,8 +634,8 @@ final class WorkflowConfig {
       return [];
     }
     foreach ($panel->keys() as $key) {
-      if ($key !== 'tabs') {
-        throw ConfigError::unknownSetting($source, 'panel.' . $key, ['tabs']);
+      if (!in_array($key, ['tabs', 'open'], TRUE)) {
+        throw ConfigError::unknownSetting($source, 'panel.' . $key, ['tabs', 'open']);
       }
     }
     $node = $panel->optionalChild('tabs');
@@ -663,6 +668,36 @@ final class WorkflowConfig {
       ];
     }
     return $tabs;
+  }
+
+  /**
+   * When the droost mod opens the run panel by itself: `panel.open`.
+   *
+   * `auto` (the default) when a session starts with a run under way,
+   * `always` at every session in this project, `never` only when asked
+   * (`/droost-panel`).
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   *
+   * @return string
+   *   One of auto, always, never.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When it is anything else.
+   */
+  private static function readPanelOpen(TypedArray $root, string $source): string {
+    $panel = $root->optionalChild('panel');
+    if ($panel === NULL || !$panel->has('open')) {
+      return 'auto';
+    }
+    $open = $panel->string('open');
+    if (!in_array($open, ['auto', 'always', 'never'], TRUE)) {
+      throw ConfigError::invalidCustomGate($source, 'panel.open', sprintf('must be auto, always or never; got "%s"', $open));
+    }
+    return $open;
   }
 
   /**

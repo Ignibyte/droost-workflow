@@ -1010,9 +1010,11 @@ are appended to `.gitignore` if they are not already there.
 
 `droost workflow:panel --json` is the run as a panel: the run (ticket, level,
 lead, state), its four phases, a question it waits on, and tabs. droost's own
-are **Spec** (the spec and each criterion with its proof), **Activity**
-(what the agent said it is doing, with `droost workflow:say "<what>"
-[--detail=<…>]`, labelled as its own account), **Gates** (each phase's
+are **Spec** (the spec itself, and each criterion with its proof),
+**Activity** (what the agent says it is doing, with `droost workflow:say
+"<what>" [--detail=<…>]`, labelled as its own account, beside what the
+guard saw it do: each call and the file or program it touched, refusals
+marked), **Gates** (each phase's
 verdicts, a pass that examined nothing, a gate a level turned off and one
 that could not run told apart from a pass) and **Seeker** (each finding and
 how it closed). A project's own tabs follow, from `panel.tabs` (the table
@@ -1021,6 +1023,7 @@ above). A tab is sections of four kinds:
 | kind | holds |
 |---|---|
 | `text` | `text` |
+| `markdown` | `text`, drawn as markdown (at most 9,500 characters) |
 | `fields` | `items: [{label, value}]` |
 | `checklist` | `items: [{text, done, note?}]` |
 | `list` | `items: [{text, detail?, tag?, tone?: ok \| warn \| bad \| info \| muted}]` |
@@ -1028,14 +1031,18 @@ above). A tab is sections of four kinds:
 Each may carry a `title`. What does not fit is dropped and the tab says so,
 so a project tab can be written against this and nothing else.
 
-**The droost mod** draws it in Claude Code: a pane (`/droost-panel`; it
-opens by itself when a session starts with a run under way) with the
-Drupal drop, the phases, a tab per tab (keys 1 to 9), and the run's line
-under the prompt. `m` minimizes it to the phase line alone and maximizes it again
-(as much room as Claude Code gives); Esc closes it, the line under the
-prompt stays, and `/droost-panel` brings it back. Claude Code seats the pane: on the right, 64 columns wide,
-in its fullscreen layout (`/tui fullscreen`) on a terminal 110 columns or
-wider; above the prompt otherwise. The drop is a real image where the
+**The droost mod** draws it in Claude Code: a pane (`/droost-panel`) with
+the Drupal drop, the phases, the run, and a bordered tab per tab (keys 1 to
+9). It opens by itself as `panel.open` in droost.yml says: `auto` (the
+default) when a run is under way, `always` at every session, `never` only
+when asked; Claude Code shows a pane opened unasked only where it docks it.
+While the mod is loaded the agent's own task list (TaskCreate, TodoWrite) is
+turned away: the panel is the run's list. `m` minimizes it to the phase line alone and maximizes it again
+(as much room as Claude Code gives); Esc closes it and `/droost-panel`
+brings it back. Claude Code seats the pane: on the right, full height and
+as wide as it allows, in its fullscreen layout (`/tui fullscreen`) on a
+terminal 110 columns or wider; above the prompt, about a third of the
+height, otherwise. The drop is a real image where the
 terminal draws images (iTerm2, kitty, WezTerm, Ghostty; not inside tmux),
 and a blank otherwise. It asks `droost workflow:panel --json` every three seconds and
 draws what comes back; it refuses nothing and writes nothing. It ships in
