@@ -2,7 +2,7 @@
 // what was drawn, so the tree can be read without Claude Code.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { base64, dropImage, paneTree, pickTab } from '../hooks/view.js'
+import { base64, dropImage, paneTree, pickTab, tabIcon } from '../hooks/view.js'
 
 const make = (type) => (props) => ({ type, props })
 const el = { Box: make('Box'), Text: make('Text'), Button: make('Button'), Image: make('Image'), Svg: make('Svg'), Markdown: make('Markdown') }
@@ -47,10 +47,11 @@ test('the pane draws the phases, a tab per tab, and the open tab', () => {
   const tree = paneTree(el, DOC, { tab: 'gates', error: '', updatedAt: '17:02' }, () => {}, 'terminal')
   const words = texts(tree)
   assert.ok(words.includes('✓ Plan') && words.includes('● Code') && words.includes('○ Test'))
-  assert.deepEqual(all(tree, 'Button').map((b) => b.props.label), ['— minimize', 'Spec 1/2', 'Gates 1/2', 'Ticket'])
+  assert.deepEqual(all(tree, 'Button').map((b) => b.props.label), ['— minimize', 'Spec', 'Gates', 'Ticket'])
+  assert.ok(words.includes(' ≡ 1/2 ') && words.includes(' ◈ 1/2 ') && words.includes(' T '), 'a tab is its icon and badge')
   assert.ok(words.includes(' examined nothing '), 'a pass that examined nothing says so')
   assert.ok(words.includes('Run PROJ-142 · medium · autonomous'), 'the run line')
-  assert.equal(all(tree, 'Box').filter((b) => b.props.borderStyle === 'round').length, 3, 'a bordered box per tab')
+  assert.equal(all(tree, 'Box').filter((b) => b.props.borderStyle).length, 0, 'nothing framed')
   assert.equal(all(tree, 'Image').length, 1, 'the drop, in a terminal')
   assert.equal(all(tree, 'Svg').length, 0)
 })
@@ -70,6 +71,7 @@ test('a hold is drawn, and droost that cannot be asked is named', () => {
   const tree = paneTree(el, { ...DOC, hold: { question: 'Which rink?' } }, { tab: 'spec', error: 'php: not found', updatedAt: '' }, () => {}, 'terminal')
   const words = texts(tree)
   assert.ok(words.includes('Waiting on you') && words.includes('Which rink?'))
+  assert.equal(all(tree, 'Box').filter((b) => b.props.borderStyle).length, 0, 'the hold is a line, not a box')
   assert.ok(words.some((w) => w.includes('could not be asked: php: not found')))
 })
 
@@ -89,7 +91,7 @@ test('the drop is an RGBA image, opaque in its body and clear at its corners', (
   assert.equal(base64(new Uint8Array([1, 2, 3, 4])), Buffer.from([1, 2, 3, 4]).toString('base64'))
 })
 
-test('minimized, the pane is the phase line and the maximize button, nothing else', () => {
+test('minimized inline, the pane is the phase line and the maximize button, nothing else', () => {
   let toggled = 0
   const tree = paneTree(el, DOC, { tab: 'spec', minimized: true }, () => {}, 'terminal', () => { toggled++ })
   assert.deepEqual(all(tree, 'Button').map((b) => b.props.label), ['□ maximize'])
@@ -104,4 +106,41 @@ test('the spec is drawn as markdown', () => {
   const doc = { ...DOC, tabs: [{ id: 'spec', title: 'Spec', badge: '0/5 proven', error: null, sections: [{ kind: 'markdown', title: null, text: '# R05\n\nThe contact page.' }] }] }
   const tree = paneTree(el, doc, { tab: 'spec' }, () => {}, 'terminal')
   assert.equal(all(tree, 'Markdown')[0].props.text, '# R05\n\nThe contact page.')
+})
+
+// The header's rows: the run line beside the phases inline, under the name docked.
+const header = (tree) => tree.props.children.find((c) => c && c.props.key === 'header')
+
+test('inline, the phases and the run line share the header, centred between the name and minimize', () => {
+  const tree = paneTree(el, DOC, { tab: 'spec', placement: 'inline' }, () => {}, 'terminal')
+  const [brand, middle, size] = header(tree).props.children
+  assert.deepEqual(texts(brand), ['droost'])
+  assert.equal(middle.props.alignItems, 'center')
+  assert.ok(texts(middle).includes('● Code') && texts(middle).includes('Run PROJ-142 · medium · autonomous'))
+  assert.equal(size.props.label, '— minimize')
+})
+
+test('docked, a column: name and minimize, the run, then the phases and the tabs', () => {
+  const tree = paneTree(el, DOC, { tab: 'spec', placement: 'dock' }, () => {}, 'terminal')
+  const rows = tree.props.children
+  assert.deepEqual(texts(header(tree)), ['droost', '— minimize', 'Run PROJ-142 · medium · autonomous'])
+  assert.equal(rows[1].props.key, 'phases')
+  assert.equal(rows[1].props.flexDirection, 'row')
+  assert.equal(rows[2].props.key, 'tabs')
+})
+
+test('docked and minimized, a strip: the drop, the name, a phase a row', () => {
+  const tree = paneTree(el, DOC, { tab: 'spec', placement: 'dock', minimized: true }, () => {}, 'terminal')
+  assert.equal(tree.props.flexDirection, 'column')
+  assert.equal(all(tree, 'Image').length, 1)
+  const phases = all(tree, 'Box').find((b) => b.props.key === 'phases')
+  assert.equal(phases.props.flexDirection, 'column')
+  assert.deepEqual(texts(phases), ['✓ Plan', '● Code', '○ Test', '○ Complete'])
+  assert.deepEqual(all(tree, 'Button').map((b) => b.props.label), ['□ maximize'])
+  assert.ok(!texts(tree).some((w) => w.startsWith('Run ')), 'no run line')
+})
+
+test('a tab icon is one cell: droost\'s own drawn, a project\'s its initial', () => {
+  for (const id of ['spec', 'activity', 'gates', 'seeker']) assert.equal([...tabIcon({ id })].length, 1)
+  assert.equal(tabIcon({ id: 'ticket', title: 'ticket' }), 'T')
 })

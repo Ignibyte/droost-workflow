@@ -129,7 +129,8 @@ final class RunPanel {
       'preset' => self::str($run['preset'] ?? NULL),
       'mode' => self::str($run['effective_mode'] ?? NULL),
       'lead' => self::str($run['lead'] ?? NULL),
-      'work_item' => self::str($run['work_item'] ?? NULL),
+      // The ticket as the run holds it ({id, source, …}), or a bare id.
+      'work_item' => self::str(is_array($run['work_item'] ?? NULL) ? ($run['work_item']['id'] ?? NULL) : ($run['work_item'] ?? NULL)),
       'spec' => self::str($run['spec'] ?? NULL),
       'started_at' => self::str($run['started_at'] ?? NULL),
     ];

@@ -131,12 +131,13 @@ function section(el, s, i) {
   return Box({ key: `s${i}`, flexDirection: 'column', children: rows })
 }
 
-// One phase line: ✓ Plan › ● Code › ○ Test › ○ Complete.
-function phaseRow(el, doc) {
+// The phases: a line (✓ Plan › ● Code › ○ Test › ○ Complete), or a column
+// for the minimized dock.
+function phaseRow(el, doc, column = false) {
   const { Box, Text } = el
   const steps = []
   ;((doc && doc.phases) || []).forEach((p, i) => {
-    if (i > 0) steps.push(Text({ key: `sep${i}`, dimColor: true, children: [' › '] }))
+    if (i > 0 && !column) steps.push(Text({ key: `sep${i}`, dimColor: true, children: [' › '] }))
     steps.push(
       Text({
         key: `p-${p.id}`,
@@ -147,10 +148,10 @@ function phaseRow(el, doc) {
       }),
     )
   })
-  return Box({ key: 'phases', flexDirection: 'row', children: steps })
+  return Box({ key: 'phases', flexDirection: column ? 'column' : 'row', flexWrap: column ? undefined : 'wrap', children: steps })
 }
 
-// The size toggle: minimize to the phase line, maximize to everything.
+// The size toggle: minimize to the phases, maximize to everything.
 function sizeButton(el, minimized, onSize) {
   return el.Button({
     key: 'size',
@@ -162,26 +163,88 @@ function sizeButton(el, minimized, onSize) {
   })
 }
 
-// The run line under the header: the run, its level, who leads it.
+// The run line: the run, its level, who leads it.
 function runLine(run) {
   if (!run) return 'no run open'
   const lead = run.lead === 'human-led' ? 'human led' : run.lead
   return ['Run ' + (run.work_item || run.id || ''), run.preset, lead].filter(Boolean).join(' · ')
 }
 
-// The whole pane. `state` is { tab, error, minimized, bodyRows }; `onTab(id)`
-// switches tabs and `onSize()` toggles minimized (the phase line alone) and
-// maximized (everything, filling the room it is given).
+// The drop: an image in a terminal that draws one, an SVG elsewhere.
+function logo(el, surface) {
+  if (surface === 'terminal' && el.Image) return el.Image({ key: 'logo', source: dropImage(), columns: 3, rows: 2, alt: ' ' })
+  if (el.Svg) return el.Svg({ key: 'logo', source: DROP_SVG, alt: 'Drupal', width: 16, height: 20 })
+  return null
+}
+
+// A tab's icon: one cell, so a row of them fits any pane. A project's own
+// tab is its title's first letter.
+const TAB_ICON = { spec: '≡', activity: '↯', gates: '◈', seeker: '⌕' }
+export function tabIcon(t) {
+  return TAB_ICON[t.id] || (t.title || t.id || '?').charAt(0).toUpperCase()
+}
+
+// The tabs, one row of icons with their badges; the open one lit.
+function tabRow(el, doc, current, onTab) {
+  const { Box, Button, Text } = el
+  const tabs = ((doc && doc.tabs) || []).map((t) => {
+    const open = Boolean(current && current.id === t.id)
+    return Button({
+      key: 'tab-' + t.id,
+      label: t.title,
+      plain: true,
+      dimColor: !open,
+      onPress: () => onTab(t.id),
+      children: [
+        Text({
+          color: open ? TONES.info : undefined,
+          backgroundColor: open ? PILL_BG.info : undefined,
+          bold: open,
+          children: [' ' + tabIcon(t) + (t.badge ? ' ' + t.badge : '') + ' '],
+        }),
+      ],
+    })
+  })
+  return tabs.length ? Box({ key: 'tabs', flexDirection: 'row', flexWrap: 'wrap', children: tabs }) : null
+}
+
+// The whole pane. `state` is { tab, error, minimized, placement, bodyRows };
+// `onTab(id)` switches tabs and `onSize()` toggles minimized and maximized.
+// Every row is room the open tab does not get, so nothing is drawn twice and
+// nothing is framed.
 //
-//   (drop) droost        ✓ Plan › ● Code › ○ Test › ○ Complete        — minimize
-//   Run PROJ-142 · custom · human led
-//   ╭──────╮╭──────────╮╭───────╮
-//   │ Spec ││ Activity ││ Gates │ …
-//   ╰──────╯╰──────────╯╰───────╯
+// Docked beside the transcript (`placement: 'dock'`), a column:
+//
+//   (drop) droost            — minimize
+//          Run PROJ-142 · custom · human led
+//   ✓ Plan › ● Code › ○ Test › ○ Complete
+//    ≡ 0/5 ✓  ↯  ◈ 3/4  ⌕
 //   (the open tab)
+//
+// and minimized, a strip: the drop, the name, a phase a row.
+//
+// Inline above the prompt, rows:
+//
+//   (drop) droost   ✓ Plan › ● Code › ○ Test › ○ Complete   — minimize
+//                    Run PROJ-142 · custom · human led
+//    ≡ 0/5 ✓  ↯  ◈ 3/4  ⌕
+//   (the open tab)
+//
+// and minimized, the phase line alone.
 export function paneTree(el, doc, state, onTab, surface, onSize = () => {}) {
-  const { Box, Text, Button } = el
+  const { Box, Text } = el
+  const docked = state.placement === 'dock'
+  const run = Text({ key: 'run', color: TONES.muted, wrap: 'truncate-end', children: [runLine(doc && doc.run)] })
+  const name = Text({ key: 'name', bold: true, children: ['droost'] })
+  const mark = logo(el, surface)
+
   if (state.minimized) {
+    if (docked) {
+      return Box({
+        flexDirection: 'column',
+        children: [mark, name, phaseRow(el, doc, true), sizeButton(el, true, onSize)].filter(Boolean),
+      })
+    }
     return Box({
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -190,38 +253,50 @@ export function paneTree(el, doc, state, onTab, surface, onSize = () => {}) {
     })
   }
 
-  const brand = []
-  if (surface === 'terminal' && el.Image) {
-    brand.push(el.Image({ key: 'logo', source: dropImage(), columns: 3, rows: 2, alt: ' ' }))
-  } else if (el.Svg) {
-    brand.push(el.Svg({ key: 'logo', source: DROP_SVG, alt: 'Drupal', width: 16, height: 20 }))
+  const rows = []
+  if (docked) {
+    rows.push(
+      Box({
+        key: 'header',
+        flexDirection: 'row',
+        columnGap: 1,
+        children: [
+          mark,
+          Box({
+            key: 'head',
+            flexDirection: 'column',
+            flexGrow: 1,
+            children: [
+              Box({ key: 'top', flexDirection: 'row', justifyContent: 'space-between', columnGap: 1, children: [name, sizeButton(el, false, onSize)] }),
+              run,
+            ],
+          }),
+        ].filter(Boolean),
+      }),
+      phaseRow(el, doc),
+    )
+  } else {
+    rows.push(
+      Box({
+        key: 'header',
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        columnGap: 2,
+        children: [
+          Box({ key: 'brand', flexDirection: 'row', alignItems: 'center', columnGap: 1, children: [mark, name].filter(Boolean) }),
+          Box({ key: 'middle', flexDirection: 'column', alignItems: 'center', flexShrink: 1, children: [phaseRow(el, doc), run] }),
+          sizeButton(el, false, onSize),
+        ],
+      }),
+    )
   }
-  brand.push(Text({ key: 'name', bold: true, children: ['droost'] }))
-
-  const rows = [
-    Box({
-      key: 'header',
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      columnGap: 2,
-      children: [
-        Box({ key: 'brand', flexDirection: 'row', alignItems: 'center', columnGap: 1, children: brand }),
-        phaseRow(el, doc),
-        sizeButton(el, false, onSize),
-      ],
-    }),
-    Text({ key: 'run', color: TONES.muted, children: [runLine(doc && doc.run)] }),
-  ]
 
   if (doc && doc.hold) {
     rows.push(
       Box({
         key: 'hold',
-        borderStyle: 'round',
-        borderColor: TONES.warn,
-        paddingX: 1,
-        flexDirection: 'column',
+        flexDirection: 'row',
+        columnGap: 1,
         children: [
           Text({ color: TONES.warn, bold: true, children: ['Waiting on you'] }),
           Text({ wrap: 'wrap', children: [doc.hold.question] }),
@@ -231,41 +306,20 @@ export function paneTree(el, doc, state, onTab, surface, onSize = () => {}) {
   }
 
   const current = pickTab(doc, state.tab)
-  const tabs = ((doc && doc.tabs) || []).map((t, i) => {
-    const open = Boolean(current && current.id === t.id)
-    return Box({
-      key: 'tabbox-' + t.id,
-      borderStyle: 'round',
-      borderColor: open ? PHASE_COLOR.active : TONES.muted,
-      paddingX: 1,
-      children: [
-        Button({
-          key: 'tab-' + t.id,
-          label: t.title + (t.badge ? ' ' + t.badge : ''),
-          hotkey: i < 9 ? String(i + 1) : undefined,
-          plain: true,
-          bold: open,
-          dimColor: !open,
-          onPress: () => onTab(t.id),
-        }),
-      ],
-    })
-  })
-  if (tabs.length) rows.push(Box({ key: 'tabs', flexDirection: 'row', flexWrap: 'wrap', marginTop: 1, children: tabs }))
+  const tabs = tabRow(el, doc, current, onTab)
+  if (tabs) rows.push(tabs)
 
   if (current) {
     if (current.error) {
       const lead = current.sections.length ? 'Part of this tab was dropped: ' : 'This tab could not be drawn: '
       rows.push(Text({ key: 'tab-error', color: TONES.warn, wrap: 'wrap', children: [lead + current.error] }))
     }
-    rows.push(Box({ key: 'body', flexDirection: 'column', rowGap: 1, marginTop: 1, children: current.sections.map((s, i) => section(el, s, i)) }))
+    rows.push(Box({ key: 'body', flexDirection: 'column', rowGap: 1, children: current.sections.map((s, i) => section(el, s, i)) }))
   }
 
   if (state.error) {
     rows.push(Text({ key: 'foot', color: TONES.warn, wrap: 'truncate-end', children: ['droost could not be asked: ' + state.error] }))
   }
 
-  // No gap between the header, the run line and the tabs: above the prompt
-  // the pane has about a third of the screen, and the open tab needs it.
   return Box({ flexDirection: 'column', minHeight: state.bodyRows || undefined, children: rows })
 }

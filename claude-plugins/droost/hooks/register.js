@@ -28,13 +28,15 @@ let error = ''
 let asking = false
 let minimized = false
 let opened = ''
+let openedAlways = false
 
 // How the pane asks to be seated: maximized as large as the layout allows,
-// the dock as wide as it gives, minimized the phase line alone. Requests, not
-// grants: a size the person dragged the pane to wins.
+// the dock as wide as it gives; minimized, the phase line alone inline and
+// the narrowest strip the dock allows. Requests, not grants: a size the
+// person dragged the pane to wins.
 const SIZE = {
   max: { id: PANE, title: 'droost', rows: 200, columns: 400 },
-  min: { id: PANE, title: 'droost', rows: 1, columns: 60 },
+  min: { id: PANE, title: 'droost', rows: 1, columns: 14 },
 }
 
 // How to run droost: the operator's setting, else the project's install.
@@ -70,6 +72,12 @@ async function refresh($, options) {
   } finally {
     asking = false
   }
+  // `always`: once a session, at the first answer droost gives, so a slow or
+  // failed first ask does not lose it.
+  if (doc && doc.open === 'always' && !openedAlways) {
+    openedAlways = true
+    await $.ui.open(SIZE.max)
+  }
   // `auto`: once for each run that starts under way; never again for the
   // same run, so a pane the person closed stays closed.
   const run = doc && doc.run
@@ -84,9 +92,6 @@ export function register(on, options) {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'droost-panel', description: 'Open droost\'s run panel: phases, spec, activity, gates, seeker' })
     await refresh($, options)
-    if (doc && doc.open === 'always') {
-      await $.ui.open(SIZE.max)
-    }
     $.clock.every(EVERY_MS, () => refresh($, options))
     return next(e)
   })
@@ -96,6 +101,21 @@ export function register(on, options) {
     minimized = false
     await $.ui.open({ ...SIZE.max, focus: true, closeOnEscape: true })
     return {}
+  })
+
+  // A pane this opens by itself waits undrawn on a terminal narrower than the
+  // engine's floor for an unasked pane. The person's next prompt counts as
+  // asking, so it seats the waiting pane at any width: above the prompt when
+  // the dock has no room.
+  on('prompt.submit', async ($, e, next) => {
+    try {
+      if ((await $.ui.panes()).some((p) => p.id === PANE && !p.isPlaced)) {
+        await $.ui.open(minimized ? SIZE.min : SIZE.max)
+      }
+    } catch {
+      // Never hold a prompt up over the pane.
+    }
+    return next(e)
   })
 
   // The agent's task list, while the panel is the run's: described as such,
@@ -110,7 +130,7 @@ export function register(on, options) {
     const el = $.ui.resolve(e)
     const shown = pickTab(doc, tab)
     if (shown) tab = shown.id
-    const state = { tab, error, minimized, bodyRows: e.props?.scroll?.bodyRows }
+    const state = { tab, error, minimized, placement: e.props?.placement, bodyRows: e.props?.scroll?.bodyRows }
     return paneTree(el, doc, state, (id) => {
       tab = id
       $.ui.invalidate('ui.render')

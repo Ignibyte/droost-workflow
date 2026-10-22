@@ -73,6 +73,19 @@ final class RunPanelTest extends WorkflowTestCase {
   }
 
   /**
+   * The run is named by its ticket, which the run holds as {id, source, …}.
+   */
+  public function testTheRunIsNamedByItsTicket(): void {
+    $held = RunPanel::summary([
+      'run_id' => 'run-b37048e955e1',
+      'work_item' => ['id' => 'PROJ-142', 'source' => 'declared', 'title' => NULL],
+    ]);
+    $this->assertSame('PROJ-142', $held['work_item']);
+    $this->assertSame('PROJ-142', RunPanel::summary(['run_id' => 'r', 'work_item' => 'PROJ-142'])['work_item']);
+    $this->assertNull(RunPanel::summary(['run_id' => 'r', 'work_item' => NULL])['work_item']);
+  }
+
+  /**
    * The Activity tab is the agent's account, and says so.
    */
   public function testActivityIsTheAgentsOwnAccount(): void {
