@@ -234,8 +234,8 @@ function tabRow(el, doc, current, onTab) {
 
 // The whole pane. `state` is { tab, error, minimized, placement, bodyRows,
 // bodyColumns }; `onTab(id)` switches tabs and `onSize()` toggles minimized
-// and maximized. The tabs sit between two rules with a row of air under
-// them, so the run is above them and the open tab below.
+// and maximized. The tabs sit between two rules, the run above them and the
+// open tab below.
 //
 // Docked beside the transcript (`placement: 'dock'`), a column:
 //
@@ -246,7 +246,6 @@ function tabRow(el, doc, current, onTab) {
 //   ─────────────────────────────────────
 //    ≡  ↯  ◈ 3/4  ⌕  ± 4
 //   ─────────────────────────────────────
-//
 //   (the open tab)
 //
 // and minimized, a strip: the drop, the name, a phase a row.
@@ -258,7 +257,6 @@ function tabRow(el, doc, current, onTab) {
 //   ─────────────────────────────────────
 //    ≡  ↯  ◈ 3/4  ⌕  ± 4
 //   ─────────────────────────────────────
-//
 //   (the open tab)
 //
 // and minimized, the phase line alone.
@@ -335,7 +333,6 @@ export function paneTree(el, doc, state, onTab, surface, onSize = () => {}) {
       Box({
         key: 'tabbar',
         flexDirection: 'column',
-        marginBottom: 1,
         children: [rule(el, 'rule-top', state.bodyColumns), tabs, rule(el, 'rule-bottom', state.bodyColumns)],
       }),
     )

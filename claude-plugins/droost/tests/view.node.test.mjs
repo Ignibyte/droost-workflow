@@ -150,13 +150,13 @@ test('a tab icon is one cell: droost\'s own drawn, a project\'s its initial', ()
   assert.equal(tabIcon({ id: 'ticket', title: 'ticket' }), 'T')
 })
 
-test('the tabs sit between two rules the width of the body, a row of air under them', () => {
+test('the tabs sit between two rules the width of the body, with no row of air either side', () => {
   for (const placement of ['dock', 'inline']) {
     const rows = paneTree(el, DOC, { tab: 'spec', placement, bodyColumns: 52 }, () => {}, 'terminal').props.children
     const at = rows.findIndex((r) => r && r.props.key === 'tabbar')
     const bar = rows[at]
-    assert.equal(bar.props.marginBottom, 1)
     assert.equal(bar.props.marginTop, undefined, 'no row above the top rule')
+    assert.equal(bar.props.marginBottom, undefined, 'no row under the bottom rule')
     assert.deepEqual(bar.props.children.map((c) => c.props.key), ['rule-top', 'tabs', 'rule-bottom'])
     assert.deepEqual(texts(bar.props.children[0]), ['─'.repeat(52)])
     assert.equal(rows[at + 1].props.key, 'body')
