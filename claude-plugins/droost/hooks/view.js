@@ -184,6 +184,9 @@ export function tabIcon(t) {
   return TAB_ICON[t.id] || (t.title || t.id || '?').charAt(0).toUpperCase()
 }
 
+// Tabs whose badge the pane leaves out: the spec's count is in the tab itself.
+const ICON_ONLY = new Set(['spec'])
+
 // The tabs, one row of icons with their badges; the open one lit.
 function tabRow(el, doc, current, onTab) {
   const { Box, Button, Text } = el
@@ -200,7 +203,7 @@ function tabRow(el, doc, current, onTab) {
           color: open ? TONES.info : undefined,
           backgroundColor: open ? PILL_BG.info : undefined,
           bold: open,
-          children: [' ' + tabIcon(t) + (t.badge ? ' ' + t.badge : '') + ' '],
+          children: [' ' + tabIcon(t) + (t.badge && !ICON_ONLY.has(t.id) ? ' ' + t.badge : '') + ' '],
         }),
       ],
     })
@@ -208,7 +211,8 @@ function tabRow(el, doc, current, onTab) {
   return tabs.length ? Box({ key: 'tabs', flexDirection: 'row', flexWrap: 'wrap', children: tabs }) : null
 }
 
-// The whole pane. `state` is { tab, error, minimized, placement, bodyRows };
+// The whole pane. `state` is { tab, error, minimized, placement, bodyRows,
+// bodyColumns };
 // `onTab(id)` switches tabs and `onSize()` toggles minimized and maximized.
 // Every row is room the open tab does not get, so nothing is drawn twice and
 // nothing is framed.
@@ -218,7 +222,9 @@ function tabRow(el, doc, current, onTab) {
 //   (drop) droost            — minimize
 //          Run PROJ-142 · custom · human led
 //   ✓ Plan › ● Code › ○ Test › ○ Complete
-//    ≡ 0/5 ✓  ↯  ◈ 3/4  ⌕
+//    ≡  ↯  ◈ 3/4  ⌕
+//   ─────────────────────────────────────
+//
 //   (the open tab)
 //
 // and minimized, a strip: the drop, the name, a phase a row.
@@ -227,7 +233,9 @@ function tabRow(el, doc, current, onTab) {
 //
 //   (drop) droost   ✓ Plan › ● Code › ○ Test › ○ Complete   — minimize
 //                    Run PROJ-142 · custom · human led
-//    ≡ 0/5 ✓  ↯  ◈ 3/4  ⌕
+//    ≡  ↯  ◈ 3/4  ⌕
+//   ─────────────────────────────────────
+//
 //   (the open tab)
 //
 // and minimized, the phase line alone.
@@ -307,7 +315,11 @@ export function paneTree(el, doc, state, onTab, surface, onSize = () => {}) {
 
   const current = pickTab(doc, state.tab)
   const tabs = tabRow(el, doc, current, onTab)
-  if (tabs) rows.push(tabs)
+  if (tabs) {
+    // A rule the body's width under the tabs, and a row of air: what is above
+    // it is the run, what is below it the open tab.
+    rows.push(tabs, Box({ key: 'rule', marginBottom: 1, children: [Text({ color: TONES.muted, children: ['─'.repeat(state.bodyColumns || 40)] })] }))
+  }
 
   if (current) {
     if (current.error) {

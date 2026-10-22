@@ -48,7 +48,7 @@ test('the pane draws the phases, a tab per tab, and the open tab', () => {
   const words = texts(tree)
   assert.ok(words.includes('✓ Plan') && words.includes('● Code') && words.includes('○ Test'))
   assert.deepEqual(all(tree, 'Button').map((b) => b.props.label), ['— minimize', 'Spec', 'Gates', 'Ticket'])
-  assert.ok(words.includes(' ≡ 1/2 ') && words.includes(' ◈ 1/2 ') && words.includes(' T '), 'a tab is its icon and badge')
+  assert.ok(words.includes(' ≡ ') && words.includes(' ◈ 1/2 ') && words.includes(' T '), 'a tab is its icon and badge; the spec its icon alone')
   assert.ok(words.includes(' examined nothing '), 'a pass that examined nothing says so')
   assert.ok(words.includes('Run PROJ-142 · medium · autonomous'), 'the run line')
   assert.equal(all(tree, 'Box').filter((b) => b.props.borderStyle).length, 0, 'nothing framed')
@@ -143,4 +143,15 @@ test('docked and minimized, a strip: the drop, the name, a phase a row', () => {
 test('a tab icon is one cell: droost\'s own drawn, a project\'s its initial', () => {
   for (const id of ['spec', 'activity', 'gates', 'seeker']) assert.equal([...tabIcon({ id })].length, 1)
   assert.equal(tabIcon({ id: 'ticket', title: 'ticket' }), 'T')
+})
+
+test('a rule the width of the body separates the tabs from the open tab, with a row of air under it', () => {
+  for (const placement of ['dock', 'inline']) {
+    const rows = paneTree(el, DOC, { tab: 'spec', placement, bodyColumns: 52 }, () => {}, 'terminal').props.children
+    const at = rows.findIndex((r) => r && r.props.key === 'rule')
+    assert.equal(rows[at - 1].props.key, 'tabs')
+    assert.equal(rows[at + 1].props.key, 'body')
+    assert.equal(rows[at].props.marginBottom, 1)
+    assert.deepEqual(texts(rows[at]), ['─'.repeat(52)])
+  }
 })

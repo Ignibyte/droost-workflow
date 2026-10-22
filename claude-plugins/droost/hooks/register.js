@@ -130,7 +130,7 @@ export function register(on, options) {
     const el = $.ui.resolve(e)
     const shown = pickTab(doc, tab)
     if (shown) tab = shown.id
-    const state = { tab, error, minimized, placement: e.props?.placement, bodyRows: e.props?.scroll?.bodyRows }
+    const state = { tab, error, minimized, placement: e.props?.placement, bodyRows: e.props?.scroll?.bodyRows, bodyColumns: e.props?.bodyColumns }
     return paneTree(el, doc, state, (id) => {
       tab = id
       $.ui.invalidate('ui.render')
