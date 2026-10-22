@@ -322,8 +322,12 @@ final class SpecFreeze {
     $row = trim($row);
     $row = preg_replace('/^\|/', '', $row) ?? $row;
     $row = preg_replace('/\|$/', '', $row) ?? $row;
+    // An escaped pipe is text, as SpecContract::cells() reads it (F-359): a
+    // criterion naming a page title (`Home Phone \| United Communications`)
+    // split there, and filling its Verified By read as the row rewritten.
+    $row = str_replace('\\|', "\x00", $row);
 
-    return array_map('trim', explode('|', $row));
+    return array_map(static fn (string $cell): string => trim(str_replace("\x00", '|', $cell)), explode('|', $row));
   }
 
   /**

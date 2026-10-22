@@ -88,6 +88,24 @@ final class SpecFreezeTest extends TestCase {
   }
 
   /**
+   * A criterion with an escaped pipe may have its Verified By filled (F-359).
+   *
+   * UNI-A run 9's AC-6 names two page titles, `Home Phone \| United
+   * Communications`, and the freeze split the escaped pipe as a cell
+   * boundary: filling the cell the test phase is told to fill read as the
+   * criterion rewritten. Its wording changed is still caught.
+   */
+  public function testAnEscapedPipeIsPartOfItsCell(): void {
+    $row = '| AC1 | the tab reads "Home Phone \| United Communications" | test | |';
+    $frozen = str_replace('| AC1 | the page renders | curl /rinks | |', $row, $this->spec());
+    $filled = str_replace($row, '| AC1 | the tab reads "Home Phone \| United Communications" | test | r07.spec.ts › AC-6 |', $frozen);
+    $this->assertSame([], SpecFreeze::breaches($filled, $frozen));
+
+    $rewritten = str_replace('Home Phone', 'Phone', $filled);
+    $this->assertNotSame([], SpecFreeze::breaches($rewritten, $frozen), 'its wording is still frozen');
+  }
+
+  /**
    * Appending the run's own history is legal.
    */
   public function testAppendingRealizedAndSeekerLedgersIsLegal(): void {
