@@ -141,12 +141,50 @@ function section(el, s, i) {
   return Box({ key: `s${i}`, flexDirection: 'column', children: rows })
 }
 
-// The whole pane. `state` is { tab, error, updatedAt, collapsed };
-// `onTab(id)` switches tabs, `onCollapse()` folds the pane to its header and
-// phases or opens it again, and `onHide()` closes it, leaving the line under
-// the prompt (`/droost-panel` brings it back).
-export function paneTree(el, doc, state, onTab, surface, onCollapse = () => {}, onHide = () => {}) {
+// One phase line: ✓ Plan › ● Code › ○ Test › ○ Complete.
+function phaseRow(el, doc) {
+  const { Box, Text } = el
+  const steps = []
+  ;((doc && doc.phases) || []).forEach((p, i) => {
+    if (i > 0) steps.push(Text({ key: `sep${i}`, dimColor: true, children: [' › '] }))
+    steps.push(
+      Text({
+        key: `p-${p.id}`,
+        color: PHASE_COLOR[p.status],
+        dimColor: !PHASE_COLOR[p.status],
+        bold: p.status === 'active',
+        children: [(PHASE_MARK[p.status] || '○') + ' ' + p.label],
+      }),
+    )
+  })
+  return Box({ key: 'phases', flexDirection: 'row', children: steps })
+}
+
+// The size toggle: minimize to the phase line, maximize to everything.
+function sizeButton(el, minimized, onSize) {
+  return el.Button({
+    key: 'size',
+    label: minimized ? '□ maximize' : '— minimize',
+    hotkey: 'm',
+    plain: true,
+    dimColor: true,
+    onPress: () => onSize(),
+  })
+}
+
+// The whole pane. `state` is { tab, error, updatedAt, minimized };
+// `onTab(id)` switches tabs and `onSize()` toggles between minimized (the
+// phase line alone) and maximized (everything, as large as it is given).
+export function paneTree(el, doc, state, onTab, surface, onSize = () => {}) {
   const { Box, Text, Button } = el
+  if (state.minimized) {
+    return Box({
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      columnGap: 2,
+      children: [phaseRow(el, doc), sizeButton(el, true, onSize)],
+    })
+  }
   const header = []
   if (surface === 'terminal' && el.Image) {
     header.push(el.Image({ key: 'logo', source: dropImage(), columns: 4, rows: 2, alt: ' ' }))
@@ -164,39 +202,11 @@ export function paneTree(el, doc, state, onTab, surface, onCollapse = () => {}, 
       children: [Text({ bold: true, children: ['droost'] }), Text({ color: TONES.muted, children: [facts] })],
     }),
   )
-  header.push(
-    Box({
-      key: 'fold',
-      flexDirection: 'row',
-      justifyContent: 'flex-end',
-      columnGap: 2,
-      children: [
-        Button({ key: 'collapse', label: state.collapsed ? '▸ open' : '▾ fold', hotkey: 'c', plain: true, dimColor: true, onPress: () => onCollapse() }),
-        Button({ key: 'hide', label: '— minimize', hotkey: 'm', plain: true, dimColor: true, onPress: () => onHide() }),
-      ],
-    }),
-  )
+  header.push(Box({ key: 'size', flexDirection: 'row', justifyContent: 'flex-end', children: [sizeButton(el, false, onSize)] }))
 
   const rows = [Box({ key: 'header', flexDirection: 'row', columnGap: 2, justifyContent: 'space-between', children: header })]
 
-  const phases = (doc && doc.phases) || []
-  const steps = []
-  phases.forEach((p, i) => {
-    if (i > 0) steps.push(Text({ key: `sep${i}`, dimColor: true, children: [' › '] }))
-    steps.push(
-      Text({
-        key: `p-${p.id}`,
-        color: PHASE_COLOR[p.status],
-        dimColor: !PHASE_COLOR[p.status],
-        bold: p.status === 'active',
-        children: [(PHASE_MARK[p.status] || '○') + ' ' + p.label],
-      }),
-    )
-  })
-  rows.push(Box({ key: 'phases', flexDirection: 'row', children: steps }))
-  if (state.collapsed) {
-    return Box({ flexDirection: 'column', children: rows })
-  }
+  rows.push(phaseRow(el, doc))
 
   if (doc && doc.hold) {
     rows.push(

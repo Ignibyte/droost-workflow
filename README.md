@@ -1031,9 +1031,9 @@ so a project tab can be written against this and nothing else.
 **The droost mod** draws it in Claude Code: a pane (`/droost-panel`; it
 opens by itself when a session starts with a run under way) with the
 Drupal drop, the phases, a tab per tab (keys 1 to 9), and the run's line
-under the prompt. `c` folds it to the run and its phases; `m` (or Esc) minimizes
-it away entirely, the line under the prompt stays, and `/droost-panel`
-brings it back. Claude Code seats the pane: on the right, 64 columns wide,
+under the prompt. `m` minimizes it to the phase line alone and maximizes it again
+(as much room as Claude Code gives); Esc closes it, the line under the
+prompt stays, and `/droost-panel` brings it back. Claude Code seats the pane: on the right, 64 columns wide,
 in its fullscreen layout (`/tui fullscreen`) on a terminal 110 columns or
 wider; above the prompt otherwise. The drop is a real image where the
 terminal draws images (iTerm2, kitty, WezTerm, Ghostty; not inside tmux),
