@@ -8,6 +8,7 @@ use Droost\Workflow\Cli\ArgvDispatcher;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
 use Droost\Workflow\Tests\WorkflowTestCase;
+use Droost\Workflow\WorkItem\FollowUps;
 
 /**
  * The `ticket` verb and `run --ticket`, through the standalone binary.
@@ -114,6 +115,35 @@ final class TicketVerbTest extends WorkflowTestCase {
     $state = $this->stateOf($root);
     $this->assertNotNull($state);
     $this->assertNull($state->workItem, 'run without --ticket binds nothing');
+  }
+
+  /**
+   * With no provider, the follow-ups droost filed are the ticket source.
+   *
+   * They can be listed, shown, bound and moved: droost does not file a
+   * ticket it cannot then close (F-358).
+   */
+  public function testFollowUpsAreTheSourceWithNoProvider(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\nseekers:\n  on: false\n");
+    [$code, $out] = $this->dispatch(['ticket', 'list'], $root);
+    $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code, 'no follow-up yet: no source');
+    $this->assertStringContainsString('no work-item source is configured', $out);
+
+    $filed = FollowUps::markdown(NULL, $root)->create('Follow-up: parity failed at test', 'bug', "## Summary\n\nparity failed.\n");
+    $this->assertSame('TICKET-1', $filed->id);
+    $this->assertFileExists($root . '/docs/tickets/open/TICKET-1-follow-up-parity-failed-at-test.md');
+
+    [$code, $out] = $this->dispatch(['ticket', 'list'], $root);
+    $this->assertSame(ArgvDispatcher::EXIT_OK, $code, $out);
+    $listed = json_decode($out, TRUE);
+    $this->assertIsArray($listed);
+    $this->assertIsArray($listed['tickets'] ?? NULL);
+    $this->assertSame(['TICKET-1'], array_column($listed['tickets'], 'id'));
+
+    $this->dispatch(['run', '--ticket=TICKET-1'], $root);
+    $state = $this->stateOf($root);
+    $this->assertNotNull($state);
+    $this->assertSame('TICKET-1', $state->workItem['id'] ?? NULL, 'a run binds to it');
   }
 
   /**

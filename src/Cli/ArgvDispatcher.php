@@ -1868,10 +1868,12 @@ final class ArgvDispatcher {
   }
 
   /**
-   * The project's built-in work-item source, or NULL when it has none.
+   * The project's work-item source, or NULL when it has none.
    *
-   * A lever file that cannot be read has no source here: the verb that needs
-   * the levers says what is wrong with them, and every other verb carries on.
+   * With no built-in provider, the follow-ups droost filed are the source
+   * (WorkItemSources::forTickets(), F-358). A lever file that cannot be read
+   * has no source here: the verb that needs the levers says what is wrong
+   * with them, and every other verb carries on.
    *
    * @param string $projectRoot
    *   The repository.
@@ -1880,7 +1882,7 @@ final class ArgvDispatcher {
    *   The source.
    */
   private function workItemSource(string $projectRoot): ?WorkItemSourceInterface {
-    return WorkItemSources::fromSettings($this->workItemSettings($projectRoot), $projectRoot);
+    return WorkItemSources::forTickets($this->workItemSettings($projectRoot), $projectRoot);
   }
 
   /**

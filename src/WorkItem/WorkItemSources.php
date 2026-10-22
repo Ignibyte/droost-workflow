@@ -49,6 +49,36 @@ final class WorkItemSources {
   }
 
   /**
+   * The source the ticket verbs and `run --ticket` read.
+   *
+   * The built-in source the settings name; with none, the directory droost
+   * writes its own follow-ups to, once it holds a ticket. A follow-up droost
+   * filed in a project with no ticket provider could otherwise be neither
+   * shown nor moved by droost (F-358). A cockpit project has no such
+   * fallback: its follow-ups are the cockpit's.
+   *
+   * @param \Droost\Workflow\Config\WorkItemSettings|null $settings
+   *   The lever file's work_item block, NULL when it has none.
+   * @param string $projectRoot
+   *   The project the source reads.
+   *
+   * @return \Droost\Workflow\WorkItem\WorkItemSourceInterface|null
+   *   The source.
+   *
+   * @throws \Droost\Workflow\WorkItem\WorkItemError
+   *   When the configured directory or prefix is refused.
+   */
+  public static function forTickets(?WorkItemSettings $settings, string $projectRoot): ?WorkItemSourceInterface {
+    $source = self::fromSettings($settings, $projectRoot);
+    if ($source !== NULL || $settings?->provider === 'droost_cockpit') {
+      return $source;
+    }
+    $followUps = FollowUps::markdown($settings, $projectRoot);
+
+    return $followUps->list() === [] ? NULL : $followUps;
+  }
+
+  /**
    * The relay that carries the run-event log to the cockpit, in cockpit mode.
    *
    * @param \Droost\Workflow\Config\WorkItemSettings|null $settings
