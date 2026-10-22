@@ -12,8 +12,8 @@ namespace Droost\Workflow\Panel;
  * a question it waits on, and tabs. droost's own tabs are Spec (the
  * criteria and their proofs), Activity (what the agent said it is doing),
  * Gates (each gate's verdict, the ones that measured nothing and the ones a
- * level turned off told apart from a pass) and Seeker; a project adds its
- * own after them (droost.yml `panel.tabs`).
+ * level turned off told apart from a pass), Seeker and Files (what the run
+ * changed); a project adds its own after them (droost.yml `panel.tabs`).
  *
  * Built from the run record and the evidence store, never from what the
  * agent says, except the Activity tab, which says that it is the agent's.
@@ -24,6 +24,7 @@ namespace Droost\Workflow\Panel;
  * @phpstan-type Document array{schema: string, generated_at: string, open: string, run: Summary|null, phases: list<Phase>, hold: array{question: string}|null, tabs: list<Tab>}
  * @phpstan-type Action array{at: string, tool: string, subject: string|null, refused: bool}
  * @phpstan-type Criterion array{ref: string, statement: string, verified_by: string|null}
+ * @phpstan-type ChangedFile array{path: string, status: string, added: int|null, removed: int|null}
  */
 final class RunPanel {
 
@@ -58,6 +59,9 @@ final class RunPanel {
    *   What the agent did, from the guard's diary.
    * @param string $open
    *   When the mod opens the panel by itself: auto, always or never.
+   * @param list<ChangedFile>|null $files
+   *   The files the run changed (WorkflowFacade::runFiles()), or NULL when
+   *   the repository cannot say.
    *
    * @return Document
    *   The document.
@@ -72,6 +76,7 @@ final class RunPanel {
     ?string $spec = NULL,
     array $actions = [],
     string $open = 'auto',
+    ?array $files = NULL,
   ): array {
     $tabs = $run === NULL
       ? []
@@ -80,6 +85,7 @@ final class RunPanel {
         self::activityTab($activity, $actions),
         self::gatesTab($run),
         self::seekerTab($run, $findings),
+        self::filesTab($files),
       ];
     foreach ($projectTabs as $id => $tab) {
       $tabs[] = [
@@ -374,6 +380,46 @@ final class RunPanel {
       'skipped-no-site' => ['did not run', 'warn'],
       default => [$status === '' ? '?' : $status, 'muted'],
     };
+  }
+
+  /**
+   * Files: what the run changed, from git, never from what the agent says.
+   *
+   * @param list<ChangedFile>|null $files
+   *   The files, or NULL when the repository cannot say.
+   *
+   * @return Tab
+   *   The tab.
+   */
+  private static function filesTab(?array $files): array {
+    if ($files === NULL) {
+      return self::tab('files', 'Files', NULL, [self::text(NULL, 'The repository cannot say what this run changed: no base commit, or a diff git could not read.')]);
+    }
+    if ($files === []) {
+      return self::tab('files', 'Files', NULL, [self::text(NULL, 'Nothing changed yet.')]);
+    }
+    $items = [];
+    foreach (array_slice($files, 0, PanelSections::MAX_ITEMS) as $file) {
+      $lines = trim(
+        ($file['added'] ? '+' . $file['added'] : '') . ' ' . ($file['removed'] ? '−' . $file['removed'] : ''),
+      );
+      $items[] = [
+        'text' => $file['path'] . ($lines === '' ? '' : '  ' . $lines),
+        'detail' => NULL,
+        'tag' => $file['status'],
+        'tone' => match ($file['status']) {
+          'A' => 'ok',
+          'D' => 'bad',
+          default => 'info',
+        },
+      ];
+    }
+    $more = count($files) - count($items);
+    $sections = [['kind' => 'list', 'title' => NULL, 'items' => $items]];
+    if ($more > 0) {
+      $sections[] = self::text(NULL, sprintf('And %d more.', $more));
+    }
+    return self::tab('files', 'Files', (string) count($files), $sections);
   }
 
   /**

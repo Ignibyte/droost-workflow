@@ -163,11 +163,37 @@ function sizeButton(el, minimized, onSize) {
   })
 }
 
-// The run line: the run, its level, who leads it.
-function runLine(run) {
-  if (!run) return 'no run open'
-  const lead = run.lead === 'human-led' ? 'human led' : run.lead
-  return ['Run ' + (run.work_item || run.id || ''), run.preset, lead].filter(Boolean).join(' · ')
+// The run as pills: its ticket (else its id), its level, who leads it.
+const LEAD_TONE = { 'human-led': 'warn', autonomous: 'ok' }
+export function runPills(run) {
+  if (!run) return []
+  return [
+    { text: run.work_item || run.id || 'run', tone: 'info' },
+    run.preset ? { text: run.preset, tone: 'muted' } : null,
+    run.lead ? { text: run.lead === 'human-led' ? 'human led' : run.lead, tone: LEAD_TONE[run.lead] || 'muted' } : null,
+  ].filter(Boolean)
+}
+
+function runBadges(el, run) {
+  const { Box, Text } = el
+  const pills = runPills(run)
+  if (!pills.length) return Text({ key: 'run', color: TONES.muted, children: ['no run open'] })
+  return Box({
+    key: 'run',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    columnGap: 1,
+    flexShrink: 1,
+    children: pills.map((p, i) =>
+      Text({ key: 'pill' + i, color: TONES[p.tone], backgroundColor: PILL_BG[p.tone], children: [' ' + p.text + ' '] }),
+    ),
+  })
+}
+
+// A rule the body's width.
+function rule(el, key, columns) {
+  return el.Text({ key, color: TONES.muted, children: ['─'.repeat(columns || 40)] })
 }
 
 // The drop: an image in a terminal that draws one, an SVG elsewhere.
@@ -179,7 +205,7 @@ function logo(el, surface) {
 
 // A tab's icon: one cell, so a row of them fits any pane. A project's own
 // tab is its title's first letter.
-const TAB_ICON = { spec: '≡', activity: '↯', gates: '◈', seeker: '⌕' }
+const TAB_ICON = { spec: '≡', activity: '↯', gates: '◈', seeker: '⌕', files: '±' }
 export function tabIcon(t) {
   return TAB_ICON[t.id] || (t.title || t.id || '?').charAt(0).toUpperCase()
 }
@@ -212,17 +238,19 @@ function tabRow(el, doc, current, onTab) {
 }
 
 // The whole pane. `state` is { tab, error, minimized, placement, bodyRows,
-// bodyColumns };
-// `onTab(id)` switches tabs and `onSize()` toggles minimized and maximized.
-// Every row is room the open tab does not get, so nothing is drawn twice and
-// nothing is framed.
+// bodyColumns }; `onTab(id)` switches tabs and `onSize()` toggles minimized
+// and maximized. The tabs sit between two rules with a row of air outside
+// each, so the run is above them and the open tab below.
 //
 // Docked beside the transcript (`placement: 'dock'`), a column:
 //
-//   (drop) droost            — minimize
-//          Run PROJ-142 · custom · human led
+//   (drop) droost   [EMT-425] [custom] [human led]   — minimize
+//   (drop)
+//
 //   ✓ Plan › ● Code › ○ Test › ○ Complete
-//    ≡  ↯  ◈ 3/4  ⌕
+//
+//   ─────────────────────────────────────
+//    ≡  ↯  ◈ 3/4  ⌕  ± 4
 //   ─────────────────────────────────────
 //
 //   (the open tab)
@@ -232,8 +260,10 @@ function tabRow(el, doc, current, onTab) {
 // Inline above the prompt, rows:
 //
 //   (drop) droost   ✓ Plan › ● Code › ○ Test › ○ Complete   — minimize
-//                    Run PROJ-142 · custom · human led
-//    ≡  ↯  ◈ 3/4  ⌕
+//                    [EMT-425] [custom] [human led]
+//
+//   ─────────────────────────────────────
+//    ≡  ↯  ◈ 3/4  ⌕  ± 4
 //   ─────────────────────────────────────
 //
 //   (the open tab)
@@ -242,7 +272,7 @@ function tabRow(el, doc, current, onTab) {
 export function paneTree(el, doc, state, onTab, surface, onSize = () => {}) {
   const { Box, Text } = el
   const docked = state.placement === 'dock'
-  const run = Text({ key: 'run', color: TONES.muted, wrap: 'truncate-end', children: [runLine(doc && doc.run)] })
+  const run = runBadges(el, doc && doc.run)
   const name = Text({ key: 'name', bold: true, children: ['droost'] })
   const mark = logo(el, surface)
 
@@ -261,27 +291,19 @@ export function paneTree(el, doc, state, onTab, surface, onSize = () => {}) {
     })
   }
 
+  const brand = Box({ key: 'brand', flexDirection: 'row', alignItems: 'center', columnGap: 1, children: [mark, name].filter(Boolean) })
   const rows = []
   if (docked) {
     rows.push(
       Box({
         key: 'header',
         flexDirection: 'row',
-        columnGap: 1,
-        children: [
-          mark,
-          Box({
-            key: 'head',
-            flexDirection: 'column',
-            flexGrow: 1,
-            children: [
-              Box({ key: 'top', flexDirection: 'row', justifyContent: 'space-between', columnGap: 1, children: [name, sizeButton(el, false, onSize)] }),
-              run,
-            ],
-          }),
-        ].filter(Boolean),
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        columnGap: 2,
+        children: [brand, run, sizeButton(el, false, onSize)],
       }),
-      phaseRow(el, doc),
+      Box({ key: 'phasebox', marginTop: 1, children: [phaseRow(el, doc)] }),
     )
   } else {
     rows.push(
@@ -291,7 +313,7 @@ export function paneTree(el, doc, state, onTab, surface, onSize = () => {}) {
         justifyContent: 'space-between',
         columnGap: 2,
         children: [
-          Box({ key: 'brand', flexDirection: 'row', alignItems: 'center', columnGap: 1, children: [mark, name].filter(Boolean) }),
+          brand,
           Box({ key: 'middle', flexDirection: 'column', alignItems: 'center', flexShrink: 1, children: [phaseRow(el, doc), run] }),
           sizeButton(el, false, onSize),
         ],
@@ -305,6 +327,7 @@ export function paneTree(el, doc, state, onTab, surface, onSize = () => {}) {
         key: 'hold',
         flexDirection: 'row',
         columnGap: 1,
+        marginTop: 1,
         children: [
           Text({ color: TONES.warn, bold: true, children: ['Waiting on you'] }),
           Text({ wrap: 'wrap', children: [doc.hold.question] }),
@@ -316,9 +339,14 @@ export function paneTree(el, doc, state, onTab, surface, onSize = () => {}) {
   const current = pickTab(doc, state.tab)
   const tabs = tabRow(el, doc, current, onTab)
   if (tabs) {
-    // A rule the body's width under the tabs, and a row of air: what is above
-    // it is the run, what is below it the open tab.
-    rows.push(tabs, Box({ key: 'rule', marginBottom: 1, children: [Text({ color: TONES.muted, children: ['─'.repeat(state.bodyColumns || 40)] })] }))
+    rows.push(
+      Box({
+        key: 'tabbar',
+        flexDirection: 'column',
+        marginY: 1,
+        children: [rule(el, 'rule-top', state.bodyColumns), tabs, rule(el, 'rule-bottom', state.bodyColumns)],
+      }),
+    )
   }
 
   if (current) {

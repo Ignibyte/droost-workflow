@@ -211,4 +211,25 @@ final class CliVcsTest extends WorkflowTestCase {
     );
   }
 
+  /**
+   * Line counts are read NUL-separated, a binary file counted by no lines.
+   */
+  public function testLineCountsReadNumstat(): void {
+    $seen = [];
+    $vcs = new CliVcs(static function (array $argv) use (&$seen): array {
+      $seen = $argv;
+      return [0, "3\t1\tsrc/Old.php\x000\t5\tsrc/a file.php\0-\t-\tlogo.png\0", ''];
+    });
+    $this->assertSame([
+      'src/Old.php' => ['added' => 3, 'removed' => 1],
+      'src/a file.php' => ['added' => 0, 'removed' => 5],
+      'logo.png' => ['added' => NULL, 'removed' => NULL],
+    ], $vcs->lineCounts('/repo', 'abc'));
+    $this->assertContains('-z', $seen);
+    $this->assertContains('--no-renames', $seen);
+
+    $failed = new CliVcs(static fn (array $argv): array => [128, '', 'fatal: bad revision']);
+    $this->assertNull($failed->lineCounts('/repo', 'abc'), 'a diff git could not read is unknown, never empty');
+  }
+
 }

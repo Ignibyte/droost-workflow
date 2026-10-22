@@ -2023,12 +2023,19 @@ final class ArgvDispatcher {
     $open = $run !== NULL && ($run['archived'] ?? FALSE) !== TRUE;
     $criteria = [];
     $findings = [];
+    $files = NULL;
     if ($open) {
       try {
         $criteria = $facade->criteria($projectRoot);
       }
       catch (\Throwable) {
         // A run whose criteria cannot be read still has a panel.
+      }
+      try {
+        $files = $facade->runFiles($projectRoot);
+      }
+      catch (\Throwable) {
+        // The Files tab says the repository cannot say.
       }
     }
     if ($runId !== NULL) {
@@ -2063,6 +2070,7 @@ final class ArgvDispatcher {
       $spec,
       $log->actions($runId),
       $config->panelOpen,
+      $files,
     );
     if (in_array('--json', $argv, TRUE)) {
       $this->say($this->encode($document));

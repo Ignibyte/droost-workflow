@@ -73,6 +73,33 @@ final class RunPanelTest extends WorkflowTestCase {
   }
 
   /**
+   * The Files tab lists what the run changed, and says when git cannot.
+   */
+  public function testFilesTabListsTheRunsChanges(): void {
+    $run = ['run_id' => 'r', 'phases' => ['code' => 'active'], 'current_phase' => 'code'];
+    $files = [
+      ['path' => 'src/New.php', 'status' => 'A', 'added' => 2, 'removed' => 0],
+      ['path' => 'src/Old.php', 'status' => 'M', 'added' => 1, 'removed' => 1],
+      ['path' => 'logo.png', 'status' => 'M', 'added' => NULL, 'removed' => NULL],
+      ['path' => 'src/Gone.php', 'status' => 'D', 'added' => 0, 'removed' => 3],
+    ];
+    $tab = $this->tab(RunPanel::document($run, [], [], [], [], 'now', NULL, [], 'auto', $files), 'files');
+    $this->assertSame('4', $tab['badge']);
+    $items = $this->items($tab, 0);
+    $this->assertSame(['src/New.php  +2', 'src/Old.php  +1 −1', 'logo.png', 'src/Gone.php  −3'], array_column($items, 'text'));
+    $this->assertSame(['A', 'M', 'M', 'D'], array_column($items, 'tag'));
+    $this->assertSame(['ok', 'info', 'info', 'bad'], array_column($items, 'tone'));
+
+    $unknown = $this->tab(RunPanel::document($run, [], [], [], [], 'now'), 'files');
+    $this->assertNull($unknown['badge']);
+    $said = $unknown['sections'][0]['text'] ?? NULL;
+    $this->assertIsString($said);
+    $this->assertStringContainsString('cannot say', $said);
+    $none = $this->tab(RunPanel::document($run, [], [], [], [], 'now', NULL, [], 'auto', []), 'files');
+    $this->assertSame('Nothing changed yet.', $none['sections'][0]['text'] ?? NULL);
+  }
+
+  /**
    * The run is named by its ticket, which the run holds as {id, source, …}.
    */
   public function testTheRunIsNamedByItsTicket(): void {

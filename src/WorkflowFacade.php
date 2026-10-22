@@ -14,7 +14,9 @@ use Droost\Workflow\Cli\CliProcess;
 use Droost\Workflow\Event\ProjectHooks;
 use Droost\Workflow\Pack\PackManifest;
 use Droost\Workflow\State\StateError;
+use Droost\Workflow\Vcs\AddedFilesInterface;
 use Droost\Workflow\Vcs\CliVcs;
+use Droost\Workflow\Vcs\LineCountsInterface;
 use Droost\Workflow\Vcs\RefResolverInterface;
 use Droost\Workflow\Vcs\VcsInterface;
 use Droost\Workflow\Config\BuildRules;
@@ -1721,6 +1723,79 @@ final class WorkflowFacade {
       }
     }
     return $record;
+  }
+
+  /**
+   * The files the open run changed, for the panel's Files tab.
+   *
+   * The same files the gates judge: changed since the base commit, committed
+   * or not, untracked included, less each one still as the run found it.
+   * Each says how it changed (A added, D deleted, M modified) and its lines
+   * added and removed, NULL where there are none to count (a binary file).
+   * Newest first by modification time, deleted files last. The run's own
+   * state directory is not the run's work and is left out.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return list<array{path: string, status: string, added: int|null, removed: int|null}>|null
+   *   The files, or NULL when the repository cannot say (no base commit, no
+   *   repository, a diff git could not read).
+   */
+  public function runFiles(string $projectRoot): ?array {
+    $state = $this->requireRun(new RunStateStore($projectRoot));
+    if ($state->baseCommit === NULL || !$this->vcs->isRepository($projectRoot)) {
+      return NULL;
+    }
+    $changed = $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot);
+    if ($changed === NULL) {
+      return NULL;
+    }
+    $added = $this->vcs instanceof AddedFilesInterface ? $this->vcs->addedFiles($projectRoot, $state->baseCommit) : NULL;
+    $added = array_flip($added ?? []);
+    $counts = $this->vcs instanceof LineCountsInterface ? $this->vcs->lineCounts($projectRoot, $state->baseCommit) : NULL;
+    $root = rtrim($projectRoot, '/');
+    $files = [];
+    $modified = [];
+    foreach ($changed as $path) {
+      if (str_starts_with($path, RunStateStore::STATE_DIR . '/')) {
+        continue;
+      }
+      $file = $root . '/' . $path;
+      $exists = is_file($file);
+      $count = $counts[$path] ?? ($exists && isset($added[$path]) ? self::linesOf($file) : NULL);
+      $files[] = [
+        'path' => $path,
+        'status' => !$exists ? 'D' : (isset($added[$path]) ? 'A' : 'M'),
+        'added' => $count['added'] ?? NULL,
+        'removed' => $count['removed'] ?? NULL,
+      ];
+      $modified[] = $exists ? (int) @filemtime($file) : -1;
+    }
+    array_multisort($modified, SORT_DESC, SORT_NUMERIC, array_column($files, 'path'), SORT_ASC, SORT_STRING, $files);
+    return $files;
+  }
+
+  /**
+   * An untracked file's lines, all added: git has no count for it.
+   *
+   * @param string $file
+   *   The file.
+   *
+   * @return array{added: int, removed: int}|null
+   *   The count, or NULL for a binary file or one too large to read here.
+   */
+  private static function linesOf(string $file): ?array {
+    $size = @filesize($file);
+    if ($size === FALSE || $size > 1048576) {
+      return NULL;
+    }
+    $text = @file_get_contents($file);
+    if (!is_string($text) || str_contains($text, "\0")) {
+      return NULL;
+    }
+    $lines = substr_count($text, "\n") + ($text !== '' && !str_ends_with($text, "\n") ? 1 : 0);
+    return ['added' => $lines, 'removed' => 0];
   }
 
   /**

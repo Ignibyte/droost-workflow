@@ -12,7 +12,7 @@ namespace Droost\Workflow\Vcs;
  * this without a repository and the one place this package spawns git is
  * visible.
  */
-final class CliVcs implements VcsInterface, RefResolverInterface, AddedFilesInterface {
+final class CliVcs implements VcsInterface, RefResolverInterface, AddedFilesInterface, LineCountsInterface {
 
   /**
    * Constructs a CliVcs.
@@ -161,6 +161,35 @@ final class CliVcs implements VcsInterface, RefResolverInterface, AddedFilesInte
     $files = array_values(array_unique($files));
     sort($files);
     return $files;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function lineCounts(string $projectRoot, string $base): ?array {
+    // `-z` for the same reason as changedFiles(): a quoted path matches
+    // nothing. `--no-renames`, so a record is always `added\tremoved\tpath`
+    // and a renamed file is counted under the path that exists now.
+    [$exit, $stdout] = $this->git(
+      $projectRoot,
+      ['diff', '--numstat', '-z', '--no-renames', '--end-of-options', $base],
+    );
+    if ($exit !== 0) {
+      return NULL;
+    }
+    $counts = [];
+    foreach (explode("\0", $stdout) as $record) {
+      $fields = explode("\t", $record, 3);
+      if (count($fields) !== 3 || $fields[2] === '') {
+        continue;
+      }
+      // A binary file is counted `-\t-`: changed, by no number of lines.
+      $counts[$fields[2]] = [
+        'added' => ctype_digit($fields[0]) ? (int) $fields[0] : NULL,
+        'removed' => ctype_digit($fields[1]) ? (int) $fields[1] : NULL,
+      ];
+    }
+    return $counts;
   }
 
   /**
