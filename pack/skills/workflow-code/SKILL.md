@@ -71,6 +71,12 @@ seeker's ledgers belong in this file.
 
 ## Work
 
+**Say what you are doing** as you start each piece:
+`droost workflow:say "Creating the Event content type" --detail="7 fields"`.
+It is a line in the run panel's Activity tab, where the person watching the
+run reads it. It is your own account and proves nothing; say it plainly,
+one piece at a time.
+
 ### Work through the acceptance criteria, checking as you go
 
 **The spec's acceptance criteria are this phase's to-do list.** Put them in
