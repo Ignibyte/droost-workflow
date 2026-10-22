@@ -5,20 +5,13 @@
 // returns the tree. Tested under node (tests/view.node.test.mjs) with stand-in
 // constructors, since Claude Code's own test runner needs Claude Code.
 
-// The colours a tone draws in: plain names every surface knows.
-export const TONES = { ok: 'green', warn: 'yellow', bad: 'red', info: 'cyan', muted: 'gray' }
+// The design's palette (the run panel artifact), for text and its pills.
+export const TONES = { ok: '#8EE3B9', warn: '#F7D49A', bad: '#FFB3B6', info: '#8FD0F7', muted: '#8B98A5' }
+const PILL_BG = { ok: '#123A2B', warn: '#2B2111', bad: '#3A1518', info: '#10314A', muted: '#1C2430' }
 
 const PHASE_MARK = { passed: '✓', failed: '✗', active: '●', skipped: '–', deferred: '–' }
-const PHASE_COLOR = { passed: 'green', failed: 'red', active: 'cyan', skipped: 'gray', deferred: 'gray' }
-const DRUPAL_BLUE = 0x0678be
-const DEFAULT_COLOR = 0x01000000
-
-// The Drupal drop, for a terminal: six columns, three rows of block glyphs.
-const DROP = [
-  '  ▗▖  ',
-  ' ▟██▙ ',
-  ' ▜██▛ ',
-]
+const PHASE_COLOR = { passed: '#3FB68B', failed: '#F2555A', active: '#35A3E5', skipped: '#8B98A5', deferred: '#8B98A5' }
+const DRUPAL_BLUE = [0x06, 0x78, 0xbe]
 
 // The drop as an SVG, for the surfaces that draw one (Desktop, VS Code).
 export const DROP_SVG =
@@ -43,24 +36,35 @@ export function base64(bytes) {
   return out
 }
 
-// The drop's cells, as a Raster takes them: [codePoint, fg, bg] per cell,
-// little-endian u32s, row-major.
-export function dropCells() {
-  const words = []
-  for (const row of DROP) {
-    for (const ch of row) {
-      const code = ch.codePointAt(0)
-      words.push(code, ch === ' ' ? DEFAULT_COLOR : DRUPAL_BLUE, DEFAULT_COLOR)
+// The Drupal drop as RGBA pixels, for an Image: a terminal with an image
+// protocol (iTerm2, kitty, WezTerm, Ghostty) draws it; one without draws the
+// alt text, a space. Drawn here, four samples a pixel, so no file ships.
+export function dropImage(width = 36, height = 44) {
+  const bytes = new Uint8Array(width * height * 4)
+  const cx = width / 2
+  const r = width * 0.42
+  const cy = height - r - 1
+  const tip = height * 0.04
+  const inside = (x, y) => {
+    if (y >= cy) return (x - cx) ** 2 + (y - cy) ** 2 <= r * r
+    if (y < tip) return false
+    const half = r * Math.pow((y - tip) / (cy - tip), 0.75)
+    return Math.abs(x - cx) <= half
+  }
+  for (let py = 0; py < height; py++) {
+    for (let px = 0; px < width; px++) {
+      let hits = 0
+      for (const [dx, dy] of [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]]) {
+        if (inside(px + dx, py + dy)) hits++
+      }
+      const o = (py * width + px) * 4
+      bytes[o] = DRUPAL_BLUE[0]
+      bytes[o + 1] = DRUPAL_BLUE[1]
+      bytes[o + 2] = DRUPAL_BLUE[2]
+      bytes[o + 3] = Math.round((hits / 4) * 255)
     }
   }
-  const bytes = new Uint8Array(words.length * 4)
-  words.forEach((w, i) => {
-    bytes[i * 4] = w & 0xff
-    bytes[i * 4 + 1] = (w >>> 8) & 0xff
-    bytes[i * 4 + 2] = (w >>> 16) & 0xff
-    bytes[i * 4 + 3] = (w >>> 24) & 0xff
-  })
-  return { columns: DROP[0].length, rows: DROP.length, cells: base64(bytes) }
+  return { rgba: base64(bytes), width, height }
 }
 
 // The run's name for a person: its ticket, else its id.
@@ -124,7 +128,9 @@ function section(el, s, i) {
           flexDirection: 'row',
           columnGap: 1,
           children: [
-            Text({ color: tone, children: [it.tag ? `[${it.tag}]` : '•'] }),
+            it.tag
+              ? Text({ color: tone, backgroundColor: PILL_BG[it.tone] || PILL_BG.muted, children: [` ${it.tag} `] })
+              : Text({ color: tone, children: ['•'] }),
             Text({ wrap: 'wrap', children: [it.text] }),
           ],
         }),
@@ -135,12 +141,14 @@ function section(el, s, i) {
   return Box({ key: `s${i}`, flexDirection: 'column', children: rows })
 }
 
-// The whole pane. `state` is { tab, error, updatedAt }; `onTab(id)` switches.
-export function paneTree(el, doc, state, onTab, surface) {
+// The whole pane. `state` is { tab, error, updatedAt, collapsed };
+// `onTab(id)` switches tabs and `onCollapse()` folds the pane to its header
+// and phases, or opens it again.
+export function paneTree(el, doc, state, onTab, surface, onCollapse = () => {}) {
   const { Box, Text, Button } = el
   const header = []
-  if (surface === 'terminal' && el.Raster) {
-    header.push(el.Raster({ key: 'logo', ...dropCells() }))
+  if (surface === 'terminal' && el.Image) {
+    header.push(el.Image({ key: 'logo', source: dropImage(), columns: 4, rows: 2, alt: ' ' }))
   } else if (el.Svg) {
     header.push(el.Svg({ key: 'logo', source: DROP_SVG, alt: 'Drupal', width: 20, height: 24 }))
   }
@@ -152,11 +160,21 @@ export function paneTree(el, doc, state, onTab, surface) {
     Box({
       key: 'name',
       flexDirection: 'column',
-      children: [Text({ bold: true, children: ['droost'] }), Text({ dimColor: true, children: [facts] })],
+      children: [Text({ bold: true, children: ['droost'] }), Text({ color: TONES.muted, children: [facts] })],
+    }),
+  )
+  header.push(
+    Box({
+      key: 'fold',
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      children: [
+        Button({ key: 'collapse', label: state.collapsed ? '▸ open' : '▾ fold', hotkey: 'c', plain: true, dimColor: true, onPress: () => onCollapse() }),
+      ],
     }),
   )
 
-  const rows = [Box({ key: 'header', flexDirection: 'row', columnGap: 1, children: header })]
+  const rows = [Box({ key: 'header', flexDirection: 'row', columnGap: 2, justifyContent: 'space-between', children: header })]
 
   const phases = (doc && doc.phases) || []
   const steps = []
@@ -173,6 +191,9 @@ export function paneTree(el, doc, state, onTab, surface) {
     )
   })
   rows.push(Box({ key: 'phases', flexDirection: 'row', children: steps }))
+  if (state.collapsed) {
+    return Box({ flexDirection: 'column', children: rows })
+  }
 
   if (doc && doc.hold) {
     rows.push(
@@ -197,6 +218,7 @@ export function paneTree(el, doc, state, onTab, surface) {
       label: t.title + (t.badge ? ' ' + t.badge : ''),
       hotkey: i < 9 ? String(i + 1) : undefined,
       plain: true,
+      bold: Boolean(current && current.id === t.id),
       dimColor: !current || current.id !== t.id,
       onPress: () => onTab(t.id),
     }),

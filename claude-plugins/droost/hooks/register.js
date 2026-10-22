@@ -20,6 +20,13 @@ let tab = 'activity'
 let error = ''
 let updatedAt = ''
 let asking = false
+let collapsed = false
+
+// How the pane asks to be seated: wide enough for the tabs when docked beside
+// a fullscreen transcript, a third of the screen above the prompt otherwise,
+// and three rows when folded.
+const OPEN = { id: PANE, title: 'droost', columns: 64 }
+const ROWS = { open: 28, folded: 4 }
 
 // How to run droost: the operator's setting, else the project's install.
 async function command($, options) {
@@ -64,7 +71,7 @@ export function register(on, options) {
     await $.command.register({ name: 'droost-panel', description: 'Open droost\'s run panel: phases, spec, activity, gates, seeker' })
     await refresh($, options)
     if (doc && doc.run && doc.run.state !== 'completed') {
-      await $.ui.open({ id: PANE, title: 'droost' })
+      await $.ui.open({ ...OPEN, rows: ROWS.open })
     }
     $.clock.every(EVERY_MS, () => refresh($, options))
     return next(e)
@@ -72,7 +79,8 @@ export function register(on, options) {
 
   on('command.run', { command: 'droost-panel' }, async ($) => {
     await refresh($, options)
-    await $.ui.open({ id: PANE, title: 'droost', focus: true, closeOnEscape: true })
+    collapsed = false
+    await $.ui.open({ ...OPEN, rows: ROWS.open, focus: true, closeOnEscape: true })
     return {}
   })
 
@@ -81,9 +89,14 @@ export function register(on, options) {
     const el = $.ui.resolve(e)
     const shown = pickTab(doc, tab)
     if (shown) tab = shown.id
-    return paneTree(el, doc, { tab, error, updatedAt }, (id) => {
+    return paneTree(el, doc, { tab, error, updatedAt, collapsed }, (id) => {
       tab = id
       $.ui.invalidate('ui.render')
-    }, e.surface)
+    }, e.surface, async () => {
+      collapsed = !collapsed
+      // Asks for the new height; a size the person dragged to wins.
+      await $.ui.open({ ...OPEN, rows: collapsed ? ROWS.folded : ROWS.open })
+      $.ui.invalidate('ui.render')
+    })
   })
 }

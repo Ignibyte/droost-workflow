@@ -2,10 +2,10 @@
 // what was drawn, so the tree can be read without Claude Code.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { base64, dropCells, paneTree, pickTab, statusText } from '../hooks/view.js'
+import { base64, dropImage, paneTree, pickTab, statusText } from '../hooks/view.js'
 
 const make = (type) => (props) => ({ type, props })
-const el = { Box: make('Box'), Text: make('Text'), Button: make('Button'), Raster: make('Raster'), Svg: make('Svg') }
+const el = { Box: make('Box'), Text: make('Text'), Button: make('Button'), Image: make('Image'), Svg: make('Svg') }
 
 // Every string drawn anywhere in a tree, in order.
 function texts(node, out = []) {
@@ -53,9 +53,9 @@ test('the pane draws the phases, a tab per tab, and the open tab', () => {
   const tree = paneTree(el, DOC, { tab: 'gates', error: '', updatedAt: '17:02' }, () => {}, 'terminal')
   const words = texts(tree)
   assert.ok(words.includes('✓ Plan') && words.includes('● Code') && words.includes('○ Test'))
-  assert.deepEqual(all(tree, 'Button').map((b) => b.props.label), ['Spec 1/2', 'Gates 1/2', 'Ticket'])
-  assert.ok(words.includes('[examined nothing]'), 'a pass that examined nothing says so')
-  assert.equal(all(tree, 'Raster').length, 1, 'the drop, in a terminal')
+  assert.deepEqual(all(tree, 'Button').map((b) => b.props.label), ['▾ fold', 'Spec 1/2', 'Gates 1/2', 'Ticket'])
+  assert.ok(words.includes(' examined nothing '), 'a pass that examined nothing says so')
+  assert.equal(all(tree, 'Image').length, 1, 'the drop, in a terminal')
   assert.equal(all(tree, 'Svg').length, 0)
 })
 
@@ -65,7 +65,7 @@ test('a tab that could not be drawn says why, and a press switches tabs', () => 
   assert.ok(texts(tree).some((w) => w.startsWith('This tab could not be drawn') && w.includes('exited 3')))
   const partial = { ...DOC, tabs: [{ ...DOC.tabs[2], error: 'dropped section 3', sections: [{ kind: 'text', title: null, text: 'kept' }] }] }
   assert.ok(texts(paneTree(el, partial, { tab: 'ticket' }, () => {}, 'terminal')).some((w) => w.startsWith('Part of this tab was dropped')))
-  all(tree, 'Button')[0].props.onPress()
+  all(tree, 'Button')[1].props.onPress()
   assert.equal(picked, 'spec')
   assert.equal(all(tree, 'Svg').length, 1, 'the drop, where an SVG draws')
 })
@@ -83,12 +83,22 @@ test('no document still draws a pane', () => {
   assert.equal(pickTab(null, 'spec'), null)
 })
 
-test('the drop is six by three cells of valid base64', () => {
-  const drop = dropCells()
-  assert.equal(drop.columns, 6)
-  assert.equal(drop.rows, 3)
-  const bytes = Buffer.from(drop.cells, 'base64')
-  assert.equal(bytes.length, 6 * 3 * 12)
-  assert.equal(bytes.readUInt32LE(2 * 12), 0x2597, 'the tip')
+test('the drop is an RGBA image, opaque in its body and clear at its corners', () => {
+  const drop = dropImage(36, 44)
+  const bytes = Buffer.from(drop.rgba, 'base64')
+  assert.equal(bytes.length, 36 * 44 * 4)
+  const alpha = (x, y) => bytes[(y * 36 + x) * 4 + 3]
+  assert.equal(alpha(18, 34), 255, 'the body')
+  assert.equal(alpha(0, 0), 0, 'a corner')
   assert.equal(base64(new Uint8Array([1, 2, 3, 4])), Buffer.from([1, 2, 3, 4]).toString('base64'))
+})
+
+test('folded, the pane keeps its header and phases and drops the tabs', () => {
+  let folded = 0
+  const tree = paneTree(el, DOC, { tab: 'spec', collapsed: true }, () => {}, 'terminal', () => { folded++ })
+  const buttons = all(tree, 'Button')
+  assert.deepEqual(buttons.map((b) => b.props.label), ['▸ open'])
+  assert.ok(texts(tree).includes('● Code'))
+  buttons[0].props.onPress()
+  assert.equal(folded, 1)
 })
