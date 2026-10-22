@@ -243,7 +243,7 @@ final class RunPanel {
         $verified,
         $total,
       ));
-      return self::tab('spec', 'Spec', $verified . '/' . $total . ' proven', $sections);
+      return self::tab('spec', 'Spec', $verified . '/' . $total . ' ✓', $sections);
     }
     $sections[] = $items === []
       ? self::text('Proofs', 'No criterion declared yet: plan declares them with `droost workflow:declare-criterion`.')
@@ -253,7 +253,7 @@ final class RunPanel {
         'items' => $items,
       ];
 
-    return self::tab('spec', 'Spec', $items === [] ? NULL : $proven . '/' . count($items) . ' proven', $sections);
+    return self::tab('spec', 'Spec', $items === [] ? NULL : $proven . '/' . count($items) . ' ✓', $sections);
   }
 
   /**

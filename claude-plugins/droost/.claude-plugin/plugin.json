@@ -1,6 +1,6 @@
 {
   "name": "droost",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "droost's run panel in Claude Code: a pane with the run's phases and tabs (spec, activity, gates, seeker, and a project's own from droost.yml panel.tabs), and the run's line under the prompt",
   "author": { "name": "droost" },
   "userConfig": {

@@ -251,19 +251,21 @@ export function paneTree(el, doc, state, onTab, surface, onSize = () => {}) {
       ],
     })
   })
-  if (tabs.length) rows.push(Box({ key: 'tabs', flexDirection: 'row', flexWrap: 'wrap', children: tabs }))
+  if (tabs.length) rows.push(Box({ key: 'tabs', flexDirection: 'row', flexWrap: 'wrap', marginTop: 1, children: tabs }))
 
   if (current) {
     if (current.error) {
       const lead = current.sections.length ? 'Part of this tab was dropped: ' : 'This tab could not be drawn: '
       rows.push(Text({ key: 'tab-error', color: TONES.warn, wrap: 'wrap', children: [lead + current.error] }))
     }
-    rows.push(Box({ key: 'body', flexDirection: 'column', rowGap: 1, children: current.sections.map((s, i) => section(el, s, i)) }))
+    rows.push(Box({ key: 'body', flexDirection: 'column', rowGap: 1, marginTop: 1, children: current.sections.map((s, i) => section(el, s, i)) }))
   }
 
   if (state.error) {
     rows.push(Text({ key: 'foot', color: TONES.warn, wrap: 'truncate-end', children: ['droost could not be asked: ' + state.error] }))
   }
 
-  return Box({ flexDirection: 'column', rowGap: 1, minHeight: state.bodyRows || undefined, children: rows })
+  // No gap between the header, the run line and the tabs: above the prompt
+  // the pane has about a third of the screen, and the open tab needs it.
+  return Box({ flexDirection: 'column', minHeight: state.bodyRows || undefined, children: rows })
 }
