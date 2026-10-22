@@ -102,3 +102,10 @@ test('folded, the pane keeps its header and phases and drops the tabs', () => {
   buttons[0].props.onPress()
   assert.equal(folded, 1)
 })
+
+test('a pane above the prompt only for want of width says how to dock it', () => {
+  const narrow = paneTree(el, DOC, { tab: 'spec', placement: 'inline', viewport: { columns: 92, isFullscreen: true } }, () => {}, 'terminal')
+  assert.ok(texts(narrow).some((w) => w.startsWith('92 columns: widen to 110')))
+  const wide = paneTree(el, DOC, { tab: 'spec', placement: 'dock', viewport: { columns: 140, isFullscreen: true } }, () => {}, 'terminal')
+  assert.ok(!texts(wide).some((w) => w.includes('widen to 110')))
+})

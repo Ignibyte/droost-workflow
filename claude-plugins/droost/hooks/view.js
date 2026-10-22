@@ -237,6 +237,12 @@ export function paneTree(el, doc, state, onTab, surface, onCollapse = () => {}) 
     ? 'droost could not be asked: ' + state.error
     : 'updated ' + (state.updatedAt || '—') + ' · droost workflow:panel'
   rows.push(Text({ key: 'foot', dimColor: true, wrap: 'truncate-end', children: [foot] }))
+  // Claude Code docks a pane on the right only in its fullscreen layout from
+  // 110 columns; say so when that is the one thing missing.
+  const view = state.viewport || {}
+  if (state.placement === 'inline' && view.isFullscreen === true && view.columns < 110) {
+    rows.push(Text({ key: 'dock-hint', dimColor: true, wrap: 'wrap', children: [`${view.columns} columns: widen to 110 (or ⌘ − in iTerm) and reopen to dock this on the right.`] }))
+  }
 
   return Box({ flexDirection: 'column', rowGap: 1, children: rows })
 }

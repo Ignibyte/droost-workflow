@@ -89,7 +89,8 @@ export function register(on, options) {
     const el = $.ui.resolve(e)
     const shown = pickTab(doc, tab)
     if (shown) tab = shown.id
-    return paneTree(el, doc, { tab, error, updatedAt, collapsed }, (id) => {
+    const view = { tab, error, updatedAt, collapsed, placement: e.props?.placement, viewport: e.viewport }
+    return paneTree(el, doc, view, (id) => {
       tab = id
       $.ui.invalidate('ui.render')
     }, e.surface, async () => {
