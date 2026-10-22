@@ -89,6 +89,11 @@ final class WorkflowFacade {
   private const string DECLARED_SOURCE = 'declared';
 
   /**
+   * What a criterion's proof can come to (`verify-criterion --outcome=`).
+   */
+  public const array OUTCOMES = ['proven', 'partly', 'failed'];
+
+  /**
    * Answers where the tree is (base commit) and what changed since.
    */
   private readonly VcsInterface $vcs;
@@ -1809,9 +1814,11 @@ final class WorkflowFacade {
    * @param string $projectRoot
    *   The repository.
    *
-   * @return list<array{ref: string, statement: string, verified_by: string|null, verified_at: string|null, phase: string, revisions: int, changed_after: list<string>|null}>
+   * @return list<array{ref: string, statement: string, verified_by: string|null, verified_at: string|null, phase: string, revisions: int, outcome: string|null, standing: string, standing_why: string|null, changed_after: list<string>|null}>
    *   The criteria, in the order they were declared. `changed_after` is NULL
    *   for a criterion with no proof, or when the run's diff cannot be read.
+   *   `standing` is how the criterion counts (CriteriaVerification::standing():
+   *   verified, manual or unverified) and `standing_why` why a proof does not.
    */
   public function criteria(string $projectRoot): array {
     $state = $this->requireRun(new RunStateStore($projectRoot));
@@ -1821,7 +1828,10 @@ final class WorkflowFacade {
     $changed = $changed === NULL ? NULL : $state->ownChanges($changed, $projectRoot);
     $root = rtrim($projectRoot, '/');
     $out = [];
-    foreach ((new EvidenceStore($projectRoot))->specCriteria($state->runId) as $criterion) {
+    $store = new EvidenceStore($projectRoot);
+    $gates = $store->latestGateStates($state->runId);
+    foreach ($store->specCriteria($state->runId) as $criterion) {
+      $standing = CriteriaVerification::standing($criterion['verified_by'], $criterion['outcome'], $gates);
       $proved = $criterion['verified_at'] === NULL ? FALSE : strtotime($criterion['verified_at']);
       $after = NULL;
       if ($changed !== NULL && $proved !== FALSE) {
@@ -1837,7 +1847,11 @@ final class WorkflowFacade {
           }
         }
       }
-      $out[] = $criterion + ['changed_after' => $after];
+      $out[] = $criterion + [
+        'standing' => $standing['standing'],
+        'standing_why' => $standing['why'],
+        'changed_after' => $after,
+      ];
     }
 
     return $out;
@@ -1883,6 +1897,9 @@ final class WorkflowFacade {
    *   The criterion's id.
    * @param string $verifiedBy
    *   The test, route or command that proves it.
+   * @param string $outcome
+   *   What the proof came to: `proven` (the default), `partly` or `failed`.
+   *   Only `proven` counts the criterion verified (F-357).
    *
    * @return array<string, mixed>
    *   The criteria the run now declares.
@@ -1893,7 +1910,7 @@ final class WorkflowFacade {
    *   proves whatever it happened to do, which is the circularity the
    *   evidence store exists to make impossible.
    */
-  public function verifyCriterion(string $projectRoot, string $ref, string $verifiedBy): array {
+  public function verifyCriterion(string $projectRoot, string $ref, string $verifiedBy, string $outcome = 'proven'): array {
     $ref = trim($ref);
     $verifiedBy = trim($verifiedBy);
     if ($ref === '' || $verifiedBy === '') {
@@ -1901,9 +1918,16 @@ final class WorkflowFacade {
         'A verification needs a ref and what proves it: verify-criterion AC-1 "RinkListTest::testEveryPublished"',
       );
     }
+    if (!in_array($outcome, self::OUTCOMES, TRUE)) {
+      throw new \InvalidArgumentException(sprintf(
+        'A proof\'s outcome is one of %s, not "%s": a proof that did not hold is recorded as partly or failed, and counts as unverified.',
+        implode(', ', self::OUTCOMES),
+        $outcome,
+      ));
+    }
     $state = $this->requireRun(new RunStateStore($projectRoot));
     $store = new EvidenceStore($projectRoot);
-    if (!$store->verifyCriterion($state->runId, self::openPhase($state), $ref, $verifiedBy, $this->now())) {
+    if (!$store->verifyCriterion($state->runId, self::openPhase($state), $ref, $verifiedBy, $this->now(), $outcome)) {
       throw SpecError::criterionNotDeclared($ref, array_column($store->specCriteria($state->runId), 'ref'));
     }
 

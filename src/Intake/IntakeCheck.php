@@ -40,6 +40,34 @@ final class IntakeCheck {
   ];
 
   /**
+   * What a source cannot say, by the key questions.md's Category column uses.
+   *
+   * The intake skill's list (§5), held by `intake check` (F-353).
+   */
+  public const array CATEGORIES = [
+    'editing' => 'who edits what',
+    'content' => 'what is real content',
+    'destinations' => 'where things go (a form\'s submissions, a booking, a payment)',
+    'scope' => 'what is out of scope',
+    'values' => 'what a free-text value is',
+  ];
+
+  /**
+   * The categories only the human can settle.
+   */
+  private const array ASKED_ONLY = ['editing', 'scope'];
+
+  /**
+   * The categories a site may have nothing of: no form, no free-text value.
+   */
+  private const array MAY_NOT_APPLY = ['destinations', 'values'];
+
+  /**
+   * What `Decided by` says of a row nobody asked.
+   */
+  private const array NOT_ASKED = ['source', 'n/a'];
+
+  /**
    * The audit's schema.
    */
   public const AUDIT_SCHEMA = 'droost-source/audit@1';
@@ -138,7 +166,9 @@ final class IntakeCheck {
     }
 
     if (isset($text['questions'])) {
-      self::answered(IntakeTables::rows($text['questions']), $answers, $findings);
+      $questions = IntakeTables::rows($text['questions']);
+      self::answered($questions, $answers, $findings);
+      self::asked($questions, $audit === NULL ? NULL : self::auditIds($audit), $findings);
     }
 
     if ($plan !== [] && $rungs !== []) {
@@ -155,7 +185,7 @@ final class IntakeCheck {
     return match ($role) {
       'audit' => 'run `droost workflow:intake audit --url <served source> --files <source>`',
       'model' => 'the content model: a `## Constructs` table (Construct, What it is, Evidence, Rung) and `## Routes`',
-      'questions' => 'the Q&A: a table of Id, Question, Recommendation, Answer and Decided by',
+      'questions' => 'the Q&A: a table of Id, Category, Question, Recommendation, Answer and Decided by',
       default => 'the roadmap: a table of Rung, Ticket, Builds, Consumes and Pages',
     };
   }
@@ -416,6 +446,11 @@ final class IntakeCheck {
     }
     foreach ($rows as $i => $row) {
       $id = trim($row['id'] ?? '') !== '' ? trim($row['id']) : 'Q' . ($i + 1);
+      // A category the source settles, or one that does not apply, was never
+      // asked: asked() holds it to its evidence instead.
+      if (in_array(IntakeTables::normal($row['decided by'] ?? ''), self::NOT_ASKED, TRUE)) {
+        continue;
+      }
       $recorded = $onRecord[IntakeTables::normal($row['question'])] ?? NULL;
       if ($recorded === NULL) {
         $findings[] = new IntakeFinding('answered', sprintf('%s has no answer on record: ask it through AskUserQuestion with these exact words (on a host with none, `intake ask`), or have the operator record the answer (`droost workflow:intake answer "<question>" "<answer>"`).', $id));
@@ -423,6 +458,88 @@ final class IntakeCheck {
       }
       if (!str_contains(IntakeTables::normal($row['answer']), IntakeTables::normal($recorded))) {
         $findings[] = new IntakeFinding('answered', sprintf('%s: the answer on record is "%s", and the file says "%s". The file carries what the human said.', $id, $recorded, $row['answer']));
+      }
+    }
+  }
+
+  /**
+   * Asked: every category the skill names a source cannot settle, covered.
+   *
+   * F-353: UNI-A run 1 asked five questions and reached the approval
+   * question without asking who edits what or what is out of scope, two of
+   * the intake skill's own categories; the client refused the roadmap on
+   * five counts nobody had asked about. The check verified the answers on
+   * record and nothing about which questions there were. Now each category
+   * has a row: asked (decided by the human or the recommendation), settled
+   * by the source with the audit id that settles it, or, for a destination
+   * or a free-text value, not applicable with the reason. Who edits what and
+   * what is out of scope are never the source's to settle.
+   *
+   * @param list<array<string, string>> $rows
+   *   The rows of questions.md.
+   * @param array<string, true>|null $ids
+   *   The audit's ids, or NULL with no audit to hold a citation to.
+   * @param list<\Droost\Workflow\Intake\IntakeFinding> $findings
+   *   Where findings go.
+   */
+  private static function asked(array $rows, ?array $ids, array &$findings): void {
+    if ($rows === [] || !array_key_exists('question', $rows[0])) {
+      return;
+    }
+    if (!array_key_exists('category', $rows[0])) {
+      $findings[] = new IntakeFinding('asked', sprintf(
+        'questions.md\'s table needs a Category column: each row is about one of %s, and each of them needs a row.',
+        implode(', ', array_map(static fn (string $key, string $label): string => sprintf('%s (%s)', $key, $label), array_keys(self::CATEGORIES), self::CATEGORIES)),
+      ));
+      return;
+    }
+    $covered = [];
+    foreach ($rows as $i => $row) {
+      $id = trim($row['id'] ?? '') !== '' ? trim($row['id']) : 'Q' . ($i + 1);
+      $category = IntakeTables::normal($row['category']);
+      if (!isset(self::CATEGORIES[$category])) {
+        $findings[] = new IntakeFinding('asked', sprintf('%s\'s Category "%s" is not one of %s.', $id, $row['category'], implode(', ', array_keys(self::CATEGORIES))));
+        continue;
+      }
+      $decided = IntakeTables::normal($row['decided by'] ?? '');
+      if ($decided === 'source') {
+        if (in_array($category, self::ASKED_ONLY, TRUE)) {
+          $findings[] = new IntakeFinding('asked', sprintf('%s is about %s, which a source can never settle: ask the human.', $id, self::CATEGORIES[$category]));
+          continue;
+        }
+        $cited = IntakeTables::citations(implode(' ', $row));
+        if ($cited === []) {
+          $findings[] = new IntakeFinding('asked', sprintf('%s says the source settles %s and cites nothing: name the audit id that settles it, or ask the human.', $id, self::CATEGORIES[$category]));
+          continue;
+        }
+        $unknown = $ids === NULL ? [] : array_values(array_filter($cited, static fn (string $c): bool => !isset($ids[$c])));
+        if ($unknown !== []) {
+          $findings[] = new IntakeFinding('asked', sprintf('%s cites %s, which the audit does not list.', $id, implode(', ', $unknown)));
+          continue;
+        }
+      }
+      elseif ($decided === 'n/a') {
+        if (!in_array($category, self::MAY_NOT_APPLY, TRUE)) {
+          $findings[] = new IntakeFinding('asked', sprintf('%s says %s does not apply, and every site has it: ask the human.', $id, self::CATEGORIES[$category]));
+          continue;
+        }
+        if (trim($row['why the source cannot settle it'] ?? $row['why'] ?? '') === '') {
+          $findings[] = new IntakeFinding('asked', sprintf('%s says %s does not apply and gives no reason: say what the source has none of.', $id, self::CATEGORIES[$category]));
+          continue;
+        }
+      }
+      $covered[$category] = TRUE;
+    }
+    foreach (self::CATEGORIES as $key => $label) {
+      if (!isset($covered[$key])) {
+        $findings[] = new IntakeFinding('asked', sprintf(
+          'Nothing in questions.md covers %s (Category %s): a source cannot say it, so ask the human%s.',
+          $label,
+          $key,
+          in_array($key, self::ASKED_ONLY, TRUE) ? '' : (in_array($key, self::MAY_NOT_APPLY, TRUE)
+            ? ', or mark it settled by the source (Decided by `source`, citing the audit id) or not applicable (`n/a`, with why)'
+            : ', or mark it settled by the source (Decided by `source`, citing the audit id)'),
+        ));
       }
     }
   }

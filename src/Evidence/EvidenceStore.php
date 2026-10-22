@@ -60,7 +60,7 @@ final class EvidenceStore {
    * build does not know about costs it nothing. A store written by an older one
    * is migrated up in place.
    */
-  public const int SCHEMA_VERSION = 15;
+  public const int SCHEMA_VERSION = 16;
 
   /**
    * Substrings that identify a browser tool in a host's tool name.
@@ -228,6 +228,7 @@ final class EvidenceStore {
         13 => $this->migrateToV13($pdo),
         14 => $this->migrateToV14($pdo),
         15 => $this->migrateToV15($pdo),
+        16 => $this->migrateToV16($pdo),
         default => NULL,
       };
       // Stamped per rung, so an interrupted upgrade resumes where it stopped
@@ -361,7 +362,8 @@ final class EvidenceStore {
         statement   TEXT NOT NULL,
         verified_by TEXT,
         verified_at TEXT,
-        declared_at TEXT NOT NULL
+        declared_at TEXT NOT NULL,
+        outcome     TEXT
       );
       CREATE INDEX IF NOT EXISTS spec_criterion_by_run ON spec_criterion (run_id, ref, revision);
 
@@ -1913,13 +1915,16 @@ final class EvidenceStore {
    *   whether it is a real test is the test gate's question, not this one's.
    * @param string|null $now
    *   The timestamp, ISO-8601.
+   * @param string $outcome
+   *   What the proof came to: `proven`, `partly` or `failed`. Only `proven`
+   *   counts the criterion verified (F-357).
    *
    * @return bool
    *   FALSE when no such criterion was declared — the one thing here that is
    *   an error rather than a row, because verifying a criterion nobody stated
    *   is how a run proves whatever it happened to do.
    */
-  public function verifyCriterion(string $runId, string $phase, string $ref, string $verifiedBy, ?string $now = NULL): bool {
+  public function verifyCriterion(string $runId, string $phase, string $ref, string $verifiedBy, ?string $now = NULL, string $outcome = 'proven'): bool {
     $latest = $this->latestCriterion($runId, $ref);
     if ($latest === NULL) {
       return FALSE;
@@ -1928,8 +1933,8 @@ final class EvidenceStore {
     $this->connection()
       ->prepare(
         'INSERT INTO spec_criterion
-          (run_id, phase, revision, ref, statement, verified_by, verified_at, declared_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+          (run_id, phase, revision, ref, statement, verified_by, verified_at, declared_at, outcome)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
       )
       ->execute([
         $runId,
@@ -1942,6 +1947,7 @@ final class EvidenceStore {
         $verifiedBy,
         $at,
         self::nullableText($latest, 'declared_at') ?? $at,
+        $outcome,
       ]);
 
     return TRUE;
@@ -1953,8 +1959,11 @@ final class EvidenceStore {
    * @param string $runId
    *   The run.
    *
-   * @return list<array{ref: string, statement: string, verified_by: string|null, verified_at: string|null, phase: string, revisions: int}>
+   * @return list<array{ref: string, statement: string, verified_by: string|null, verified_at: string|null, phase: string, revisions: int, outcome: string|null}>
    *   One entry per distinct ref, in the order they were first declared.
+   *   `outcome` is what the latest proof came to (`proven`, `partly`,
+   *   `failed`), NULL with no proof, and `proven` for a proof recorded before
+   *   outcomes were.
    *   `revisions` counts EVERY row for that ref, verifications included — a
    *   verification writes a revision too. A caller that wants "how many
    *   times was this restated" counts distinct statements instead, which is
@@ -1963,7 +1972,7 @@ final class EvidenceStore {
    */
   public function specCriteria(string $runId): array {
     $statement = $this->connection()->prepare(
-      'SELECT ref, statement, verified_by, verified_at, phase,
+      'SELECT ref, statement, verified_by, verified_at, phase, outcome,
               (SELECT COUNT(*) FROM spec_criterion WHERE run_id = c.run_id AND ref = c.ref) AS revisions
          FROM spec_criterion c
         WHERE run_id = ? AND revision = (
@@ -1981,10 +1990,36 @@ final class EvidenceStore {
         'verified_at' => self::nullableText($row, 'verified_at'),
         'phase' => self::text($row, 'phase'),
         'revisions' => self::number($row, 'revisions'),
+        'outcome' => self::nullableText($row, 'verified_by') === NULL ? NULL : (self::nullableText($row, 'outcome') ?? 'proven'),
       ];
     }
 
     return $out;
+  }
+
+  /**
+   * Each gate's latest verdict in the run, by name.
+   *
+   * The last row recorded for the gate, whichever phase recorded it: what a
+   * proof naming the gate is checked against (F-357).
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return array<string, string>
+   *   The CheckState value by gate name.
+   */
+  public function latestGateStates(string $runId): array {
+    $statement = $this->connection()->prepare(
+      'SELECT name, state FROM check_result WHERE run_id = ? AND kind = \'gate\' ORDER BY id'
+    );
+    $statement->execute([$runId]);
+    $states = [];
+    foreach (self::rows($statement) as $row) {
+      $states[self::text($row, 'name')] = self::text($row, 'state');
+    }
+
+    return $states;
   }
 
   /**
@@ -3014,6 +3049,25 @@ SQL);
   private function migrateToV15(\PDO $pdo): void {
     try {
       $pdo->exec('ALTER TABLE guard_call ADD COLUMN subagent TEXT');
+    }
+    catch (\PDOException) {
+      // Already there — V1's DDL carries it for a new store.
+    }
+  }
+
+  /**
+   * V16 — what a criterion's proof came to.
+   *
+   * A proof was recorded and never its result, so a criterion whose proof
+   * read "Parity: FAILS D5 on all 7 routes" counted verified (F-357). NULL is
+   * a proof recorded before this version, read as `proven` as it was then.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   */
+  private function migrateToV16(\PDO $pdo): void {
+    try {
+      $pdo->exec('ALTER TABLE spec_criterion ADD COLUMN outcome TEXT');
     }
     catch (\PDOException) {
       // Already there — V1's DDL carries it for a new store.

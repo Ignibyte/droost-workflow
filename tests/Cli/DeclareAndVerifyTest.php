@@ -43,6 +43,32 @@ final class DeclareAndVerifyTest extends WorkflowTestCase {
   }
 
   /**
+   * A proof that did not hold is recorded as what it came to (F-357).
+   *
+   * The flag goes anywhere on the line, and an outcome droost does not know
+   * is refused rather than read as a proof.
+   */
+  public function testProofRecordsWhatItCameTo(): void {
+    $root = $this->openRun();
+    $this->cli($root, ['declare-criterion', 'AC-1', 'every view passes parity']);
+    $this->cli($root, ['declare-criterion', 'AC-2', 'the form is stored']);
+
+    [$code, $out] = $this->cli($root, [
+      'verify-criterion',
+      '--outcome=failed',
+      'AC-1',
+      'parity: D5 fails on all 7 routes',
+    ]);
+    $this->assertSame(0, $code);
+    $this->assertStringContainsString('recorded: AC-1 failed by parity: D5 fails on all 7 routes, so it counts as unverified', $out);
+    [$code] = $this->cli($root, ['verify-criterion', 'AC-2', 'ContactFormTest::testStored', '--outcome=sure']);
+    $this->assertNotSame(0, $code, 'an unknown outcome is refused');
+
+    $criteria = (new EvidenceStore($root))->specCriteria($this->runId($root));
+    $this->assertSame(['failed', NULL], array_column($criteria, 'outcome'), 'the refused proof was not recorded');
+  }
+
+  /**
    * The criteria verb shows each criterion, checked or not, and when.
    *
    * It is what the seeker reads to judge the code phase's criterion loop.

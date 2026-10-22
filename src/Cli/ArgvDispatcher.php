@@ -1077,7 +1077,11 @@ final class ArgvDispatcher {
   }
 
   /**
-   * Records a proof: `verify-criterion <ref> <what proves it>`.
+   * Records a proof: `verify-criterion <ref> <what proves it> [--outcome=…]`.
+   *
+   * `--outcome=partly` or `--outcome=failed` records a proof that did not
+   * hold, which counts the criterion unverified (F-357); `proven` is the
+   * default.
    *
    * @param string $projectRoot
    *   The repository.
@@ -1091,17 +1095,26 @@ final class ArgvDispatcher {
     if ($this->splitSentence('verify-criterion', $argv, 2, 'verify-criterion AC-1 "RinkListTest::testEveryPublished"')) {
       return self::EXIT_USAGE;
     }
-    $ref = $argv[1] ?? '';
-    $by = $argv[2] ?? '';
+    $words = array_values(array_filter(array_slice($argv, 1), static fn (string $word): bool => !str_starts_with($word, '--')));
+    $ref = $words[0] ?? '';
+    $by = $words[1] ?? '';
+    $outcome = 'proven';
+    foreach ($argv as $argument) {
+      if (str_starts_with($argument, '--outcome=')) {
+        $outcome = substr($argument, strlen('--outcome='));
+      }
+    }
     if ($ref === '' || $by === '') {
       $this->fail(
         'verify-criterion needs a ref and what proves it: verify-criterion '
-        . 'AC-1 "RinkListTest::testEveryPublished"',
+        . 'AC-1 "RinkListTest::testEveryPublished" [--outcome=proven|partly|failed]',
       );
       return self::EXIT_USAGE;
     }
-    $this->facade($projectRoot)->verifyCriterion($projectRoot, $ref, $by);
-    $this->say(sprintf('verified: %s by %s', $ref, $by));
+    $this->facade($projectRoot)->verifyCriterion($projectRoot, $ref, $by, $outcome);
+    $this->say($outcome === 'proven'
+      ? sprintf('verified: %s by %s', $ref, $by)
+      : sprintf('recorded: %s %s by %s, so it counts as unverified', $ref, $outcome, $by));
 
     return self::EXIT_OK;
   }
@@ -1832,6 +1845,12 @@ final class ArgvDispatcher {
         $this->say('Answer recorded.');
         return self::EXIT_OK;
 
+      case 'routes':
+        // The parity gate's `routes` lever for a rung (F-354), one line to
+        // copy into droost/droost.yml between rungs.
+        $this->say(implode(',', $intake->routesThrough($positional[0] ?? '')));
+        return self::EXIT_OK;
+
       case 'approve':
         $state = $intake->approve($this->operatorTerminal() ? 'terminal' : 'agent');
         $this->say(sprintf('Intake %s APPROVED: its rungs may run, each from its ticket in %s/tickets/. Its ledgers are in history, so no run inherits its consults.', $state->id, IntakeStore::DIR));
@@ -1843,7 +1862,7 @@ final class ArgvDispatcher {
         return self::EXIT_OK;
 
       default:
-        $this->fail('intake needs one of: start --request="…" --source=<path|URL>, audit --url=<served> [--files=<dir>], check, status, ask --file=<batch.json> (a host with no AskUserQuestion), approve (on the human\'s yes), and the operator\'s abandon "<why>", answer [--via=terminal|cockpit] "<question>" "<answer>".');
+        $this->fail('intake needs one of: start --request="…" --source=<path|URL>, audit --url=<served> [--files=<dir>], check, status, ask --file=<batch.json> (a host with no AskUserQuestion), approve (on the human\'s yes), routes <rung> (the parity routes built through a rung), and the operator\'s abandon "<why>", answer [--via=terminal|cockpit] "<question>" "<answer>".');
         return self::EXIT_USAGE;
     }
   }
@@ -2248,9 +2267,10 @@ final class ArgvDispatcher {
       criteria         the run's criteria and what proved each, with when
                        (`--json` for data): what the seeker reads
       verify-criterion record what proves one: `verify-criterion AC-1
-                       "RinkListTest::testEveryPublished"`. Refused when no
-                       such criterion was declared, which is the only refusal
-                       on this surface
+                       "RinkListTest::testEveryPublished"`; a proof that did
+                       not hold takes `--outcome=partly` or `--outcome=failed`
+                       and counts unverified. Refused when no such criterion
+                       was declared, which is the only refusal on this surface
       declare-note     anything else the spec would have said in prose:
                        `declare-note grounding "Drupal\node\Entity\Node"
                        "the entity the listing reads"`. Kinds are open —

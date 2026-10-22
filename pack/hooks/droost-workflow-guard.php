@@ -4226,8 +4226,12 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // it writes (F-156). A capture of the site into a scratch directory is a
     // measurement, and P6 run 23's agent was refused one, with the template
     // edit beside it in the same command.
-    if ($parityVerb === 'droost-parity' && $paritySub === 'capture' && guard_run_is_live($root, $stateDir)) {
-      $reference = guard_parity_reference($root, $stateDir);
+    if ($parityVerb === 'droost-parity' && $paritySub === 'capture') {
+      // A live run's frozen reference, else the one an approved intake holds
+      // (F-354): either way the agent's capture would rewrite the yardstick.
+      $reference = guard_run_is_live($root, $stateDir)
+        ? guard_parity_reference($root, $stateDir)
+        : guard_parity_held_by_intake($root, $stateDir);
       $out = 'droost/parity';
       for ($i = 2, $n = count($parity); $i < $n; $i++) {
         $token = ltrim($parity[$i], "\x01");
@@ -5158,6 +5162,24 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
   // walk that could not change `preset:` anywhere because of a run finished
   // the previous month.
   if (!guard_run_is_live($root, $stateDir)) {
+    // THE REFERENCE OUTLIVES THE RUN (F-354). Walled only while a run was
+    // live, the yardstick was one `reset` away: UNI-A run 2's agent proposed
+    // resetting the run and trimming the reference until the site passed.
+    // Once the human approved the roadmap, every page is held to it, between
+    // runs as much as during one.
+    $held = guard_parity_held_by_intake($root, $stateDir);
+    if ($held !== '' && ($relative === $held || str_starts_with($relative, $held . '/'))) {
+      return 'That is the parity gate\'s reference, the source the approved '
+        . 'roadmap holds every page to. It is the yardstick between runs as '
+        . 'well as during one: no run being open does not make it yours to '
+        . 'edit, and a reference trimmed until the site passes measures '
+        . 'nothing. Read it as much as you like: the Read tool, `cat` and '
+        . '`droost-parity judge` all read it. If it is wrong (a page the '
+        . 'client changed, a route not built yet), tell the OPERATOR: they '
+        . 're-capture it with `droost-parity capture` in their terminal, and '
+        . 'the routes a rung is judged on are the `routes` lever '
+        . '(`droost workflow:intake routes <rung>`).';
+    }
     return '';
   }
   // ANCHORED, not "any path ending in the name". The lever file that governs
@@ -5504,6 +5526,62 @@ function guard_parity_reference(string $root, string $stateDir): string {
 }
 
 /**
+ * The parity reference an approved intake holds, project-relative, or ''.
+ *
+ * The roadmap the human approved holds every page to the reference, so it is
+ * the yardstick between runs as well as during one (F-354). The directory is
+ * the lever file's `gates.parity.reference`, as a run would freeze it, else
+ * `droost/parity`; only one that exists is walled. While the intake is open
+ * the agent writes `decided.json` there, as the intake skill asks, so an
+ * intake not yet approved holds nothing.
+ *
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The resolved state directory.
+ *
+ * @return string
+ *   The reference directory without slashes at either end, or '' for none.
+ */
+function guard_parity_held_by_intake(string $root, string $stateDir): string {
+  $intake = json_decode((string) @file_get_contents(rtrim($root, '/') . '/' . $stateDir . '/intake.json'), TRUE);
+  if (!is_array($intake) || ($intake['status'] ?? NULL) !== 'approved') {
+    return '';
+  }
+  $reference = 'droost/parity';
+  $levers = guard_lever_file($root);
+  $text = $levers === '' ? '' : (string) @file_get_contents($levers);
+  if (preg_match('/^\s*reference\s*:|\breference\s*:/m', $text) === 1) {
+    if (!class_exists('Symfony\Component\Yaml\Yaml', FALSE)) {
+      foreach ([dirname(__DIR__, 2) . '/vendor/autoload.php', dirname(__DIR__, 4) . '/autoload.php'] as $autoload) {
+        if (is_file($autoload)) {
+          require_once $autoload;
+          break;
+        }
+      }
+    }
+    try {
+      $parsed = class_exists('Symfony\Component\Yaml\Yaml') ? Yaml::parse($text) : NULL;
+    }
+    catch (\Throwable) {
+      $parsed = NULL;
+    }
+    $named = is_array($parsed) && is_array($parsed['gates']['parity'] ?? NULL) ? ($parsed['gates']['parity']['reference'] ?? NULL) : NULL;
+    if (is_string($named) && $named !== '') {
+      $reference = $named;
+    }
+  }
+  $path = normalised_path($reference);
+  $rootPath = normalised_path($root);
+  if (str_starts_with($path, $rootPath . '/')) {
+    $path = substr($path, strlen($rootPath) + 1);
+  }
+  $path = trim($path, '/');
+
+  return $path !== '' && is_dir(rtrim($root, '/') . '/' . $path) ? $path : '';
+}
+
+/**
  * The operator-only verbs, as one pattern.
  *
  * Asked by the tokeniser (is this quoted payload a command line worth
@@ -5819,7 +5897,11 @@ function guard_judge_code(string $code, string $command, ?string $root = NULL, ?
   }
   $root ??= is_string($GLOBALS['root'] ?? NULL) ? $GLOBALS['root'] : guard_named_root();
   $stateDir ??= is_string($GLOBALS['stateDir'] ?? NULL) ? $GLOBALS['stateDir'] : 'droost/droost-workflow';
-  $reference = $root === '' ? '' : guard_parity_reference($root, $stateDir);
+  $reference = match (TRUE) {
+    $root === '' => '',
+    guard_run_is_live($root, $stateDir) => guard_parity_reference($root, $stateDir),
+    default => guard_parity_held_by_intake($root, $stateDir),
+  };
   if ($reference !== '' && code_writes_path($code, $reference)) {
     guard_refuse('protected-path:interpreter', sprintf(
       '%s Code handed to an interpreter that writes and names it is refused the same way. (Refused: %s)',

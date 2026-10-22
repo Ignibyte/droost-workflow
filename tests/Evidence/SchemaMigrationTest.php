@@ -176,6 +176,28 @@ final class SchemaMigrationTest extends TestCase {
   }
 
   /**
+   * A v15 store gains what each criterion's proof came to (F-357).
+   *
+   * A proof recorded before v16 reads as `proven`, as it was counted then.
+   */
+  public function testAnOlderStoreGainsTheOutcomeColumn(): void {
+    $store = new EvidenceStore($this->root);
+    $store->declareCriterion('r1', 'plan', 'AC-1', 'the listing shows every rink');
+    $store->verifyCriterion('r1', 'test', 'AC-1', 'RinkListTest::testEveryPublished');
+    unset($store);
+    $pdo = $this->raw();
+    $pdo->exec('ALTER TABLE spec_criterion DROP COLUMN outcome');
+    $pdo->exec('PRAGMA user_version = 15');
+    unset($pdo);
+
+    $upgraded = new EvidenceStore($this->root);
+    $this->assertSame('proven', $upgraded->specCriteria('r1')[0]['outcome']);
+    $this->assertSame(EvidenceStore::SCHEMA_VERSION, $this->version(), 'the rung ran');
+    $upgraded->verifyCriterion('r1', 'test', 'AC-1', 'parity fails', NULL, 'failed');
+    $this->assertSame('failed', $upgraded->specCriteria('r1')[0]['outcome']);
+  }
+
+  /**
    * A v12 store gains what each page is and what builds it.
    *
    * Owner, 2026-10-02. A route declared before v13 declared none of the

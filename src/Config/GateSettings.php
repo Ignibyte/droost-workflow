@@ -206,6 +206,7 @@ final class GateSettings {
       'reference' => 'string',
       'scope' => 'string',
       'pages' => 'string',
+      'routes' => 'string',
       'timeout' => 'seconds',
     ],
     'coverage' => ['min' => 'percent', 'root' => 'string', 'timeout' => 'seconds'],

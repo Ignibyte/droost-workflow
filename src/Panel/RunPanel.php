@@ -23,7 +23,7 @@ namespace Droost\Workflow\Panel;
  * @phpstan-type Tab array{id: string, title: string, source: string, badge: string|null, sections: list<array<string, mixed>>, error: string|null}
  * @phpstan-type Document array{schema: string, generated_at: string, open: string, run: Summary|null, phases: list<Phase>, hold: array{question: string}|null, tabs: list<Tab>}
  * @phpstan-type Action array{at: string, tool: string, subject: string|null, refused: bool}
- * @phpstan-type Criterion array{ref: string, statement: string, verified_by: string|null}
+ * @phpstan-type Criterion array{ref: string, statement: string, verified_by: string|null, standing?: string, standing_why?: string|null}
  * @phpstan-type ChangedFile array{path: string, status: string, added: int|null, removed: int|null}
  */
 final class RunPanel {
@@ -218,11 +218,16 @@ final class RunPanel {
     $proven = 0;
     foreach ($criteria as $criterion) {
       $proof = $criterion['verified_by'];
-      $proven += $proof === NULL ? 0 : 1;
+      // Counted as droost counts it (F-357): a proof recorded as failed, or
+      // naming a gate that is failing, is on record and proves nothing.
+      $standing = $criterion['standing'] ?? ($proof === NULL ? 'unverified' : 'verified');
+      $done = $standing !== 'unverified';
+      $proven += $done ? 1 : 0;
+      $why = $criterion['standing_why'] ?? NULL;
       $items[] = [
         'text' => sprintf('%s · %s', $criterion['ref'], $criterion['statement']),
-        'done' => $proof !== NULL,
-        'note' => $proof ?? 'not proven yet',
+        'done' => $done,
+        'note' => $proof === NULL ? 'not proven yet' : ($done || $why === NULL ? $proof : sprintf('%s (not proof: %s)', $proof, $why)),
       ];
     }
     $sections = [];

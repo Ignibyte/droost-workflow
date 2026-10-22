@@ -1476,6 +1476,30 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   }
 
   /**
+   * The `--routes` a parity judgement takes, or none.
+   *
+   * The routes built so far (F-354). A roadmap that builds a page a rung
+   * failed parity on every page not built yet, because the runner judged
+   * every route its reference holds; with the lever set, the runner judges
+   * these and names every other route as not judged, never as passed.
+   * `droost workflow:intake routes <rung>` reads them off the approved
+   * roadmap. Unset, every route the reference holds is judged, as before.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate's resolved levers.
+   *
+   * @return list<string>
+   *   `--routes` and the routes, or nothing when the lever names none.
+   */
+  private static function parityRoutes(GateSettings $gate): array {
+    $routes = $gate->option('routes');
+    if (!is_string($routes) || trim($routes) === '') {
+      return [];
+    }
+    return ['--routes', (string) preg_replace('/\s*,\s*/', ',', trim($routes))];
+  }
+
+  /**
    * A reference digest as a verdict names it.
    *
    * @param string $digest
@@ -2818,6 +2842,8 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         // The pages a ticket rebuilds whole, held at page scope while the rest
         // keep the lever's scope.
         ...self::parityPages($gate),
+        // The routes built so far; the runner names the rest not judged.
+        ...self::parityRoutes($gate),
         '--json',
       ],
       default => [$binary],

@@ -41,6 +41,13 @@
  *   droost-parity judge [--reference droost/parity] [--routes …] [--scope page|frame|header|footer]
  *                       [--pages /,…] [--base <url>] [--json]
  *
+ * `--routes` names the routes built so far (the parity gate's `routes` lever;
+ * `droost workflow:intake routes <rung>` reads them off the approved
+ * roadmap), each in the source's spelling or the site's. Every other route the
+ * reference holds is named in the verdict as not judged, never counted as
+ * passed (F-354): a roadmap that builds one page a rung failed parity on every
+ * page not built yet, and the only way past it was to trim the reference.
+ *
  * A reference may hold several widths (`--width 1280,390`): the first is the
  * primary, kept as `<route>.json`, and each other as `<route>@<width>.json`.
  * Every route is judged at every width it was captured at, each at `--scope`,
@@ -60,7 +67,19 @@
  *
  * The judge leaves each such text (and a header link with that label) out of
  * the route's reference, `"route": "*"` on every route, and says so in its
- * verdict. An entry with no route, text or decision, a decision that names no
+ * verdict.
+ *
+ * A text the client decided the site will show and the source does not (a
+ * link to a page the source never had) is named in `added`, with the
+ * reference text it follows (F-356):
+ *
+ *   {"added": [{"route": "*", "text": "Contact us", "after": "Pay my bill",
+ *               "decided": "Q8", "why": "the footer links the new /contact"}]}
+ *
+ * The site may carry more than the reference already; what an addition
+ * changes is D5: the texts below it in its column sit lower by the space it
+ * takes on the site, and no higher than they always could. An addition the
+ * reference already holds, or whose `after` it does not, is INVALID. An entry with no route, text or decision, a decision that names no
  * question of the project's intake (`droost/intake/questions.md`, when there
  * is one), or a text the route's reference does not hold (once the route is
  * captured: the intake may name a later rung's page) is INVALID: what is
@@ -505,7 +524,15 @@ function readOnElsewhere(manifest, platform) {
   return `the reference was read on ${at} (${manifest.read_on.browser || 'browser unrecorded'}) and this judge runs on ${platform}: the same page lays out differently in another platform's browser, so nothing was judged. Judge where the reference was read, or capture it again where the gate runs`;
 }
 
-function judge(reference, site, scope, aside = new Set()) {
+function judge(reference, site, scope, aside = new Set(), added = new Set()) {
+  // A text the client added (F-356) takes space the reference never had:
+  // what sits below it in its column on the site moves down. Its space is
+  // its height and the gap above it, read on the site as a set-aside's is
+  // read on the reference.
+  const addedOnSite = (site.texts || []).filter((e) => added.has(norm(e.text))).map((a) => {
+    const above = (site.texts || []).filter((e) => e !== a && Math.abs(e.x - a.x) <= 16 && e.y + e.h <= a.y).sort((p, q) => q.y + q.h - (p.y + p.h))[0];
+    return { ...a, space: a.h + (above ? a.y - (above.y + above.h) : 0) };
+  });
   // A text set aside takes its space with it (F-343): what sat below it in its
   // column moves up on a site that leaves it out. Its space is its height and
   // the gap above it, read from the reference text nearest above it in its
@@ -563,7 +590,7 @@ function judge(reference, site, scope, aside = new Set()) {
   else row('D4', ok && pairs.length > 0, said + (bad4.length ? '; ' + bad4.slice(0, 8).join('; ') : ''));
   const region = (e) => (e.inFooter ? 'footer' : e.inHeader ? 'header' : 'main');
   const tops = { header: [(reference.header || {}).y || 0, (site.header || {}).y || 0], footer: [(reference.footer || {}).y || 0, (site.footer || {}).y || 0] };
-  const last = {}; const bad5 = []; let liftedPairs = 0; let liftedMost = 0;
+  const last = {}; const bad5 = []; let liftedPairs = 0; let liftedMost = 0; let droppedPairs = 0; let droppedMost = 0;
   for (const [d, s] of pairs) {
     const r = region(d);
     if (['h1', 'h2', 'h3'].includes(d.tag)) last[r] = [d.y, s.y];
@@ -572,6 +599,9 @@ function judge(reference, site, scope, aside = new Set()) {
     // The space set aside between its heading and it: the site may hold it
     // that much higher, and no lower than it always could.
     const lift = setAside.filter((a) => region(a) === r && a.y >= base[0] && a.y + a.h <= d.y).reduce((n, a) => n + a.space, 0);
+    // The space added between its heading and it on the site: the site may
+    // hold it that much lower, and no higher than it always could.
+    const drop = addedOnSite.filter((a) => region(a) === r && a.y >= base[1] && a.y + a.h <= s.y).reduce((n, a) => n + a.space, 0);
     const why = [];
     // The text's own extent when both readings carry it (F-349), its box
     // otherwise: a reference read before keeps the measure it was read with.
@@ -579,13 +609,15 @@ function judge(reference, site, scope, aside = new Set()) {
     const [dX, dW, sX, sW] = own ? [d.tx, d.tw, s.tx, s.tw] : [d.x, d.w, s.x, s.w];
     if (Math.abs(dX - sX) > 16) why.push(`x ${sX} for ${dX}`);
     if (Math.abs(dW - sW) > Math.max(24, 0.15 * dW)) why.push(`width ${sW} for ${dW}`);
-    if (sy > dy + 24 || sy < dy - lift - 24) why.push(`${sy}px below its heading for ${dy}` + (lift ? ` (${lift}px set aside above it)` : ''));
+    if (sy > dy + drop + 24 || sy < dy - lift - 24) why.push(`${sy}px below its heading for ${dy}` + (lift ? ` (${lift}px set aside above it)` : '') + (drop ? ` (${drop}px added above it)` : ''));
     else if (lift && Math.abs(dy - sy) > 24) { liftedPairs++; liftedMost = Math.max(liftedMost, lift); }
+    else if (drop && Math.abs(dy - sy) > 24) { droppedPairs++; droppedMost = Math.max(droppedMost, drop); }
     if (why.length) bad5.push(show(d) + ': ' + why.join(', '));
   }
   [ok, said] = share(bad5, pairs.length, 0.95);
   const liftSaid = liftedPairs ? `; ${liftedPairs} pair(s) judged without the ${liftedMost}px of texts set aside above them` : '';
-  row('D5', ok && pairs.length > 0, said + liftSaid + (bad5.length ? '; ' + bad5.slice(0, 8).join('; ') : ''));
+  const dropSaid = droppedPairs ? `; ${droppedPairs} pair(s) judged with the ${droppedMost}px of texts added above them` : '';
+  row('D5', ok && pairs.length > 0, said + liftSaid + dropSaid + (bad5.length ? '; ' + bad5.slice(0, 8).join('; ') : ''));
   const links = (r) => (r.navLinks || []).map((a) => [norm(a.text), linkTarget(a.href, r.url)]);
   const dn = links(reference); const sn = links(site);
   if (scope !== 'footer') row('D6', JSON.stringify(dn) === JSON.stringify(sn) && dn.length > 0, `reference ${dn.length} links, site ${sn.length}` + (JSON.stringify(dn) === JSON.stringify(sn) ? '' : `; reference ${JSON.stringify(dn)}; site ${JSON.stringify(sn)}`));
@@ -621,8 +653,11 @@ function readDecided(dir, views, questionsFile) {
   if (!fs.existsSync(file)) return { entries: [] };
   let doc;
   try { doc = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return { error: `decided.json is not JSON: ${String(e.message).slice(0, 120)}` }; }
-  const entries = Array.isArray(doc && doc.set_aside) ? doc.set_aside : null;
+  const hasAdded = Array.isArray(doc && doc.added);
+  const entries = Array.isArray(doc && doc.set_aside) ? doc.set_aside : hasAdded ? [] : null;
   if (!entries) return { error: 'decided.json holds no "set_aside" list' };
+  if (doc.added !== undefined && !hasAdded) return { error: 'decided.json\'s "added" is not a list' };
+  const added = hasAdded ? doc.added : [];
   let ids = null;
   if (questionsFile && fs.existsSync(questionsFile)) {
     ids = new Set();
@@ -641,7 +676,17 @@ function readDecided(dir, views, questionsFile) {
     const read = e.route === '*' || views.some((v) => sameRoute(v.route, e.route));
     if (read && !held(e.route, e.text)) return { error: `${at} sets aside "${e.text.slice(0, 40)}" on ${e.route}, which the reference does not hold there` };
   }
-  return { entries };
+  for (const [i, e] of added.entries()) {
+    const at = `decided.json's addition ${i + 1}`;
+    if (!e || typeof e.route !== 'string' || typeof e.text !== 'string' || typeof e.after !== 'string' || typeof e.decided !== 'string' || !e.route || !e.text.trim() || !e.after.trim() || !e.decided.trim()) return { error: `${at} needs a route, a text, the reference text it follows (after) and the decision that added it` };
+    if (ids && !ids.has(e.decided.trim())) return { error: `${at} ("${e.text.slice(0, 40)}") cites ${e.decided}, which is no question of the intake (${path.relative(process.cwd(), questionsFile)})` };
+    const read = e.route === '*' || views.some((v) => sameRoute(v.route, e.route));
+    if (read && !held(e.route, e.after)) return { error: `${at} adds "${e.text.slice(0, 40)}" after "${e.after.slice(0, 40)}" on ${e.route}, which the reference does not hold there` };
+    // An addition the source already shows is no addition: it would widen D5
+    // for a text the reference holds and the site must match.
+    if (read && held(e.route, e.text)) return { error: `${at} adds "${e.text.slice(0, 40)}" on ${e.route}, which the reference already holds: the site is held to it as it is` };
+  }
+  return { entries, added };
 }
 
 // A set-aside names its page as the intake wrote it, and an intake that read a
@@ -655,6 +700,10 @@ const sameRoute = (a, b) => cleanRoute(String(a).trim()) === cleanRoute(String(b
 const asideFor = (entries, route) => new Set(entries.filter((e) => e.route === '*' || sameRoute(e.route, route)).map((e) => norm(e.text)));
 
 const asideSaid = (entries) => (entries.length ? '; set aside by decision: ' + entries.map((e) => `"${e.text.slice(0, 40)}" on ${e.route} (${e.decided})`).join(', ') : '');
+
+const addedFor = (entries, route) => new Set((entries || []).filter((e) => e.route === '*' || sameRoute(e.route, route)).map((e) => norm(e.text)));
+
+const addedSaid = (entries) => ((entries || []).length ? '; added by decision: ' + entries.map((e) => `"${e.text.slice(0, 40)}" after "${e.after.slice(0, 40)}" on ${e.route} (${e.decided})`).join(', ') : '');
 
 // ---------------------------------------------------------------------------
 // The two commands.
@@ -718,12 +767,22 @@ async function capture(opt) {
   finish({ status: bad.length ? 'invalid' : 'captured', summary: `${captured.length - bad.length} of ${captured.length} reference page(s) captured from ${source}`, routes: captured }, bad.length ? EXIT.invalid : EXIT.pass);
 }
 
+// The routes a reference holds that a judgement leaves out, in the order the
+// reference holds them: what the routes lever did not name (F-354).
+function notJudged(manifestRoutes, routes) {
+  const named = new Set(routes.map((r) => routeSpec(r).route));
+  return (manifestRoutes || []).filter((r) => !named.has(routeSpec(r).route));
+}
+
 async function judgeCommand(opt) {
   const dir = path.resolve(process.cwd(), String(opt.reference || 'droost/parity'));
   const scope = ['page', 'frame', 'header', 'footer'].includes(String(opt.scope)) ? String(opt.scope) : 'page';
   let manifest = {};
   try { manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')); } catch (e) { manifest = {}; }
-  const routes = opt.routes && opt.routes !== true ? String(opt.routes).split(',').map((r) => r.trim()).filter(Boolean) : (manifest.routes || []);
+  const lever = Boolean(opt.routes && opt.routes !== true);
+  const routes = lever ? [...new Set(String(opt.routes).split(',').map((r) => r.trim()).filter(Boolean).map((r) => routeSpec(r).route))] : (manifest.routes || []);
+  const unbuilt = lever ? notJudged(manifest.routes, routes) : [];
+  const unbuiltSaid = unbuilt.length ? `; not judged, not built yet (the routes lever): ${unbuilt.join(', ')}` : '';
   const widths = Array.isArray(manifest.widths) && widthsOf(manifest.widths.join(',')).length ? widthsOf(manifest.widths.join(',')) : [Number(manifest.width || 1280)];
   const primary = widths[0];
   const pages = opt.pages && opt.pages !== true ? String(opt.pages).split(',').map((r) => r.trim()).filter(Boolean) : [];
@@ -761,6 +820,7 @@ async function judgeCommand(opt) {
   const decided = readDecided(dir, readings, path.resolve(process.cwd(), 'droost/intake/questions.md'));
   if (decided.error) finish({ status: 'invalid', summary: decided.error }, EXIT.invalid);
   const aside = decided.entries;
+  const additions = decided.added || [];
   const against = manifest.source ? ` against ${manifest.source}` + (manifest.captured_at ? ` (captured ${manifest.captured_at})` : '') : '';
   const elsewhere = readOnElsewhere(manifest, process.platform);
   if (elsewhere) finish({ status: 'invalid', summary: elsewhere }, EXIT.invalid);
@@ -772,7 +832,7 @@ async function judgeCommand(opt) {
     const reference = JSON.parse(fs.readFileSync(path.join(dir, view.file), 'utf8'));
     if ((reference.live || []).length && view.width === primary) liveBy.push(`${reference.live.length} on ${view.route}`);
     const site = await read(browser, base.replace(/\/$/, '') + view.route, reference.viewport || view.width);
-    const rows = judge(reference, site, view.scope, asideFor(aside, view.route));
+    const rows = judge(reference, site, view.scope, asideFor(aside, view.route), addedFor(additions, view.route));
     const failed = rows.filter((r) => r.verdict === 'FAIL');
     const invalid = rows.filter((r) => r.verdict === 'INVALID');
     results.push({ ...view, verdict: failed.length ? 'FAIL' : invalid.length ? 'INVALID' : 'PASS', rows });
@@ -786,12 +846,12 @@ async function judgeCommand(opt) {
   const counted = widths.length > 1 ? `${results.length} view(s) (${routes.length} route(s) at ${widths.join(' and ')}px)` : `${results.length} route(s)`;
   const held = `${scope} scope` + (pages.length ? `; page scope for ${pages.join(', ')} at ${primary}px` : '') + (liveBy.length ? `; live texts not judged (they follow the clock): ${liveBy.join(', ')}` : '');
   if (failedRoutes.length) {
-    finish({ status: 'fail', scope, source: manifest.source || null, summary: `${failedRoutes.length} of ${counted} differ from the reference${against}: ` + failedRoutes.map((r) => `${r.name} ${r.rows.filter((x) => x.verdict === 'FAIL').map((x) => x.id).join('+')}`).join(', ') + judged + asideSaid(aside), base, base_from: from, routes: detail, skipped, set_aside: aside }, EXIT.fail);
+    finish({ status: 'fail', scope, source: manifest.source || null, summary: `${failedRoutes.length} of ${counted} differ from the reference${against}: ` + failedRoutes.map((r) => `${r.name} ${r.rows.filter((x) => x.verdict === 'FAIL').map((x) => x.id).join('+')}`).join(', ') + unbuiltSaid + judged + asideSaid(aside) + addedSaid(additions), base, base_from: from, routes: detail, skipped, not_judged: unbuilt, set_aside: aside, added: additions }, EXIT.fail);
   }
   if (invalidRoutes.length) {
-    finish({ status: 'invalid', scope, summary: `${invalidRoutes.length} of ${counted} could not be judged: ` + invalidRoutes.map((r) => r.name).join(', ') + judged + asideSaid(aside), base, base_from: from, routes: detail, skipped, set_aside: aside }, EXIT.invalid);
+    finish({ status: 'invalid', scope, summary: `${invalidRoutes.length} of ${counted} could not be judged: ` + invalidRoutes.map((r) => r.name).join(', ') + unbuiltSaid + judged + asideSaid(aside) + addedSaid(additions), base, base_from: from, routes: detail, skipped, not_judged: unbuilt, set_aside: aside, added: additions }, EXIT.invalid);
   }
-  finish({ status: 'pass', scope, source: manifest.source || null, summary: `${counted} as the reference${against} (D1–D7, ${held})` + (skipped.length ? `; no reference for ${skipped.join(', ')}` : '') + judged + asideSaid(aside), base, base_from: from, routes: detail, skipped, set_aside: aside }, EXIT.pass);
+  finish({ status: 'pass', scope, source: manifest.source || null, summary: `${counted} as the reference${against} (D1–D7, ${held})` + (skipped.length ? `; no reference for ${skipped.join(', ')}` : '') + unbuiltSaid + judged + asideSaid(aside) + addedSaid(additions), base, base_from: from, routes: detail, skipped, not_judged: unbuilt, set_aside: aside, added: additions }, EXIT.pass);
 }
 
 if (require.main === module) {
@@ -801,4 +861,4 @@ if (require.main === module) {
     .catch((e) => finish({ status: 'invalid', summary: 'the runner failed: ' + String(e && e.message || e).slice(0, 300) }, EXIT.invalid));
 }
 
-module.exports = { readOnElsewhere, siteBase, linkTarget, judge, readDecided, asideFor, read, routeSpec, facesInPage, liveTexts };
+module.exports = { readOnElsewhere, siteBase, linkTarget, judge, readDecided, asideFor, addedFor, read, routeSpec, facesInPage, liveTexts, notJudged };

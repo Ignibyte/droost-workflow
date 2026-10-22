@@ -101,7 +101,9 @@ workflow:say`), then work through them, one at a time or a few together:
    droost workflow:verify-criterion AC-1 "curl /rinks lists all six published rinks"
    droost workflow:verify-criterion AC-3 "tests/e2e/rinks.spec.ts passes"
    ```
-   `droost workflow:criteria` shows what is checked and when.
+   `droost workflow:criteria` shows what is checked and when. A check that
+   did not hold is recorded with `--outcome=partly` or `--outcome=failed`,
+   which counts the criterion unverified; it is never a proof.
 4. **Move on.** A check that fails is fixed now, not left for test.
 
 Check more than the criteria whenever it helps; nothing limits you to them.

@@ -324,3 +324,61 @@ test('a text that changes with the clock is live, and only that text', () => {
   assert.deepEqual(parity.liveTexts(saturday, []), [], 'and with no other reading nothing is called live');
   assert.deepEqual(parity.liveTexts(at('Open now  ·  closes 6:00pm'), [at('open now · closes 6:00pm')]), [], 'compared as the judge compares');
 });
+
+// F-354: a roadmap that builds a page a rung failed parity on every page not
+// built yet. The routes lever names the pages built so far, in either
+// spelling; every other reference route is named not judged.
+test('the routes not built yet are named, in either spelling, never judged', () => {
+  const manifest = ['/', '/internet', '/business', '/about', '/support'];
+  assert.deepEqual(parity.notJudged(manifest, ['/index.html', '/about.html', '/internet']), ['/business', '/support']);
+  assert.deepEqual(parity.notJudged(manifest, manifest), []);
+  assert.deepEqual(parity.notJudged(undefined, ['/']), [], 'a reference with no manifest leaves nothing out');
+});
+
+// F-356: a client's decision that adds to the frame had no way into the
+// reference. UNI-A run 6 met it: Q8 linked the new /contact from the footer's
+// Customers column, the footer grew 30px, and every text below the link failed
+// D5 on all 7 routes, against a reference that predates the decision.
+test('the texts below a text added by decision are judged with the space it takes (D5)', () => {
+  const ref = page('http://localhost:5299/', [['Customers', 'h3', 100], ['Pay my bill', 'a', 140], ['© 2026 United', 'p', 300]]);
+  const grown = page('https://united-a.ddev.site/', [['Customers', 'h3', 100], ['Pay my bill', 'a', 140], ['Contact us', 'a', 170], ['© 2026 United', 'p', 330]]);
+  const d5 = (rows) => rows.find((r) => r.id === 'D5');
+  const added = new Set(['contact us']);
+  assert.equal(d5(parity.judge(ref, grown, 'page')).verdict, 'FAIL', 'without the decision the link\'s space fails what sits below it');
+  const pass = d5(parity.judge(ref, grown, 'page', new Set(), added));
+  assert.equal(pass.verdict, 'PASS', JSON.stringify(pass));
+  assert.match(pass.said, /1 pair\(s\) judged with the 30px of texts added above them/);
+  // The space is the added text's, and no more: 100px lower still fails.
+  const far = page('https://united-a.ddev.site/', [['Customers', 'h3', 100], ['Pay my bill', 'a', 140], ['Contact us', 'a', 170], ['© 2026 United', 'p', 400]]);
+  assert.equal(d5(parity.judge(ref, far, 'page', new Set(), added)).verdict, 'FAIL', 'the allowance is the space added, not a blank cheque');
+  // A text above the added one is judged as it always was.
+  const moved = page('https://united-a.ddev.site/', [['Customers', 'h3', 100], ['Pay my bill', 'a', 175], ['Contact us', 'a', 205], ['© 2026 United', 'p', 330]]);
+  assert.equal(d5(parity.judge(ref, moved, 'page', new Set(), added)).verdict, 'FAIL', 'only what sits below the added text drops');
+});
+
+test('an addition is read only as a recorded decision after a text the reference holds', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'parity-added-'));
+  const questions = path.join(dir, 'questions.md');
+  fs.writeFileSync(questions, '| Id | Question |\n|---|---|\n| Q8 | Link the contact page from the footer? |\n');
+  const views = [{ route: '/', texts: ['Pay my bill', 'Home'], links: [] }, { route: '/business', texts: ['Pay my bill', 'Learn More'], links: [] }];
+  const write = (doc) => fs.writeFileSync(path.join(dir, 'decided.json'), JSON.stringify(doc));
+  const read = () => parity.readDecided(dir, views, questions);
+
+  write({ added: [{ route: '*', text: 'Contact us', after: 'Pay my bill', decided: 'Q8', why: 'the footer links /contact' }] });
+  assert.deepEqual(read().entries, [], 'additions alone are a decided file');
+  assert.equal(read().added.length, 1);
+  assert.deepEqual([...parity.addedFor(read().added, '/business')], ['contact us']);
+  write({ added: [{ route: '*', text: 'Contact us', decided: 'Q8' }] });
+  assert.match(read().error, /needs a route, a text, the reference text it follows/);
+  write({ added: [{ route: '*', text: 'Contact us', after: 'Pay my bill', decided: 'Q9' }] });
+  assert.match(read().error, /cites Q9, which is no question of the intake/);
+  write({ added: [{ route: '/', text: 'Contact us', after: 'Nowhere', decided: 'Q8' }] });
+  assert.match(read().error, /which the reference does not hold there/);
+  write({ added: [{ route: '/business', text: 'Learn More', after: 'Pay my bill', decided: 'Q8' }] });
+  assert.match(read().error, /which the reference already holds/, 'what the source shows is held as it is');
+  write({ set_aside: [], added: 'Contact us' });
+  assert.match(read().error, /"added" is not a list/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

@@ -212,6 +212,30 @@ final class ParityGateTest extends TestCase {
   }
 
   /**
+   * The routes built so far reach the runner as `--routes` (F-354).
+   */
+  public function testRoutesLeverReachesTheCommand(): void {
+    $ran = [];
+    $pass = $this->line(['status' => 'pass', 'summary' => '2 route(s)']);
+    $this->verdict(0, $pass, ['scope' => 'frame', 'routes' => ' /, /about ,/internet.html '], FALSE, $ran);
+
+    $this->assertSame(
+      [
+        'vendor/bin/droost-parity',
+        'judge',
+        '--reference',
+        'droost/parity',
+        '--scope',
+        'frame',
+        '--routes',
+        '/,/about,/internet.html',
+        '--json',
+      ],
+      array_map(fn (string $arg): string => $this->relative($arg), $ran[0] ?? []),
+    );
+  }
+
+  /**
    * A failing view at another width is named as that view.
    */
   public function testFailureAtAnotherWidthNamesTheView(): void {

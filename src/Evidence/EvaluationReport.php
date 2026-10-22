@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Droost\Workflow\Evidence;
 
 use Droost\Workflow\Config\GateSettings;
+use Droost\Workflow\Spec\CriteriaVerification;
 
 /**
  * Renders a round's evaluation from the store, and stops where it must.
@@ -1629,7 +1630,7 @@ final class EvaluationReport {
       [$runId],
     );
     $criteria = $this->rows(
-      'SELECT ref, statement, verified_by, phase,
+      'SELECT ref, statement, verified_by, phase, outcome,
               (SELECT COUNT(DISTINCT statement) FROM spec_criterion
                 WHERE run_id = c.run_id AND ref = c.ref) AS statements
          FROM spec_criterion c WHERE run_id = ? AND revision = (
@@ -1684,6 +1685,7 @@ final class EvaluationReport {
       $unverified = 0;
       $revised = 0;
       $body = [];
+      $gates = $this->store->latestGateStates($runId);
       foreach ($criteria as $row) {
         // NULL, not ''. This class's own text() reads an empty column as
         // NULL — deliberately, so no cell renders blank — and the first
@@ -1692,7 +1694,9 @@ final class EvaluationReport {
         // proving them" above a table that showed one. Caught by rendering
         // it, not by the types.
         $by = self::text($row, 'verified_by');
-        if ($by === NULL) {
+        // Counted by what the proof came to, not by its being there (F-357).
+        $standing = CriteriaVerification::standing($by, $by === NULL ? NULL : self::text($row, 'outcome'), $gates);
+        if ($standing['standing'] === 'unverified') {
           $unverified++;
         }
         // STATEMENTS, not revisions. A verification writes a revision too,
@@ -1706,7 +1710,7 @@ final class EvaluationReport {
         $body[] = [
           self::code(self::text($row, 'ref')),
           self::cell(self::text($row, 'statement')),
-          $by === NULL ? '**nothing yet**' : self::cell($by),
+          $by === NULL ? '**nothing yet**' : self::cell($by) . ($standing['why'] === NULL ? '' : sprintf(' — **not proof:** %s', $standing['why'])),
           $statements > 1 ? sprintf('%d wordings', $statements) : '1',
         ];
       }
@@ -1716,7 +1720,9 @@ final class EvaluationReport {
       );
       $out .= sprintf(
         "\n**%d declared, %d with nothing proving them.** A proof is RECORDED,\n"
-        . "never judged: `manual — <reason>` is a legitimate answer and is\n"
+        . "and counted by what it came to: one recorded as partly or failed, or\n"
+        . "naming a gate whose latest verdict failed, proves nothing (F-357).\n"
+        . "It is not otherwise judged: `manual — <reason>` is a legitimate answer and is\n"
         . "reported as manual, and whether a named test is a real test is the\n"
         . "suite's business. What this section can say is whether the promise\n"
         . "was made before the proof, which is the one thing a record cannot\n"

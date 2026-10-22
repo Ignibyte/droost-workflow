@@ -156,7 +156,16 @@ droost workflow:verify-criterion AC-2 "manual — checked at 390px"
 ```
 
 `manual` is a legitimate answer and is reported as manual, never as passed —
-a human looked is a different claim from a test proves. What you name is
+a human looked is a different claim from a test proves. A check that did not
+hold is recorded as what it came to, never as a proof:
+
+```bash
+droost workflow:verify-criterion AC-10 "parity: D5 fails on all 7 routes" --outcome=failed
+```
+
+`--outcome=partly` or `--outcome=failed` counts the criterion unverified. So
+does a proof naming a gate whose latest verdict in this run failed: name
+`parity` while parity is failing and the criterion is not proven. What you name is
 recorded, not judged here: the seeker judges whether it shows the criterion
 met. A ref nobody declared at plan is refused, because a criterion written
 after the fact to fit what passed is the one thing this record cannot

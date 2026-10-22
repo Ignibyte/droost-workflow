@@ -199,11 +199,25 @@ already says how many records there are). What a source cannot say:
 - **what a free-text value is**: a date written as words, a price that is
   sometimes "FREE".
 
+Each row names its **Category**: `editing`, `content`, `destinations`,
+`scope` or `values`, the five above in order. `intake check` refuses a
+roadmap until every category has a row:
+
+- **asked**: Decided by `human`, or `recommendation` when they deferred;
+- **settled by the source**: Decided by `source`, citing the audit id that
+  settles it in the row (`d:data/events.ts#EVENTS`). Never for `editing` or
+  `scope`: who edits what and what is out of scope are the human's alone;
+- **not applicable**: Decided by `n/a`, with the reason in the Why column,
+  only for `destinations` (no form, booking or payment) and `values` (no
+  free-text value).
+
 ```markdown
-| Id | Question | Why the source cannot settle it | Recommendation | Answer | Decided by |
-|---|---|---|---|---|---|
-| Q1 | Who edits the events? | the source hardcodes them | Staff editors, in the admin | Staff editors | human |
-| Q2 | Are the six events real? | events.ts holds them | Import them as the first content | Defer to your recommendation → import them | recommendation |
+| Id | Category | Question | Why the source cannot settle it | Recommendation | Answer | Decided by |
+|---|---|---|---|---|---|---|
+| Q1 | editing | Who edits the events? | the source hardcodes them | Staff editors, in the admin | Staff editors | human |
+| Q2 | content | Are the six events real? | events.ts holds them | Import them as the first content | Defer to your recommendation → import them | recommendation |
+| Q3 | destinations | Where do submissions go? | the source has no form, no booking and no payment | — | — | n/a |
+| Q4 | scope | Is anything out of scope? | the source sketches accounts and a shop | Neither at launch | Neither at launch | human |
 ```
 
 **Ask each through AskUserQuestion**, with the question's words exactly as
@@ -285,6 +299,23 @@ shows on that page: a later rung's page is checked once its reference is
 captured. Never set aside what the build has not managed: that is a gate to
 pass, not a decision.
 
+**When an answer means the site will show something the source does not**
+(a footer link to a page the source never had), name it in the same file's
+`added` list, after the source's text it follows. Without it, everything
+below the new text sits lower than the reference and fails parity on every
+page that shows it:
+
+```json
+{"added": [
+  {"route": "*", "text": "Contact us", "after": "Support", "decided": "Q8", "why": "the footer links the new /contact"}
+]}
+```
+
+Only a question in `questions.md` can add a text, only after a text the
+source shows there, and never a text the source already shows. Record every
+set-aside and addition before the roadmap is approved: after that the
+reference is the operator's.
+
 ## 6. The roadmap: `droost/intake/roadmap.md`
 
 ```markdown
@@ -306,6 +337,14 @@ pass, not a decision.
   consumes, its acceptance criteria from the source (what a visitor sees and
   an editor can do, never how it is built), and its pages, which are its
   parity routes.
+- **The Pages column is what parity judges.** A rung is held to its own
+  pages and every rung's below it, never to a page no rung has built yet:
+  `droost workflow:intake routes <rung>` prints them, and the operator sets
+  the parity gate's `routes` lever to that line before the rung runs. A
+  route no rung lists is never judged, so list every page the source has.
+- **Once the roadmap is approved the reference is the operator's.** The
+  guard refuses any change to it, run or no run: a page the client changes
+  later is re-captured by the operator, never trimmed to fit.
 
 ## 7. Check, then hand it to the operator
 

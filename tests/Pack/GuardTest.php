@@ -1512,6 +1512,49 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * Once the roadmap is approved, the reference outlives the run (F-354).
+   *
+   * UNI-A run 2's agent, failing parity on six routes no rung had built yet,
+   * proposed resetting the run (which lifted this wall) and trimming the
+   * reference's manifest: the yardstick edited until the site passed. While
+   * the intake is open the agent writes `decided.json` there, as the intake
+   * skill asks; once the human approved the roadmap, only the operator
+   * changes the reference, run or no run.
+   */
+  public function testParityReferenceOutlivesTheRunOnceTheIntakeIsApproved(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/parity', 0775, TRUE);
+    file_put_contents($root . '/droost/parity/manifest.json', '{"routes":["/","/business"]}');
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    $intake = static fn (string $status) => file_put_contents(
+      $root . '/droost/droost-workflow/intake.json',
+      json_encode(['schema' => 'droost.intake/1', 'id' => 'intake-1', 'status' => $status]),
+    );
+
+    $intake('open');
+    $this->assertSame(0, $this->writeAttempt($root, 'droost/parity/decided.json'), 'the intake names its set-asides');
+
+    $intake('approved');
+    $this->assertSame(2, $this->writeAttempt($root, 'droost/parity/manifest.json'), 'no run open, and still the yardstick');
+    $this->assertSame(2, $this->writeAttempt($root, 'droost/parity/decided.json'));
+    $this->assertSame(2, $this->shellAttempt($root, 'droost/parity/manifest.json'), 'and through a shell');
+    $this->assertSame(2, $this->shellAttempt($root, 'vendor/bin/droost-parity capture --source http://design.test --routes /'));
+    $this->assertSame(2, $this->shellAttempt($root, 'python3 -c "open(\'droost/parity/manifest.json\',\'w\').write(\'{}\')"'));
+    $this->assertSame(0, $this->shellAttempt($root, 'cat droost/parity/manifest.json'), 'reading stays open');
+    $this->assertSame(0, $this->shellAttempt($root, 'vendor/bin/droost-parity judge --reference droost/parity --routes / --json'));
+    $this->assertSame(0, $this->shellAttempt($root, 'vendor/bin/droost-parity capture --source http://design.test --routes / --out /tmp/scratch-parity'), 'a capture elsewhere is a measurement');
+
+    // The reset UNI-A run 2 proposed: the run is over, the wall stands.
+    file_put_contents($root . '/droost/droost-workflow/run.json', '{"run_id":"r1","current_phase":null}');
+    $this->assertSame(2, $this->writeAttempt($root, 'droost/parity/manifest.json'));
+
+    // A `reference` lever moves the wall with it.
+    mkdir($root . '/refs/united', 0775, TRUE);
+    file_put_contents($root . '/droost/droost.yml', "gates:\n  parity: { on: true, reference: refs/united }\n");
+    $this->assertSame(2, $this->writeAttempt($root, 'refs/united/manifest.json'));
+  }
+
+  /**
    * The exit code of writing to a path through the editing tools.
    *
    * @param string $root
