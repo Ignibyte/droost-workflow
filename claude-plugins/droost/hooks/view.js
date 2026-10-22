@@ -142,9 +142,10 @@ function section(el, s, i) {
 }
 
 // The whole pane. `state` is { tab, error, updatedAt, collapsed };
-// `onTab(id)` switches tabs and `onCollapse()` folds the pane to its header
-// and phases, or opens it again.
-export function paneTree(el, doc, state, onTab, surface, onCollapse = () => {}) {
+// `onTab(id)` switches tabs, `onCollapse()` folds the pane to its header and
+// phases or opens it again, and `onHide()` closes it, leaving the line under
+// the prompt (`/droost-panel` brings it back).
+export function paneTree(el, doc, state, onTab, surface, onCollapse = () => {}, onHide = () => {}) {
   const { Box, Text, Button } = el
   const header = []
   if (surface === 'terminal' && el.Image) {
@@ -168,8 +169,10 @@ export function paneTree(el, doc, state, onTab, surface, onCollapse = () => {}) 
       key: 'fold',
       flexDirection: 'row',
       justifyContent: 'flex-end',
+      columnGap: 2,
       children: [
         Button({ key: 'collapse', label: state.collapsed ? '▸ open' : '▾ fold', hotkey: 'c', plain: true, dimColor: true, onPress: () => onCollapse() }),
+        Button({ key: 'hide', label: '— minimize', hotkey: 'm', plain: true, dimColor: true, onPress: () => onHide() }),
       ],
     }),
   )
@@ -237,12 +240,6 @@ export function paneTree(el, doc, state, onTab, surface, onCollapse = () => {}) 
     ? 'droost could not be asked: ' + state.error
     : 'updated ' + (state.updatedAt || '—') + ' · droost workflow:panel'
   rows.push(Text({ key: 'foot', dimColor: true, wrap: 'truncate-end', children: [foot] }))
-  // Claude Code docks a pane on the right only in its fullscreen layout from
-  // 110 columns; say so when that is the one thing missing.
-  const view = state.viewport || {}
-  if (state.placement === 'inline' && view.isFullscreen === true && view.columns < 110) {
-    rows.push(Text({ key: 'dock-hint', dimColor: true, wrap: 'wrap', children: [`${view.columns} columns: widen to 110 (or ⌘ − in iTerm) and reopen to dock this on the right.`] }))
-  }
 
   return Box({ flexDirection: 'column', rowGap: 1, children: rows })
 }

@@ -89,8 +89,7 @@ export function register(on, options) {
     const el = $.ui.resolve(e)
     const shown = pickTab(doc, tab)
     if (shown) tab = shown.id
-    const view = { tab, error, updatedAt, collapsed, placement: e.props?.placement, viewport: e.viewport }
-    return paneTree(el, doc, view, (id) => {
+    return paneTree(el, doc, { tab, error, updatedAt, collapsed }, (id) => {
       tab = id
       $.ui.invalidate('ui.render')
     }, e.surface, async () => {
@@ -98,6 +97,9 @@ export function register(on, options) {
       // Asks for the new height; a size the person dragged to wins.
       await $.ui.open({ ...OPEN, rows: collapsed ? ROWS.folded : ROWS.open })
       $.ui.invalidate('ui.render')
+    }, async () => {
+      // Minimized: the pane goes, the line under the prompt stays.
+      await $.ui.close({ id: PANE })
     })
   })
 }

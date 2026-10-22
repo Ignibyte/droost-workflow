@@ -53,7 +53,7 @@ test('the pane draws the phases, a tab per tab, and the open tab', () => {
   const tree = paneTree(el, DOC, { tab: 'gates', error: '', updatedAt: '17:02' }, () => {}, 'terminal')
   const words = texts(tree)
   assert.ok(words.includes('✓ Plan') && words.includes('● Code') && words.includes('○ Test'))
-  assert.deepEqual(all(tree, 'Button').map((b) => b.props.label), ['▾ fold', 'Spec 1/2', 'Gates 1/2', 'Ticket'])
+  assert.deepEqual(all(tree, 'Button').map((b) => b.props.label), ['▾ fold', '— minimize', 'Spec 1/2', 'Gates 1/2', 'Ticket'])
   assert.ok(words.includes(' examined nothing '), 'a pass that examined nothing says so')
   assert.equal(all(tree, 'Image').length, 1, 'the drop, in a terminal')
   assert.equal(all(tree, 'Svg').length, 0)
@@ -65,7 +65,7 @@ test('a tab that could not be drawn says why, and a press switches tabs', () => 
   assert.ok(texts(tree).some((w) => w.startsWith('This tab could not be drawn') && w.includes('exited 3')))
   const partial = { ...DOC, tabs: [{ ...DOC.tabs[2], error: 'dropped section 3', sections: [{ kind: 'text', title: null, text: 'kept' }] }] }
   assert.ok(texts(paneTree(el, partial, { tab: 'ticket' }, () => {}, 'terminal')).some((w) => w.startsWith('Part of this tab was dropped')))
-  all(tree, 'Button')[1].props.onPress()
+  all(tree, 'Button')[2].props.onPress()
   assert.equal(picked, 'spec')
   assert.equal(all(tree, 'Svg').length, 1, 'the drop, where an SVG draws')
 })
@@ -97,15 +97,15 @@ test('folded, the pane keeps its header and phases and drops the tabs', () => {
   let folded = 0
   const tree = paneTree(el, DOC, { tab: 'spec', collapsed: true }, () => {}, 'terminal', () => { folded++ })
   const buttons = all(tree, 'Button')
-  assert.deepEqual(buttons.map((b) => b.props.label), ['▸ open'])
+  assert.deepEqual(buttons.map((b) => b.props.label), ['▸ open', '— minimize'])
   assert.ok(texts(tree).includes('● Code'))
   buttons[0].props.onPress()
   assert.equal(folded, 1)
 })
 
-test('a pane above the prompt only for want of width says how to dock it', () => {
-  const narrow = paneTree(el, DOC, { tab: 'spec', placement: 'inline', viewport: { columns: 92, isFullscreen: true } }, () => {}, 'terminal')
-  assert.ok(texts(narrow).some((w) => w.startsWith('92 columns: widen to 110')))
-  const wide = paneTree(el, DOC, { tab: 'spec', placement: 'dock', viewport: { columns: 140, isFullscreen: true } }, () => {}, 'terminal')
-  assert.ok(!texts(wide).some((w) => w.includes('widen to 110')))
+test('minimize asks for the pane to close', () => {
+  let hidden = 0
+  const tree = paneTree(el, DOC, { tab: 'spec' }, () => {}, 'terminal', () => {}, () => { hidden++ })
+  all(tree, 'Button').find((b) => b.props.key === 'hide').props.onPress()
+  assert.equal(hidden, 1)
 })
