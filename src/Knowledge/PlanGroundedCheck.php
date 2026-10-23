@@ -132,6 +132,16 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
         SpecContract::GROUNDING_HEADING,
       );
     }
+    elseif ($citations['malformed'] !== []) {
+      // Before any judgment of a citation: a row out of line has its Evidence
+      // in another column, and blaming its tier sent a run after the wrong
+      // cell (F-365).
+      $why[] = sprintf(
+        '%s\'s Grounding table has a row that does not line up with its header: %s. A bare `|` in a cell ends it (one inside backticks does not); write it `\\|`, then each cell sits under its column',
+        basename($spec),
+        implode('; ', $citations['malformed']),
+      );
+    }
     elseif ($citations['resolved'] === []) {
       $why[] = sprintf(
         'nothing %s\'s Grounding cites resolves here%s. Cite what droost showed you: a class, a docroot-relative file (`modules/custom/x/x.info.yml`), a wiki page, or `none: <query>` for a lookup that genuinely found nothing%s',

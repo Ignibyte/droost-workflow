@@ -106,6 +106,16 @@ final class SpecFreezeTest extends TestCase {
   }
 
   /**
+   * A pipe inside a code span is part of its cell (F-365).
+   */
+  public function testPipeInCodeSpanIsPartOfItsCell(): void {
+    $row = '| AC1 | the id is an `int|string` | test | |';
+    $frozen = str_replace('| AC1 | the page renders | curl /rinks | |', $row, $this->spec());
+    $filled = str_replace($row, '| AC1 | the id is an `int|string` | test | r07.spec.ts › AC-6 |', $frozen);
+    $this->assertSame([], SpecFreeze::breaches($filled, $frozen));
+  }
+
+  /**
    * Appending the run's own history is legal.
    */
   public function testAppendingRealizedAndSeekerLedgersIsLegal(): void {

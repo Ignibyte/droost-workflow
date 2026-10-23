@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Evidence;
 
+use Droost\Workflow\Spec\TableRow;
+
 /**
  * The spec's contract, as it stood when the plan phase ended.
  *
@@ -278,7 +280,7 @@ final class SpecFreeze {
     if ($separator !== NULL && $separator > 0 && $adjudicated !== NULL) {
       $header = array_map(
         static fn (string $cell): string => strtolower(trim($cell)),
-        self::cells($lines[$separator - 1]),
+        TableRow::cells($lines[$separator - 1]),
       );
       $found = array_search($adjudicated, $header, TRUE);
       $verified = $found === FALSE ? NULL : (int) $found;
@@ -293,7 +295,7 @@ final class SpecFreeze {
       if (preg_match('/^[\s\-:|]+$/', $line) === 1) {
         continue;
       }
-      $cells = self::cells($line);
+      $cells = TableRow::cells($line);
       if ($cells === []) {
         continue;
       }
@@ -307,27 +309,6 @@ final class SpecFreeze {
     }
 
     return $rows;
-  }
-
-  /**
-   * One table row's cells.
-   *
-   * @param string $row
-   *   The row.
-   *
-   * @return list<string>
-   *   The cells.
-   */
-  private static function cells(string $row): array {
-    $row = trim($row);
-    $row = preg_replace('/^\|/', '', $row) ?? $row;
-    $row = preg_replace('/\|$/', '', $row) ?? $row;
-    // An escaped pipe is text, as SpecContract::cells() reads it (F-359): a
-    // criterion naming a page title (`Home Phone \| United Communications`)
-    // split there, and filling its Verified By read as the row rewritten.
-    $row = str_replace('\\|', "\x00", $row);
-
-    return array_map(static fn (string $cell): string => trim(str_replace("\x00", '|', $cell)), explode('|', $row));
   }
 
   /**

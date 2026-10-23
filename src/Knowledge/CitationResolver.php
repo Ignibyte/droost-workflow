@@ -65,12 +65,13 @@ class CitationResolver {
    * @param string $docroot
    *   Drupal's docroot, absolute; '' finds it (see docroot()).
    *
-   * @return array{table: bool, resolved: list<string>, positive: list<string>, unresolved: list<string>, uncited_tiers: list<string>, index: string}
+   * @return array{table: bool, resolved: list<string>, positive: list<string>, unresolved: list<string>, uncited_tiers: list<string>, malformed: list<string>, index: string}
    *   Whether the spec carries a grounding table, the citations that
    *   resolved, those of them that name something that exists (every one
    *   but a `none:` claim), those that did not resolve, each tier the table
-   *   claims with nothing resolving for it, and the code index's status
-   *   (`ready`, `absent`, or why it could not be read).
+   *   claims with nothing resolving for it, each row whose cells do not line
+   *   up with the header's, and the code index's status (`ready`, `absent`,
+   *   or why it could not be read).
    */
   public function citations(string $projectRoot, string $spec, string $docroot = ''): array {
     $index = $this->index($projectRoot)->status;
@@ -82,6 +83,7 @@ class CitationResolver {
         'positive' => [],
         'unresolved' => [],
         'uncited_tiers' => [],
+        'malformed' => [],
         'index' => $index,
       ];
     }
@@ -119,6 +121,7 @@ class CitationResolver {
       'positive' => $positive,
       'unresolved' => $unresolved,
       'uncited_tiers' => array_values(array_map('strval', array_keys(array_diff_key($claimed, $citedTiers)))),
+      'malformed' => $grounding['malformed'],
       'index' => $index,
     ];
   }

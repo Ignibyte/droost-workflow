@@ -98,6 +98,46 @@ final class PlanGroundedCheckTest extends WorkflowTestCase {
   }
 
   /**
+   * A pipe inside a code span is the cell's text, not a boundary (F-365).
+   *
+   * A subject's run answered `an `int|string` id`: the row split there, its
+   * Evidence cell read the tail of Found, and plan was told its core tier
+   * cited nothing, which was not what was wrong.
+   */
+  public function testPipeInCodeSpanIsText(): void {
+    $root = $this->project();
+    $this->put($root, 'droost/droost-workflow/spec-test-run.md', "# Spec: test run\n\n## Routes\n\nnone — fixture\n\n## Grounding\n\n"
+      . "| Phase | Tier | Asked | Found | Evidence |\n|---|---|---|---|---|\n"
+      . "| plan | custom | what does load() accept? | an `int|string` id | web/modules/custom/camps/camps.info.yml |\n");
+    $this->ledger($root, self::looked());
+
+    $record = $this->verdict($root);
+
+    $this->assertSame(CheckState::Satisfied, $record->state, $record->summary);
+  }
+
+  /**
+   * A row that does not line up with its header is named (F-365).
+   *
+   * Its Evidence column is some other column, so whatever the tier checks
+   * would say about it is about the wrong cell.
+   */
+  public function testRowWithWrongCellCountIsNamed(): void {
+    $root = $this->project();
+    $this->put($root, 'droost/droost-workflow/spec-test-run.md', "# Spec: test run\n\n## Routes\n\nnone — fixture\n\n## Grounding\n\n"
+      . "| Phase | Tier | Asked | Found | Evidence |\n|---|---|---|---|---|\n"
+      . "| plan | custom | a lookup | an answer | web/modules/custom/camps/camps.info.yml |\n"
+      . "| plan | core | a lookup | one | two | Drupal\\Core\\Entity\\EntityInterface |\n");
+    $this->ledger($root, self::looked());
+
+    $record = $this->verdict($root);
+
+    $this->assertSame(CheckState::Blocked, $record->state);
+    $this->assertStringContainsString('row 3 has 6 cells, the header 5', $record->summary);
+    $this->assertStringNotContainsString('tier(s)', $record->summary, 'the misread cells are not judged');
+  }
+
+  /**
    * A lookup made before the run opened is not its plan's (F-331).
    *
    * Owner, 2026-10-20: the plan looks once its run is open; a lookup made
