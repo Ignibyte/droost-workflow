@@ -393,3 +393,25 @@ test('an unknown option or scope is a misuse, named', () => {
   assert.match(parity.misuse('judge', parity.args(['judge', '--scope', 'frme'])), /--scope frme is not a scope/);
   assert.match(parity.misuse('capture', parity.args(['capture', '--pages', '/'])), /capture does not take --pages/);
 });
+
+// F-363: WB-A's reference, read on a Thursday, sampled Monday and Tuesday
+// only, so "Friday · today" missed the reference's plain "Friday" and a
+// correct /location failed four days a week. A page that follows the clock
+// is read on every weekday, and every day's name is live.
+test('a page that marks today is live on every weekday, whatever day it was read', async () => {
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const pageAt = (date) => ({ texts: ['Hours', ...days.map((d, i) => (i === date.getUTCDay() ? `${d} · today` : d))].map((text) => ({ text })) });
+  for (let start = 0; start < 7; start++) {
+    const read = new Date(Date.UTC(2026, 9, 18 + start, 21, 52));
+    const reading = pageAt(read);
+    const others = await parity.clockReadings(reading, async (shift) => pageAt(new Date(read.getTime() + shift)));
+    const live = parity.liveTexts(reading, others);
+    for (const d of days) {
+      assert.ok(live.includes(d) || live.includes(`${d} · today`), `${days[read.getUTCDay()]}'s reading leaves ${d} judged`);
+    }
+    assert.ok(!live.includes('Hours'), 'a text the clock never changes stays judged');
+  }
+  let reads = 0;
+  await parity.clockReadings({ texts: [{ text: 'Hours' }] }, async () => { reads++; return { texts: [{ text: 'Hours' }] }; });
+  assert.equal(reads, 2, 'a page that does not follow the clock is read twice more, no more');
+});

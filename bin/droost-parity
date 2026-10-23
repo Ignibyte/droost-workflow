@@ -35,7 +35,8 @@
  *     from the source at /internet.html; `/internet.html` alone is the same)
  *     [--accept-unloaded "Family,…"]  (a face the source declares and never
  *     draws refuses the capture unless named here; the manifest records it)
- *     (each page is read twice more with the clock moved ahead; a text that
+ *     (each page is read twice more with the clock moved ahead, and on each
+ *     of the next six days when it follows the clock; a text that
  *     follows the clock is live, kept out of the reference and listed there,
  *     and the judge names it as not judged: F-269)
  *   droost-parity judge [--reference droost/parity] [--routes …] [--scope page|frame|header|footer]
@@ -221,6 +222,30 @@ const liveTexts = (reading, others) => {
   if (!sets.length) return [];
   return [...new Set((reading.texts || []).map((t) => t.text).filter((t) => sets.some((set) => !set.has(norm(t)))))];
 };
+
+// Two shifts land on two weekdays, so a page that marks today ("Friday ·
+// today") was held to the plain names of the other four: WB-A's reference,
+// read on a Thursday, failed a correct /location every Wednesday, Friday,
+// Saturday and Sunday (F-363). A page that follows the clock at all is read
+// once more on each of the next six days, at the time it was read, so every
+// weekday is today in one reading. A page that does not costs nothing more.
+const DAY_SHIFTS = [1, 2, 3, 4, 5, 6].map((d) => d * 24 * 3600e3);
+
+// The other readings a page is judged live against: `readAt(shift)` reads it
+// with the clock moved ahead by `shift` ms, and answers null when that
+// reading cannot be compared.
+async function clockReadings(reading, readAt) {
+  const others = [];
+  const add = async (shifts) => {
+    for (const shift of shifts) {
+      const other = await readAt(shift);
+      if (other) others.push(other);
+    }
+  };
+  await add(LIVE_SHIFTS);
+  if (liveTexts(reading, others).length) await add(DAY_SHIFTS);
+  return others;
+}
 
 async function read(browser, url, width, clock = null) {
   // A fresh context per page (no cache to serve from) and no extra request
@@ -747,11 +772,10 @@ async function capture(opt) {
     for (const w of widths) {
       const url = source.replace(/\/$/, '') + from;
       const reading = await read(browser, url, w);
-      const others = [];
-      for (const shift of LIVE_SHIFTS) {
+      const others = await clockReadings(reading, async (shift) => {
         const other = await read(browser, url, w, new Date(Date.now() + shift));
-        if (other.status === reading.status && (other.texts || []).length) others.push(other);
-      }
+        return other.status === reading.status && (other.texts || []).length ? other : null;
+      });
       const live = liveTexts(reading, others);
       if (live.length) {
         reading.texts = reading.texts.filter((t) => !live.includes(t.text));
@@ -882,4 +906,4 @@ if (require.main === module) {
     .catch((e) => finish({ status: 'invalid', summary: 'the runner failed: ' + String(e && e.message || e).slice(0, 300) }, EXIT.invalid));
 }
 
-module.exports = { misuse, args, readOnElsewhere, siteBase, linkTarget, judge, readDecided, asideFor, addedFor, read, routeSpec, facesInPage, liveTexts, notJudged };
+module.exports = { misuse, args, readOnElsewhere, siteBase, linkTarget, judge, readDecided, asideFor, addedFor, read, routeSpec, facesInPage, liveTexts, clockReadings, notJudged };
