@@ -120,6 +120,25 @@ function args(argv) {
   return out;
 }
 
+// The options each command reads. Anything else is refused, not ignored: a
+// misspelled `--scope` or `--pages` once judged at the default without a
+// word, and `--help` ran a whole judgement.
+const OPTIONS = {
+  capture: ['source', 'routes', 'out', 'width', 'accept-unloaded'],
+  judge: ['reference', 'routes', 'scope', 'pages', 'base', 'json'],
+};
+const SCOPES = ['page', 'frame', 'header', 'footer'];
+
+// What is wrong with a command line, or null: an option the command does not
+// read, or a scope that is not one.
+function misuse(command, opt) {
+  const known = OPTIONS[command] || [];
+  const unknown = Object.keys(opt).filter((k) => k !== '_' && !known.includes(k));
+  if (unknown.length) return `${command} does not take ${unknown.map((k) => '--' + k).join(', ')}: it takes ${known.map((k) => '--' + k).join(', ')}`;
+  if (command === 'judge' && opt.scope !== undefined && !SCOPES.includes(String(opt.scope))) return `--scope ${opt.scope === true ? '(no value)' : opt.scope} is not a scope: ${SCOPES.join(', ')}`;
+  return null;
+}
+
 function finish(summary, code) {
   process.stdout.write(JSON.stringify({ parity: summary }) + '\n');
   process.exit(code);
@@ -776,7 +795,7 @@ function notJudged(manifestRoutes, routes) {
 
 async function judgeCommand(opt) {
   const dir = path.resolve(process.cwd(), String(opt.reference || 'droost/parity'));
-  const scope = ['page', 'frame', 'header', 'footer'].includes(String(opt.scope)) ? String(opt.scope) : 'page';
+  const scope = SCOPES.includes(String(opt.scope)) ? String(opt.scope) : 'page';
   let manifest = {};
   try { manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')); } catch (e) { manifest = {}; }
   const lever = Boolean(opt.routes && opt.routes !== true);
@@ -857,8 +876,10 @@ async function judgeCommand(opt) {
 if (require.main === module) {
   const opt = args(process.argv.slice(2));
   const command = opt._[0] || 'judge';
+  const wrong = misuse(command, opt);
+  if (wrong) finish({ status: 'invalid', summary: wrong }, EXIT.invalid);
   (command === 'capture' ? capture(opt) : command === 'judge' ? judgeCommand(opt) : Promise.resolve(finish({ status: 'error', summary: `unknown command ${command}: capture or judge` }, EXIT.invalid)))
     .catch((e) => finish({ status: 'invalid', summary: 'the runner failed: ' + String(e && e.message || e).slice(0, 300) }, EXIT.invalid));
 }
 
-module.exports = { readOnElsewhere, siteBase, linkTarget, judge, readDecided, asideFor, addedFor, read, routeSpec, facesInPage, liveTexts, notJudged };
+module.exports = { misuse, args, readOnElsewhere, siteBase, linkTarget, judge, readDecided, asideFor, addedFor, read, routeSpec, facesInPage, liveTexts, notJudged };

@@ -382,3 +382,14 @@ test('an addition is read only as a recorded decision after a text the reference
   assert.match(read().error, /"added" is not a list/);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+// An option the command does not read is refused, never ignored: `--help`
+// ran a whole judgement, and a misspelled `--scope` judged at page scope.
+test('an unknown option or scope is a misuse, named', () => {
+  assert.equal(parity.misuse('judge', parity.args(['judge', '--scope', 'frame', '--routes', '/', '--pages', '/', '--json'])), null);
+  assert.equal(parity.misuse('capture', parity.args(['capture', '--source', 'http://a/', '--width', '1280,390'])), null);
+  assert.match(parity.misuse('judge', parity.args(['--help'])), /does not take --help/);
+  assert.match(parity.misuse('judge', parity.args(['judge', '--scop', 'frame'])), /does not take --scop/);
+  assert.match(parity.misuse('judge', parity.args(['judge', '--scope', 'frme'])), /--scope frme is not a scope/);
+  assert.match(parity.misuse('capture', parity.args(['capture', '--pages', '/'])), /capture does not take --pages/);
+});
