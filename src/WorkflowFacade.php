@@ -1005,6 +1005,59 @@ final class WorkflowFacade {
   }
 
   /**
+   * Why an agent's `answer` to a human-led complete hold was refused.
+   *
+   * It quotes the hold's question and options, which the dialog must ask
+   * word for word, and what the last dialog during this hold asked when it
+   * asked something else (F-360): a refusal that only said "ask them" read
+   * as though no question had been asked.
+   *
+   * @param \Droost\Workflow\State\RunStateStore $store
+   *   The run's store.
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run, waiting at complete.
+   *
+   * @return string
+   *   The refusal.
+   */
+  private function holdRefusal(RunStateStore $store, RunState $state): string {
+    $question = is_string($state->awaiting['question'] ?? NULL) ? trim($state->awaiting['question']) : '';
+    $options = array_values(array_filter((array) ($state->awaiting['options'] ?? []), 'is_string'));
+    $askedAt = is_string($state->awaiting['asked_at'] ?? NULL) ? $state->awaiting['asked_at'] : '';
+    $last = [];
+    foreach (@file($store->directory() . '/hold-answers.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+      $row = json_decode($line, TRUE);
+      if (is_array($row) && ($row['run'] ?? NULL) === $state->runId && ($row['asked_at'] ?? NULL) === $askedAt && is_array($row['asked'] ?? NULL)) {
+        $last = array_values(array_filter($row['asked'], 'is_string'));
+      }
+    }
+    $message = 'This run is human-led: its complete hold is answered by a human. Ask them with AskUserQuestion, '
+      . 'the hold\'s question word for word as the question: "' . $question . '"'
+      . ($options === [] ? '' : ', and its options as the choices: ' . self::quoted($options))
+      . '. Then run `answer` again: droost takes THEIR answer, as the guard recorded it from the dialog.';
+    if ($last !== []) {
+      $message .= ' The last dialog asked ' . self::quoted($last) . ', which is not the hold\'s question, so its answer was not taken.';
+    }
+
+    return $message . ' Or they type `droost workflow:answer "<answer>"` (`ddev droost workflow:answer …`) in a '
+      . 'terminal window of their own; Claude Code\'s `!` runs in the agent\'s shell and is refused. Nothing was '
+      . 'recorded, and the run is still waiting.';
+  }
+
+  /**
+   * Texts quoted and joined for a refusal: "a" / "b".
+   *
+   * @param list<string> $texts
+   *   The texts.
+   *
+   * @return string
+   *   The quoted list.
+   */
+  private static function quoted(array $texts): string {
+    return '"' . implode('" / "', $texts) . '"';
+  }
+
+  /**
    * Changes an open run's lead (`workflow:lead`).
    *
    * @param string $projectRoot
@@ -1060,13 +1113,7 @@ final class WorkflowFacade {
     if ($via === 'agent' && $state->awaitsHuman()) {
       $human = $this->humanHoldAnswer($projectRoot, $store, $state);
       if ($human === NULL) {
-        throw new \InvalidArgumentException(
-          'This run is human-led: its complete hold is answered by a human. Ask them with AskUserQuestion '
-          . '(offer the hold\'s options), then run `answer` again: droost takes THEIR answer, as the guard '
-          . 'recorded it from the dialog. Or they type `droost workflow:answer "<answer>"` (`ddev droost '
-          . 'workflow:answer …`) in a terminal window of their own; Claude Code\'s `!` runs in the agent\'s '
-          . 'shell and is refused. Nothing was recorded, and the run is still waiting.',
-        );
+        throw new \InvalidArgumentException($this->holdRefusal($store, $state));
       }
       $answer = $human;
       $via = 'question';

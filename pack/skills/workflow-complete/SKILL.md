@@ -175,6 +175,16 @@ and only one of them is true. The same holds one level down: a `low` run
 whose phpunit reads `off` did not pass its tests — it declared it would not
 run them, and the report says exactly that.
 
+### The last hold of a human-led run
+
+In a `human-led` run (`status` shows the `lead`) the complete hold is the
+human's. Ask them with AskUserQuestion, with the hold's `question` copied
+word for word as the dialog's question and its `options` as the choices:
+a dialog in your own words ("finish the run?") is another question, and
+its answer is not taken. Fill in only `questions`, then run `answer` again;
+droost takes their answer as the guard recorded it. A refused `answer`
+quotes the hold's question and what your last dialog asked instead.
+
 ## Exit gate
 
 The capture exists (or was presented, at `medium`/`low`), the report has been

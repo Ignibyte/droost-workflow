@@ -584,18 +584,25 @@ if ($mode === 'answers') {
         $given[$question] = is_array($answer) ? implode(', ', array_filter($answer, 'is_string')) : $answer;
       }
     }
-    if ($given !== []) {
+    // A dialog that asked something else is kept too, with no answer, so a
+    // refused `answer` can say what was asked against what the hold asks
+    // (F-360): the reader takes only a row that carries answers.
+    $asked = array_values(array_filter(array_keys($map), 'is_string'));
+    if ($given !== [] || $asked !== []) {
       $line = json_encode([
         'run' => $record['run_id'],
         'phase' => 'complete',
         'asked_at' => is_string($awaiting['asked_at'] ?? NULL) ? $awaiting['asked_at'] : '',
         'answers' => $given,
+        'asked' => $asked,
         'via' => 'AskUserQuestion',
         'at' => date('c'),
       ], JSON_UNESCAPED_SLASHES);
       if ($line !== FALSE) {
         @file_put_contents($root . '/' . $stateDir . '/hold-answers.jsonl', $line . "\n", FILE_APPEND | LOCK_EX);
       }
+    }
+    if ($given !== []) {
       $GLOBALS['workflow_guard_quiet'] = FALSE;
       $GLOBALS['workflow_guard_verdict'] = 'note';
       $GLOBALS['workflow_guard_rule'] = 'hold-answer';

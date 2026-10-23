@@ -112,11 +112,23 @@ final class RunLeadTest extends WorkflowTestCase {
       'tool_input' => ['questions' => [['question' => 'Shall I run lint?']]],
       'tool_response' => ['answers' => ['Shall I run lint?' => 'yes']],
     ]);
-    $this->assertFileDoesNotExist($dir . '/hold-answers.jsonl', 'only the hold\'s own question is the hold\'s answer');
+    [$code, $err] = $this->cli(['answer', 'yes'], $root);
+    $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code, 'only the hold\'s own question is the hold\'s answer');
+
+    // The refusal says which question the dialog must ask, word for word,
+    // and what the last one asked instead (F-360).
+    $held = (new RunStateStore($root))->load();
+    $this->assertNotNull($held);
+    $awaiting = $held->awaiting ?? [];
+    $question = $awaiting['question'] ?? NULL;
+    $this->assertIsString($question);
+    $this->assertStringContainsString('word for word as the question: "' . trim($question) . '"', $err);
+    foreach (array_filter((array) ($awaiting['options'] ?? []), 'is_string') as $option) {
+      $this->assertStringContainsString('"' . $option . '"', $err);
+    }
+    $this->assertStringContainsString('The last dialog asked "Shall I run lint?"', $err);
 
     // The human answers the hold's own question; the guard records it.
-    $question = (new RunStateStore($root))->load()?->awaiting['question'] ?? NULL;
-    $this->assertIsString($question);
     $this->guard($root, 'answers', [
       'tool_name' => 'AskUserQuestion',
       'tool_input' => ['questions' => [['question' => $question]]],
