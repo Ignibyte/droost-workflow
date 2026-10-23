@@ -207,10 +207,11 @@ final class RunReport {
     $observations = self::int($seeker['observations'] ?? 0);
     $open = array_key_exists('open', $seeker) ? sprintf(', %d still open', self::int($seeker['open'])) : '';
     $lines = [sprintf(
-      '  seeker%s: %s (critical %d, medium %d, low %d found%s)%s%s',
+      '  seeker%s: %s (critical %d, high %d, medium %d, low %d found%s)%s%s',
       $which === '' ? '' : ' (' . $which . ')',
       self::str($seeker['status'] ?? NULL),
       self::int($seeker['critical'] ?? 0),
+      self::int($seeker['high'] ?? 0),
       self::int($seeker['medium'] ?? 0),
       self::int($seeker['low'] ?? 0),
       $open,
@@ -229,14 +230,17 @@ final class RunReport {
         if (!is_array($inspection)) {
           continue;
         }
-        $found = self::int($inspection['critical'] ?? 0) + self::int($inspection['medium'] ?? 0) + self::int($inspection['low'] ?? 0);
+        // HIGH is counted and printed (F-362): left out, three HIGH findings
+        // read as none, and an inspection of HIGHs alone as "no findings".
+        $found = self::int($inspection['critical'] ?? 0) + self::int($inspection['high'] ?? 0) + self::int($inspection['medium'] ?? 0) + self::int($inspection['low'] ?? 0);
         $lines[] = sprintf(
           '      %d. %s — %s%s',
           $i,
           self::str($inspection['status'] ?? NULL),
           $found === 0 ? 'no findings' : sprintf(
-            'critical %d, medium %d, low %d',
+            'critical %d, high %d, medium %d, low %d',
             self::int($inspection['critical'] ?? 0),
+            self::int($inspection['high'] ?? 0),
             self::int($inspection['medium'] ?? 0),
             self::int($inspection['low'] ?? 0),
           ),

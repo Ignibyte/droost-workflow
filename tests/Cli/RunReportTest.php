@@ -116,8 +116,33 @@ final class RunReportTest extends TestCase {
       ],
     ], ['active' => FALSE]));
 
-    $this->assertStringContainsString('seeker (latest inspection, at code): clean (critical 0, medium 1, low 0 found, 0 still open)', $lines);
+    $this->assertStringContainsString('seeker (latest inspection, at code): clean (critical 0, high 0, medium 1, low 0 found, 0 still open)', $lines);
     $this->assertStringContainsString('across 2 inspection(s)', $lines);
+  }
+
+  /**
+   * HIGH findings are counted, in the line and in the trail (F-362).
+   *
+   * WB-A run 3's seeker found three HIGH, and the report read "critical 0,
+   * medium 1, low 3": an inspection of HIGHs alone read as "no findings".
+   */
+  public function testHighFindingsAreCounted(): void {
+    $clean = ['status' => 'clean', 'open' => 0, 'critical' => 0, 'high' => 3, 'medium' => 1, 'low' => 3];
+    $lines = implode("\n", RunReport::lines([
+      'run' => [
+        'run_id' => 'run-x',
+        'phases' => ['plan' => 'passed', 'code' => 'passed'],
+        'seeker' => $clean,
+        'seeker_history' => [
+          ['status' => 'findings', 'open' => 2, 'critical' => 0, 'high' => 2, 'medium' => 0, 'low' => 0],
+          $clean,
+        ],
+      ],
+    ], ['active' => FALSE]));
+
+    $this->assertStringContainsString('(critical 0, high 3, medium 1, low 3 found, 0 still open)', $lines);
+    $this->assertStringContainsString('1. findings — critical 0, high 2, medium 0, low 0', $lines);
+    $this->assertStringNotContainsString('no findings', $lines);
   }
 
 }
