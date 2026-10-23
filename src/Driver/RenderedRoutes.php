@@ -45,16 +45,29 @@ final class RenderedRoutes {
   public const ABSENT = [404, 410];
 
   /**
+   * The status of a route that takes another method.
+   *
+   * A POST-only endpoint (an API route a form or a client posts to) answers
+   * an anonymous GET with 405 Method Not Allowed. Nothing else described it,
+   * so such a route could not be declared at all (F-364).
+   */
+  public const OTHER_METHOD = [405];
+
+  /**
    * Whether a route may be declared to answer with a status.
    *
    * @param int $status
    *   The status.
    *
    * @return bool
-   *   TRUE for 200, one of REFUSALS, REDIRECTS or ABSENT.
+   *   TRUE for 200, one of REFUSALS, REDIRECTS, ABSENT or OTHER_METHOD.
    */
   public static function declarable(int $status): bool {
-    return $status === 200 || in_array($status, [...self::REFUSALS, ...self::REDIRECTS, ...self::ABSENT], TRUE);
+    return $status === 200 || in_array(
+      $status,
+      [...self::REFUSALS, ...self::REDIRECTS, ...self::ABSENT, ...self::OTHER_METHOD],
+      TRUE,
+    );
   }
 
   /**

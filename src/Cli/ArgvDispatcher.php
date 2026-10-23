@@ -956,6 +956,7 @@ final class ArgvDispatcher {
         $status === 200 => '',
         in_array($status, RenderedRoutes::REDIRECTS, TRUE) => sprintf(' (must redirect an anonymous visitor with %d)', $status),
         in_array($status, RenderedRoutes::ABSENT, TRUE) => sprintf(' (must not be served to an anonymous visitor yet: %d)', $status),
+        in_array($status, RenderedRoutes::OTHER_METHOD, TRUE) => sprintf(' (takes another method: an anonymous GET gets %d)', $status),
         default => sprintf(' (must refuse an anonymous visitor with %d)', $status),
       },
       $page['kind'] === NULL ? '' : sprintf(' — a %s, built as %s%s', $page['kind'], $page['owner'], $page['except'] === NULL ? '' : ' (an exception: ' . $page['except'] . ')'),
@@ -2257,7 +2258,8 @@ final class ArgvDispatcher {
                        that sends them elsewhere its redirect
                        (`--status=303`), one held back until an editor
                        publishes it `--status=404` (`410` once it is gone
-                       for good); declaring a path again replaces it,
+                       for good), and a POST-only route the 405 an anonymous
+                       GET gets (`--status=405`); declaring a path again replaces it,
                        whatever its status. A page also takes `--kind=` and
                        `--owner=` (what it is, what builds it), and
                        `--except=` where it breaks the owner's rules.

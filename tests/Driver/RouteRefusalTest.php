@@ -77,6 +77,32 @@ final class RouteRefusalTest extends WorkflowTestCase {
   }
 
   /**
+   * A POST-only route is declared as the 405 an anonymous GET gets (F-364).
+   *
+   * A subject's run touched three POST-only API routes. Each answers an
+   * anonymous GET with 405 Method Not Allowed, which no declarable status
+   * described, so the routes were left out of the record.
+   */
+  public function testRouteForAnotherMethodIsDeclaredAs405(): void {
+    $this->assertTrue(RenderedRoutes::declarable(405));
+    $this->assertSame('/api/cpat/registration@405', RenderedRoutes::withStatus('/api/cpat/registration', 405));
+
+    $root = $this->makeRoot();
+    RunWithSpec::open($root, "- /api/cpat/registration (405) — POST only\n");
+    $routes = SpecContract::routes($root, 'droost/droost-workflow/spec-routes.md');
+    $this->assertNotNull($routes);
+    $this->assertSame(['/api/cpat/registration@405'], $routes['routes']);
+
+    [$code, $out] = $this->cli($root, ['declare-route', '/api/cpat/revalidate', '--status=405', 'POST only']);
+    $this->assertSame(0, $code);
+    $this->assertStringContainsString('takes another method: an anonymous GET gets 405', $out);
+
+    [, , $err] = $this->cli($root, ['declare-route', '/api/x', '--status=500']);
+    $this->assertStringContainsString('to take another method (405', $err);
+    RunWithSpec::close($root);
+  }
+
+  /**
    * The open run's id.
    *
    * @param string $root
