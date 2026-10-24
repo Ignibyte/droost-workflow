@@ -79,7 +79,11 @@ final class PackMaterializer {
     // where the refusal happened on the sixth file is worse than one that
     // refused up front, because the agent would find some skills present and
     // conclude the install worked.
-    foreach (PackManifest::ownedDirectories() as $relative) {
+    // The skills droost's site modules ship join the pack's, read from the
+    // module the site has (B3, 2026-10-24).
+    $moduleSkills = PackManifest::moduleSkills($root);
+    $owned = [...PackManifest::ownedDirectories(), ...array_map('dirname', array_keys($moduleSkills))];
+    foreach ($owned as $relative) {
       $this->assertOursOrAbsent($root . '/' . $relative, $relative);
     }
 
@@ -91,10 +95,20 @@ final class PackMaterializer {
     $lock = $this->readLock($root);
     $newLock = [];
     $binary = $this->binaryFor($root);
+    $sources = [];
     foreach (PackManifest::FILES as $source => $destination) {
+      $sources[$destination] = $this->readSource($source);
+    }
+    foreach ($moduleSkills as $destination => $file) {
+      $contents = @file_get_contents($file);
+      if ($contents === FALSE) {
+        throw PackError::sourceMissing($file);
+      }
+      $sources[$destination] = $contents;
+    }
+    foreach ($sources as $destination => $shipped) {
       // Rendered with the binary's real path (F-166), and locked as rendered,
       // so drift is judged against what this init wrote.
-      $shipped = $this->readSource($source);
       $lastShipped = is_string($lock[$destination] ?? NULL)
         ? $lock[$destination]
         : NULL;
@@ -122,8 +136,29 @@ final class PackMaterializer {
         : $report->withWritten($destination);
       $newLock[$destination] = hash('sha256', $shipped);
     }
+    // A module skill an earlier init wrote and no module ships now goes, as
+    // the pack's own files would; one edited since is the user's and stays.
+    foreach ($lock as $destination => $lastShipped) {
+      if (isset($newLock[$destination]) || !PackManifest::isModuleSkillPath($destination)) {
+        continue;
+      }
+      $to = $root . '/' . $destination;
+      if (!is_file($to)) {
+        continue;
+      }
+      $sentinel = dirname($to) . '/' . PackManifest::SENTINEL;
+      if (!is_file($sentinel) || !hash_equals($lastShipped, (string) hash_file('sha256', $to))) {
+        $report = $report->withKept($destination);
+        $newLock[$destination] = $lastShipped;
+        continue;
+      }
+      @unlink($to);
+      @unlink($sentinel);
+      @rmdir(dirname($to));
+      $report = $report->withRemoved($destination);
+    }
     $this->writeLock($root, $newLock);
-    foreach (PackManifest::ownedDirectories() as $relative) {
+    foreach ($owned as $relative) {
       $this->plantSentinel($root . '/' . $relative, $relative);
     }
 

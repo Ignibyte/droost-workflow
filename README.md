@@ -502,9 +502,12 @@ seekers: { holds: high, at_complete: true }
 A rule a machine can check is judged by the `house_rules` gate, through one
 of two things:
 
-- a `check` droost knows, read over what the run added: `sdc_markup` fails a
+- a `check` droost knows: `sdc_markup`, read over what the run added, fails a
   Twig template outside a single-directory component's directory and a
-  Canvas code component;
+  Canvas code component; `site_tools`, read over what the guard saw the run
+  do, fails each raw `drush php:eval`, `php:script` or SQL call, since the
+  droost module's tools (`drush droost:tool`) are recorded and held to the
+  run and raw PHP and SQL are neither;
 - a `cmd` of the site's own: phpstan, a phpcs sniff, semgrep, ast-grep, a
   grep. It runs at the project root with the files the run changed as its
   arguments (`cmd "$@"`), narrowed by `files` (a glob or a list), so it reads
@@ -989,6 +992,14 @@ AGENTS.md                    # droost's blocks, created when absent
 CLAUDE.md                    # Claude Code's pointer to AGENTS.md
 droost/droost.yml            # only if you don't already have one
 ```
+
+**The droost module's skills join it.** On a Drupal site with the droost
+module on disk, `init` also installs each skill the module and its
+submodules ship (`skills/<name>/SKILL.md`): `droost-tools`, which says which
+of the site's tools (`drush droost:tool`) does what and how a run holds
+them. Only a module named `droost` or `droost_*` is read, a name the pack
+ships stays the pack's, and a skill whose module is gone is removed at the
+next `init` unless you edited it.
 
 The workflow forces the consult; the knowledge skills say how. Each phase
 skill states its entry gate, the work, its exit gate, and **what it can and

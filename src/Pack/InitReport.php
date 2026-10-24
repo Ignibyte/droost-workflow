@@ -32,12 +32,16 @@ final class InitReport {
    *   between runs for reasons an operator could not see. A reviewer read that
    *   as "init never refreshes anything" — which is not true, and is what a
    *   meaningless count invites somebody to conclude.
+   * @param list<string> $removed
+   *   Skills a droost module shipped at an earlier init and no longer does
+   *   (the module gone, or the skill dropped), removed as unedited.
    */
   public function __construct(
     public readonly array $written = [],
     public readonly array $kept = [],
     public readonly array $drifted = [],
     public readonly array $current = [],
+    public readonly array $removed = [],
   ) {}
 
   /**
@@ -55,6 +59,7 @@ final class InitReport {
       $this->kept,
       $this->drifted,
       [...$this->current, $path],
+      $this->removed,
     );
   }
 
@@ -68,7 +73,7 @@ final class InitReport {
    *   A new report.
    */
   public function withWritten(string $path): self {
-    return new self([...$this->written, $path], $this->kept, $this->drifted, $this->current);
+    return new self([...$this->written, $path], $this->kept, $this->drifted, $this->current, $this->removed);
   }
 
   /**
@@ -81,7 +86,7 @@ final class InitReport {
    *   A new report.
    */
   public function withDrifted(string $path): self {
-    return new self($this->written, $this->kept, [...$this->drifted, $path], $this->current);
+    return new self($this->written, $this->kept, [...$this->drifted, $path], $this->current, $this->removed);
   }
 
   /**
@@ -94,7 +99,20 @@ final class InitReport {
    *   A new report.
    */
   public function withKept(string $path): self {
-    return new self($this->written, [...$this->kept, $path], $this->drifted, $this->current);
+    return new self($this->written, [...$this->kept, $path], $this->drifted, $this->current, $this->removed);
+  }
+
+  /**
+   * This report with a removed module skill added.
+   *
+   * @param string $path
+   *   The skill's path.
+   *
+   * @return self
+   *   A new report.
+   */
+  public function withRemoved(string $path): self {
+    return new self($this->written, $this->kept, $this->drifted, $this->current, [...$this->removed, $path]);
   }
 
   /**
@@ -118,6 +136,9 @@ final class InitReport {
     }
     if ($this->current !== []) {
       $lines[] = sprintf('%d file(s) already current', count($this->current));
+    }
+    if ($this->removed !== []) {
+      $lines[] = sprintf('removed %d skill(s) no droost module ships now: %s', count($this->removed), implode(', ', $this->removed));
     }
     if ($lines === []) {
       $lines[] = 'nothing to do — the pack is current';

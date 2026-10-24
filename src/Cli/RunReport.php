@@ -27,11 +27,14 @@ final class RunReport {
    *   The facade's status (`run` is the run record, or NULL).
    * @param array<string, mixed> $bypass
    *   The facade's bypassState().
+   * @param array{tools?: array<string, array{calls: int, failed: int}>, raw?: array<int, string>} $site
+   *   What the run did to the site from the shell (SiteCalls): the droost
+   *   module's tool calls by tool, and the raw drush php and SQL calls.
    *
    * @return list<string>
    *   The lines, in order.
    */
-  public static function lines(array $status, array $bypass): array {
+  public static function lines(array $status, array $bypass, array $site = []): array {
     $run = is_array($status['run'] ?? NULL) ? $status['run'] : NULL;
     if ($run === NULL || ($run['run_id'] ?? NULL) === NULL) {
       return ['No run recorded: no run.json in droost/droost-workflow/. Start one with /droost:workflow:start.'];
@@ -97,10 +100,53 @@ final class RunReport {
         $released > 0 ? sprintf(' · %d released unanswered (a later step went on before anyone answered)', $released) : '',
       );
     }
+    array_push($lines, ...self::siteLines($site['tools'] ?? [], $site['raw'] ?? []));
     if (($bypass['active'] ?? FALSE) === TRUE) {
       $lines[] = '  • require_run bypass: ACTIVE — ' . self::str($bypass['reason'] ?? NULL, '');
     }
 
+    return $lines;
+  }
+
+  /**
+   * The run's site tool calls and raw calls, when it made any.
+   *
+   * A tool call is recorded and held to the run; a raw `drush php:eval` or
+   * SQL call is neither, so the report names each verb and how often.
+   *
+   * @param array<string, array{calls: int, failed: int}> $tools
+   *   Tool id => its calls.
+   * @param array<int, string> $raw
+   *   Each raw call's drush verb.
+   *
+   * @return list<string>
+   *   No line, one or two.
+   */
+  private static function siteLines(array $tools, array $raw): array {
+    $lines = [];
+    if ($tools !== []) {
+      $total = array_sum(array_column($tools, 'calls'));
+      $failed = array_sum(array_column($tools, 'failed'));
+      $each = [];
+      foreach ($tools as $tool => $tally) {
+        $each[] = sprintf('%s %d', $tool, $tally['calls']);
+      }
+      $lines[] = sprintf(
+        '  site tools: %d call(s)%s — %s',
+        $total,
+        $failed > 0 ? sprintf(', %d failed or refused', $failed) : '',
+        implode(', ', $each),
+      );
+    }
+    if ($raw !== []) {
+      $verbs = array_count_values($raw);
+      ksort($verbs);
+      $each = [];
+      foreach ($verbs as $verb => $count) {
+        $each[] = sprintf('drush %s ×%d', $verb, $count);
+      }
+      $lines[] = sprintf('  raw site calls: %d — %s (no tool recorded what they changed)', count($raw), implode(', ', $each));
+    }
     return $lines;
   }
 

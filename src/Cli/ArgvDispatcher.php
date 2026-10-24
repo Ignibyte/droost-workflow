@@ -22,6 +22,7 @@ use Droost\Workflow\Intake\IntakeError;
 use Droost\Workflow\Intake\IntakeFinding;
 use Droost\Workflow\Intake\IntakeService;
 use Droost\Workflow\Intake\IntakeStore;
+use Droost\Workflow\Knowledge\SiteCalls;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Pack\PackError;
@@ -580,7 +581,13 @@ final class ArgvDispatcher {
    */
   private function report(string $projectRoot): int {
     $facade = $this->facade($projectRoot);
-    foreach (RunReport::lines($facade->status($projectRoot), $facade->bypassState($projectRoot)) as $line) {
+    $status = $facade->status($projectRoot);
+    $runId = is_array($status['run'] ?? NULL) && is_string($status['run']['run_id'] ?? NULL) ? $status['run']['run_id'] : NULL;
+    $site = $runId === NULL ? [] : [
+      'tools' => SiteCalls::tools($projectRoot, $runId),
+      'raw' => SiteCalls::raw($projectRoot, $runId)[1],
+    ];
+    foreach (RunReport::lines($status, $facade->bypassState($projectRoot), $site) as $line) {
       $this->say($line);
     }
     return self::EXIT_OK;

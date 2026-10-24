@@ -145,4 +145,31 @@ final class RunReportTest extends TestCase {
     $this->assertStringNotContainsString('no findings', $lines);
   }
 
+  /**
+   * The run's site tool calls are counted and each raw call's verb named.
+   */
+  public function testSiteToolsAndRawCalls(): void {
+    $run = ['run' => ['run_id' => 'run-x', 'phases' => ['code' => 'active']]];
+    $lines = implode("\n", RunReport::lines($run, ['active' => FALSE], [
+      'tools' => [
+        'droost_config_set' => ['calls' => 1, 'failed' => 1],
+        'droost_entity_create' => ['calls' => 3, 'failed' => 0],
+      ],
+      'raw' => [2 => 'php:eval', 5 => 'sql:query', 7 => 'php:eval'],
+    ]));
+
+    $this->assertStringContainsString('site tools: 4 call(s), 1 failed or refused — droost_config_set 1, droost_entity_create 3', $lines);
+    $this->assertStringContainsString('raw site calls: 3 — drush php:eval ×2, drush sql:query ×1', $lines);
+  }
+
+  /**
+   * A run that touched the site through neither prints neither line.
+   */
+  public function testNoSiteCallsNoLines(): void {
+    $run = ['run' => ['run_id' => 'run-x', 'phases' => []]];
+    $lines = implode("\n", RunReport::lines($run, ['active' => FALSE], ['tools' => [], 'raw' => []]));
+    $this->assertStringNotContainsString('site tools', $lines);
+    $this->assertStringNotContainsString('raw site calls', $lines);
+  }
+
 }

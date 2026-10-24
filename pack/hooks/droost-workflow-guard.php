@@ -338,6 +338,11 @@ $recordCall = static function () use ($root, $stateDir): void {
     'rule' => $GLOBALS['workflow_guard_rule'] ?? NULL,
     'at' => date('c'),
   ];
+  // A raw drush php or SQL call, for the site_tools house rule (F-366).
+  $raw = $GLOBALS['workflow_guard_raw_site'] ?? NULL;
+  if (is_string($raw) && $raw !== '') {
+    $row['raw_site'] = $raw;
+  }
   // WHICH SUBAGENT RETURNED, on a `dispatched` row: seeker-report files a
   // ledger only after a `workflow-seeker` has.
   $agent = $GLOBALS['workflow_guard_agent'] ?? NULL;
@@ -758,6 +763,7 @@ if ($mode === 'operator-commands') {
   // run holds them as it holds an edit.
   if (is_string($shellCommand) && $shellCommand !== '') {
     site_tool_guard(operator_commands_scan_text($shellCommand), $root, $stateDir, $shellDocument);
+    $GLOBALS['workflow_guard_raw_site'] = site_raw_call(operator_commands_scan_text($shellCommand));
   }
   // Allowed: when it runs a code generator, note what was already untracked,
   // so the call's return can record what the generator wrote.
@@ -3771,6 +3777,47 @@ function site_tool_named(array $tokens): ?string {
     }
     $id = $rest[1] ?? '';
     return preg_match('/^[a-z0-9_:]+$/', $id) === 1 ? $id : NULL;
+  }
+  return NULL;
+}
+
+/**
+ * The raw drush php or SQL verb a command runs, or NULL.
+ *
+ * What the site_tools house rule counts: PHP evaluated in the site, a PHP
+ * script run in it, or SQL run against its database, which no run records
+ * and the guard cannot hold (F-366).
+ *
+ * @param string $command
+ *   The command, scanned.
+ *
+ * @return string|null
+ *   The verb, in its canonical spelling, or NULL.
+ */
+function site_raw_call(string $command): ?string {
+  $aliases = [
+    'php:eval' => ['php:eval', 'php-eval', 'ev'],
+    'php:script' => ['php:script', 'php-script', 'scr'],
+    'sql:query' => ['sql:query', 'sql-query', 'sqlq'],
+    'sql:cli' => ['sql:cli', 'sql-cli', 'sqlc'],
+  ];
+  $canonical = [];
+  foreach ($aliases as $verb => $spellings) {
+    $canonical += array_fill_keys($spellings, $verb);
+  }
+  foreach (operator_commands_invocations($command) as $tokens) {
+    $words = array_values(array_map(static fn (string $token): string => ltrim($token, "\x01"), operator_commands_unwrapped($tokens)));
+    foreach ($words as $i => $word) {
+      if (basename($word) !== 'drush') {
+        continue;
+      }
+      $rest = array_values(array_filter(array_slice($words, $i + 1), static fn (string $w): bool => !str_starts_with($w, '-')));
+      $verb = $canonical[$rest[0] ?? ''] ?? NULL;
+      if ($verb !== NULL) {
+        return $verb;
+      }
+      break;
+    }
   }
   return NULL;
 }

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Droost\Workflow\Pack;
 
 use Droost\Workflow\Config\ConfigLocator;
+use Droost\Workflow\Knowledge\CitationResolver;
+use Droost\Workflow\Knowledge\FilesystemModuleLocator;
 
 /**
  * The sole enumerator of what the pack contains.
@@ -182,6 +184,59 @@ final class PackManifest {
       }
     }
     return $dirs;
+  }
+
+  /**
+   * The skills droost's site modules ship, found where the site keeps them.
+   *
+   * The droost module and its submodules carry their own skills, each in
+   * `skills/<name>/SKILL.md` (the module's `droost-tools`, its Canvas
+   * submodule's `canvas-build`), so a skill says what the installed
+   * module's tools do rather than what this package last knew of them.
+   * Only a module named `droost` or `droost_*` is read: a skill is an
+   * instruction to the agent, and init takes instructions from droost's own
+   * code alone. A name the pack ships stays the pack's.
+   *
+   * @param string $root
+   *   The project root.
+   *
+   * @return array<string, string>
+   *   Destination under the project => the skill file, absolute, by
+   *   destination.
+   */
+  public static function moduleSkills(string $root): array {
+    $docroot = CitationResolver::docroot($root);
+    $skills = [];
+    foreach ((new FilesystemModuleLocator($docroot))->modules() as $name => $module) {
+      if ($name !== 'droost' && !str_starts_with($name, 'droost_')) {
+        continue;
+      }
+      foreach (glob($docroot . '/' . $module['path'] . '/skills/*/SKILL.md') ?: [] as $file) {
+        $skill = basename(dirname($file));
+        $destination = '.claude/skills/' . $skill . '/SKILL.md';
+        if (preg_match('/^[a-z0-9][a-z0-9-]*$/', $skill) !== 1 || in_array($destination, self::FILES, TRUE)) {
+          continue;
+        }
+        $skills[$destination] ??= $file;
+      }
+    }
+    ksort($skills);
+    return $skills;
+  }
+
+  /**
+   * Whether a path is where a module's skill would be installed.
+   *
+   * @param string $destination
+   *   A path under the project.
+   *
+   * @return bool
+   *   TRUE for `.claude/skills/<name>/SKILL.md` that the pack itself does not
+   *   ship.
+   */
+  public static function isModuleSkillPath(string $destination): bool {
+    return preg_match('#^\.claude/skills/[a-z0-9][a-z0-9-]*/SKILL\.md$#', $destination) === 1
+      && !in_array($destination, self::FILES, TRUE);
   }
 
 }

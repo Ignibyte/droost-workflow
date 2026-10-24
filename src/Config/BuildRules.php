@@ -92,7 +92,7 @@ final class BuildRules {
    * component (a Twig template, a theme hook's template) and no Canvas code
    * component.
    */
-  public const HOUSE_CHECKS = ['sdc_markup'];
+  public const HOUSE_CHECKS = ['sdc_markup', 'site_tools'];
 
   /**
    * The mode a rule takes when nothing names one.

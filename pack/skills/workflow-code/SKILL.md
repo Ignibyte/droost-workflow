@@ -188,7 +188,9 @@ them: the page rules (which owners each kind of page may have on this site)
 and `rules.house`, each with an id and its judge.
 
 - A rule judged by **`gate`** is checked mechanically: `sdc_markup` for new
-  markup outside an SDC component's directory, or the site's own `cmd`. In
+  markup outside an SDC component's directory, `site_tools` for a raw
+  `drush php:eval`, `php:script` or SQL call where a droost tool
+  (`drush droost:tool`) does the job, or the site's own `cmd`. In
   `block` mode a break fails the gate; in `report` mode it is recorded.
 - A rule judged by **`seeker`** is read against your diff by the seeker
   (its lens 8). A break is HIGH, and on a site that holds on HIGH it holds

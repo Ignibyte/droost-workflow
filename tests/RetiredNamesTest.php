@@ -13,10 +13,13 @@ use PHPUnit\Framework\TestCase;
  * module-contributed gates, no in-process site gates, the lever file in
  * `droost/droost.yml`. Text is served to agents and people as authoritative,
  * and a retired name in it is an instruction nobody can follow: an agent
- * told `drush droost:tool` on a project with no droost module learns that
- * the pipeline is broken. This fails on each retired name wherever it would
- * be read as current, and the allowances below are each a place the old
- * name is the point (the legacy fallback, the alias's notice).
+ * told `drush droost status` learns that the pipeline is broken. The droost
+ * module (2.x, 2026-10-23) is the site's toolset, and its one door,
+ * `drush droost:tool`, is current again: the workflow names it where a run
+ * reaches the site (the guard's site-tool rule, the `site_tools` check).
+ * This fails on each retired name wherever it would be read as current, and
+ * the allowances below are each a place the old name is the point (the
+ * legacy fallback, the alias's notice).
  *
  * Read as current: everything in the pack but the guard's source (its
  * patterns must still match the old spellings, so the alias and a stray
@@ -30,8 +33,7 @@ final class RetiredNamesTest extends TestCase {
    * The retired names, each with why it is retired.
    */
   private const array RETIRED = [
-    '/drush droost/' => 'droost has no drush door',
-    '/droost:tool\b/' => 'droost has no drush door',
+    '/drush droost(?!:tool\b)/' => 'the workflow has no drush door; the droost module\'s is droost:tool alone',
     '/mcp:server|droost-mcp|mcp__droost/' => 'droost ships no MCP server',
     '/DroostGate/' => 'module-contributed gates are gone; a project gate is a file',
     '/hook_droost_/' => 'there are no Drupal hooks; a project hook is a file',

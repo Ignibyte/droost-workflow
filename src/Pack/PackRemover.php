@@ -59,7 +59,15 @@ final class PackRemover {
     // the run records and the evidence store) and stays; the lock does not.
     // Leaving it behind means a project with no pack still carries a file
     // describing the pack it used to have.
-    $files = array_values(PackManifest::FILES);
+    // The skills droost's modules gave it: what the lock says init wrote,
+    // since the module may be gone before droost is.
+    $lockPath = $root . '/' . RunStateStore::resolveStateDir($root) . '/pack.lock';
+    $lock = is_file($lockPath) ? json_decode((string) file_get_contents($lockPath), TRUE) : NULL;
+    $moduleSkills = array_values(array_filter(
+      array_keys(is_array($lock) ? $lock : []),
+      static fn (mixed $path): bool => is_string($path) && PackManifest::isModuleSkillPath($path),
+    ));
+    $files = [...array_values(PackManifest::FILES), ...$moduleSkills];
     $files[] = RunStateStore::resolveStateDir($root) . '/pack.lock';
     foreach ($files as $destination) {
       $path = $root . '/' . $destination;
@@ -76,7 +84,7 @@ final class PackRemover {
 
     // Our own directories, sentinel and all. Deepest first, so a parent is
     // considered only once its children are gone.
-    $ours = PackManifest::ownedDirectories();
+    $ours = [...PackManifest::ownedDirectories(), ...array_map('dirname', $moduleSkills)];
     usort($ours, static fn (string $a, string $b): int => substr_count($b, '/') <=> substr_count($a, '/'));
     foreach ($ours as $relative) {
       $absolute = $root . '/' . $relative;

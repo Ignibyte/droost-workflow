@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Gate;
 
+use Droost\Workflow\Knowledge\SiteCalls;
+use Droost\Workflow\Knowledge\ToolCallLog;
+
 /**
  * The site's own rules that a machine can check on the diff.
  *
@@ -93,6 +96,25 @@ final class HouseRulesCheck {
         continue;
       }
       $live++;
+      // THE RUN'S RAW SITE CALLS (F-366): not files but what the guard saw
+      // the run do. Each raw drush php or SQL call is a break.
+      if (($rule['check'] ?? NULL) === 'site_tools') {
+        $runId = ToolCallLog::openRun($projectRoot)['id'];
+        [$count, $calls] = $runId === NULL ? [0, []] : SiteCalls::raw($projectRoot, $runId);
+        $total += $count;
+        $read[] = sprintf('%s read %d guard record(s) of this run', $id, $count);
+        foreach ($calls as $n => $verb) {
+          $findings[] = [
+            'file' => '',
+            'line' => 0,
+            'rule' => $id,
+            'message' => sprintf('%s: the run called drush %s (its call %d). Site state is read and changed through droost\'s tools (drush droost:tool <tool>), which the run records and the guard holds; raw PHP and SQL are neither. drush droost:tool lists them', $id, $verb, $n),
+            'detail' => $mode === 'block' ? 'error' : 'warning',
+          ];
+          $blocking = $blocking || $mode === 'block';
+        }
+        continue;
+      }
       if (isset($rule['cmd'])) {
         $outcome = self::command($rule, $changed ?? $files, $projectRoot, $runner);
         if ($outcome instanceof GateResult) {
