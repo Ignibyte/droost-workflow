@@ -483,6 +483,17 @@ if ($mode === 'record') {
   // The project's walls are asked about every call this registration sees:
   // a tracker's write tools are MCP calls (droost off Drupal, 2026-10-19).
   guard_walls($root, $guardEvent, $harness);
+  // THE MCP DOOR TO DROOST'S OWN TOOLS (PLAN-DROOST-TOOLS B2). MCP Server's
+  // Tool API bridge names a tool `tool_api__<id>`, so a site that offers
+  // droost's tools over a local MCP server hands the agent
+  // `mcp__<server>__tool_api__droost_entity_create`: the same tool as
+  // `drush droost:tool droost_entity_create`, held the same way. Only
+  // droost's ids are read; every other MCP tool is recorded, as before.
+  if (is_string($toolName) && preg_match('/^mcp__.+__tool_api__(droost_[a-z0-9_]+)$/', $toolName, $mcpTool) === 1) {
+    $mcpState = $root . '/' . $stateDir . '/run.json';
+    $mcpDocument = is_file($mcpState) ? json_decode((string) @file_get_contents($mcpState), TRUE) : NULL;
+    site_tool_judge($mcpTool[1], NULL, (string) json_encode($guardInput, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), $root, $stateDir, is_array($mcpDocument) ? $mcpDocument : []);
+  }
   return;
 }
 
@@ -3858,86 +3869,109 @@ function site_raw_verb(array $tokens): ?string {
  */
 function site_tool_guard(string $command, string $root, string $stateDir, array $document): void {
   foreach (operator_commands_invocations($command) as $tokens) {
-    $tool = site_tool_named($tokens);
-    // THE COCKPIT RULE (PLAN-DROOST-TOOLS): no tool, through any door,
-    // reads or writes droost's run state. A site tool or raw drush PHP or
-    // SQL handed a file of the state directory that the guard protects (the
-    // run record, the ledgers, the history, the evidence store) is pointed
-    // at what only droost and the operator touch. A scratch file there, the
-    // shell's hand-off (F-345), stays open, as it does to the shell. A wall
-    // against the obvious route, as every path rule here is: PHP that builds
-    // the path in pieces is not seen.
-    $raw = site_raw_verb($tokens);
-    if ($tool !== NULL || $raw !== NULL) {
-      $said = implode(' ', array_map(static fn (string $token): string => ltrim($token, "\x01"), $tokens));
-      $dirs = array_unique(['droost/droost-workflow', '.droost-workflow', trim($stateDir, '/')]);
-      foreach ($dirs as $dir) {
-        if ($dir === '' || preg_match_all('#' . preg_quote($dir, '#') . '(/[^\s\'"\\\\),;]*)?#', $said, $hits) < 1) {
-          continue;
-        }
-        foreach ($hits[0] as $hit) {
-          $relative = rtrim(trim($stateDir, '/') . substr($hit, strlen($dir)), '/');
-          if ($relative === trim($stateDir, '/') || enforcement_refusal_for($relative, $root, $stateDir) !== '') {
-            guard_refuse('site-tool:run-state', sprintf(
-              'droost workflow: %s is pointed at %s, droost\'s run state. No '
-              . 'tool reads or writes it, through any door: the run record is '
-              . 'droost\'s and the operator\'s. Read the run with droost '
-              . 'workflow:status; if content merely mentions the path, phrase '
-              . 'it another way.',
-              $tool ?? 'drush ' . $raw,
-              $hit,
-            ));
-          }
-        }
+    $said = implode(' ', array_map(static fn (string $token): string => ltrim($token, "\x01"), $tokens));
+    site_tool_judge(site_tool_named($tokens), site_raw_verb($tokens), $said, $root, $stateDir, $document);
+  }
+}
+
+/**
+ * Judges one call of a droost site tool, or of raw drush PHP or SQL.
+ *
+ * Two doors reach the same tools: `drush droost:tool <id>` in the shell, and
+ * MCP Server's Tool API bridge (`mcp__<server>__tool_api__<id>`). Both are
+ * held here, the same way.
+ *
+ * @param string|null $tool
+ *   The tool id, or NULL for a raw drush call.
+ * @param string|null $raw
+ *   The raw drush verb, or NULL.
+ * @param string $said
+ *   Everything the call was handed, as text.
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The state directory, project-relative.
+ * @param array<string, mixed> $document
+ *   The run record, or [] when there is none.
+ */
+function site_tool_judge(?string $tool, ?string $raw, string $said, string $root, string $stateDir, array $document): void {
+  if ($tool === NULL && $raw === NULL) {
+    return;
+  }
+  // THE COCKPIT RULE (PLAN-DROOST-TOOLS): no tool, through any door,
+  // reads or writes droost's run state. A site tool or raw drush PHP or
+  // SQL handed a file of the state directory that the guard protects (the
+  // run record, the ledgers, the history, the evidence store) is pointed
+  // at what only droost and the operator touch. A scratch file there, the
+  // shell's hand-off (F-345), stays open, as it does to the shell. A wall
+  // against the obvious route, as every path rule here is: PHP that builds
+  // the path in pieces is not seen.
+  $dirs = array_unique(['droost/droost-workflow', '.droost-workflow', trim($stateDir, '/')]);
+  foreach ($dirs as $dir) {
+    if ($dir === '' || preg_match_all('#' . preg_quote($dir, '#') . '(/[^\s\'"\\\\),;]*)?#', $said, $hits) < 1) {
+      continue;
+    }
+    foreach ($hits[0] as $hit) {
+      $relative = rtrim(trim($stateDir, '/') . substr($hit, strlen($dir)), '/');
+      if ($relative === trim($stateDir, '/') || enforcement_refusal_for($relative, $root, $stateDir) !== '') {
+        guard_refuse('site-tool:run-state', sprintf(
+          'droost workflow: %s is pointed at %s, droost\'s run state. No '
+          . 'tool reads or writes it, through any door: the run record is '
+          . 'droost\'s and the operator\'s. Read the run with droost '
+          . 'workflow:status; if content merely mentions the path, phrase '
+          . 'it another way.',
+          $tool ?? 'drush ' . $raw,
+          $hit,
+        ));
       }
     }
-    if ($tool === NULL || !in_array($tool, site_tool_write_ids(), TRUE)) {
-      continue;
-    }
-    $phase = is_string($document['current_phase'] ?? NULL) ? $document['current_phase'] : NULL;
-    $phases = is_array($document['phases'] ?? NULL) ? $document['phases'] : [];
-    $status = $phase !== NULL && is_string($phases[$phase] ?? NULL) ? $phases[$phase] : '';
-    $live = $phase !== NULL && $status !== 'failed' && $status !== 'passed';
-    if ($live && $phase === 'plan') {
-      guard_refuse('site-tool:plan', sprintf(
-        'droost:workflow:continue: the active run is still in PLAN, and %s '
-        . 'changes the site. Write the spec under %s/ and advance the run '
-        . '(/droost:workflow:continue) before building. A droost tool that '
-        . 'writes is the same act as an edit; the reading tools stay free.',
-        $tool,
-        $stateDir,
-      ));
-    }
-    if ($live) {
-      continue;
-    }
-    $level = 'hard';
-    $lever = guard_lever_file($root);
-    $levers = $lever !== '' ? (string) @file_get_contents($lever) : '';
-    if (preg_match('/^require_run:\s*["\']?(hard|soft|off)\b["\']?/m', $levers, $m) === 1) {
-      $level = $m[1];
-    }
-    if ($level !== 'hard') {
-      continue;
-    }
-    $grant = is_file($root . '/' . $stateDir . '/bypass.json')
-      ? json_decode((string) @file_get_contents($root . '/' . $stateDir . '/bypass.json'), TRUE)
-      : NULL;
-    if (is_array($grant)
-      && is_string($grant['reason'] ?? NULL) && $grant['reason'] !== ''
-      && is_string($grant['granted_at'] ?? NULL) && $grant['granted_at'] !== '') {
-      continue;
-    }
-    guard_refuse('site-tool:require-run', sprintf(
-      'droost workflow: %s changes the site and there is no active run. '
-      . 'Building is governed by the pipeline. Do ONE of: (1) start a run with '
-      . '/droost:workflow:start, write the spec, then build inside the run; or '
-      . '(2) if this is a deliberate one-off, ask the OPERATOR to grant a '
-      . 'bypass with: droost workflow:bypass "<reason>". Do NOT grant it '
-      . 'yourself.',
+  }
+  if ($tool === NULL || !in_array($tool, site_tool_write_ids(), TRUE)) {
+    return;
+  }
+  $phase = is_string($document['current_phase'] ?? NULL) ? $document['current_phase'] : NULL;
+  $phases = is_array($document['phases'] ?? NULL) ? $document['phases'] : [];
+  $status = $phase !== NULL && is_string($phases[$phase] ?? NULL) ? $phases[$phase] : '';
+  $live = $phase !== NULL && $status !== 'failed' && $status !== 'passed';
+  if ($live && $phase === 'plan') {
+    guard_refuse('site-tool:plan', sprintf(
+      'droost:workflow:continue: the active run is still in PLAN, and %s '
+      . 'changes the site. Write the spec under %s/ and advance the run '
+      . '(/droost:workflow:continue) before building. A droost tool that '
+      . 'writes is the same act as an edit; the reading tools stay free.',
       $tool,
+      $stateDir,
     ));
   }
+  if ($live) {
+    return;
+  }
+  $level = 'hard';
+  $lever = guard_lever_file($root);
+  $levers = $lever !== '' ? (string) @file_get_contents($lever) : '';
+  if (preg_match('/^require_run:\s*["\']?(hard|soft|off)\b["\']?/m', $levers, $m) === 1) {
+    $level = $m[1];
+  }
+  if ($level !== 'hard') {
+    return;
+  }
+  $grant = is_file($root . '/' . $stateDir . '/bypass.json')
+    ? json_decode((string) @file_get_contents($root . '/' . $stateDir . '/bypass.json'), TRUE)
+    : NULL;
+  if (is_array($grant)
+    && is_string($grant['reason'] ?? NULL) && $grant['reason'] !== ''
+    && is_string($grant['granted_at'] ?? NULL) && $grant['granted_at'] !== '') {
+    return;
+  }
+  guard_refuse('site-tool:require-run', sprintf(
+    'droost workflow: %s changes the site and there is no active run. '
+    . 'Building is governed by the pipeline. Do ONE of: (1) start a run with '
+    . '/droost:workflow:start, write the spec, then build inside the run; or '
+    . '(2) if this is a deliberate one-off, ask the OPERATOR to grant a '
+    . 'bypass with: droost workflow:bypass "<reason>". Do NOT grant it '
+    . 'yourself.',
+    $tool,
+  ));
 }
 
 /**

@@ -277,9 +277,11 @@ final class PackMaterializer {
       //
       // Widening a refusal matcher to `.*` would put every third-party tool's
       // arguments through the file-path and shell checks. This entry runs
-      // none of droost's own refusals: `record` returns before them. Only a
-      // project's own walls (droost/droost.yml `walls`) can refuse here, and
-      // only the calls their `tools` regex names.
+      // none of droost's file and shell refusals: `record` returns before
+      // them. A project's own walls (droost/droost.yml `walls`) can refuse
+      // here, the calls their `tools` regex names, and so can the run, for
+      // droost's own site tools offered over MCP (`…__tool_api__droost_*`),
+      // held as `drush droost:tool` is.
       ['PreToolUse', [
         'matcher' => 'mcp__.*',
         'hooks' => [['type' => 'command', 'command' => $guard . ' record --harness=claude']],

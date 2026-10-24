@@ -115,6 +115,44 @@ final class GuardSiteToolTest extends WorkflowTestCase {
   }
 
   /**
+   * The MCP door to droost's tools is held as the shell door is.
+   */
+  public function testTheMcpDoorIsHeldToo(): void {
+    $plan = $this->rootWithRun('plan');
+    [$exit, , $stderr] = $this->record($plan, 'mcp__drupal__tool_api__droost_entity_create', ['entity_type' => 'node']);
+    $this->assertSame(2, $exit);
+    $this->assertStringContainsString('still in PLAN', $stderr);
+    [$exit] = $this->record($plan, 'mcp__drupal__tool_api__droost_entities', []);
+    $this->assertSame(0, $exit, 'a reading tool is free in plan');
+    [$exit] = $this->record($plan, 'mcp__playwright__browser_click', ['ref' => 'e1']);
+    $this->assertSame(0, $exit, 'another MCP tool is only recorded');
+
+    $code = $this->rootWithRun('code');
+    [$exit] = $this->record($code, 'mcp__drupal__tool_api__droost_entity_create', ['entity_type' => 'node']);
+    $this->assertSame(0, $exit);
+    [$exit, , $stderr] = $this->record($code, 'mcp__drupal__tool_api__droost_eval', ['code' => 'return file_get_contents("droost/droost-workflow/run.json");']);
+    $this->assertSame(2, $exit);
+    $this->assertStringContainsString('run state', $stderr);
+  }
+
+  /**
+   * Runs the guard's record mode on one MCP call.
+   *
+   * @param string $root
+   *   The project root.
+   * @param string $tool
+   *   The MCP tool name.
+   * @param array<string, mixed> $input
+   *   Its input.
+   *
+   * @return array{0: int, 1: string, 2: string}
+   *   The exit code, stdout and stderr.
+   */
+  private function record(string $root, string $tool, array $input): array {
+    return $this->guard($root, 'record', ['tool_name' => $tool, 'tool_input' => $input]);
+  }
+
+  /**
    * A project root with a run open at a phase, at hard enforcement.
    *
    * @param string $phase
