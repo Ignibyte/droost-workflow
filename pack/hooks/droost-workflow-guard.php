@@ -754,6 +754,11 @@ if ($mode === 'operator-commands') {
       );
     }
   }
+  // Droost's site-write tools change the live site from the shell, so the
+  // run holds them as it holds an edit.
+  if (is_string($shellCommand) && $shellCommand !== '') {
+    site_tool_guard(operator_commands_scan_text($shellCommand), $root, $stateDir, $shellDocument);
+  }
   // Allowed: when it runs a code generator, note what was already untracked,
   // so the call's return can record what the generator wrote.
   guard_scaffold_before($guardEvent['command'], $root, $stateDir);
@@ -3713,6 +3718,129 @@ function shell_phase_guard(
         $stateDir,
       ));
     }
+  }
+}
+
+/**
+ * The droost module's tools that write to the live site.
+ *
+ * Their reading twins (droost_entities, droost_config_get, droost_views_get,
+ * droost_logs and the rest) are free in every phase: looking is what plan is
+ * for. Kept by id because the guard boots no Drupal and cannot ask a tool
+ * what it is.
+ *
+ * @return list<string>
+ *   The tool ids.
+ */
+function site_tool_write_ids(): array {
+  return [
+    'droost_entity_create', 'droost_entity_update', 'droost_entity_delete',
+    'droost_canvas_tree_set',
+    'droost_config_set', 'droost_structure_create',
+    'droost_views_compose', 'droost_views_alter',
+    'droost_db_create', 'droost_db_update', 'droost_db_delete',
+    'droost_eval', 'droost_module_install', 'droost_module_uninstall',
+    'droost_cron_run', 'droost_cache_rebuild', 'droost_generate',
+    'droost_ai_invoke',
+  ];
+}
+
+/**
+ * The tool one invocation runs through drush, or NULL when it runs none.
+ *
+ * `drush droost:tool <id>` (alias `dtool`) is droost's door, and
+ * `drush tool:run <id>` is Tool API's, which reaches the same tools. Any
+ * drush counts: `drush`, `vendor/bin/drush`, `ddev drush`, and the payload
+ * of `ddev exec "…"`, which the tokeniser has already unwrapped.
+ *
+ * @param list<string> $tokens
+ *   One invocation's tokens.
+ *
+ * @return string|null
+ *   The tool id, or NULL.
+ */
+function site_tool_named(array $tokens): ?string {
+  $words = array_values(array_map(static fn (string $token): string => ltrim($token, "\x01"), operator_commands_unwrapped($tokens)));
+  foreach ($words as $i => $word) {
+    if (basename($word) !== 'drush') {
+      continue;
+    }
+    $rest = array_values(array_filter(array_slice($words, $i + 1), static fn (string $w): bool => !str_starts_with($w, '-')));
+    if (!in_array($rest[0] ?? '', ['droost:tool', 'dtool', 'tool:run'], TRUE)) {
+      return NULL;
+    }
+    $id = $rest[1] ?? '';
+    return preg_match('/^[a-z0-9_:]+$/', $id) === 1 ? $id : NULL;
+  }
+  return NULL;
+}
+
+/**
+ * Holds droost's site-write tools to the run, as the edit wall holds files.
+ *
+ * A whole content model can be built through droost's tools without touching
+ * a file, and the edit wall never saw it. So a write tool is refused while the
+ * run is in plan, and refused with no run open under require_run: hard,
+ * unless the operator granted a bypass. In code, test and complete it runs.
+ *
+ * @param string $command
+ *   The command, scanned.
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The state directory, project-relative.
+ * @param array<string, mixed> $document
+ *   The run record, or [] when there is none.
+ */
+function site_tool_guard(string $command, string $root, string $stateDir, array $document): void {
+  foreach (operator_commands_invocations($command) as $tokens) {
+    $tool = site_tool_named($tokens);
+    if ($tool === NULL || !in_array($tool, site_tool_write_ids(), TRUE)) {
+      continue;
+    }
+    $phase = is_string($document['current_phase'] ?? NULL) ? $document['current_phase'] : NULL;
+    $phases = is_array($document['phases'] ?? NULL) ? $document['phases'] : [];
+    $status = $phase !== NULL && is_string($phases[$phase] ?? NULL) ? $phases[$phase] : '';
+    $live = $phase !== NULL && $status !== 'failed' && $status !== 'passed';
+    if ($live && $phase === 'plan') {
+      guard_refuse('site-tool:plan', sprintf(
+        'droost:workflow:continue: the active run is still in PLAN, and %s '
+        . 'changes the site. Write the spec under %s/ and advance the run '
+        . '(/droost:workflow:continue) before building. A droost tool that '
+        . 'writes is the same act as an edit; the reading tools stay free.',
+        $tool,
+        $stateDir,
+      ));
+    }
+    if ($live) {
+      continue;
+    }
+    $level = 'hard';
+    $lever = guard_lever_file($root);
+    $levers = $lever !== '' ? (string) @file_get_contents($lever) : '';
+    if (preg_match('/^require_run:\s*["\']?(hard|soft|off)\b["\']?/m', $levers, $m) === 1) {
+      $level = $m[1];
+    }
+    if ($level !== 'hard') {
+      continue;
+    }
+    $grant = is_file($root . '/' . $stateDir . '/bypass.json')
+      ? json_decode((string) @file_get_contents($root . '/' . $stateDir . '/bypass.json'), TRUE)
+      : NULL;
+    if (is_array($grant)
+      && is_string($grant['reason'] ?? NULL) && $grant['reason'] !== ''
+      && is_string($grant['granted_at'] ?? NULL) && $grant['granted_at'] !== '') {
+      continue;
+    }
+    guard_refuse('site-tool:require-run', sprintf(
+      'droost workflow: %s changes the site and there is no active run. '
+      . 'Building is governed by the pipeline. Do ONE of: (1) start a run with '
+      . '/droost:workflow:start, write the spec, then build inside the run; or '
+      . '(2) if this is a deliberate one-off, ask the OPERATOR to grant a '
+      . 'bypass with: droost workflow:bypass "<reason>". Do NOT grant it '
+      . 'yourself.',
+      $tool,
+    ));
   }
 }
 
