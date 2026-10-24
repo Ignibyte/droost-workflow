@@ -628,9 +628,11 @@ final class WorkflowFacade {
       $under = is_string($under) && trim($under, '/') !== '' ? trim($under, '/') . '/' : '';
       $binary = $under . ShellGateExecutor::binaryPathFor($name);
       $present = is_file($root . '/' . $binary);
-      if ($name === 'parity' && !$present) {
-        // The runner ships in droost's own package (F-344).
-        $binary = ShellGateExecutor::parityBinary($root);
+      if (!$present && ($name === 'parity' || $name === 'wiki_fresh')) {
+        // The runner ships in droost's own package (F-344), and so does the
+        // droost that wiki_fresh asks: an adopter's droost lives in
+        // tools/droost/, with no vendor/bin/droost in the project.
+        $binary = $name === 'parity' ? ShellGateExecutor::parityBinary($root) : ShellGateExecutor::droostBinary($root);
         $present = is_file($binary);
       }
       $row = [

@@ -836,7 +836,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    * @return string
    *   The absolute path.
    */
-  private static function droostBinary(string $root): string {
+  public static function droostBinary(string $root): string {
     $project = $root . '/vendor/bin/droost';
 
     return is_file($project) ? $project : dirname(__DIR__, 2) . '/bin/droost';

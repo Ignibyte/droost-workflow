@@ -204,4 +204,33 @@ class GateComposerRootTest extends WorkflowTestCase {
     $this->assertSame('Drupal', WorkflowConfig::load($root)->gate('phpcs')->option('standard'), 'the site\'s coder counts');
   }
 
+  /**
+   * Status finds the droost wiki_fresh runs where the gate finds it.
+   *
+   * An adopter's droost lives in tools/droost/, so the project has no
+   * vendor/bin/droost; the gate runs this package's own, and status read
+   * the gate's tool as absent.
+   */
+  public function testStatusFindsTheDroostWikiFreshRuns(): void {
+    $root = $this->makeRoot();
+    file_put_contents(Levers::path($root), "preset: low\ngates:\n  wiki_fresh:\n    on: true\n");
+    $facade = new WorkflowFacade(
+      new ShellGateExecutor(static fn (): array => [0, '', ''], static fn (): int => 0),
+      new RunStateOnlySink(),
+      static fn (): string => '2026-10-24T00:00:00+00:00',
+      static fn (): string => 'r',
+    );
+
+    $toolchain = $facade->status($root)['toolchain'] ?? NULL;
+    $this->assertIsArray($toolchain);
+    $row = $toolchain['wiki_fresh'] ?? NULL;
+    $this->assertIsArray($row);
+    $binary = $row['binary'] ?? NULL;
+    $this->assertIsString($binary);
+
+    $this->assertFalse(is_file($root . '/vendor/bin/droost'), 'no droost in the project');
+    $this->assertSame(realpath(dirname(__DIR__, 2) . '/bin/droost'), realpath($binary));
+    $this->assertTrue($row['present'] ?? FALSE);
+  }
+
 }
