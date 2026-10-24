@@ -3747,7 +3747,7 @@ function site_tool_write_ids(): array {
     'droost_views_compose', 'droost_views_alter',
     'droost_db_create', 'droost_db_update', 'droost_db_delete',
     'droost_eval', 'droost_module_install', 'droost_module_uninstall',
-    'droost_cron_run', 'droost_cache_rebuild', 'droost_generate',
+    'droost_cron_run', 'droost_cache_rebuild', 'droost_generate', 'droost_deploy_hook_reset',
     'droost_ai_invoke',
   ];
 }
@@ -3796,6 +3796,28 @@ function site_tool_named(array $tokens): ?string {
  *   The verb, in its canonical spelling, or NULL.
  */
 function site_raw_call(string $command): ?string {
+  foreach (operator_commands_invocations($command) as $tokens) {
+    $verb = site_raw_verb($tokens);
+    if ($verb !== NULL) {
+      return $verb;
+    }
+  }
+  return NULL;
+}
+
+/**
+ * The raw drush verb one invocation runs, or NULL.
+ *
+ * Judged on the invocation's own tokens: re-scanning a joined command string
+ * mid-scan changed what the rest of the scan saw.
+ *
+ * @param list<string> $tokens
+ *   One invocation's tokens.
+ *
+ * @return string|null
+ *   The verb, canonical, or NULL.
+ */
+function site_raw_verb(array $tokens): ?string {
   $aliases = [
     'php:eval' => ['php:eval', 'php-eval', 'ev'],
     'php:script' => ['php:script', 'php-script', 'scr'],
@@ -3806,19 +3828,13 @@ function site_raw_call(string $command): ?string {
   foreach ($aliases as $verb => $spellings) {
     $canonical += array_fill_keys($spellings, $verb);
   }
-  foreach (operator_commands_invocations($command) as $tokens) {
-    $words = array_values(array_map(static fn (string $token): string => ltrim($token, "\x01"), operator_commands_unwrapped($tokens)));
-    foreach ($words as $i => $word) {
-      if (basename($word) !== 'drush') {
-        continue;
-      }
-      $rest = array_values(array_filter(array_slice($words, $i + 1), static fn (string $w): bool => !str_starts_with($w, '-')));
-      $verb = $canonical[$rest[0] ?? ''] ?? NULL;
-      if ($verb !== NULL) {
-        return $verb;
-      }
-      break;
+  $words = array_values(array_map(static fn (string $token): string => ltrim($token, "\x01"), operator_commands_unwrapped($tokens)));
+  foreach ($words as $i => $word) {
+    if (basename($word) !== 'drush') {
+      continue;
     }
+    $rest = array_values(array_filter(array_slice($words, $i + 1), static fn (string $w): bool => !str_starts_with($w, '-')));
+    return $canonical[$rest[0] ?? ''] ?? NULL;
   }
   return NULL;
 }
@@ -3843,6 +3859,38 @@ function site_raw_call(string $command): ?string {
 function site_tool_guard(string $command, string $root, string $stateDir, array $document): void {
   foreach (operator_commands_invocations($command) as $tokens) {
     $tool = site_tool_named($tokens);
+    // THE COCKPIT RULE (PLAN-DROOST-TOOLS): no tool, through any door,
+    // reads or writes droost's run state. A site tool or raw drush PHP or
+    // SQL handed a file of the state directory that the guard protects (the
+    // run record, the ledgers, the history, the evidence store) is pointed
+    // at what only droost and the operator touch. A scratch file there, the
+    // shell's hand-off (F-345), stays open, as it does to the shell. A wall
+    // against the obvious route, as every path rule here is: PHP that builds
+    // the path in pieces is not seen.
+    $raw = site_raw_verb($tokens);
+    if ($tool !== NULL || $raw !== NULL) {
+      $said = implode(' ', array_map(static fn (string $token): string => ltrim($token, "\x01"), $tokens));
+      $dirs = array_unique(['droost/droost-workflow', '.droost-workflow', trim($stateDir, '/')]);
+      foreach ($dirs as $dir) {
+        if ($dir === '' || preg_match_all('#' . preg_quote($dir, '#') . '(/[^\s\'"\\\\),;]*)?#', $said, $hits) < 1) {
+          continue;
+        }
+        foreach ($hits[0] as $hit) {
+          $relative = rtrim(trim($stateDir, '/') . substr($hit, strlen($dir)), '/');
+          if ($relative === trim($stateDir, '/') || enforcement_refusal_for($relative, $root, $stateDir) !== '') {
+            guard_refuse('site-tool:run-state', sprintf(
+              'droost workflow: %s is pointed at %s, droost\'s run state. No '
+              . 'tool reads or writes it, through any door: the run record is '
+              . 'droost\'s and the operator\'s. Read the run with droost '
+              . 'workflow:status; if content merely mentions the path, phrase '
+              . 'it another way.',
+              $tool ?? 'drush ' . $raw,
+              $hit,
+            ));
+          }
+        }
+      }
+    }
     if ($tool === NULL || !in_array($tool, site_tool_write_ids(), TRUE)) {
       continue;
     }
@@ -4379,6 +4427,11 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       || ($verb === 'git' && in_array($sub, [
         'diff', 'log', 'show', 'status', 'blame', 'grep', 'add', 'commit', 'check-ignore', 'check-attr', 'ls-files',
       ], TRUE))
+      // `git remote` READS when it lists: bare, `-v`, `get-url`, `show`.
+      // A subject's agent asked which remote the droost module's checkout came
+      // from (`git -C …/modules/contrib/droost remote -v`) and was refused
+      // as writing it (F-367's replay). `add`, `set-url`, `remove` write.
+      || ($verb === 'git' && $sub === 'remote' && guard_git_remote_lists($plain))
       // `sed` READS unless it edits in place (F-83). Its program writes only
       // through `w`, and the program is read as code above, so what is left
       // for this tier is `-i`: `sed -n 60,200p droost/droost-workflow/run.json`
@@ -4854,6 +4907,26 @@ function guard_git_subcommand(array $plain): string {
 }
 
 /**
+ * Whether a `git remote` only lists the remotes.
+ *
+ * @param list<string> $plain
+ *   The unwrapped command, `git` first.
+ *
+ * @return bool
+ *   TRUE for `git remote`, `remote -v`, `remote get-url …` and
+ *   `remote show …`.
+ */
+function guard_git_remote_lists(array $plain): bool {
+  $words = array_map(static fn (string $word): string => ltrim($word, "\x01"), $plain);
+  $at = array_search('remote', $words, TRUE);
+  if ($at === FALSE) {
+    return FALSE;
+  }
+  $next = $words[$at + 1] ?? '';
+  return in_array($next, ['', '-v', '--verbose', 'get-url', 'show'], TRUE);
+}
+
+/**
  * Whether an awk command only reads its files.
  *
  * An awk range over an archived spec, `awk '/^## Grounding/,/^## Realized/'
@@ -5177,6 +5250,19 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
       . 'run record are read from. An agent that can rewrite it can make the '
       . 'guard allow anything and any gate pass. The OPERATOR installs and '
       . 'updates it with composer (`composer install -d tools/droost`).';
+  }
+  // THE DROOST MODULE (F-367): the site's tools, their record of each call,
+  // and the checks a Canvas page and a component pass (droost_canvas's tree
+  // validation and component lint, which a project's component_lint gate
+  // calls). Copied into droost/gates/ those checks were frozen with the
+  // rules; in the module they are Composer's, and an agent that can rewrite
+  // them can make a refused tree or component pass.
+  if (preg_match('#(^|/)modules/contrib/droost(/|$)#', $relative) === 1) {
+    return 'That is the droost module: the site tools this run is recorded '
+      . 'through and the checks its Canvas pages and components pass. An agent '
+      . 'that can rewrite it can make a refused tree or a blocked component '
+      . 'pass. The OPERATOR updates it with composer (`composer update '
+      . 'drupal/droost`); a fix it needs goes to droost.';
   }
   if (preg_match('#(^|/)\.claude/settings(\.local)?\.json$#', $relative) === 1) {
     return 'That file wires the enforcement in. Removing an entry from it '

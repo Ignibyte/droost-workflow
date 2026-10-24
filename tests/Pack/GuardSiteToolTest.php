@@ -36,6 +36,7 @@ final class GuardSiteToolTest extends WorkflowTestCase {
       'drush dtool droost_canvas_tree_set',
       "drush droost:tool droost_canvas_variant_tree_set '{\"variant\":\"site\"}'",
       "drush droost:tool droost_canvas_component_toggle '{\"enabled\":false}'",
+      "drush droost:tool droost_deploy_hook_reset '{\"hook\":\"site_deploy_home\"}'",
     ];
     foreach ($commands as $command) {
       [$exit, , $stderr] = $this->bash($root, $command);
@@ -91,6 +92,26 @@ final class GuardSiteToolTest extends WorkflowTestCase {
     ]));
     [$exit] = $this->bash($root, "drush droost:tool droost_entity_update '{}'");
     $this->assertSame(0, $exit);
+  }
+
+  /**
+   * No tool reads or writes the run state, through any door (cockpit rule).
+   */
+  public function testNoToolTouchesTheRunState(): void {
+    $root = $this->rootWithRun('code');
+    $commands = [
+      "drush droost:tool droost_eval '{\"code\":\"return file_get_contents(\\\"droost/droost-workflow/run.json\\\");\"}'",
+      "drush droost:tool droost_entities '{\"note\":\"droost/droost-workflow/\"}'",
+      'drush php:eval "echo file_get_contents(\'droost/droost-workflow/run.json\');"',
+      "ddev drush sqlq \"SELECT LOAD_FILE('/var/www/html/droost/droost-workflow/run.json')\"",
+    ];
+    foreach ($commands as $command) {
+      [$exit, , $stderr] = $this->bash($root, $command);
+      $this->assertSame(2, $exit, $command);
+      $this->assertStringContainsString('run state', $stderr, $command);
+    }
+    [$exit] = $this->bash($root, "drush droost:tool droost_eval '{\"code\":\"return 1;\"}'");
+    $this->assertSame(0, $exit, 'a tool that leaves the run state alone runs');
   }
 
   /**
