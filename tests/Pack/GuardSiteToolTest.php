@@ -37,6 +37,7 @@ final class GuardSiteToolTest extends WorkflowTestCase {
       "drush droost:tool droost_canvas_variant_tree_set '{\"variant\":\"site\"}'",
       "drush droost:tool droost_canvas_component_toggle '{\"enabled\":false}'",
       "drush droost:tool droost_deploy_hook_reset '{\"hook\":\"site_deploy_home\"}'",
+      "drush droost:tool droost_config_import_one '{\"name\":\"system.site\"}'",
     ];
     foreach ($commands as $command) {
       [$exit, , $stderr] = $this->bash($root, $command);

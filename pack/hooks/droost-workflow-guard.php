@@ -3754,7 +3754,7 @@ function site_tool_write_ids(): array {
     'droost_entity_create', 'droost_entity_update', 'droost_entity_delete',
     'droost_canvas_tree_set',
     'droost_canvas_component_toggle', 'droost_canvas_variant_tree_set',
-    'droost_config_set', 'droost_structure_create',
+    'droost_config_set', 'droost_config_import_one', 'droost_structure_create',
     'droost_views_compose', 'droost_views_alter',
     'droost_db_create', 'droost_db_update', 'droost_db_delete',
     'droost_eval', 'droost_module_install', 'droost_module_uninstall',
