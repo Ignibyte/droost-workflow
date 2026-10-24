@@ -38,6 +38,28 @@ final class PackModuleSkillsTest extends WorkflowTestCase {
   }
 
   /**
+   * Codex gets the same skills, where it reads them.
+   *
+   * Codex loads a repository's skills from `.agents/skills/`; installed in
+   * `.claude/` alone, a Codex agent never learned the site's tools were
+   * there.
+   */
+  public function testCodexGetsTheSkillsToo(): void {
+    $root = $this->siteWith(['droost_mcp' => ['droost-mcp' => "# over mcp\n"]]);
+    $materializer = new PackMaterializer();
+
+    $report = $materializer->init($root);
+
+    $this->assertSame("# over mcp\n", file_get_contents($root . '/.agents/skills/droost-mcp/SKILL.md'));
+    $this->assertContains('.agents/skills/droost-mcp/SKILL.md', $report->written);
+    $this->assertFileExists($root . '/.agents/skills/droost-mcp/.droost-workflow-pack');
+
+    $this->removeTree($root . '/web/modules/contrib/droost_mcp');
+    $materializer->init($root);
+    $this->assertDirectoryDoesNotExist($root . '/.agents', 'nothing of the project\'s was there, so nothing is left');
+  }
+
+  /**
    * A skill no module ships any more is removed; an edited one stays.
    */
   public function testModuleGoneTakesItsSkill(): void {
@@ -54,7 +76,12 @@ final class PackModuleSkillsTest extends WorkflowTestCase {
     $report = $materializer->init($root);
 
     $this->assertDirectoryDoesNotExist($root . '/.claude/skills/droost-tools');
-    $this->assertSame(['.claude/skills/droost-tools/SKILL.md'], $report->removed);
+    // Only the Claude copy of canvas-build was edited: Codex's goes.
+    $this->assertSame([
+      '.agents/skills/canvas-build/SKILL.md',
+      '.agents/skills/droost-tools/SKILL.md',
+      '.claude/skills/droost-tools/SKILL.md',
+    ], $report->removed);
     $this->assertSame("# my notes\n", file_get_contents($root . '/.claude/skills/canvas-build/SKILL.md'), 'the edited skill is the user\'s');
   }
 
@@ -80,8 +107,9 @@ final class PackModuleSkillsTest extends WorkflowTestCase {
 
     $this->removeTree($root . '/web/modules/contrib/droost_canvas');
     $report = $materializer->init($root);
-    $this->assertCount(2, $report->removed);
+    $this->assertCount(4, $report->removed, 'the skill and its contract, from both harnesses');
     $this->assertDirectoryDoesNotExist($root . '/.claude/skills/canvas-build');
+    $this->assertDirectoryDoesNotExist($root . '/.agents/skills/canvas-build');
   }
 
   /**
@@ -104,6 +132,7 @@ final class PackModuleSkillsTest extends WorkflowTestCase {
     (new PackRemover())->uninstall($root);
 
     $this->assertDirectoryDoesNotExist($root . '/.claude/skills/droost-tools');
+    $this->assertDirectoryDoesNotExist($root . '/.agents');
   }
 
   /**

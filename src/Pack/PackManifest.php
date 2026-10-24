@@ -192,6 +192,14 @@ final class PackManifest {
   private const string SKILL_FILE = '/^[A-Za-z0-9][A-Za-z0-9._-]*$/';
 
   /**
+   * Where a module's skill is installed: Claude Code's, and Codex's.
+   *
+   * Codex reads skills from `.agents/skills/`; a skill only in `.claude/`
+   * left a Codex agent unaware the site's tools were there.
+   */
+  public const array MODULE_SKILL_DIRS = ['.claude/skills', '.agents/skills'];
+
+  /**
    * The skills droost's site modules ship, found where the site keeps them.
    *
    * The droost module and its submodules carry their own skills, each in
@@ -222,10 +230,13 @@ final class PackManifest {
           continue;
         }
         // The skill and the files it links (canvas-build's tree contract):
-        // its directory's own files, no deeper, none hidden.
+        // its directory's own files, no deeper, none hidden. Into each
+        // harness's skill directory, so Codex reads what Claude Code does.
         foreach (glob(dirname($entry) . '/*') ?: [] as $file) {
           if (is_file($file) && preg_match(self::SKILL_FILE, basename($file)) === 1) {
-            $skills['.claude/skills/' . $skill . '/' . basename($file)] ??= $file;
+            foreach (self::MODULE_SKILL_DIRS as $dir) {
+              $skills[$dir . '/' . $skill . '/' . basename($file)] ??= $file;
+            }
           }
         }
       }
@@ -241,11 +252,11 @@ final class PackManifest {
    *   A path under the project.
    *
    * @return bool
-   *   TRUE for a file of `.claude/skills/<name>/` where the pack itself ships
-   *   no skill of that name.
+   *   TRUE for a file of `.claude/skills/<name>/` or `.agents/skills/<name>/`
+   *   where the pack itself ships no skill of that name.
    */
   public static function isModuleSkillPath(string $destination): bool {
-    return preg_match('#^\.claude/skills/([a-z0-9][a-z0-9-]*)/([^/]+)$#', $destination, $match) === 1
+    return preg_match('#^(?:\.claude|\.agents)/skills/([a-z0-9][a-z0-9-]*)/([^/]+)$#', $destination, $match) === 1
       && preg_match(self::SKILL_FILE, $match[2]) === 1
       && !in_array('.claude/skills/' . $match[1] . '/SKILL.md', self::FILES, TRUE);
   }

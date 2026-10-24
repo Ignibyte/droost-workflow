@@ -166,6 +166,12 @@ final class PackMaterializer {
         @rmdir($dir);
       }
     }
+    // `.agents/skills/` exists for the module skills alone unless the
+    // project had it: it goes when they leave it empty, and stays otherwise.
+    if ($emptied !== []) {
+      @rmdir($root . '/.agents/skills');
+      @rmdir($root . '/.agents');
+    }
     $this->writeLock($root, $newLock);
     foreach ($owned as $relative) {
       $this->plantSentinel($root . '/' . $relative, $relative);

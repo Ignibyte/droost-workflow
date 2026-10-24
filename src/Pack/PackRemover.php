@@ -119,7 +119,7 @@ final class PackRemover {
     // subdirectory, and `.claude` only because something put files in it.
     // Both go when empty and stay the moment they are not — droost's own
     // installer puts commands in the first and skills under the second.
-    foreach (['.claude/commands/droost', '.claude'] as $relative) {
+    foreach (['.claude/commands/droost', '.claude', '.agents/skills', '.agents'] as $relative) {
       $absolute = $root . '/' . $relative;
       if (is_dir($absolute)) {
         self::removeIfEmpty($absolute);

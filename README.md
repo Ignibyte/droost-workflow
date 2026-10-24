@@ -997,7 +997,10 @@ droost/droost.yml            # only if you don't already have one
 module on disk, `init` also installs each skill the module and its
 submodules ship (`skills/<name>/`, the skill and the files it links):
 `droost-tools`, which says which of the site's tools (`drush droost:tool`)
-does what and how a run holds them, and on a Canvas site `canvas-build`. Only a module named `droost` or `droost_*` is read, a name the pack
+does what and how a run holds them, on a Canvas site `canvas-build`, and
+with `droost_mcp` the `droost-mcp` skill for the same tools over MCP. Each
+goes into `.claude/skills/` for Claude Code and `.agents/skills/` for
+Codex. Only a module named `droost` or `droost_*` is read, a name the pack
 ships stays the pack's, and a skill whose module is gone is removed at the
 next `init` unless you edited it.
 
