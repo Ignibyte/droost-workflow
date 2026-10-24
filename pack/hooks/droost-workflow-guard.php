@@ -4025,8 +4025,9 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
   // guard that refuses that is a guard somebody deletes.
   // CODE HEREDOCS ARE CODE (F-78): checked as text for the two things that
   // matter, as `python3 -c` code is below, and left out of the shell parse.
+  $away = is_string($command) ? guard_runs_outside($command, $root) : FALSE;
   foreach (is_string($command) ? operator_commands_code_heredocs($command) : [] as $body) {
-    guard_judge_code($body, $command, $root, $stateDir);
+    guard_judge_code($body, $command, $root, $stateDir, $away && !guard_code_reaches_project($body, $root));
   }
   $command = is_string($command) ? operator_commands_scan_text($command) : '';
   if ($command === '') {
@@ -4795,8 +4796,11 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       . 'OPERATOR\'s adoption record, written by `droost workflow:baseline` from '
       . 'their terminal and never by hand — editing it is the one move that turns '
       . 'the whole discipline into a formality, because it redefines what counts '
-      . 'as debt. Read it with `droost workflow:baseline --status`. If debt was '
-      . 'paid, ask the operator for `baseline --refresh`. (Refused: %s)',
+      . 'as debt. Read it with `droost workflow:baseline --status`, or a plain '
+      . 'reader (cat, head, grep, jq): code handed to an interpreter cannot be '
+      . 'told from a write, so `python3 -c` and its kind are refused here while '
+      . 'those are not. If debt was paid, ask the operator for `baseline '
+      . '--refresh`. (Refused: %s)',
       trim($command),
     ));
   }
@@ -6154,6 +6158,48 @@ function guard_judge_library_code(string $code, string $command, string $what, ?
 }
 
 /**
+ * Whether a command's first step is a literal `cd` out of the project.
+ *
+ * @param string $command
+ *   The command line.
+ * @param string $root
+ *   The project root.
+ *
+ * @return bool
+ *   TRUE when the command starts `cd <literal path> &&` (or `;`) and that
+ *   path lies outside the project.
+ */
+function guard_runs_outside(string $command, string $root): bool {
+  if (preg_match('/^\s*cd\s+("[^"$`]+"|\'[^\']+\'|[^\s;&|$`~*?]+)\s*(?:&&|;)/', $command, $m) !== 1) {
+    return FALSE;
+  }
+  $target = trim($m[1], '"\'');
+  if (!str_starts_with($target, '/')) {
+    return FALSE;
+  }
+  $project = realpath($root) ?: rtrim($root, '/');
+  $there = guard_cd_to($project, $target, $project);
+  return $there !== $project && !str_starts_with($there . '/', $project . '/');
+}
+
+/**
+ * Whether code names a path into the project, or climbs out of where it is.
+ *
+ * @param string $code
+ *   The program's text.
+ * @param string $root
+ *   The project root.
+ *
+ * @return bool
+ *   TRUE when the code holds the project's absolute path, or `..`.
+ */
+function guard_code_reaches_project(string $code, string $root): bool {
+  $project = realpath($root) ?: rtrim($root, '/');
+  return str_contains($code, $project) || str_contains($code, rtrim($root, '/')) || str_contains($code, '..')
+    || preg_match('/(?:CLAUDE_PROJECT_DIR|getcwd|chdir|os\.chdir|process\.chdir|DROOST_PROJECT_ROOT)/', $code) === 1;
+}
+
+/**
  * Refuses code that carries an operator verb, or writes the enforcement.
  *
  * One judgement for every way code reaches an interpreter: a heredoc body,
@@ -6175,8 +6221,10 @@ function guard_judge_library_code(string $code, string $command, string $what, ?
  *   The project root, or NULL for the one this hook runs in.
  * @param string|null $stateDir
  *   The state directory, or NULL for the one this hook resolved.
+ * @param bool $outside
+ *   The code runs from outside the project and names no path into it.
  */
-function guard_judge_code(string $code, string $command, ?string $root = NULL, ?string $stateDir = NULL): void {
+function guard_judge_code(string $code, string $command, ?string $root = NULL, ?string $stateDir = NULL, bool $outside = FALSE): void {
   guard_judge_library_code($code, $command, 'This hands an interpreter code', $root, $stateDir);
   if (preg_match(operator_verb_pattern(), $code) === 1) {
     guard_refuse('operator-command:in-interpreter', sprintf(
@@ -6187,7 +6235,13 @@ function guard_judge_code(string $code, string $command, ?string $root = NULL, ?
       trim($command),
     ));
   }
-  if (code_names_enforcement($code) && code_writes($code)) {
+  // CODE RUN FROM OUTSIDE THE PROJECT (F-376). An adopter's agent edited its
+  // own memory file with `cd ~/.claude/projects/…/memory && python3 - <<EOF`,
+  // and the code's prose named droost/baseline: refused, though a relative
+  // path from there reaches nothing of the project. Code that names no
+  // absolute path into the project and climbs no `..`, run after a `cd` out
+  // of it, cannot write the enforcement it names.
+  if (!$outside && code_names_enforcement($code) && code_writes($code)) {
     guard_refuse('protected-path:interpreter', sprintf(
       'This hands an interpreter code that names the enforcement itself — the '
       . 'guard, the run record, the evidence store, the baseline or the '

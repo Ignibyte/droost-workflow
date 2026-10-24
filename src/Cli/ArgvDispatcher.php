@@ -6,6 +6,7 @@ namespace Droost\Workflow\Cli;
 
 use Droost\Workflow\Evidence\CheckAdjudicators;
 use Droost\Workflow\Baseline\BaselineError;
+use Droost\Workflow\Baseline\BaselineStore;
 use Droost\Workflow\Config\ConfigError;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\EffortSwitch;
@@ -657,8 +658,28 @@ final class ArgvDispatcher {
       return self::EXIT_USAGE;
     }
     $facade = $this->facade($projectRoot);
+    $opening = (new RunStateStore($projectRoot))->load() === NULL;
     $outcome = $facade->run($projectRoot, $spec, $ticket, $lead);
     $document = $outcome->toArray();
+    // A RUN THAT OPENS WITH NO BASELINE SAYS SO (F-371). Every gate then
+    // judges the whole tree, so a codebase with findings that predate the
+    // ticket fails on them. While the run is in plan, the operator can still
+    // record one and have it frozen into this run.
+    $found = $opening ? $outcome->state->preexistingPaths() : [];
+    if ($found !== []) {
+      $document['preexisting'] = sprintf(
+        '%d file(s) were already changed when this run opened (%s%s). The code gates leave them out unless they change again. '
+        . 'If they are this ticket\'s work, claim them: droost workflow:declare-changes --files=<paths> (F-373).',
+        count($found),
+        implode(', ', array_slice($found, 0, 5)),
+        count($found) > 5 ? ', …' : '',
+      );
+    }
+    if ($opening && WorkflowConfig::load($projectRoot)->baseline && !BaselineStore::exists($projectRoot)) {
+      $document['baseline'] = 'none recorded: every gate judges the whole tree, so findings that predate this ticket fail it. '
+        . 'If the codebase has them, ask the operator to run `droost workflow:baseline` in their terminal now, '
+        . 'while the run is in plan: it is frozen into this run. After plan, only a new run takes one.';
+    }
     // What the project's hooks said: a hook cannot hold the run, but it can
     // tell the agent something, and this is where the agent reads it.
     $notes = $facade->takeHookNotes();
@@ -1409,8 +1430,20 @@ final class ArgvDispatcher {
    */
   private function reset(string $projectRoot, array $argv): int {
     $force = in_array('--force', $argv, TRUE);
-    $archived = $this->facade($projectRoot)->reset($projectRoot, $force);
+    $facade = $this->facade($projectRoot);
+    $archived = $facade->reset($projectRoot, $force);
     $this->say('run cleared — record archived to ' . $archived);
+    $spec = $facade->lastResetSpec();
+    if ($spec !== NULL) {
+      $this->say(sprintf(
+        'its spec moved too: %s → %s. To work the same ticket again, put it back (cp %s %s) or name it: droost workflow:run --spec=%s',
+        $spec['from'],
+        $spec['to'],
+        $spec['to'],
+        $spec['from'],
+        $spec['to'],
+      ));
+    }
     return self::EXIT_OK;
   }
 

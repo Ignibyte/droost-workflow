@@ -415,6 +415,36 @@ final class RunState {
   }
 
   /**
+   * The files the run found already changed, by path.
+   *
+   * A file changed before the run opened is left out of the run's diff, so
+   * gates judge only what the run did. An adopter's second run opened on the
+   * first run's uncommitted edits to the ticket, every ticket-scoped gate read
+   * "the run changed no file", and nothing was analysed (F-373). A file the
+   * run declares (`declare-changes --files`) is its work, however it found
+   * it: see withClaimed().
+   *
+   * @return list<string>
+   *   Project-relative paths.
+   */
+  public function preexistingPaths(): array {
+    return array_map('strval', array_keys($this->preexisting));
+  }
+
+  /**
+   * This run, claiming files it found already changed as its own.
+   *
+   * @param list<string> $paths
+   *   Project-relative paths.
+   *
+   * @return self
+   *   A new instance.
+   */
+  public function withClaimed(array $paths): self {
+    return $this->with(preexisting: array_diff_key($this->preexisting, array_flip($paths)));
+  }
+
+  /**
    * The changed files that are this run's: not as the run found them.
    *
    * @param list<string>|null $changed
@@ -1260,6 +1290,19 @@ final class RunState {
    */
   public function withWorkItem(array $item): self {
     return $this->with(workItem: $item);
+  }
+
+  /**
+   * This run held to a baseline the operator recorded before any gate ran.
+   *
+   * @param string $hash
+   *   The baseline's hash.
+   *
+   * @return self
+   *   A new instance.
+   */
+  public function withBaselineHash(string $hash): self {
+    return $this->with(baselineHash: $hash);
   }
 
   /**
@@ -2129,6 +2172,8 @@ final class RunState {
    *   What the tree held changed at begin, or NULL to keep the run's own.
    * @param string|null $lead
    *   The new lead, or NULL to keep it.
+   * @param string|null $baselineHash
+   *   The baseline to hold the run to, or NULL to keep the run's own.
    *
    * @return self
    *   A new instance.
@@ -2151,6 +2196,7 @@ final class RunState {
     ?LoopState $loop = NULL,
     ?array $preexisting = NULL,
     ?string $lead = NULL,
+    ?string $baselineHash = NULL,
   ): self {
     return new self(
       $this->runId,
@@ -2177,7 +2223,7 @@ final class RunState {
       $specPath ?? $this->specPath,
       $this->gateWaivers,
       $this->baseCommit,
-      $this->baselineHash,
+      $baselineHash ?? $this->baselineHash,
       $this->ruleFiles,
       $this->seekerRounds,
       $workItem ?? $this->workItem,

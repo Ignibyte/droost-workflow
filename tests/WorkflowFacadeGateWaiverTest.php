@@ -249,4 +249,24 @@ final class WorkflowFacadeGateWaiverTest extends WorkflowTestCase {
     };
   }
 
+  /**
+   * A project's own gate is waived like a built-in one (F-372).
+   */
+  public function testCustomGateIsWaived(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\ngates:\n  gitleaks: { run: droost/gates/gitleaks.php, phase: code }\n");
+    $this->writeSpec($root);
+    $this->facade($this->allPass())->run($root);
+
+    $waived = $this->facade($this->allPass())->waiveGate($root, 'custom:gitleaks', 'tokens that predate the ticket');
+    $this->assertArrayHasKey('custom:gitleaks', $waived->gateWaivers);
+
+    try {
+      $this->facade($this->allPass())->waiveGate($root, 'custom:gitlaeks', 'a typo');
+      $this->fail('Expected a refusal for a gate this run does not have');
+    }
+    catch (\InvalidArgumentException $e) {
+      $this->assertStringContainsString('custom:gitleaks', $e->getMessage(), 'the refusal names the gates there are');
+    }
+  }
+
 }

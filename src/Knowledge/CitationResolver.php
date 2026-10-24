@@ -6,7 +6,6 @@ namespace Droost\Workflow\Knowledge;
 
 use Droost\Workflow\Spec\SpecContract;
 use Droost\Workflow\State\RunStateStore;
-use Symfony\Component\Yaml\Yaml;
 
 /**
  * Resolves a spec's Grounding citations from files and the code index.
@@ -396,20 +395,18 @@ class CitationResolver {
    */
   private static function wikiDirs(string $projectRoot): array {
     $root = rtrim($projectRoot, '/');
-    $dirs = [$root . '/droost/wiki'];
-    $settings = $root . '/config/sync/droost.wiki.settings.yml';
-    if (is_file($settings)) {
-      try {
-        $parsed = Yaml::parseFile($settings);
-        $path = is_array($parsed) && is_string($parsed['path'] ?? NULL) ? trim($parsed['path']) : '';
-        if ($path !== '' && !str_contains($path, '..')) {
-          array_unshift($dirs, str_starts_with($path, '/') ? rtrim($path, '/') : $root . '/' . trim($path, '/'));
-        }
-      }
-      catch (\Throwable) {
-        // An unreadable settings file leaves the default.
-      }
+    // The wiki is where KnowledgeSettings says, which reads `wiki.path` in
+    // droost.yml first. This kept its own copy of the rule, without that
+    // first step, so an adopter's wiki in docs/wiki answered `droost code:wiki`
+    // and was not found for a Grounding citation (F-374).
+    $dirs = [];
+    try {
+      $dirs[] = rtrim(KnowledgeSettings::fromProjectRoot($root)->wikiDir(), '/');
     }
+    catch (\Throwable) {
+      // An unreadable configuration leaves the default.
+    }
+    $dirs[] = $root . '/' . KnowledgeSettings::DEFAULT_WIKI;
 
     return array_values(array_unique($dirs));
   }

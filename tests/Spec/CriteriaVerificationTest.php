@@ -131,6 +131,11 @@ final class CriteriaVerificationTest extends WorkflowTestCase {
     );
     $this->assertSame('verified', CriteriaVerification::standing('the non-parity layout', NULL, ['parity' => 'blocked'])['standing'], 'a word, not a substring');
     $this->assertSame('unverified', CriteriaVerification::standing('component_lint: 45 pass', NULL, ['custom:component_lint' => 'unblocked'])['standing'], 'a custom gate by its own name');
+    // F-375: prose about the product is not the gate.
+    $snyk = ['custom:snyk' => 'blocked'];
+    $this->assertSame('verified', CriteriaVerification::standing('Documented the Snyk MCP setup in docs/security.md', NULL, $snyk)['standing'], 'prose naming the product');
+    $this->assertSame('unverified', CriteriaVerification::standing('snyk: 0 issues', NULL, $snyk)['standing'], 'the gate\'s verdict shape');
+    $this->assertSame('unverified', CriteriaVerification::standing('custom:snyk passed on the branch', NULL, $snyk)['standing'], 'the gate by its id');
 
     $store->record('r1', 'test', new CheckRecord('gate', 'parity', CheckState::Satisfied, Fault::None, 'parity passed — 14 of 14'));
     $counted = CriteriaVerification::resolve($root, 'r1', 'spec.md');

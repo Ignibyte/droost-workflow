@@ -224,6 +224,29 @@ none — fixture
   }
 
   /**
+   * A file found changed that the run declares is the run's (F-373).
+   *
+   * An adopter's second run opened on the first run's uncommitted edits to the
+   * ticket; every ticket-scoped gate read "the run changed no file" and
+   * analysed nothing. Declaring the file claims it.
+   */
+  public function testDeclaringFoundFileClaimsIt(): void {
+    [$root, $spec] = $this->project();
+    @mkdir($root . '/src', 0755, TRUE);
+    file_put_contents($root . '/src/Ticket.php', "<?php\n// written in the run before\n");
+    $facade = $this->facadeSeeing(['src/Ticket.php']);
+    $facade->run($root, $spec);
+    $state = (new RunStateStore($root))->load();
+    $this->assertNotNull($state);
+    $this->assertSame([], $state->ownChanges(['src/Ticket.php'], $root), 'found, so left out');
+
+    $facade->declareChanges($root, ['src/Ticket.php'], [], 'code');
+    $claimed = (new RunStateStore($root))->load();
+    $this->assertNotNull($claimed);
+    $this->assertSame(['src/Ticket.php'], $claimed->ownChanges(['src/Ticket.php'], $root), 'declared, so the gates judge it');
+  }
+
+  /**
    * A declared diff still reaches the seeker.
    *
    * The counterweight. Moving the audit earlier must not swallow the

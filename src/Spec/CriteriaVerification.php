@@ -148,8 +148,19 @@ final class CriteriaVerification {
       if ($state !== CheckState::Blocked->value && $state !== CheckState::Unblocked->value) {
         continue;
       }
-      $name = str_starts_with($gate, 'custom:') ? substr($gate, strlen('custom:')) : $gate;
-      if ($name !== '' && preg_match('/(?<![\w-])' . preg_quote($name, '/') . '(?![\w-])/i', $by) === 1) {
+      // A project's gate is named for a product (snyk, gitleaks, semgrep),
+      // and prose about the product is not a reference to the gate: an
+      // adopter's proof "…the Snyk MCP…" was refused as naming custom:snyk
+      // (F-375). So a custom gate counts as named by its full id, or by its
+      // bare name in the "name: result" shape a proof gives a gate's verdict. A
+      // built-in gate's name is not prose, and the bare word still counts.
+      $custom = str_starts_with($gate, 'custom:');
+      $name = $custom ? substr($gate, strlen('custom:')) : $gate;
+      $word = '(?<![\w-])' . preg_quote($name, '/') . '(?![\w-])';
+      $pattern = $custom
+        ? '/' . preg_quote($gate, '/') . '(?![\w-])|' . $word . '\s*:/i'
+        : '/' . $word . '/i';
+      if ($name !== '' && preg_match($pattern, $by) === 1) {
         return [
           'standing' => 'unverified',
           'why' => sprintf('its proof names %s, whose latest verdict in this run is %s', $gate, $state),

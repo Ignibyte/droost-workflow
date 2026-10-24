@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Knowledge;
 
+use Droost\Workflow\Baseline\BaselineStore;
 use Droost\Workflow\Config\StoragePaths;
+use Droost\Workflow\Config\WorkflowConfig;
 
 /**
  * What droost can see of a project, row by row: `droost doctor`.
@@ -69,6 +71,22 @@ final class Doctor {
     $rows[] = $exported === FALSE
       ? self::row('config export', 'warn', 'No exported core.extension.yml found: the inventory cannot say what is enabled.')
       : self::row('config export', 'ok', sprintf('%s, exported %s', $exported['file'], $exported['exported']));
+
+    // THE BASELINE, BEFORE ANY RUN (F-378). Missing, it surfaced only when a
+    // run's gates failed on findings older than the ticket, and recording it
+    // then is the operator's, in a terminal, mid-run.
+    try {
+      $lever = WorkflowConfig::load($root)->baseline;
+    }
+    catch (\Throwable) {
+      $lever = NULL;
+    }
+    $rows[] = match (TRUE) {
+      $lever === NULL => self::row('baseline', 'warn', 'The configuration could not be read, so the baseline lever is unknown.'),
+      $lever === FALSE => self::row('baseline', 'ok', 'off: every gate judges the whole tree (strict mode)'),
+      BaselineStore::exists($root) => self::row('baseline', 'ok', sprintf('recorded at %s', BaselineStore::DIR)),
+      default => self::row('baseline', 'warn', 'None recorded: every gate judges the whole tree, so findings that predate a ticket fail it. On an existing codebase the operator records one with `droost workflow:baseline` before the first run.'),
+    };
 
     $rows[] = is_file($root . '/.claude/skills/workflow-start/SKILL.md')
       ? self::row('pack', 'ok', 'the workflow pack is installed (.claude/skills)')

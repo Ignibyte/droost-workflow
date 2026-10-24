@@ -490,8 +490,18 @@ final class WorkflowFacade {
     bool $grow = FALSE,
     ?string $reason = NULL,
   ): array {
-    $active = (new RunStateStore($projectRoot))->load();
-    if ($active !== NULL && $active->currentPhase !== NULL) {
+    $store = new RunStateStore($projectRoot);
+    $active = $store->load();
+    // ONE OPEN RUN MAY TAKE ITS FIRST BASELINE (F-371). An adopter opened a run
+    // with the lever on and nothing recorded, could not record a baseline
+    // while it was open, and had to reset. While the run is in plan, opened
+    // with no baseline, and no gate has run, nothing has been judged against
+    // one: the first baseline is written and frozen into the run as if it
+    // had been there at the start. A refresh, or any later moment, still
+    // waits for the run to end.
+    $adopting = $active !== NULL && $active->currentPhase === Phase::Plan
+      && $active->baselineHash === NULL && $active->gateResults === [] && !$refresh;
+    if ($active !== NULL && $active->currentPhase !== NULL && !$adopting) {
       throw BaselineError::runActive();
     }
     $config = WorkflowConfig::load($projectRoot);
@@ -505,12 +515,17 @@ final class WorkflowFacade {
       $grow,
       $reason,
     );
+    $hash = BaselineStore::hash($projectRoot);
+    if ($adopting && $active !== NULL && $hash !== NULL && $config->baseline) {
+      $store->save($active->withBaselineHash($hash));
+    }
     return [
       'manifest' => $manifest->toArray(),
       'bill' => $measured->bill(),
       'skipped' => $measured->skipped,
-      'hash' => BaselineStore::hash($projectRoot),
+      'hash' => $hash,
       'dir' => BaselineStore::DIR,
+      'frozen_into_run' => $adopting ? $active?->runId : NULL,
     ];
   }
 
@@ -1285,6 +1300,26 @@ final class WorkflowFacade {
   }
 
   /**
+   * Where the last reset put the run's spec, or NULL when it moved none.
+   *
+   * @var array{from: string, to: string}|null
+   */
+  private ?array $resetSpec = NULL;
+
+  /**
+   * Where the last reset put the run's spec (F-377).
+   *
+   * An adopter's reset moved the intake spec into history/ and said nothing,
+   * and the reopened run had none until it was found and put back by hand.
+   *
+   * @return array{from: string, to: string}|null
+   *   The spec's path before and after, project-relative, or NULL.
+   */
+  public function lastResetSpec(): ?array {
+    return $this->resetSpec;
+  }
+
+  /**
    * Clears a finished run: archives its record and removes run.json.
    *
    * The run's ledgers and the spec it was governed by (when the pack wrote it
@@ -1403,6 +1438,10 @@ final class WorkflowFacade {
         if (@rename($realSpec, $archived) === FALSE) {
           throw StateError::archiveFailed($archived, 'the spec could not be moved');
         }
+        $this->resetSpec = [
+          'from' => (string) $spec,
+          'to' => ltrim(substr($archived, strlen(rtrim($projectRoot, '/'))), '/'),
+        ];
       }
     }
     foreach (glob($stateDir . '/.guard-warned-*') ?: [] as $marker) {
@@ -2349,6 +2388,13 @@ final class WorkflowFacade {
     foreach ($kinds as $kind => $values) {
       self::recordDeclaration($store, $state->runId, $phase, $kind, $values, $now);
     }
+    // Declared files are this run's work, even ones it found already
+    // changed: the gates judge them (F-373).
+    $claimed = array_values(array_intersect($files, $state->preexistingPaths()));
+    if ($claimed !== []) {
+      $state = $state->withClaimed($claimed);
+      $runs->save($state);
+    }
     // The run record names the ticket too. It held only `run --ticket`'s
     // binding, so a run whose check said "tied to" its ticket carried
     // `work_item: null` in run.json (F-295). A ticket bound at begin is the
@@ -2717,15 +2763,23 @@ final class WorkflowFacade {
         'a gate waiver requires a reason — an unexplained waiver is indistinguishable from tampering',
       );
     }
-    if (!in_array($gate, GateSettings::KNOWN_GATES, TRUE)) {
+    $store = new RunStateStore($projectRoot);
+    $run = $this->requireRun($store);
+    // A PROJECT'S OWN GATE IS WAIVED LIKE A BUILT-IN ONE (F-372). An adopter's
+    // run could not waive custom:gitleaks over a finding that predated the
+    // ticket: only the built-in names were accepted. A custom:<id> is
+    // accepted when this run resolved it, so a typo is still refused.
+    $custom = array_values(array_filter(
+      array_map('strval', array_keys($run->resolvedGates)),
+      static fn (string $name): bool => GateSettings::isCustom($name),
+    ));
+    if (!in_array($gate, GateSettings::KNOWN_GATES, TRUE) && !in_array($gate, $custom, TRUE)) {
       throw new \InvalidArgumentException(sprintf(
         'unknown gate "%s" (known: %s)',
         $gate,
-        implode(', ', GateSettings::KNOWN_GATES),
+        implode(', ', [...GateSettings::KNOWN_GATES, ...$custom]),
       ));
     }
-    $store = new RunStateStore($projectRoot);
-    $run = $this->requireRun($store);
     // The trio takes a waiver only on a run that froze `preset: custom`, the
     // level whose file owns every lever (owner, 2026-10-12). Everywhere else
     // its failures are fixed at the source, or the level is changed.

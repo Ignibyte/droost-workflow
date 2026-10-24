@@ -406,6 +406,7 @@ final class DroostCliTest extends TestCase {
     $rows = array_column($this->arr('data.rows'), 'status', 'check');
     $this->assertSame('fail', $rows['code index']);
     $this->assertSame('ok', $rows['config export']);
+    $this->assertSame('warn', $rows['baseline'], 'no baseline is said before any run (F-378)');
     $this->droost(['code:index']);
     $this->assertSame(0, $this->droost(['doctor']));
   }
