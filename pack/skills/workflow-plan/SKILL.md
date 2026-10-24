@@ -150,14 +150,16 @@ Then produce the spec:
    | `code` | custom PHP — modules, classes, plugins, hooks |
    | `content_model` | content types, fields, displays, views: configuration |
    | `theme` | themes, templates, SDCs, CSS |
+   | `script` | JavaScript and TypeScript that is not a theme's: a browser suite, tooling, their config |
    | `content` | nodes, menus, taxonomy terms |
    | `docs` | markdown and comments; nothing executes |
    | `mixed` | honestly several of the above |
 
    Hyphens are fine (`content-model` works). The type decides which gates must
    have actually MEASURED something before the test phase ends — a `code` or
-   `mixed` run rests on phpcs, phpstan and phpunit, and one of those passing
-   over an empty path set has not checked what the ticket is about. It never
+   `mixed` run rests on phpcs, phpstan and phpunit, a `script` run on eslint,
+   and one of those passing over an empty path set has not checked what the
+   ticket is about. It never
    turns a gate OFF; the mandatory trio is the operator's dial, not yours.
 
    **When to run it:** after the PLAN phase has advanced, and before you write

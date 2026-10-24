@@ -46,6 +46,13 @@ enum WorkType: string {
   // of PHP that barely exists.
   case Theme = 'theme';
 
+  // JavaScript and TypeScript that is not a theme's: a browser suite, its
+  // support code, build tooling, and their package and lint configuration.
+  // `code` is custom PHP, so a ticket of TypeScript alone was held on phpcs
+  // and phpstan examining nothing while eslint had read every changed file
+  // (an adopter's report, 2026-10-24); `theme` cleared it and was not true.
+  case Script = 'script';
+
   // Nodes, menus, taxonomy terms — content, and the site still has to serve it.
   case Content = 'content';
 
@@ -74,6 +81,9 @@ enum WorkType: string {
   public function mustMeasure(): array {
     return match ($this) {
       self::Code => ['phpcs', 'phpstan', 'phpunit'],
+      // The eslint gate is the analysis of what changed; a project's own
+      // gate (tsc, a suite) adds to it and is judged as itself.
+      self::Script => ['eslint'],
       self::ContentModel, self::Theme, self::Content, self::Docs => [],
       self::Mixed => ['phpcs', 'phpstan', 'phpunit'],
     };
@@ -112,6 +122,9 @@ enum WorkType: string {
       // the project's own. Themes stay out on purpose — the `.theme` beside
       // a bundle is the obvious thing, not a lie.
       self::ContentModel, self::Content => ['#(^|/)(modules|profiles)/custom/.*\\.php$#'],
+      // "No PHP here" is a narrow claim: PHP is the work phpcs, phpstan and
+      // phpunit are for, and declaring `script` over it skips them.
+      self::Script => ['#\\.(php|module|inc|install|profile|theme|engine)$#'],
       // Broad by nature: nothing contradicts them, and pretending otherwise
       // teaches agents to declare `mixed` for everything, which is the same as
       // declaring nothing.
@@ -189,6 +202,7 @@ enum WorkType: string {
       self::Code => 'custom PHP',
       self::ContentModel => 'content model (configuration)',
       self::Theme => 'theme and templates',
+      self::Script => 'JavaScript and TypeScript',
       self::Content => 'content',
       self::Docs => 'documentation',
       self::Mixed => 'mixed',

@@ -251,6 +251,40 @@ final class WorkTypeTest extends TestCase {
   }
 
   /**
+   * TypeScript alone is script work, and rests on eslint, not phpcs.
+   *
+   * An adopter's ticket changed a browser suite's TypeScript, its eslint
+   * config and package.json. Declared `code`, it was held on phpcs and
+   * phpstan examining nothing while eslint had read both changed files;
+   * `theme` cleared it and was not true.
+   */
+  public function testScriptWorkRestsOnEslint(): void {
+    $diff = ['tests/e2e/support/drush.ts', 'tests/e2e/smoke.spec.ts', '.eslintrc.json', 'package.json'];
+
+    $measured = new DeclarationAudit(['tests/e2e'], [], $diff, WorkType::Script, ['eslint', 'prettier']);
+    $this->assertSame(CheckState::Satisfied, $this->check($measured, 'work_type')->state);
+    $this->assertSame(CheckState::Satisfied, $this->check($measured, 'type_coverage')->state);
+
+    $looked = new DeclarationAudit(['tests/e2e'], [], $diff, WorkType::Script, ['prettier']);
+    $this->assertSame(CheckState::Blocked, $this->check($looked, 'type_coverage')->state, 'eslint examining nothing is not script work checked');
+  }
+
+  /**
+   * Declaring `script` over PHP is caught: it would skip the PHP gates.
+   */
+  public function testDeclaringScriptOverPhpIsCaught(): void {
+    $audit = new DeclarationAudit(
+      ['.'],
+      [],
+      ['web/modules/custom/x/x.module', 'web/modules/custom/x/src/X.php', 'tests/e2e/x.spec.ts'],
+      WorkType::Script,
+      ['eslint'],
+    );
+
+    $this->assertSame(CheckState::Blocked, $this->check($audit, 'work_type')->state);
+  }
+
+  /**
    * Every type names its gates and its label.
    */
   public function testEveryTypeIsFullyDescribed(): void {
@@ -261,7 +295,7 @@ final class WorkTypeTest extends TestCase {
       $this->assertIsArray($type->contradictions(), $type->value . ' answers what contradicts it');
     }
     $this->assertSame(
-      ['code', 'content_model', 'theme', 'content', 'docs', 'mixed'],
+      ['code', 'content_model', 'theme', 'script', 'content', 'docs', 'mixed'],
       WorkType::names(),
     );
   }

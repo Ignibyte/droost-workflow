@@ -2289,8 +2289,9 @@ final class ArgvDispatcher {
                        Re-declaring replaces the list, and the first one is
                        kept: a path only a later declaration covers is
                        recorded by name. --type is one of code, content_model,
-                       theme, content, docs, mixed and never turns a gate off;
-                       it says which gates must have MEASURED something.
+                       theme, script, content, docs, mixed and never turns a
+                       gate off; it says which gates must have MEASURED
+                       something.
       declare-route    declare a path this change serves, which the seeker,
                        the browser suite and the record read: `declare-route /rinks "the new
                        listing"`. A page that must refuse an anonymous
