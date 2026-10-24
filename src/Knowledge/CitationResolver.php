@@ -6,7 +6,6 @@ namespace Droost\Workflow\Knowledge;
 
 use Droost\Workflow\Spec\SpecContract;
 use Droost\Workflow\State\RunStateStore;
-use Symfony\Component\Yaml\Yaml;
 
 /**
  * Resolves a spec's Grounding citations from files and the code index.
@@ -28,10 +27,10 @@ use Symfony\Component\Yaml\Yaml;
  *   - `page.md` or `wiki:page.md`: a page of the project's wiki;
  *   - a bare name: the symbol index (a short class name or a module).
  *
- * Nothing here boots Drupal, so the standalone binary and drush resolve a
- * citation the same way. droost's grounding gate extends this and adds what
- * only a booted site has, through the protected hooks: the brain (registered
- * kinds, core included) and the site's own autoloader.
+ * Nothing here boots Drupal. The protected hooks were where droost's
+ * Drupal-side grounding gate added the brain and the site's autoloader until
+ * that gate left with the module (2026-10-19); they stay as the seam a test
+ * (or a future surface) overrides.
  */
 class CitationResolver {
 
@@ -65,12 +64,13 @@ class CitationResolver {
    * @param string $docroot
    *   Drupal's docroot, absolute; '' finds it (see docroot()).
    *
-   * @return array{table: bool, resolved: list<string>, positive: list<string>, unresolved: list<string>, uncited_tiers: list<string>, index: string}
+   * @return array{table: bool, resolved: list<string>, positive: list<string>, unresolved: list<string>, uncited_tiers: list<string>, malformed: list<string>, index: string}
    *   Whether the spec carries a grounding table, the citations that
    *   resolved, those of them that name something that exists (every one
    *   but a `none:` claim), those that did not resolve, each tier the table
-   *   claims with nothing resolving for it, and the code index's status
-   *   (`ready`, `absent`, or why it could not be read).
+   *   claims with nothing resolving for it, each row whose cells do not line
+   *   up with the header's, and the code index's status (`ready`, `absent`,
+   *   or why it could not be read).
    */
   public function citations(string $projectRoot, string $spec, string $docroot = ''): array {
     $index = $this->index($projectRoot)->status;
@@ -82,6 +82,7 @@ class CitationResolver {
         'positive' => [],
         'unresolved' => [],
         'uncited_tiers' => [],
+        'malformed' => [],
         'index' => $index,
       ];
     }
@@ -119,6 +120,7 @@ class CitationResolver {
       'positive' => $positive,
       'unresolved' => $unresolved,
       'uncited_tiers' => array_values(array_map('strval', array_keys(array_diff_key($claimed, $citedTiers)))),
+      'malformed' => $grounding['malformed'],
       'index' => $index,
     ];
   }
@@ -393,20 +395,18 @@ class CitationResolver {
    */
   private static function wikiDirs(string $projectRoot): array {
     $root = rtrim($projectRoot, '/');
-    $dirs = [$root . '/droost/wiki'];
-    $settings = $root . '/config/sync/droost.wiki.settings.yml';
-    if (is_file($settings)) {
-      try {
-        $parsed = Yaml::parseFile($settings);
-        $path = is_array($parsed) && is_string($parsed['path'] ?? NULL) ? trim($parsed['path']) : '';
-        if ($path !== '' && !str_contains($path, '..')) {
-          array_unshift($dirs, str_starts_with($path, '/') ? rtrim($path, '/') : $root . '/' . trim($path, '/'));
-        }
-      }
-      catch (\Throwable) {
-        // An unreadable settings file leaves the default.
-      }
+    // The wiki is where KnowledgeSettings says, which reads `wiki.path` in
+    // droost.yml first. This kept its own copy of the rule, without that
+    // first step, so an adopter's wiki in docs/wiki answered `droost code:wiki`
+    // and was not found for a Grounding citation (F-374).
+    $dirs = [];
+    try {
+      $dirs[] = rtrim(KnowledgeSettings::fromProjectRoot($root)->wikiDir(), '/');
     }
+    catch (\Throwable) {
+      // An unreadable configuration leaves the default.
+    }
+    $dirs[] = $root . '/' . KnowledgeSettings::DEFAULT_WIKI;
 
     return array_values(array_unique($dirs));
   }

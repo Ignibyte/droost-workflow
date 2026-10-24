@@ -45,30 +45,30 @@ final class SteeringConfigsTest extends WorkflowTestCase {
     $this->assertSame(['infection.json5', 'phpunit.xml'], SteeringConfigs::changed('mutation', [], $root, self::RUN_SEVEN));
     $this->assertSame([], SteeringConfigs::changed('phpcs', [], $root, self::RUN_SEVEN));
     $this->assertSame([], SteeringConfigs::changed('phpstan', [], $root, self::RUN_SEVEN));
-    foreach (['wiki_fresh', 'grounding_check', 'config_clean', 'module:snyk'] as $gate) {
+    foreach (['wiki_fresh', 'house_rules', 'custom:snyk2'] as $gate) {
       $this->assertSame([], SteeringConfigs::changed($gate, [], $root, self::RUN_SEVEN), $gate);
     }
   }
 
   /**
-   * A module's gate is steered by its policy file, declared or known (0.14.19).
+   * A project's gate is steered by its policy file, declared or known.
    *
-   * A client's run added two ignores to `.snyk` and module:snyk, a blocking
+   * A client's run added two ignores to `.snyk` and custom:snyk2, a blocking
    * gate, passed with nothing said.
    */
-  public function testContributedAndCustomGatesNameTheirPolicyFiles(): void {
+  public function testProjectGatesNameTheirPolicyFiles(): void {
     $root = $this->makeRoot();
     $changed = ['.snyk', 'config/audit-ignore.yml', 'web/modules/custom/x/.gitleaksignore', 'src/A.php'];
 
-    $this->assertSame(['.snyk'], SteeringConfigs::changed('module:snyk', [], $root, $changed), 'known by id');
-    $this->assertSame(['web/modules/custom/x/.gitleaksignore'], SteeringConfigs::changed('module:gitleaks', [], $root, $changed), 'a bare name at any depth');
+    $this->assertSame([], SteeringConfigs::changed('custom:snyk2', [], $root, $changed), 'an id the table does not know names nothing');
+    $this->assertSame(['web/modules/custom/x/.gitleaksignore'], SteeringConfigs::changed('custom:gitleaks', [], $root, $changed), 'a bare name at any depth');
     $this->assertSame(
       ['config/audit-ignore.yml'],
-      SteeringConfigs::changed('module:composer_audit', ['steered_by' => 'config/audit-ignore.yml'], $root, $changed),
+      SteeringConfigs::changed('custom:composer_audit', ['steered_by' => 'config/audit-ignore.yml'], $root, $changed),
       'declared by path',
     );
     $this->assertSame(['.snyk'], SteeringConfigs::changed('custom:snyk', [], $root, $changed), 'a custom gate by the same id');
-    $this->assertSame([], SteeringConfigs::changed('module:composer_audit', [], $root, $changed), 'declaring nothing, nothing');
+    $this->assertSame([], SteeringConfigs::changed('custom:composer_audit', [], $root, $changed), 'declaring nothing, nothing');
   }
 
   /**

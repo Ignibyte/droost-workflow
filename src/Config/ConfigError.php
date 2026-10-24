@@ -483,6 +483,21 @@ final class ConfigError extends \RuntimeException {
   }
 
   /**
+   * A lead that is neither human-led nor autonomous.
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $lead
+   *   The offending value.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function unknownLead(string $source, string $lead): self {
+    return new self($source, sprintf('unknown lead "%s" (known: human-led, autonomous)', $lead));
+  }
+
+  /**
    * A follow_ups value that is none of the four.
    *
    * @param string $source
@@ -610,58 +625,25 @@ final class ConfigError extends \RuntimeException {
   }
 
   /**
-   * The gates.contributed block names a gate no enabled module declares.
+   * The notice for a gate name retired with droost's Drupal module.
    *
    * @param string $source
    *   The document label.
-   * @param string $id
-   *   The bare id the file used.
-   * @param list<string> $declared
-   *   The ids the enabled modules declare.
+   * @param string $name
+   *   The retired name.
+   * @param string $instead
+   *   What to do instead.
    *
-   * @return self
-   *   The error.
+   * @return string
+   *   The notice.
    */
-  public static function unknownContributedGate(
-    string $source,
-    string $id,
-    array $declared,
-  ): self {
-    return new self($source, sprintf(
-      'gates.contributed.%s: no enabled module declares a gate "%s" (declared: %s). '
-      . 'A contributed gate arrives by enabling its module; the lever file only '
-      . 'sets `on` and `mode` for one that exists.',
-      $id,
-      $id,
-      $declared === [] ? 'none' : implode(', ', $declared),
-    ));
-  }
-
-  /**
-   * A gates.contributed.<id> entry carries a key other than on or mode.
-   *
-   * @param string $source
-   *   The document label.
-   * @param string $id
-   *   The bare gate id.
-   * @param string $key
-   *   The unknown key.
-   *
-   * @return self
-   *   The error.
-   */
-  public static function unknownContributedOption(
-    string $source,
-    string $id,
-    string $key,
-  ): self {
-    return new self($source, sprintf(
-      'gates.contributed.%s accepts only "on" and "mode" — got "%s". The '
-      . 'command, phases and verdict are the declaring module\'s contract; a '
-      . 'different scan is a gates.custom entry.',
-      $id,
-      $key,
-    ));
+  public static function retiredGateNotice(string $source, string $name, string $instead): string {
+    return sprintf(
+      '%s: gates.%s was retired when droost left Drupal and is ignored; %s.',
+      $source,
+      $name,
+      $instead,
+    );
   }
 
   /**
@@ -681,7 +663,7 @@ final class ConfigError extends \RuntimeException {
   ): self {
     return new self($source, sprintf(
       'baseline accepts only "on" — got "%s". What the baseline contains is '
-      . 'measured and written by `droost:workflow:baseline`, never typed into '
+      . 'measured and written by `droost workflow:baseline`, never typed into '
       . 'the lever file; the lever only says whether it is honoured.',
       $key,
     ));

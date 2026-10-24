@@ -32,9 +32,25 @@ final class AgentsBlockTest extends WorkflowTestCase {
     $body = (string) file_get_contents($path);
     $this->assertStringContainsString(AgentsBlock::BEGIN, $body);
     $this->assertStringContainsString(AgentsBlock::END, $body);
-    $this->assertStringContainsString('droost-workflow run', $body, 'it names a command this surface actually has');
+    $this->assertStringContainsString('droost workflow:run', $body, 'it names a command this surface actually has');
     $this->assertStringContainsString('require_run: hard', $body, 'and says the discipline is enforced');
     $this->assertContains(AgentsBlock::FILE, $report->written, 'the report says so');
+  }
+
+  /**
+   * The block's text is text, and an orphaned BEGIN is not built on (S6-19).
+   */
+  public function testBlockTextIsLiteralAndAnOrphanIsRefused(): void {
+    $root = $this->makeRoot();
+    $path = $root . '/' . AgentsBlock::FILE;
+    AgentsBlock::write($root, ['first']);
+
+    $this->assertSame('written', AgentsBlock::write($root, ['costs $1 and C:\\path\\0']));
+    $this->assertStringContainsString('costs $1 and C:\\path\\0', (string) file_get_contents($path), 'a $1 or a backslash is not a back-reference');
+
+    file_put_contents($path, "# Mine\n\n" . AgentsBlock::BEGIN . "\ncut short\n");
+    $this->assertSame('failed', AgentsBlock::write($root, ['second']));
+    $this->assertSame(1, substr_count((string) file_get_contents($path), AgentsBlock::BEGIN), 'no second block for the orphan to swallow');
   }
 
   /**
@@ -48,9 +64,10 @@ final class AgentsBlockTest extends WorkflowTestCase {
   public function testTheStandaloneDoctrineNamesNoDrushOrSlashCommands(): void {
     $body = AgentsBlock::render(AgentsBlock::paragraphs());
     $this->assertStringNotContainsString('drush ', $body);
+    $this->assertStringNotContainsString('droost-workflow', $body, 'the retired binary name');
     $this->assertStringNotContainsString('/droost:workflow:', $body);
-    $this->assertStringContainsString('droost-workflow reset', $body);
-    $this->assertStringContainsString('droost-workflow bypass', $body);
+    $this->assertStringContainsString('droost workflow:reset', $body);
+    $this->assertStringContainsString('droost workflow:bypass', $body);
     $this->assertStringContainsString('OPERATOR', $body, 'the bypass is named as the operator\'s');
   }
 

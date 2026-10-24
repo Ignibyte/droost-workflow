@@ -9,7 +9,6 @@ use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Tests\WorkflowTestCase;
@@ -119,11 +118,9 @@ final class ScopeBeforeJudgementTest extends WorkflowTestCase {
 
     return new WorkflowFacade(
       $executor,
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       static fn (): string => '2026-09-13T00:00:00+00:00',
       static fn (): string => 'run-scope',
-      NULL,
       $vcs,
     );
   }
@@ -224,6 +221,29 @@ none — fixture
 
     file_put_contents($root . '/kh-delete.csv', "id\n1\n2\n");
     $this->assertSame(Outcome::Blocked, $this->facadeSeeing(['src/Declared.php', 'kh-delete.csv'])->run($root, $spec)->outcome, 'once the run changes it, it is');
+  }
+
+  /**
+   * A file found changed that the run declares is the run's (F-373).
+   *
+   * An adopter's second run opened on the first run's uncommitted edits to the
+   * ticket; every ticket-scoped gate read "the run changed no file" and
+   * analysed nothing. Declaring the file claims it.
+   */
+  public function testDeclaringFoundFileClaimsIt(): void {
+    [$root, $spec] = $this->project();
+    @mkdir($root . '/src', 0755, TRUE);
+    file_put_contents($root . '/src/Ticket.php', "<?php\n// written in the run before\n");
+    $facade = $this->facadeSeeing(['src/Ticket.php']);
+    $facade->run($root, $spec);
+    $state = (new RunStateStore($root))->load();
+    $this->assertNotNull($state);
+    $this->assertSame([], $state->ownChanges(['src/Ticket.php'], $root), 'found, so left out');
+
+    $facade->declareChanges($root, ['src/Ticket.php'], [], 'code');
+    $claimed = (new RunStateStore($root))->load();
+    $this->assertNotNull($claimed);
+    $this->assertSame(['src/Ticket.php'], $claimed->ownChanges(['src/Ticket.php'], $root), 'declared, so the gates judge it');
   }
 
   /**

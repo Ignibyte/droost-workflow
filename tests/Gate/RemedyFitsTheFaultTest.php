@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Droost\Workflow\Tests\Gate;
 
 use Droost\Workflow\Config\GateSettings;
-use Droost\Workflow\Driver\FreshProcessSiteDriver;
 use Droost\Workflow\Gate\ShellGateExecutor;
 use Droost\Workflow\Tests\WorkflowTestCase;
 
@@ -70,31 +69,6 @@ final class RemedyFitsTheFaultTest extends WorkflowTestCase {
   }
 
   /**
-   * A module's gate cannot be corrected in the lever file, and does not say so.
-   *
-   * The same fault, a different owner. `gates.contributed.<id>` accepts only
-   * `on` and `mode`, so telling an operator to fix the command there sends
-   * them to write a key the config reader discards.
-   */
-  public function testModuleCommandsSendNobodyToTheLeverFile(): void {
-    $remedy = $this->remedyFor(
-      $this->rootWith([]),
-      new GateSettings('module:snyk', TRUE, ['cmd' => 'droost-no-such-program-xyz test']),
-    );
-
-    $this->assertStringContainsString(
-      'gates.contributed.snyk.on: false',
-      $remedy,
-      'the one switch that file really does own',
-    );
-    $this->assertStringNotContainsString(
-      'gates.contributed.snyk.cmd',
-      $remedy,
-      'and not the key it would silently discard',
-    );
-  }
-
-  /**
    * A missing coverage driver is an extension, not a package.
    */
   public function testMissingCoverageDriversNameAnExtension(): void {
@@ -114,50 +88,6 @@ final class RemedyFitsTheFaultTest extends WorkflowTestCase {
       $remedy,
       'and says why no composer or npm install can reach it',
     );
-  }
-
-  /**
-   * A gate no driver implements cannot be installed, and is not described so.
-   */
-  public function testGatesNoDriverImplementsAreNotCalledInstallable(): void {
-    $driver = new FreshProcessSiteDriver(
-      static fn (): array => [0, '', ''],
-      static fn (): int => 0,
-    );
-    $remedy = (string) $driver
-      ->run(new GateSettings('wiki_fresh', TRUE, []), $this->makeRoot())
-      ->remedy;
-
-    $this->assertStringContainsString('gates.wiki_fresh.on: false', $remedy);
-    $this->assertStringContainsString(
-      'nothing for `composer require` to fetch',
-      $remedy,
-      'and it rules the default answer OUT rather than leaving the reader to try it',
-    );
-  }
-
-  /**
-   * A rendered check names the drush it looked for, and where.
-   */
-  public function testRenderedChecksNameTheDrushTheyLookedFor(): void {
-    $driver = new FreshProcessSiteDriver(
-      static fn (): array => [0, '', ''],
-      static fn (): int => 0,
-      // Deliberately NOT a suffix of the default `vendor/bin/drush`: asserting
-      // on a path the default contains is a test that passes whether or not
-      // the configured value is read at all.
-      'tools/drush-8',
-    );
-    $remedy = (string) $driver
-      ->run(new GateSettings('rendered_check', TRUE, []), $this->makeRoot())
-      ->remedy;
-
-    $this->assertStringContainsString(
-      'tools/drush-8',
-      $remedy,
-      'the configured path, not the default one — otherwise the operator checks the wrong file',
-    );
-    $this->assertStringContainsString('drush/drush', $remedy, 'and what to install');
   }
 
   /**
@@ -186,10 +116,6 @@ final class RemedyFitsTheFaultTest extends WorkflowTestCase {
     $installed = $this->rootWith(['phpunit']);
     $covered = $this->rootWith(['phpunit']);
     file_put_contents($covered . '/phpunit.xml', "<phpunit/>\n");
-    $driver = new FreshProcessSiteDriver(
-      static fn (): array => [0, '', ''],
-      static fn (): int => 0,
-    );
 
     $remedies = [
       'absent binary' => $this->remedyFor($absent, new GateSettings('phpcs', TRUE, [])),
@@ -198,19 +124,11 @@ final class RemedyFitsTheFaultTest extends WorkflowTestCase {
         $absent,
         new GateSettings('custom:acme_audit', TRUE, ['cmd' => 'droost-no-such-program-xyz']),
       ),
-      'module cmd 127' => $this->remedyFor(
-        $absent,
-        new GateSettings('module:snyk', TRUE, ['cmd' => 'droost-no-such-program-xyz']),
-      ),
       'no coverage driver' => $this->remedyFor(
         $covered,
         new GateSettings('coverage', TRUE, ['min' => 50]),
         [0, "OK (12 tests, 30 assertions)\n", ''],
       ),
-      'no driver for it' => (string) $driver
-        ->run(new GateSettings('wiki_fresh', TRUE, []), $absent)->remedy,
-      'no drush' => (string) $driver
-        ->run(new GateSettings('rendered_check', TRUE, []), $absent)->remedy,
     ];
 
     foreach ($remedies as $fault => $remedy) {

@@ -8,7 +8,6 @@ use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Gate\ParityReference;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Tests\WorkflowTestCase;
@@ -117,7 +116,6 @@ final class ParityReferenceTest extends WorkflowTestCase {
         }
 
       },
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       static fn (): string => '2026-09-29T12:00:00+00:00',
       static fn (): string => 'run-parity',

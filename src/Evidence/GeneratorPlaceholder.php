@@ -8,8 +8,9 @@ namespace Droost\Workflow\Evidence;
  * Whether a PHPUnit test file is still a code generator's placeholder.
  *
  * F-65 set aside a test that droost's own scaffold wrote and nobody touched,
- * by the hash the scaffold recorded. But the router now sends a unit test to
- * `drush generate test:unit`, as it should, and drush records nothing. Its
+ * by the hash the scaffold recorded. But a unit test is made with `drush
+ * generate test:unit` (the router sent it there until it was retired on
+ * 2026-10-15; scaffolding is drush's now), and drush records nothing. Its
  * template is a test that cannot fail:
  *
  *     public function testSomething(): void {

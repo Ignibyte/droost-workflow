@@ -327,10 +327,11 @@ final class SpecContract {
    * @param string $spec
    *   The governing spec, project-relative.
    *
-   * @return array{rows: int, phases: array<string, list<string>>, unanswered: list<string>, uncited: list<string>, evidence: list<array{row: int, phase: string, tier: string, cite: string}>}|null
+   * @return array{rows: int, phases: array<string, list<string>>, unanswered: list<string>, uncited: list<string>, evidence: list<array{row: int, phase: string, tier: string, cite: string}>, malformed: list<string>}|null
    *   Rows counted, the tiers each phase reached, the rows whose Found cell is
-   *   empty, the rows citing no evidence, and every citation for a site-side
-   *   gate to RESOLVE. NULL when the spec has no grounding table at all.
+   *   empty, the rows citing no evidence, every citation for a site-side
+   *   gate to RESOLVE, and each row whose cells do not line up with the
+   *   header's. NULL when the spec has no grounding table at all.
    */
   public static function grounding(string $projectRoot, string $spec): ?array {
     $text = self::read(rtrim($projectRoot, '/') . '/' . $spec);
@@ -351,7 +352,7 @@ final class SpecContract {
     if (count($rows) < 2) {
       return NULL;
     }
-    $header = self::cells($rows[0]);
+    $header = TableRow::cells($rows[0]);
     $idx = ['phase' => NULL, 'tier' => NULL, 'found' => NULL, 'evidence' => NULL];
     foreach ($header as $i => $cell) {
       $key = strtolower(trim($cell));
@@ -372,13 +373,20 @@ final class SpecContract {
     $unanswered = [];
     $uncited = [];
     $evidence = [];
+    $malformed = [];
     $counted = 0;
     foreach (array_slice($rows, 1) as $n => $row) {
-      $cells = self::cells($row);
+      $cells = TableRow::cells($row);
       if ($cells === [] || preg_match('/^[\s\-:|]+$/', $row) === 1) {
         continue;
       }
       $counted++;
+      // A row that does not line up has its Evidence in another column, so
+      // what the gate would say about its citation is about the wrong cell
+      // (F-365). Naming the row is the one thing that is true about it.
+      if (count($cells) !== count($header)) {
+        $malformed[] = sprintf('row %d has %d cells, the header %d', $n + 1, count($cells), count($header));
+      }
       $phase = $idx['phase'] !== NULL ? strtolower(trim($cells[$idx['phase']] ?? '')) : '';
       $tier = $idx['tier'] !== NULL ? strtolower(trim($cells[$idx['tier']] ?? '')) : '';
       $found = $idx['found'] !== NULL ? trim($cells[$idx['found']] ?? '') : '';
@@ -412,11 +420,12 @@ final class SpecContract {
       'unanswered' => $unanswered,
       'uncited' => $uncited,
       'evidence' => $evidence,
+      'malformed' => $malformed,
     ];
   }
 
   /**
-   * The routes the spec declares for rendered_check to render.
+   * The routes the spec declares, when the run declared none as rows.
    *
    * Reads the section under `## Routes`. A route is the first `/`-prefixed
    * token on a list item or table row — backticks stripped, so `- /camps —
@@ -550,7 +559,7 @@ final class SpecContract {
    * @param string $spec
    *   The governing spec, project-relative.
    *
-   * @return array{total: int, verified: list<string>, manual: list<string>, unverified: list<string>, unnamed: list<string>, column_missing: bool}|null
+   * @return array{total: int, verified: list<string>, manual: list<string>, unverified: list<string>, unnamed: list<string>, misshapen: list<string>, column_missing: bool}|null
    *   The classification — `unnamed` being the subset of `unverified` whose
    *   cell was filled in but named no test, so the refusal can say which of
    *   the two problems each row has. NULL when the spec has no
@@ -578,7 +587,7 @@ final class SpecContract {
     if (count($rows) < 2) {
       return NULL;
     }
-    $header = self::cells($rows[0]);
+    $header = TableRow::cells($rows[0]);
     $idIndex = 0;
     $verifiedIndex = NULL;
     foreach ($header as $i => $cell) {
@@ -594,9 +603,10 @@ final class SpecContract {
     $manual = [];
     $unverified = [];
     $unnamed = [];
+    $misshapen = [];
     $position = 0;
     foreach (array_slice($rows, 1) as $row) {
-      $cells = self::cells($row);
+      $cells = TableRow::cells($row);
       if (self::isSeparator($cells)) {
         continue;
       }
@@ -612,6 +622,13 @@ final class SpecContract {
         // shape of missing cell that makes the spec look BETTER than it is.
         // Numbered by its place among the body rows, so it can be found.
         $id = 'row ' . $position;
+      }
+      // A row with more or fewer cells than its header puts each cell under
+      // another's heading: `| AC1 | … | browser || tests/x.spec.js |` reads
+      // its empty fourth cell as `Verified By`. Counted as it reads, which
+      // fails safe, and named, so the reader knows why (F-328).
+      if (count($cells) !== count($header)) {
+        $misshapen[] = $id;
       }
       $value = $verifiedIndex === NULL ? '' : trim($cells[$verifiedIndex] ?? '');
       if (self::isPlaceholder($value)) {
@@ -639,6 +656,7 @@ final class SpecContract {
       'manual' => $manual,
       'unverified' => $unverified,
       'unnamed' => $unnamed,
+      'misshapen' => $misshapen,
       'column_missing' => $verifiedIndex === NULL,
     ];
   }
@@ -704,28 +722,6 @@ final class SpecContract {
    */
   private static function isPlaceholder(string $value): bool {
     return $value === '' || in_array(strtolower($value), self::PLACEHOLDERS, TRUE);
-  }
-
-  /**
-   * The cells of a markdown table row, outer pipes and padding removed.
-   *
-   * An escaped pipe (`\|`) inside a cell is data, not a boundary.
-   *
-   * @param string $row
-   *   The row, starting with `|`.
-   *
-   * @return list<string>
-   *   The trimmed cells.
-   */
-  private static function cells(string $row): array {
-    $inner = trim($row);
-    $inner = (string) preg_replace('/^\|/', '', $inner);
-    $inner = (string) preg_replace('/\|$/', '', $inner);
-    $inner = str_replace('\\|', "\x00", $inner);
-    return array_map(
-      static fn (string $cell): string => trim(str_replace("\x00", '|', $cell)),
-      explode('|', $inner),
-    );
   }
 
   /**

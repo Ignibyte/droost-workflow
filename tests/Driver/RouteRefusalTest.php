@@ -5,18 +5,10 @@ declare(strict_types=1);
 namespace Droost\Workflow\Tests\Driver;
 
 use Droost\Workflow\Cli\ArgvDispatcher;
-use Droost\Workflow\Config\GateSettings;
-use Droost\Workflow\Driver\BootedSiteDriver;
 use Droost\Workflow\Driver\RenderedRoutes;
 use Droost\Workflow\Evidence\EvidenceStore;
-use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Spec\SpecContract;
 use Droost\Workflow\Tests\WorkflowTestCase;
-use Symfony\Component\HttpFoundation\RedirectResponse;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
-use Symfony\Component\HttpKernel\HttpKernelInterface;
 
 /**
  * A route may be declared to refuse an anonymous visitor, and is checked to.
@@ -34,33 +26,15 @@ use Symfony\Component\HttpKernel\HttpKernelInterface;
 final class RouteRefusalTest extends WorkflowTestCase {
 
   /**
-   * A route string carries its expected status, and only a refusal.
+   * A route string carries its expected status, and only a declarable one.
    */
   public function testExpectationRidesOnTheRoute(): void {
-    $this->assertSame(['path' => '/camps', 'status' => 200], RenderedRoutes::expectation('/camps'));
-    $this->assertSame(['path' => '/admin/x', 'status' => 403], RenderedRoutes::expectation('/admin/x@403'));
-    $this->assertSame(['path' => '/admin/x', 'status' => 401], RenderedRoutes::expectation('/admin/x@401'));
-    $this->assertSame(['path' => '/admin/x@500', 'status' => 200], RenderedRoutes::expectation('/admin/x@500'), 'a 500 is no refusal to declare');
-    // A redirect is an answer to declare too (F-179).
-    $this->assertSame(['path' => '/account', 'status' => 303], RenderedRoutes::expectation('/account@303'));
     $this->assertSame('/admin/x@403', RenderedRoutes::withStatus('/admin/x', 403));
     $this->assertSame('/camps', RenderedRoutes::withStatus('/camps', 200));
-  }
-
-  /**
-   * Declaring a path again replaces it, so a bare admin route can be corrected.
-   */
-  public function testLaterDeclarationOfPathWins(): void {
-    $root = $this->makeRoot();
-    RunWithSpec::open($root, "- /camps\n");
-    $store = new EvidenceStore($root);
-    $store->declareRoute('run-routes', 'plan', '/admin/content/registrations', NULL);
-    $store->declareRoute('run-routes', 'test', '/admin/content/registrations@403', 'editors only');
-
-    $resolved = RenderedRoutes::resolve(new GateSettings('rendered_check', TRUE), $root);
-
-    $this->assertSame(['/', '/admin/content/registrations@403'], $resolved['routes']);
-    RunWithSpec::close($root);
+    $this->assertTrue(RenderedRoutes::declarable(401));
+    // A redirect is an answer to declare too (F-179).
+    $this->assertTrue(RenderedRoutes::declarable(303));
+    $this->assertFalse(RenderedRoutes::declarable(500), 'a 500 is no answer to declare');
   }
 
   /**
@@ -103,193 +77,29 @@ final class RouteRefusalTest extends WorkflowTestCase {
   }
 
   /**
-   * A declared refusal passes on the refusal, and fails if the page is public.
-   */
-  public function testDeclaredRefusalIsMeasured(): void {
-    $refuses = $this->kernel(403);
-    $renders = $this->kernel(200);
-    $gate = new GateSettings('rendered_check', TRUE, ['routes' => '/admin/content/registrations@403']);
-
-    $passed = (new BootedSiteDriver($refuses, static fn (): int => 0))->run($gate, '/tmp');
-    $this->assertSame(GateStatus::Passed, $passed->status);
-    $this->assertSame('0 route(s) rendered, 1 refused an anonymous visitor as declared', $passed->summary);
-
-    $public = (new BootedSiteDriver($renders, static fn (): int => 0))->run($gate, '/tmp');
-    $this->assertSame(GateStatus::Failed, $public->status);
-    $problem = $public->findings[0]['problem'] ?? NULL;
-    $this->assertIsString($problem);
-    $this->assertStringContainsString('the page is public', $problem);
-  }
-
-  /**
-   * A declared redirect passes on that redirect only (F-179).
-   */
-  public function testDeclaredRedirectIsMeasured(): void {
-    $gate = new GateSettings('rendered_check', TRUE, ['routes' => '/account@303']);
-
-    $passed = (new BootedSiteDriver($this->kernel(303), static fn (): int => 0))->run($gate, '/tmp');
-    $this->assertSame(GateStatus::Passed, $passed->status);
-    $this->assertSame('0 route(s) rendered, 1 redirected an anonymous visitor as declared', $passed->summary);
-
-    $renders = (new BootedSiteDriver($this->kernel(200), static fn (): int => 0))->run($gate, '/tmp');
-    $this->assertSame(GateStatus::Failed, $renders->status);
-    $problem = $renders->findings[0]['problem'] ?? NULL;
-    $this->assertIsString($problem);
-    $this->assertStringContainsString('declared to redirect anonymous visitors with 303, and it rendered', $problem);
-
-    $other = (new BootedSiteDriver($this->kernel(302), static fn (): int => 0))->run($gate, '/tmp');
-    $this->assertSame(GateStatus::Failed, $other->status);
-    $problem = $other->findings[0]['problem'] ?? NULL;
-    $this->assertIsString($problem);
-    $this->assertStringContainsString('declared to redirect with 303, answered 302', $problem);
-
-    $bare = (new BootedSiteDriver($this->kernel(303), static fn (): int => 0))->run(new GateSettings('rendered_check', TRUE, ['routes' => '/account']), '/tmp');
-    $this->assertSame(GateStatus::Failed, $bare->status);
-    $problem = $bare->findings[0]['problem'] ?? NULL;
-    $this->assertIsString($problem);
-    $this->assertStringContainsString('declare-route /account --status=303', $problem);
-  }
-
-  /**
-   * A bare route that refuses says how to declare the refusal.
-   */
-  public function testBareRouteThatRefusesNamesTheRemedy(): void {
-    $gate = new GateSettings('rendered_check', TRUE, ['routes' => '/admin/content/registrations']);
-
-    $result = (new BootedSiteDriver($this->kernel(403), static fn (): int => 0))->run($gate, '/tmp');
-
-    $this->assertSame(GateStatus::Failed, $result->status);
-    $problem = $result->findings[0]['problem'] ?? NULL;
-    $this->assertIsString($problem);
-    $this->assertStringContainsString('declare-route /admin/content/registrations --status=403', $problem);
-  }
-
-  /**
-   * A refusal Drupal THROWS is read as the status it carries.
+   * A POST-only route is declared as the 405 an anonymous GET gets (F-364).
    *
-   * The booted driver's sub-request runs with catching off, so Drupal's
-   * access denied arrives as an exception, not a 403 response. The first
-   * version of this fix compared response statuses only, and the tests above
-   * faked a 403 response: all green here, while the subject's render-probe
-   * reported the declared refusal as a thrown exception.
+   * A subject's run touched three POST-only API routes. Each answers an
+   * anonymous GET with 405 Method Not Allowed, which no declarable status
+   * described, so the routes were left out of the record.
    */
-  public function testThrownRefusalIsReadAsItsStatus(): void {
-    $throws = new class() implements HttpKernelInterface {
+  public function testRouteForAnotherMethodIsDeclaredAs405(): void {
+    $this->assertTrue(RenderedRoutes::declarable(405));
+    $this->assertSame('/api/cpat/registration@405', RenderedRoutes::withStatus('/api/cpat/registration', 405));
 
-      /**
-       * {@inheritdoc}
-       */
-      public function handle(Request $request, int $type = self::MAIN_REQUEST, bool $catch = TRUE): Response {
-        throw new AccessDeniedHttpException("The 'access content overview' permission is required.");
-      }
+    $root = $this->makeRoot();
+    RunWithSpec::open($root, "- /api/cpat/registration (405) — POST only\n");
+    $routes = SpecContract::routes($root, 'droost/droost-workflow/spec-routes.md');
+    $this->assertNotNull($routes);
+    $this->assertSame(['/api/cpat/registration@405'], $routes['routes']);
 
-    };
+    [$code, $out] = $this->cli($root, ['declare-route', '/api/cpat/revalidate', '--status=405', 'POST only']);
+    $this->assertSame(0, $code);
+    $this->assertStringContainsString('takes another method: an anonymous GET gets 405', $out);
 
-    $declared = (new BootedSiteDriver($throws, static fn (): int => 0))->run(new GateSettings('rendered_check', TRUE, ['routes' => '/admin/content@403']), '/tmp');
-    $this->assertSame(GateStatus::Passed, $declared->status);
-
-    $bare = (new BootedSiteDriver($throws, static fn (): int => 0))->run(new GateSettings('rendered_check', TRUE, ['routes' => '/admin/content']), '/tmp');
-    $this->assertSame(GateStatus::Failed, $bare->status);
-    $problem = $bare->findings[0]['problem'] ?? NULL;
-    $this->assertIsString($problem);
-    $this->assertStringContainsString('declare-route /admin/content --status=403', $problem);
-  }
-
-  /**
-   * A redirect the site makes only through index.php is judged as made.
-   *
-   * The Redirect module redirects no request whose script is not index.php
-   * (RedirectChecker::canRedirect). The gate's request had no script at all,
-   * so P9 run 3's `/internet.html@301`, which every visitor got, read 404
-   * (F-261). This kernel does what the module does, and asks that the
-   * request is otherwise the visitor's: the path, and no base URL.
-   */
-  public function testRedirectMadeOnlyThroughIndexPhpIsJudgedAsMade(): void {
-    $redirects = new class() implements HttpKernelInterface {
-
-      /**
-       * {@inheritdoc}
-       */
-      public function handle(Request $request, int $type = self::MAIN_REQUEST, bool $catch = TRUE): Response {
-        if ($request->getPathInfo() !== '/internet.html' || $request->getBaseUrl() !== '') {
-          return new Response('', 500);
-        }
-        return preg_match('/index\.php$/', $request->getScriptName())
-          ? new RedirectResponse('/internet', 301)
-          : new Response('', 404);
-      }
-
-    };
-
-    $result = (new BootedSiteDriver($redirects, static fn (): int => 0))->run(new GateSettings('rendered_check', TRUE, ['routes' => '/internet.html@301']), '/tmp');
-    $this->assertSame(GateStatus::Passed, $result->status, 'the 301 a visitor gets');
-    $this->assertSame([], $result->findings);
-  }
-
-  /**
-   * A refusal the site's exception listeners answer is judged as answered.
-   *
-   * P8 run 20's agent sent an anonymous visitor of /my-registrations to log
-   * in from a kernel.exception subscriber: the View threw access denied, and
-   * the subscriber answered it with a 303. Every visitor got the 303; the
-   * gate, rendering with catching off, read the thrown 403 and failed a
-   * declared redirect the site makes (F-253). This kernel does what Drupal
-   * does: it throws the refusal with catching off and answers it, through
-   * its listener, with catching on.
-   */
-  public function testRefusalAnsweredByListenersIsJudgedAsAnswered(): void {
-    $listens = new class() implements HttpKernelInterface {
-
-      /**
-       * {@inheritdoc}
-       */
-      public function handle(Request $request, int $type = self::MAIN_REQUEST, bool $catch = TRUE): Response {
-        if (!$catch) {
-          throw new AccessDeniedHttpException('access denied');
-        }
-        return new RedirectResponse('/user/login?destination=/my-registrations', 303);
-      }
-
-    };
-
-    $declared = (new BootedSiteDriver($listens, static fn (): int => 0))->run(new GateSettings('rendered_check', TRUE, ['routes' => '/my-registrations@303']), '/tmp');
-    $this->assertSame(GateStatus::Passed, $declared->status, 'a redirect made in kernel.exception is the redirect a visitor gets');
-
-    $refusal = (new BootedSiteDriver($listens, static fn (): int => 0))->run(new GateSettings('rendered_check', TRUE, ['routes' => '/my-registrations@403']), '/tmp');
-    $this->assertSame(GateStatus::Failed, $refusal->status, 'a visitor gets the 303, not the 403 the route threw');
-    $problem = $refusal->findings[0]['problem'] ?? NULL;
-    $this->assertIsString($problem);
-    $this->assertStringContainsString('answered 303', $problem);
-
-    $bare = (new BootedSiteDriver($listens, static fn (): int => 0))->run(new GateSettings('rendered_check', TRUE, ['routes' => '/my-registrations']), '/tmp');
-    $this->assertSame(GateStatus::Failed, $bare->status);
-    $problem = $bare->findings[0]['problem'] ?? NULL;
-    $this->assertIsString($problem);
-    $this->assertStringContainsString('declare-route /my-registrations --status=303', $problem);
-  }
-
-  /**
-   * A kernel that answers every request with one status.
-   *
-   * @param int $status
-   *   The status.
-   *
-   * @return \Symfony\Component\HttpKernel\HttpKernelInterface
-   *   The kernel.
-   */
-  private function kernel(int $status): HttpKernelInterface {
-    return new class($status) implements HttpKernelInterface {
-
-      public function __construct(private readonly int $status) {}
-
-      /**
-       * {@inheritdoc}
-       */
-      public function handle(Request $request, int $type = self::MAIN_REQUEST, bool $catch = TRUE): Response {
-        return new Response('<html><body>page</body></html>', $this->status);
-      }
-
-    };
+    [, , $err] = $this->cli($root, ['declare-route', '/api/x', '--status=500']);
+    $this->assertStringContainsString('to take another method (405', $err);
+    RunWithSpec::close($root);
   }
 
   /**

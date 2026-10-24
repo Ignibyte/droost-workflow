@@ -31,14 +31,13 @@ decision is good (that is the human's, at approval):
   ticket, and every construct shown only on pages a rung at or after its own
   builds.
 
-The commands are drush on a site (`drush droost:workflow:intake <verb>`) and
-the binary on a checkout (`vendor/bin/droost-workflow intake <verb>`). Under
-DDEV, prefix `ddev`.
+The commands are `droost workflow:intake <verb>`. Under DDEV, run them in the
+container (`ddev exec tools/droost/vendor/bin/droost …`).
 
 ## 1. Open the intake
 
 ```
-drush droost:workflow:intake start --request="<the human's words, verbatim>" --source=<path or URL>
+droost workflow:intake start --request="<the human's words, verbatim>" --source=<path or URL>
 ```
 
 The request is their words, exactly as they said them: it is the record of
@@ -53,7 +52,7 @@ the browser gate already uses). Run the server **where the audit runs**:
 under DDEV the audit runs in the web container, so serve the source there
 too (`ddev exec …`), or give the audit a URL the container reaches.
 
-- **Static HTML**: `vendor/bin/droost-source serve <folder> --port 4321`,
+- **Static HTML**: `tools/droost/vendor/bin/droost-source serve <folder> --port 4321`,
   in the background; add `--static` to the audit so each HTML file is read
   as a route.
 - **A Replit or Vite app** (`package.json`, often a pnpm workspace): install
@@ -65,7 +64,7 @@ too (`ddev exec …`), or give the audit a URL the container reaches.
   schemas from there.
 
 ```
-drush droost:workflow:intake audit --url=<where it is served> --files=<the source folder>
+droost workflow:intake audit --url=<where it is served> --files=<the source folder>
 ```
 
 This writes `droost/intake/audit.json` and `audit.md`, and records the
@@ -92,11 +91,20 @@ form, say), run it again with `--routes=/that,/other`.
   shown twice (a listing and a home-page block), never two types.
 - **A section that "shows" one record** is a spotlight: a View block or a
   reference field, not a type of its own.
+- **A field that "names a record of" another set** (the data section says
+  so, with how many values matched) holds a reference written as the other
+  record's name: every camp's `location` is one of the rinks. Model it as a
+  reference to that type, never as text, or put it to the human when a value
+  might one day name something the site does not list.
 - **A broken image** (the audit marks it, and its slot says how many of
   the items' images are broken) holds content nobody has seen. Never say
   what it shows from its file name or alt text: say it is missing, and ask
   the human what it held. If a record's name, price or text might be drawn
   into it, that is a question, not a field.
+- **An image's alt text is a claim, not its content**, broken or not. A
+  photo the source hotlinks from elsewhere, recommended for the site, is
+  looked at first: one source's "Hockey player on ice" was a basketball in
+  a hoop, and an intake recommended copying it on the strength of its alt.
 - **A value worked out from another** is shown, not stored: initials from a
   name, a full name from its parts, a "FREE" for a price of 0. A record field
   of the source can be one (a mock data file stores what a template should
@@ -158,12 +166,13 @@ Write it in this shape; `intake check` reads it:
 Before the model goes to the human, look at what the site already has, so no
 construct duplicates one that exists and none breaks the site's house rules:
 
-- `drush droost:brief` — the site's case (Canvas, SDC, code components), its
-  modules, its content model and its house rules.
-- `drush droost:tool droost_entities '{}'` and `vendor/bin/droost
-  droost_module_docs` — what already exists and what an installed module
-  already gives you.
-- `vendor/bin/droost-workflow rules` — the house rules alone: each rung's
+- `droost brief` — the site's versions, its custom and contrib modules, what
+  the last configuration export enabled, and its house rules.
+- `droost code:wiki` and `droost code:tree` — what already exists, and what
+  each installed module and theme already gives you. The running site's
+  content model (bundles, fields) is drush's to read, or the exported
+  configuration's.
+- `droost workflow:rules` — the house rules alone: each rung's
   work is held to them, by a gate or by the seeker.
 
 A construct the site already has is reused, and the row says so; one a house
@@ -190,11 +199,25 @@ already says how many records there are). What a source cannot say:
 - **what a free-text value is**: a date written as words, a price that is
   sometimes "FREE".
 
+Each row names its **Category**: `editing`, `content`, `destinations`,
+`scope` or `values`, the five above in order. `intake check` refuses a
+roadmap until every category has a row:
+
+- **asked**: Decided by `human`, or `recommendation` when they deferred;
+- **settled by the source**: Decided by `source`, citing the audit id that
+  settles it in the row (`d:data/events.ts#EVENTS`). Never for `editing` or
+  `scope`: who edits what and what is out of scope are the human's alone;
+- **not applicable**: Decided by `n/a`, with the reason in the Why column,
+  only for `destinations` (no form, booking or payment) and `values` (no
+  free-text value).
+
 ```markdown
-| Id | Question | Why the source cannot settle it | Recommendation | Answer | Decided by |
-|---|---|---|---|---|---|
-| Q1 | Who edits the events? | the source hardcodes them | Staff editors, in the admin | Staff editors | human |
-| Q2 | Are the six events real? | events.ts holds them | Import them as the first content | Defer to your recommendation → import them | recommendation |
+| Id | Category | Question | Why the source cannot settle it | Recommendation | Answer | Decided by |
+|---|---|---|---|---|---|---|
+| Q1 | editing | Who edits the events? | the source hardcodes them | Staff editors, in the admin | Staff editors | human |
+| Q2 | content | Are the six events real? | events.ts holds them | Import them as the first content | Defer to your recommendation → import them | recommendation |
+| Q3 | destinations | Where do submissions go? | the source has no form, no booking and no payment | — | — | n/a |
+| Q4 | scope | Is anything out of scope? | the source sketches accounts and a shop | Neither at launch | Neither at launch | human |
 ```
 
 **Ask each through AskUserQuestion**, with the question's words exactly as
@@ -228,16 +251,16 @@ the words `questions.md` carries, your recommendation first:
 then run:
 
 ```
-drush droost:workflow:intake ask --file=droost/intake/ask.json
+droost workflow:intake ask --file=droost/intake/ask.json
 ```
 
 and **stop your turn**. The host shows the questions to the human and records
 each answer through `intake answer` (never run it yourself: it is the
-operator's, and refused). When you are resumed, `drush
-droost:workflow:intake status` lists what is still `pending` and what is
+operator's, and refused). When you are resumed, `droost
+workflow:intake status` lists what is still `pending` and what is
 `recorded`; copy each recorded answer into `questions.md` as above, and ask
 again only what is still unanswered. Without a host either, the operator
-records each answer in their terminal (`drush droost:workflow:intake answer
+records each answer in their terminal (`droost workflow:intake answer
 "<question>" "<answer>"`).
 
 Revise the model with the answers.
@@ -276,6 +299,23 @@ shows on that page: a later rung's page is checked once its reference is
 captured. Never set aside what the build has not managed: that is a gate to
 pass, not a decision.
 
+**When an answer means the site will show something the source does not**
+(a footer link to a page the source never had), name it in the same file's
+`added` list, after the source's text it follows. Without it, everything
+below the new text sits lower than the reference and fails parity on every
+page that shows it:
+
+```json
+{"added": [
+  {"route": "*", "text": "Contact us", "after": "Support", "decided": "Q8", "why": "the footer links the new /contact"}
+]}
+```
+
+Only a question in `questions.md` can add a text, only after a text the
+source shows there, and never a text the source already shows. Record every
+set-aside and addition before the roadmap is approved: after that the
+reference is the operator's.
+
 ## 6. The roadmap: `droost/intake/roadmap.md`
 
 ```markdown
@@ -297,11 +337,19 @@ pass, not a decision.
   consumes, its acceptance criteria from the source (what a visitor sees and
   an editor can do, never how it is built), and its pages, which are its
   parity routes.
+- **The Pages column is what parity judges.** A rung is held to its own
+  pages and every rung's below it, never to a page no rung has built yet:
+  `droost workflow:intake routes <rung>` prints them, and the operator sets
+  the parity gate's `routes` lever to that line before the rung runs. A
+  route no rung lists is never judged, so list every page the source has.
+- **Once the roadmap is approved the reference is the operator's.** The
+  guard refuses any change to it, run or no run: a page the client changes
+  later is re-captured by the operator, never trimmed to fit.
 
 ## 7. Check, then hand it to the operator
 
 ```
-drush droost:workflow:intake check
+droost workflow:intake check
 ```
 
 Repeat until it reads `ready: true`. Then show the human the roadmap in a
@@ -313,7 +361,7 @@ of that one question with the options `Approve` and `Not yet`, `intake ask`,
 and stop your turn. Only on their yes, approve it yourself:
 
 ```
-drush droost:workflow:intake approve
+droost workflow:intake approve
 ```
 
 Never approve without that yes: `approve` is refused until the human's

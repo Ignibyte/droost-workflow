@@ -9,12 +9,12 @@ use Droost\Workflow\Config\GateSettings;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Spec\SpecContract;
 use Droost\Workflow\Spec\SpecError;
 use Droost\Workflow\State\RunStateStore;
+use Droost\Workflow\Tests\Levers;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\WorkflowFacade;
 
@@ -102,7 +102,7 @@ final class SpecContractTest extends WorkflowTestCase {
    */
   public function testBareRunWithNoSpecOpensTheRunAndWaits(): void {
     $root = $this->makeRoot();
-    file_put_contents($root . '/droost.workflow.yml', "preset: custom\nseekers: { on: false }\n");
+    file_put_contents(Levers::path($root), "preset: custom\nseekers: { on: false }\n");
     $facade = $this->facadeForCli();
 
     $opened = $facade->run($root);
@@ -196,6 +196,26 @@ MD
     $this->assertSame(['AC2'], $criteria['manual'], 'bold ids and escaped pipes are read through');
     $this->assertSame(['AC3', 'AC4'], $criteria['unverified'], 'an empty cell and a dash are both unverified');
     $this->assertFalse($criteria['column_missing']);
+    $this->assertSame([], $criteria['misshapen'], 'an escaped pipe is not an extra cell');
+  }
+
+  /**
+   * A row with a cell more than its header is named, and fails safe.
+   *
+   * A live spec wrote `| AC1 | … | browser || tests/x.spec.js |`: its fourth
+   * cell, the one under `Verified By`, is the empty one (F-328).
+   */
+  public function testMisshapenCriteriaRowsAreNamed(): void {
+    $root = $this->makeRootWithConfig("preset: custom\n");
+    $spec = 'droost/droost-workflow/spec-test-run.md';
+    file_put_contents($root . '/' . $spec, "# Spec\n\n## Acceptance criteria\n\n| ID | Criterion | Check | Verified By |\n|---|---|---|---|\n"
+      . "| AC1 | x | browser || `tests/x.spec.js` |\n| AC2 | x | test | `tests/y.spec.js` |\n");
+
+    $criteria = SpecContract::criteriaVerification($root, $spec);
+    $this->assertNotNull($criteria);
+    $this->assertSame(['AC1'], $criteria['misshapen']);
+    $this->assertSame(['AC1'], $criteria['unverified'], 'read as it reads: never as verified');
+    $this->assertSame(['AC2'], $criteria['verified']);
   }
 
   /**
@@ -809,7 +829,6 @@ MD
     };
     return new WorkflowFacade(
       $executor,
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       static fn (): string => '2026-09-01T12:00:00+00:00',
       static fn (): string => 'run-spec-contract',

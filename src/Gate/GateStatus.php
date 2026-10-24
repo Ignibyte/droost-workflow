@@ -8,10 +8,10 @@ namespace Droost\Workflow\Gate;
  * What happened to one gate.
  *
  * Eight words, and the ones that mean "it did not run" or "it did not block"
- * are deliberately not one word. A gate skipped because there is no site is an
- * ordinary fact about a CLI run; a gate whose tool is not installed is a broken
- * setup; a gate that found problems in report mode is a finding nobody may
- * mistake for a pass. Same absence of a blocking result, opposite meanings —
+ * are deliberately not one word. A gate the lever file turned off is a choice
+ * someone made; a gate whose tool is not installed is a broken setup; a gate
+ * that found problems in report mode is a finding nobody may mistake for a
+ * pass. Same absence of a blocking result, opposite meanings —
  * collapsing them is how "fast mode" and "nothing was checked" become
  * indistinguishable in a report, which is the failure this whole package
  * exists to prevent.
@@ -31,8 +31,10 @@ enum GateStatus: string {
   // it, and the mandatory trio can never be put in that mode.
   case Reported = 'reported';
 
-  // Environmental: the gate needs a booted site and there is none. Does not
-  // block the run, and is never rendered as a pass.
+  // Retired (2026-10-21): no gate produces it. It meant "the gate needs a
+  // booted site and there is none", did not block, and was last produced for
+  // wiki_fresh when droost could not run, which now blocks as
+  // error-tool-failed. Kept so a record written before still reads.
   case SkippedNoSite = 'skipped-no-site';
 
   // Misconfigured: the gate is enabled but its tool is not installed. Fails

@@ -254,14 +254,8 @@ final class ModeEngine {
     // gates just measured; before advancing, because a blocked check has to
     // stop a phase exactly as a failed gate does — otherwise contributing one
     // is contributing a comment.
-    // BOTH RUN, then the verdict. Short-circuiting here would mean an unmet
-    // step suppressed the contributed checks' rows entirely, so a run that
-    // failed the browser step would report nothing about jira or snyk either
-    // and the agent would fix one thing per pass with no idea what else was
-    // waiting.
-    $stepsMet = $this->recordPhaseSteps($state, $phase, $projectRoot);
     $checksMet = $this->adjudicateChecks($state, $phase, $projectRoot);
-    if (!$stepsMet || !$checksMet) {
+    if (!$checksMet) {
       $stuck = $this->stuckOutcome($state, $phase, $projectRoot, $report, $now);
 
       // A contributed check or a spec condition, not a gate: nothing was spent
@@ -369,7 +363,10 @@ final class ModeEngine {
       return new RunOutcome(Outcome::Deferred, $state, $report, NULL, [], $deferring);
     }
 
-    if ($this->effectiveMode($state)->holdsForConversation()) {
+    // A human-led run holds at complete whatever the mode: finishing is the
+    // human's (owner, 2026-10-20).
+    if ($this->effectiveMode($state)->holdsForConversation()
+      || ($phase === Phase::Complete && $state->lead === RunState::LEAD_HUMAN)) {
       $question = $this->conversationAt($phase, $report, $now);
       // State first, sink second. Always.
       $state = $state->awaiting($question->toArray());
@@ -418,7 +415,7 @@ final class ModeEngine {
         . 'the phase by itself. These are declarations, contributed checks or '
         . 'spec conditions, and they cost nothing to retry — so a run can sit '
         . 'here indefinitely without anything saying so.',
-        'Read §4 of `droost-workflow evidence` for what is blocked and why.',
+        'Read §4 of `droost workflow:evidence` for what is blocked and why.',
         'A block with an ENVIRONMENT fault names a remedy an operator can run.',
         'A block with an AGENT fault has no waiver: the work itself has to change.',
         'If a block cannot be cleared by any action, that is a defect in droost '
@@ -696,6 +693,8 @@ final class ModeEngine {
    *   The repository, so an answer that ENDS the run can be recorded as a
    *   verdict rather than only as a phase status. Empty skips that, for the
    *   callers that have no root to give.
+   * @param string|null $via
+   *   Where the answer came from (RunState::answered()).
    *
    * @return \Droost\Workflow\State\RunState
    *   The run, no longer awaiting, with the exchange recorded.
@@ -709,6 +708,7 @@ final class ModeEngine {
     string $answer,
     string $now,
     string $projectRoot = '',
+    ?string $via = NULL,
   ): RunState {
     if ($state->awaiting === NULL) {
       throw new \InvalidArgumentException(
@@ -716,7 +716,7 @@ final class ModeEngine {
       );
     }
     $asked = PendingQuestion::fromArray($state->awaiting);
-    $answered = $state->answered($answer, $now);
+    $answered = $state->answered($answer, $now, $via);
     // Most answers do nothing beyond being recorded, and that is right: for a
     // conversation hold the human's consent to advance IS the act.
     //
@@ -750,7 +750,7 @@ final class ModeEngine {
               . 'here on their word, not on a gate.',
               trim($answer),
             ),
-            'droost-workflow reset --force, once whatever made it stick is understood',
+            'droost workflow:reset --force, once whatever made it stick is understood',
           ),
           $now,
         );
@@ -953,48 +953,6 @@ final class ModeEngine {
       $detail,
       $options,
     );
-  }
-
-  /**
-   * The steps this phase owes, recorded as rows, one per pass.
-   *
-   * THE ENGINE ROUTES AND THE AGENT EXECUTES. A step is a thing the agent was
-   * told to do that leaves a trace something other than the agent wrote: a
-   * count of rows, present or absent. No severity is read, no prose is
-   * parsed, no opinion is weighed.
-   *
-   * **There are none at present, and that is a decision rather than a gap.**
-   * The one step this ever carried was `browser_review`, which counted
-   * Playwright MCP calls in the guard's diary to answer "did the agent look
-   * at its work". It worked — verified live in `P4-KCH-4` and `P4-KCH-6` —
-   * and it was replaced on purpose:
-   *
-   * - **a tool call leaves nothing behind.** One `browser_navigate`
-   *   satisfied it, and the regression test still had to be written
-   *   afterwards from memory. A committed spec is the verification AND the
-   *   artefact, and it re-runs on every later ticket.
-   * - **it was cheap to fake.** `P4-KCH-4` made 32 calls and `P4-KCH-6` made
-   *   4; both read `satisfied`. A spec has to pass against the running site.
-   * - **two sources for one fact.** With the `playwright` gate on at every
-   *   preset, a step that asked the same question from a different ledger is
-   *   the redundancy Phase B3 removed from route resolution.
-   *
-   * The guard still RECORDS every MCP call — that is F-37's fix and it stays,
-   * because `EvidenceStore::browserToolCalls()` now reports exploration in
-   * the evaluation instead of gating on it.
-   *
-   * @param \Droost\Workflow\State\RunState $state
-   *   The run.
-   * @param \Droost\Workflow\Config\Phase $phase
-   *   The phase whose gates have just passed.
-   * @param string $projectRoot
-   *   The repository.
-   *
-   * @return bool
-   *   TRUE when no step blocks the phase.
-   */
-  private function recordPhaseSteps(RunState $state, Phase $phase, string $projectRoot): bool {
-    return TRUE;
   }
 
   /**

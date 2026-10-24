@@ -10,7 +10,6 @@ use Droost\Workflow\Event\RunEventLog;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Intake\IntakeCheck;
 use Droost\Workflow\Intake\IntakeError;
 use Droost\Workflow\Intake\IntakeFinding;
@@ -82,13 +81,41 @@ MD;
 | 3 | tickets/R3.md | the contact page | 2 | /contact |
 MD;
 
+  /**
+   * The answers complete() puts on record: Q1, Q3, Q4 and Q5.
+   *
+   * Q2 is the one the source settles.
+   */
+  private const ANSWERED = 4;
+
   private const QUESTIONS = <<<'MD'
 # Questions
 
-| Id | Question | Recommendation | Answer | Decided by |
-|---|---|---|---|---|
-| Q1 | Who edits the events? | Staff editors | Staff editors | human |
+| Id | Question | Recommendation | Answer | Decided by | Category |
+|---|---|---|---|---|---|
+| Q1 | Who edits the events? | Staff editors | Staff editors | human | editing |
+| Q2 | Are the six events real? | Import them | the source's own records (d:data/events.ts#EVENTS) | source | content |
+| Q3 | Where do contact messages go? | The office inbox | The office inbox | human | destinations |
+| Q4 | Is anything out of scope? | No accounts, no shop | No accounts, no shop | human | scope |
+| Q5 | What is "FREE" in a price? | A price of zero | A price of zero | human | values |
 MD;
+
+  /**
+   * The routes built through a rung are the roadmap's, never the run's.
+   *
+   * What the parity gate's `routes` lever names between rungs (F-354): each
+   * rung's pages and every rung's below it, the frame left out because it is
+   * judged on every route.
+   */
+  public function testRoutesThroughRungAreTheRoadmaps(): void {
+    [, $service] = $this->complete();
+    $this->assertSame(['/'], $service->routesThrough('1'));
+    $this->assertSame(['/', '/events'], $service->routesThrough('R2'));
+    $this->assertSame(['/', '/events', '/contact'], $service->routesThrough('3'));
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('has no rung "4"');
+    $service->routesThrough('4');
+  }
 
   /**
    * A complete intake passes every check.
@@ -117,7 +144,7 @@ MD;
     $state = $store->load();
     $this->assertNotNull($state);
     $store->save(new IntakeState($state->id, $state->status, $state->request, $state->source, $state->openedAt));
-    $this->assertFinding($service, 'files', 'not written by `droost-workflow intake audit`');
+    $this->assertFinding($service, 'files', 'not written by `droost workflow:intake audit`');
   }
 
   /**
@@ -213,8 +240,63 @@ MD;
     $this->rewrite($root, 'questions.md', '| Q1 | Who edits the events? | Staff editors | Staff editors | human |', '| Q1 | Who edits the events? | Staff editors | Volunteers | human |');
     $this->assertFinding($service, 'answered', 'Q1: the answer on record is "Staff editors", and the file says "Volunteers"');
 
-    $this->rewrite($root, 'questions.md', '| Q1 | Who edits the events? | Staff editors | Volunteers | human |', "| Q1 | Who edits the events? | Staff editors | Staff editors | human |\n| Q2 | Is the events data real? | Placeholder | Real | human |");
-    $this->assertFinding($service, 'answered', 'Q2 has no answer on record');
+    $this->rewrite($root, 'questions.md', '| Q1 | Who edits the events? | Staff editors | Volunteers | human |', "| Q1 | Who edits the events? | Staff editors | Staff editors | human | editing |\n| Q9 | Is the events data real? | Placeholder | Real | human |");
+    $this->assertFinding($service, 'answered', 'Q9 has no answer on record');
+  }
+
+  /**
+   * Every category a source cannot settle has a row (F-353).
+   *
+   * UNI-A run 1 reached the approval question without asking who edits
+   * what or what is out of scope; the client refused the roadmap on five
+   * counts nobody had asked about. Each wall broken alone, from the complete
+   * intake.
+   */
+  public function testEveryCategoryTheSourceCannotSettleIsCovered(): void {
+    [$root, $service] = $this->complete();
+    $this->rewrite($root, 'questions.md', "| Q4 | Is anything out of scope? | No accounts, no shop | No accounts, no shop | human | scope |\n", '');
+    $this->assertFinding($service, 'asked', 'Nothing in questions.md covers what is out of scope (Category scope): a source cannot say it, so ask the human.');
+
+    [$root, $service] = $this->complete();
+    $this->rewrite($root, 'questions.md', '| Q1 | Who edits the events? | Staff editors | Staff editors | human | editing |', '| Q1 | Who edits the events? | Staff editors | the templates (p:/events#r1) | source | editing |');
+    $this->assertFinding($service, 'asked', 'Q1 is about who edits what, which a source can never settle: ask the human.');
+
+    [$root, $service] = $this->complete();
+    $this->rewrite($root, 'questions.md', '(d:data/events.ts#EVENTS)', '(the events file)');
+    $this->assertFinding($service, 'asked', 'Q2 says the source settles what is real content and cites nothing');
+    $this->rewrite($root, 'questions.md', '(the events file)', '(d:data/nowhere.ts#X)');
+    $this->assertFinding($service, 'asked', 'Q2 cites d:data/nowhere.ts#X, which the audit does not list.');
+
+    [$root, $service] = $this->complete();
+    $this->rewrite($root, 'questions.md', '| A price of zero | A price of zero | human | values |', '| — | — | n/a | values |');
+    $this->assertFinding($service, 'asked', 'Q5 says what a free-text value is does not apply and gives no reason');
+    $this->rewrite($root, 'questions.md', '| Q1 | Who edits the events? | Staff editors | Staff editors | human | editing |', '| Q1 | Who edits the events? | — | — | n/a | editing |');
+    $this->assertFinding($service, 'asked', 'Q1 says who edits what does not apply, and every site has it');
+
+    [$root, $service] = $this->complete();
+    $this->rewrite($root, 'questions.md', '| human | values |', '| human | prices |');
+    $this->assertFinding($service, 'asked', 'Q5\'s Category "prices" is not one of editing, content, destinations, scope, values.');
+    $this->rewrite($root, 'questions.md', '| Decided by | Category |', '| Decided by | Kind |');
+    $this->assertFinding($service, 'asked', 'questions.md\'s table needs a Category column');
+  }
+
+  /**
+   * A category with nothing of it is not applicable, with the reason (F-353).
+   */
+  public function testFormlessSiteMarksDestinationsNotApplicable(): void {
+    [$root, $service] = $this->complete();
+    file_put_contents($root . '/droost/intake/questions.md', <<<'MD'
+# Questions
+
+| Id | Category | Question | Why the source cannot settle it | Recommendation | Answer | Decided by |
+|---|---|---|---|---|---|---|
+| Q1 | editing | Who edits the events? | the source hardcodes them | Staff editors | Staff editors | human |
+| Q2 | content | Are the six events real? | events.ts holds them | Import them | the source's own records (d:data/events.ts#EVENTS) | source |
+| Q3 | destinations | Where do submissions go? | the source has no form, no booking and no payment | — | — | n/a |
+| Q4 | scope | Is anything out of scope? | the source sketches no accounts | No accounts, no shop | No accounts, no shop | human |
+| Q5 | values | What is "FREE" in a price? | a price is sometimes FREE | A price of zero | A price of zero | human |
+MD);
+    $this->assertSame([], $this->messages($service->check()), 'the column order is the skill\'s, and n/a carries its reason');
   }
 
   /**
@@ -504,15 +586,16 @@ MD;
     $service->ask('droost/intake/ask.json');
     $status = $service->status();
     $this->assertSame($this->loaded($service)->pending, $status['pending'] ?? NULL);
+    $recorded = $status['recorded'] ?? NULL;
+    $this->assertIsArray($recorded);
     $this->assertSame([
-      [
-        'question' => 'Who edits the events?',
-        'answer' => 'Staff editors',
-        'via' => 'AskUserQuestion',
-        'at' => '2026-10-08T00:02:00+00:00',
-      ],
-    ], $status['recorded'] ?? NULL);
-    $this->assertSame(1, $status['answers'] ?? NULL);
+      'question' => 'Who edits the events?',
+      'answer' => 'Staff editors',
+      'via' => 'AskUserQuestion',
+      'at' => '2026-10-08T00:02:00+00:00',
+    ], $recorded[0] ?? NULL);
+    $this->assertCount(self::ANSWERED, $recorded);
+    $this->assertSame(self::ANSWERED, $status['answers'] ?? NULL);
   }
 
   /**
@@ -548,7 +631,7 @@ MD;
     catch (IntakeError $e) {
       $this->assertStringContainsString('--via is terminal or cockpit, not "agent"', $e->getMessage());
     }
-    $this->assertCount(1, $this->store($service)->records($this->loaded($service)->id), 'nothing was recorded');
+    $this->assertCount(self::ANSWERED, $this->store($service)->records($this->loaded($service)->id), 'nothing was recorded');
   }
 
   /**
@@ -564,7 +647,7 @@ MD;
     }
 
     // A question that only mentions approval is not the roadmap's approval.
-    $this->rewrite($root, 'questions.md', '| Q1 | Who edits the events? | Staff editors | Staff editors | human |', "| Q1 | Who edits the events? | Staff editors | Staff editors | human |\n| Q2 | Do posts need approval before publishing? | No | Yes | human |");
+    $this->rewrite($root, 'questions.md', '| Q1 | Who edits the events? | Staff editors | Staff editors | human |', "| Q1 | Who edits the events? | Staff editors | Staff editors | human | editing |\n| Q9 | Do posts need approval before publishing? | No | Yes | human |");
     $this->store($service)->appendAnswer($id, 'Do posts need approval before publishing?', 'Yes', 'cockpit', '2026-10-08T00:05:00+00:00');
     $this->assertApprovalRefused($service, 'answered "Approve with changes"');
 
@@ -690,7 +773,7 @@ MD;
     $code = $cli->dispatch(['intake', 'answer', '--via', 'cockpit', 'Who edits the events?', 'Me'], $root);
     $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code);
     $this->assertStringContainsString('with its "=": "--via" is not one', implode("\n", $lines));
-    $this->assertCount(1, $this->store($service)->records($this->loaded($service)->id), 'nothing was recorded');
+    $this->assertCount(self::ANSWERED, $this->store($service)->records($this->loaded($service)->id), 'nothing was recorded');
   }
 
   /**
@@ -860,6 +943,14 @@ MD;
       file_put_contents($dir . '/tickets/' . $ticket . '.md', "# {$ticket}\n");
     }
     $this->store($service)->appendAnswer($state->id, 'Who edits the events?', 'Staff editors', 'AskUserQuestion', '2026-10-08T00:02:00+00:00');
+    $asked = [
+      'Where do contact messages go?' => 'The office inbox',
+      'Is anything out of scope?' => 'No accounts, no shop',
+      'What is "FREE" in a price?' => 'A price of zero',
+    ];
+    foreach ($asked as $question => $answer) {
+      $this->store($service)->appendAnswer($state->id, $question, $answer, 'AskUserQuestion', '2026-10-08T00:02:30+00:00');
+    }
     $this->looked($root);
     return [$root, $service];
   }
@@ -920,7 +1011,7 @@ MD;
 
     };
     $clock = static fn (): string => '2026-10-08T00:00:00+00:00';
-    return new WorkflowFacade($executor, new NullSiteDriver(), new RunStateOnlySink(), $clock, static fn (): string => 'run-intake', NULL, $vcs);
+    return new WorkflowFacade($executor, new RunStateOnlySink(), $clock, static fn (): string => 'run-intake', $vcs);
   }
 
   /**

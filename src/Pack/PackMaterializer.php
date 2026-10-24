@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Pack;
 
+use Droost\Workflow\Config\ConfigLocator;
 use Droost\Workflow\Config\PhpcsStandard;
 use Droost\Workflow\State\RunStateStore;
 use Droost\Workflow\Support\TypedArray;
@@ -27,7 +28,7 @@ final class PackMaterializer {
   /**
    * Where the pack says the binary is, as shipped.
    */
-  public const DEFAULT_BINARY = 'vendor/bin/droost-workflow';
+  public const DEFAULT_BINARY = 'vendor/bin/droost';
 
   /**
    * The package root, where the pack/ directory lives.
@@ -78,7 +79,14 @@ final class PackMaterializer {
     // where the refusal happened on the sixth file is worse than one that
     // refused up front, because the agent would find some skills present and
     // conclude the install worked.
-    foreach (PackManifest::ownedDirectories() as $relative) {
+    // The skills droost's site modules ship join the pack's, read from the
+    // module the site has (B3, 2026-10-24).
+    $moduleSkills = PackManifest::moduleSkills($root);
+    $owned = array_values(array_unique([
+      ...PackManifest::ownedDirectories(),
+      ...array_map('dirname', array_keys($moduleSkills)),
+    ]));
+    foreach ($owned as $relative) {
       $this->assertOursOrAbsent($root . '/' . $relative, $relative);
     }
 
@@ -90,10 +98,20 @@ final class PackMaterializer {
     $lock = $this->readLock($root);
     $newLock = [];
     $binary = $this->binaryFor($root);
+    $sources = [];
     foreach (PackManifest::FILES as $source => $destination) {
+      $sources[$destination] = $this->readSource($source);
+    }
+    foreach ($moduleSkills as $destination => $file) {
+      $contents = @file_get_contents($file);
+      if ($contents === FALSE) {
+        throw PackError::sourceMissing($file);
+      }
+      $sources[$destination] = $contents;
+    }
+    foreach ($sources as $destination => $shipped) {
       // Rendered with the binary's real path (F-166), and locked as rendered,
       // so drift is judged against what this init wrote.
-      $shipped = self::withBinary($this->readSource($source), $binary);
       $lastShipped = is_string($lock[$destination] ?? NULL)
         ? $lock[$destination]
         : NULL;
@@ -121,8 +139,35 @@ final class PackMaterializer {
         : $report->withWritten($destination);
       $newLock[$destination] = hash('sha256', $shipped);
     }
+    // A module skill an earlier init wrote and no module ships now goes, as
+    // the pack's own files would; one edited since is the user's and stays.
+    $emptied = [];
+    foreach ($lock as $destination => $lastShipped) {
+      if (isset($newLock[$destination]) || !PackManifest::isModuleSkillPath($destination)) {
+        continue;
+      }
+      $to = $root . '/' . $destination;
+      if (!is_file($to)) {
+        continue;
+      }
+      if (!is_file(dirname($to) . '/' . PackManifest::SENTINEL) || !hash_equals($lastShipped, (string) hash_file('sha256', $to))) {
+        $report = $report->withKept($destination);
+        $newLock[$destination] = $lastShipped;
+        continue;
+      }
+      @unlink($to);
+      $emptied[dirname($to)] = TRUE;
+      $report = $report->withRemoved($destination);
+    }
+    // A skill's directory goes once nothing but its marker is left in it.
+    foreach (array_keys($emptied) as $dir) {
+      if (array_diff(scandir($dir) ?: [], ['.', '..', PackManifest::SENTINEL]) === []) {
+        @unlink($dir . '/' . PackManifest::SENTINEL);
+        @rmdir($dir);
+      }
+    }
     $this->writeLock($root, $newLock);
-    foreach (PackManifest::ownedDirectories() as $relative) {
+    foreach ($owned as $relative) {
       $this->plantSentinel($root . '/' . $relative, $relative);
     }
 
@@ -133,7 +178,8 @@ final class PackMaterializer {
     // the documented CLI route produced an installed pipeline that no agent
     // was ever told about. That is eval T01's headline miss, shipped as the
     // default for every non-Drupal consumer.
-    $agents = AgentsBlock::write($root, AgentsBlock::paragraphs($binary));
+    $project = is_file($root . '/' . ConfigLocator::AGENTS) ? (string) file_get_contents($root . '/' . ConfigLocator::AGENTS) : '';
+    $agents = AgentsBlock::write($root, AgentsBlock::paragraphs($binary, $project));
     if ($agents === 'failed') {
       throw PackError::unwritable(AgentsBlock::FILE, 'the write did not complete');
     }
@@ -141,6 +187,12 @@ final class PackMaterializer {
       ? $report->withKept(AgentsBlock::FILE)
       : $report->withWritten(AgentsBlock::FILE);
     $report = $this->wireClaudeSettings($root, $report);
+    // The copy an earlier init made, which nothing calls once the hooks name
+    // the package's guard: left behind, it would read as the enforcement
+    // while enforcing nothing.
+    if (is_file($root . '/' . PackManifest::LEGACY_GUARD)) {
+      @unlink($root . '/' . PackManifest::LEGACY_GUARD);
+    }
     return $this->ensureGitignore($root, $report);
   }
 
@@ -195,20 +247,24 @@ final class PackMaterializer {
     // reference project files from a hook; the double quotes tolerate a space
     // in the path. The guard resolves the same var internally for its run
     // state, so both the script and what it reads are project-anchored.
-    $guard = 'php "$CLAUDE_PROJECT_DIR/.claude/hooks/droost-workflow-guard.php"';
-    // Eight wirings of one script; three of them on PreToolUse with different
+    // THE GUARD IN THE PACKAGE (droost off Drupal, 2026-10-19): no copy in
+    // the project. Each entry calls the package's entry point and names the
+    // harness, so the guard translates the payload it was handed; the guard
+    // protects the package it runs from, run or no run.
+    $guard = 'php "' . $this->guardEntry($root) . '"';
+    // Nine wirings of one script; four of them on PreToolUse with different
     // matchers, so this is a list of (event, entry) pairs and presence is
     // checked per COMMAND, not per event — an install that already carries
     // the edit guard still gets the Bash guard added (R23-F2).
     $wanted = [
       ['PreToolUse', [
         'matcher' => 'Edit|Write|MultiEdit|NotebookEdit',
-        'hooks' => [['type' => 'command', 'command' => $guard . ' pre-tool-use']],
+        'hooks' => [['type' => 'command', 'command' => $guard . ' pre-tool-use --harness=claude']],
       ],
       ],
       ['PreToolUse', [
         'matcher' => 'Bash',
-        'hooks' => [['type' => 'command', 'command' => $guard . ' operator-commands']],
+        'hooks' => [['type' => 'command', 'command' => $guard . ' operator-commands --harness=claude']],
       ],
       ],
       // RECORDING ONLY, and the reason it is a third registration rather
@@ -220,15 +276,19 @@ final class PackMaterializer {
       // throughout, and the step that counts those rows wedged the run.
       //
       // Widening a refusal matcher to `.*` would put every third-party tool's
-      // arguments through the file-path and shell checks. This entry cannot
-      // refuse anything: `record` returns before any branch that can.
+      // arguments through the file-path and shell checks. This entry runs
+      // none of droost's file and shell refusals: `record` returns before
+      // them. A project's own walls (droost/droost.yml `walls`) can refuse
+      // here, the calls their `tools` regex names, and so can the run, for
+      // droost's own site tools offered over MCP (`…__tool_api__droost_*`),
+      // held as `drush droost:tool` is.
       ['PreToolUse', [
         'matcher' => 'mcp__.*',
-        'hooks' => [['type' => 'command', 'command' => $guard . ' record']],
+        'hooks' => [['type' => 'command', 'command' => $guard . ' record --harness=claude']],
       ],
       ],
       ['Stop', [
-        'hooks' => [['type' => 'command', 'command' => $guard . ' stop']],
+        'hooks' => [['type' => 'command', 'command' => $guard . ' stop --harness=claude']],
       ],
       ],
       // GUIDANCE, after the call (owner, 2026-10-02: "we guide it, not
@@ -236,10 +296,10 @@ final class PackMaterializer {
       // entry can refuse nothing: it adds a note beside the result when the
       // agent searches core, contrib or vendor, hand-writes a file a
       // generator makes, or writes its spec before consulting droost with
-      // it. The Claude mod carries the same notes where this is absent.
+      // it.
       ['PostToolUse', [
         'matcher' => 'Bash|Grep|Glob|Write|Edit|MultiEdit',
-        'hooks' => [['type' => 'command', 'command' => $guard . ' nudge']],
+        'hooks' => [['type' => 'command', 'command' => $guard . ' nudge --harness=claude']],
       ],
       ],
       // The human's answers to an intake's questions, recorded as they were
@@ -251,18 +311,25 @@ final class PackMaterializer {
       // wrote. Records only; never refuses.
       ['PostToolUse', [
         'matcher' => 'Agent|Task',
-        'hooks' => [['type' => 'command', 'command' => $guard . ' dispatched']],
+        'hooks' => [['type' => 'command', 'command' => $guard . ' dispatched --harness=claude']],
       ],
       ],
       // A background subagent's RETURN (0.14.19): PostToolUse fires at its
       // launch, so the return is read where it happens. Records only.
       ['SubagentStop', [
-        'hooks' => [['type' => 'command', 'command' => $guard . ' subagent-stop']],
+        'hooks' => [['type' => 'command', 'command' => $guard . ' subagent-stop --harness=claude']],
       ],
       ],
       ['PostToolUse', [
         'matcher' => 'AskUserQuestion',
-        'hooks' => [['type' => 'command', 'command' => $guard . ' answers']],
+        'hooks' => [['type' => 'command', 'command' => $guard . ' answers --harness=claude']],
+      ],
+      ],
+      // A question's input arriving with its answers filled is the agent
+      // answering itself; refused before the dialog opens (owner, 2026-10-20).
+      ['PreToolUse', [
+        'matcher' => 'AskUserQuestion',
+        'hooks' => [['type' => 'command', 'command' => $guard . ' question --harness=claude']],
       ],
       ],
     ];
@@ -277,7 +344,7 @@ final class PackMaterializer {
       // when absent, replace when the command drifted, keep when identical —
       // which keeps a re-init idempotent and never leaves a second, dead guard
       // beside the live one (R27-F1).
-      $mode = substr($command, (int) strrpos($command, ' ') + 1);
+      $mode = (string) PackManifest::guardMode($command);
       $at = self::guardIndex($existing, $mode);
       if ($at === NULL) {
         $existing[] = $entry;
@@ -337,6 +404,32 @@ final class PackMaterializer {
   }
 
   /**
+   * The guard's entry point as a hook command names it.
+   *
+   * Anchored to `$CLAUDE_PROJECT_DIR` when the package sits inside the
+   * project (vendor/ or tools/droost/vendor/), because a hook runs from the
+   * agent's cwd and a relative path stops resolving after one `cd`; absolute
+   * when it sits outside it.
+   *
+   * @param string $root
+   *   The project root.
+   *
+   * @return string
+   *   The path, for inside double quotes.
+   */
+  private function guardEntry(string $root): string {
+    $entry = $this->packageRoot . '/' . PackManifest::GUARD_ENTRY;
+    $package = realpath($this->packageRoot);
+    $project = realpath($root);
+    if ($package !== FALSE && $project !== FALSE && str_starts_with($package . '/', $project . '/') && $package !== $project) {
+      return '$CLAUDE_PROJECT_DIR/' . trim(substr($package, strlen($project)), '/') . '/' . PackManifest::GUARD_ENTRY;
+    }
+    $real = realpath($entry);
+
+    return $real !== FALSE ? $real : $entry;
+  }
+
+  /**
    * The index of our guard entry for a mode within an event's list, or NULL.
    *
    * Identity is the guard filename plus the mode suffix (pre-tool-use |
@@ -360,8 +453,7 @@ final class PackMaterializer {
       foreach (is_array($entry['hooks'] ?? NULL) ? $entry['hooks'] : [] as $hook) {
         if (is_array($hook)
           && is_string($hook['command'] ?? NULL)
-          && str_contains($hook['command'], 'droost-workflow-guard.php')
-          && str_ends_with($hook['command'], ' ' . $mode)) {
+          && PackManifest::guardMode($hook['command']) === $mode) {
           return $i;
         }
       }
@@ -458,7 +550,7 @@ final class PackMaterializer {
     // waiver, on the SECOND ticket in a repo. The product wrote the file; the
     // agent paid for it. `NEVER_CREEP` stops it blocking a run; this stops it
     // reaching a review at all.
-    $addition = "# Droost workflow run state, specs and gate caches (droost/workflow init).\n"
+    $addition = "# droost: run state, specs, its own vendor directory and gate caches (droost init).\n"
       . implode("\n", $wanted) . "\n";
     $contents = $existing === ''
       ? $addition
@@ -472,7 +564,11 @@ final class PackMaterializer {
   /**
    * The lines `init` keeps in .gitignore.
    *
-   * The state directory, and the caches the GATES write. phpunit drops
+   * The state directory, droost's own vendor directory, and the caches the
+   * GATES write. `tools/droost/vendor/` is what `composer install -d
+   * tools/droost` fills (its composer.json and lock are committed, as any
+   * project's are); without the line, a `git add -A` committed the whole of
+   * droost into the project, guard and all (2026-10-19). phpunit drops
    * `.phpunit.result.cache` on every run; without a line here it lands in the
    * diff, where the declaration audit charged it to the agent as undeclared
    * scope — `Fault::Agent`, "There is no waiver for it" — on the second ticket
@@ -487,6 +583,7 @@ final class PackMaterializer {
   private static function gitignoreEntries(string $stateDir): array {
     return [
       $stateDir . '/',
+      'tools/droost/vendor/',
       '.phpunit.result.cache',
       '.phpunit.cache/',
       '.phpcs-cache',
@@ -556,14 +653,14 @@ final class PackMaterializer {
   /**
    * The project-relative path of this package's binary (F-166).
    *
-   * The pack names `vendor/bin/droost-workflow` in the skills, the template
-   * and AGENTS.md, which is right for a project that requires this package
-   * at its own root and wrong for one that installs it elsewhere: druplit
-   * keeps it in a Composer project of its own, `tools/workflow/`, because
-   * the repository has no root composer.json, and its agent was told a
-   * command that does not exist. Composer's bin proxy says where the bin
-   * directory is; otherwise the package's own vendor directory does. A path
-   * that resolves to no file keeps the default.
+   * The skills call it `droost`; the AGENTS block says where that is. It is
+   * `vendor/bin/droost` for a project that requires this package at its own
+   * root, and usually somewhere else: droost lives in a Composer project of
+   * its own, `tools/droost/`, and an agent told a command that does not exist
+   * cannot run it. Composer's bin proxy says where the bin directory is;
+   * otherwise the vendor directory the package sits in, then the package's
+   * own `bin/` (a checkout). A path that resolves to no file keeps the
+   * default.
    *
    * @param string $root
    *   The project.
@@ -575,39 +672,25 @@ final class PackMaterializer {
     $candidates = [];
     $proxy = $GLOBALS['_composer_bin_dir'] ?? NULL;
     if (is_string($proxy) && $proxy !== '') {
-      $candidates[] = rtrim($proxy, '/') . '/droost-workflow';
+      $candidates[] = rtrim($proxy, '/') . '/droost';
     }
     // <vendor>/droost/workflow: the bin directory beside it, by default.
     if (basename(dirname($this->packageRoot)) === 'droost') {
-      $candidates[] = dirname($this->packageRoot, 2) . '/bin/droost-workflow';
+      $candidates[] = dirname($this->packageRoot, 2) . '/bin/droost';
     }
+    $candidates[] = $this->packageRoot . '/bin/droost';
     $project = realpath($root) ?: $root;
     foreach ($candidates as $candidate) {
       $real = realpath(dirname($candidate));
-      if ($real === FALSE || !is_file($real . '/droost-workflow')) {
+      if ($real === FALSE || !is_file($real . '/droost')) {
         continue;
       }
-      $real .= '/droost-workflow';
+      $real .= '/droost';
 
       return str_starts_with($real, $project . '/') ? substr($real, strlen($project) + 1) : $real;
     }
 
     return self::DEFAULT_BINARY;
-  }
-
-  /**
-   * A pack file with the binary's path put where the default is named.
-   *
-   * @param string $contents
-   *   The shipped file.
-   * @param string $binary
-   *   The binary's path.
-   *
-   * @return string
-   *   The file as this project needs it.
-   */
-  private static function withBinary(string $contents, string $binary): string {
-    return $binary === self::DEFAULT_BINARY ? $contents : str_replace(self::DEFAULT_BINARY, $binary, $contents);
   }
 
   /**
@@ -706,7 +789,7 @@ final class PackMaterializer {
    */
   private function plantSentinel(string $absolute, string $relative): void {
     $marker = $absolute . '/' . PackManifest::SENTINEL;
-    $body = "Written by droost/workflow (droost_workflow). Safe to delete along with\n"
+    $body = "Written by droost init (droost/workflow). Safe to delete along with\n"
       . "this directory; deleting it alone makes the next init refuse.\n";
     if (@file_put_contents($marker, $body) !== strlen($body)) {
       throw PackError::unwritable(
@@ -738,25 +821,31 @@ final class PackMaterializer {
     $to = $root . '/' . $destination;
 
     // Never refresh a lever file. It is version-controlled intent that
-    // somebody wrote; re-running init must not quietly reset their gates.
-    if (PackManifest::hasConfigFile($root)) {
-      return $report->withKept($destination);
+    // somebody wrote; re-running init must not quietly reset their gates. A
+    // project still on the root droost.workflow.yml keeps it, and every lever
+    // report says where it should move (ConfigLocator).
+    $existing = ConfigLocator::found($root);
+    if ($existing !== NULL) {
+      return $report->withKept($existing);
     }
 
     $from = $this->packageRoot . '/' . PackManifest::SOURCE_DIR
-      . '/' . PackManifest::CONFIG_FILE;
+      . '/' . PackManifest::CONFIG_TEMPLATE;
     if (!is_file($from)) {
       throw PackError::sourceMissing(
-        PackManifest::SOURCE_DIR . '/' . PackManifest::CONFIG_FILE,
+        PackManifest::SOURCE_DIR . '/' . PackManifest::CONFIG_TEMPLATE,
       );
     }
     $contents = file_get_contents($from);
     if ($contents === FALSE) {
       throw PackError::sourceMissing(
-        PackManifest::SOURCE_DIR . '/' . PackManifest::CONFIG_FILE,
+        PackManifest::SOURCE_DIR . '/' . PackManifest::CONFIG_TEMPLATE,
       );
     }
     $contents = self::standardThisProjectHas($root, $contents);
+    if (!is_dir(dirname($to)) && !@mkdir(dirname($to), 0755, TRUE) && !is_dir(dirname($to))) {
+      throw PackError::unwritable($destination, 'its directory could not be created');
+    }
     if (@file_put_contents($to, $contents) !== strlen($contents)) {
       throw PackError::unwritable($destination, 'the write did not complete');
     }

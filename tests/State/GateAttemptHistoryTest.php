@@ -30,7 +30,7 @@ final class GateAttemptHistoryTest extends TestCase {
    *   The run.
    */
   private function openRun(): RunState {
-    $config = WorkflowConfig::builtIn();
+    $config = WorkflowConfig::fromArray([], '<built-in defaults>', Provenance::BuiltIn);
 
     return new RunState(
       'r1',

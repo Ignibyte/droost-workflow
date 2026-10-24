@@ -310,7 +310,7 @@ final class SeekerLedger {
    * @param string $reportedAt
    *   When, as a caller-supplied ISO-8601 string.
    *
-   * @return array{status: string, critical: int, high: int, medium: int, low: int, observations: int, self_reviewed: bool, reported_at: string}
+   * @return array{status: string, open: int, critical: int, high: int, medium: int, low: int, observations: int, self_reviewed: bool, reported_at: string}
    *   The record.
    */
   public function toRecord(string $reportedAt): array {
@@ -320,6 +320,11 @@ final class SeekerLedger {
     }
     return [
       'status' => $this->isClean() ? 'clean' : 'findings',
+      // The severities count every row of the inspection, resolved and
+      // carried ones too; `open` is how many still stand. "clean" beside
+      // "medium: 1" read as a contradiction when the one MEDIUM was resolved
+      // (a live run's record, twice: F-327).
+      'open' => count(array_filter($this->findings, static fn (array $f): bool => strtolower($f['status']) === 'open')),
       'critical' => $counts['CRITICAL'],
       'high' => $counts['HIGH'],
       'medium' => $counts['MEDIUM'],

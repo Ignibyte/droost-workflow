@@ -73,21 +73,17 @@ else
   FAIL=1
 fi
 
-# The Claude mod's own functions (claude-plugins/droost-guard), under node.
-# Claude Code's runner (`claude plugin test`) needs mods switched on, which is
-# served from Anthropic's side, so the mod's logic is tested as plain
-# JavaScript. A machine with no node skips this leg and says so.
+# The intake's reader and the parity gate, under node. A machine with no
+# node skips this leg and says so.
 LEGS=3
 if command -v node >/dev/null 2>&1; then
-  LEGS=5
-  run_leg "droost-guard mod (node --test)" \
-    node --test claude-plugins/droost-guard/tests/notes.node.test.mjs
+  LEGS=4
   # The intake's reader. Its browser case runs only where a Playwright is
   # named (DROOST_SOURCE_PLAYWRIGHT_CWD) and says it was skipped otherwise.
-  run_leg "droost-source and droost-parity (node --test)" \
-    node --test tests/Source/source.node.test.cjs tests/Parity/parity.node.test.cjs
+  run_leg "droost-source, droost-parity and the droost mod's pane (node --test)" \
+    node --test tests/Source/source.node.test.cjs tests/Parity/parity.node.test.cjs claude-plugins/droost/tests/view.node.test.mjs
 else
-  printf '  \033[33mSKIP\033[0m  droost-guard mod and droost-source: no node on this machine\n'
+  printf '  \033[33mSKIP\033[0m  droost-source and droost-parity: no node on this machine\n'
 fi
 
 if [ "$FAIL" -eq 0 ]; then

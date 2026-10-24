@@ -9,10 +9,10 @@ use PHPUnit\Framework\TestCase;
 /**
  * The README's list of operator-only commands is the guard's list.
  *
- * These two drifted, and the drift had a reader. The guard refuses five
- * commands from the agent's shell; the README named four, omitting the arming
- * of a write gate — which is the one droost's own documentation spends the most
- * words on. So the shipped instructions walked an agent into a refusal the
+ * These two drifted, and the drift had a reader. The guard refused five
+ * commands from the agent's shell; the README named four, omitting the
+ * retired module's write-gate arming — the one its documentation spent the
+ * most words on. So the shipped instructions walked an agent into a refusal the
  * documentation gave it no way to anticipate, and the refusal is deliberately
  * terse because it is meant to be the end of an argument, not the start of one.
  *
@@ -59,14 +59,13 @@ final class OperatorCommandContractTest extends TestCase {
     $table = substr($table, 0, (int) strpos($table, "\n\n"));
 
     // The label the guard sets, mapped to the words the README must use. A
-    // mapping rather than a substring match, because "gate (arming a write
-    // gate)" is a diagnostic string and the README is prose for a human.
+    // mapping rather than a substring match, because a label is a diagnostic
+    // string and the README is prose for a human.
     $expected = [
       'gate-waive' => 'gate-waive',
       'baseline' => 'baseline',
       'bypass' => 'bypass',
       'effort' => 'effort',
-      'gate (arming a write gate)' => 'allow_',
       'ticket move' => 'ticket move',
       'intake abandon' => 'intake abandon',
       'intake answer' => 'intake answer',
@@ -104,14 +103,13 @@ final class OperatorCommandContractTest extends TestCase {
     $this->assertContains('bypass', $refused);
     $this->assertContains('baseline', $refused);
     $this->assertContains('effort', $refused);
-    $this->assertContains('gate (arming a write gate)', $refused);
     $this->assertContains('ticket move', $refused);
     $this->assertContains('intake abandon', $refused);
     $this->assertContains('intake answer', $refused);
     $this->assertCount(
-      8,
+      7,
       $refused,
-      'the README table names eight refusals; the guard must have eight branches',
+      'the README table names seven refusals; the guard must have seven branches',
     );
   }
 

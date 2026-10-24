@@ -11,10 +11,13 @@ namespace Droost\Workflow\Cli;
  * so that "what can this package execute, and how" is answerable by opening
  * a single file.
  *
- * argv is always an array — never a shell string, and never passed through a
- * shell. Combined with GateSettings constraining tool arguments to characters
- * no shell would interpret, that makes command injection structurally absent
- * rather than merely unlikely.
+ * argv is always an array, never a shell string built from what an agent
+ * typed. A shell runs only where a project's own command is the point: a
+ * custom gate's `run:` and a house rule's `cmd:` go through `/bin/sh -c` as
+ * written in droost.yml, which the guard keeps from the agent during a run.
+ * Combined with GateSettings constraining tool arguments to characters no
+ * shell would interpret, command injection from the run is structurally
+ * absent rather than merely unlikely.
  */
 final class CliProcess {
 
@@ -42,7 +45,7 @@ final class CliProcess {
   public static function run(array $argv, string $cwd, int $timeout): array {
     // STDIN IS A PIPE CLOSED AT ONCE, never the caller's (F-84). With no
     // descriptor 0 the child inherited this process's stdin, and in
-    // `drush mcp:server` that is the protocol pipe, open for the session.
+    // the retired module's `drush mcp:server` that was the protocol pipe.
     // infection with no config asked its setup questions there, and
     // stylelint and prettier handed no files read their code from it: each
     // blocked until the gate's timeout, and anything the client sent

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Pack;
 
+use Droost\Workflow\Tests\Levers;
 use Droost\Workflow\Tests\WorkflowTestCase;
 
 /**
@@ -250,38 +251,6 @@ final class ShellSurfaceTest extends WorkflowTestCase {
     ] as $command) {
       [$exit, , $stderr] = $this->shell($root, $command);
       $this->assertSame(0, $exit, $command . ' is ordinary: ' . $stderr);
-    }
-  }
-
-  /**
-   * Arming a write gate is the operator's act in every spelling.
-   *
-   * Three of them reach the same config object, and only the first was
-   * matched: the drush verb, the dotted config key, and PHP.
-   */
-  public function testEverySpellingOfArmingWriteGatesIsRefused(): void {
-    $root = $this->lab();
-    foreach ([
-      'the drush verb' => 'drush droost:gate allow_entity_write on',
-      'config:set' => 'drush cset droost.settings allow_entity_write true',
-      'a dotted key' => 'drush cset droost.settings.allow_entity_write true',
-      'php:eval' => 'drush php:eval "\\Drupal::configFactory()'
-      . "->getEditable('droost.settings')->set('allow_entity_write', TRUE)->save();\"",
-    ] as $label => $command) {
-      [$exit, , $stderr] = $this->shell($root, $command);
-      $this->assertSame(2, $exit, $label . ' arms a write gate');
-      $this->assertStringContainsString('OPERATOR', $stderr, $label . ' says whose decision it is');
-    }
-
-    // Disarming is a tightening, and reading is a question. Both are the
-    // agent's to do — asking for a gate rather than arming it is the whole
-    // behaviour this rule exists to produce.
-    foreach ([
-      'drush droost:gate allow_entity_write off',
-      'drush php:eval "print \\Drupal::config(\'droost.settings\')->get(\'allow_entity_write\');"',
-    ] as $command) {
-      [$exit, , $stderr] = $this->shell($root, $command);
-      $this->assertSame(0, $exit, $command . ' is not arming: ' . $stderr);
     }
   }
 
@@ -647,7 +616,7 @@ final class ShellSurfaceTest extends WorkflowTestCase {
     foreach (['bash link.sh', './link.sh'] as $command) {
       [$exit, , $stderr] = $this->shell($root, $command);
       $this->assertSame(2, $exit, $command . ' is do.sh, and do.sh runs the verb');
-      $this->assertStringContainsString('droost:workflow:bypass', $stderr, 'judged by what it says');
+      $this->assertStringContainsString('workflow:bypass', $stderr, 'judged by what it says');
     }
     foreach (['./bin/drush status', 'bash bin/drush status'] as $command) {
       [$exit, , $stderr] = $this->shell($root, $command);
@@ -850,7 +819,7 @@ final class ShellSurfaceTest extends WorkflowTestCase {
    */
   public function testCasePatternsAreNotCommands(): void {
     $root = $this->lab();
-    file_put_contents($root . '/droost.workflow.yml', "preset: low\n");
+    file_put_contents(Levers::path($root), "preset: low\n");
     mkdir($root . '/bin', 0755, TRUE);
     file_put_contents($root . '/bin/confine.sh', "#!/usr/bin/env bash\n# the target's dir, never its template store\n"
       . "case \"\$real\" in\n  \"\$inst\"/*) ;;\n  /a | /b) echo ok ;;\n  *) echo \"outside '\$inst'\" >&2; exit 2 ;;\nesac\n");
@@ -1722,7 +1691,7 @@ final class ShellSurfaceTest extends WorkflowTestCase {
    */
   public function testTheFinishedRunStopsEnforcingItself(): void {
     $root = $this->lab();
-    file_put_contents($root . '/droost.workflow.yml', "preset: high\n");
+    file_put_contents(Levers::path($root), "preset: high\n");
     $record = $root . '/droost/droost-workflow/run.json';
 
     // While the run is live, the lever file is the operator's.
@@ -1992,6 +1961,14 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       'drush droost:workflow:effort low',
       'vendor/bin/droost-workflow effort low',
       'droost-workflow effort max',
+      // The droost command's spelling (2026-10-19), which every pack file now
+      // teaches: refused, from wherever droost is installed.
+      'droost workflow:bypass "hotfix"',
+      'tools/droost/vendor/bin/droost workflow:bypass hotfix',
+      'droost workflow:gate-waive config_clean "no config workflow"',
+      'droost workflow:effort low',
+      'droost workflow:baseline',
+      'droost workflow:intake answer "Who edits?" "Me"',
     ] as $command) {
       [$exit, , $stderr] = $this->shell($root, $command);
       $this->assertSame(2, $exit, $command . ' is the operator\'s: ' . $stderr);
@@ -2012,6 +1989,12 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       'vendor/bin/droost-workflow baseline --status',
       'vendor/bin/droost-workflow baseline --measure',
       'vendor/bin/droost-workflow status',
+      'droost workflow:effort max --preview',
+      'droost workflow:bypass --off',
+      'droost workflow:bypass --help',
+      'droost workflow:baseline --status',
+      'droost workflow:status',
+      'git commit -m "ran droost workflow:bypass for the hotfix"',
     ] as $command) {
       [$exit, , $stderr] = $this->shell($root, $command);
       $this->assertSame(0, $exit, $command . ' writes nothing and is anyone\'s: ' . $stderr);
@@ -2031,6 +2014,7 @@ final class ShellSurfaceTest extends WorkflowTestCase {
       'vendor/bin/droost-workflow ticket move TICKET-12 done',
       'droost-workflow ticket move 12 ready',
       'drush droost:workflow:ticket move TICKET-12 review',
+      'droost workflow:ticket move TICKET-12 done',
     ] as $command) {
       [$exit, , $stderr] = $this->shell($root, $command);
       $this->assertSame(2, $exit, $command . ' is the operator\'s: ' . $stderr);
@@ -2038,6 +2022,8 @@ final class ShellSurfaceTest extends WorkflowTestCase {
     }
     [, , $handover] = $this->shell($root, 'vendor/bin/droost-workflow ticket move TICKET-12 done');
     $this->assertStringContainsString('`droost-workflow ticket move …`', $handover, 'the hand-over names the binary that was used');
+    [, , $handover] = $this->shell($root, 'droost workflow:ticket move TICKET-12 done');
+    $this->assertStringContainsString('`droost workflow:ticket move …`', $handover, 'and the droost command, in its own spelling');
     $this->assertStringNotContainsString('`! ', $handover, 'and not through Claude Code\'s `!`, which has no terminal (F-256)');
 
     foreach ([
@@ -2066,8 +2052,10 @@ final class ShellSurfaceTest extends WorkflowTestCase {
     $this->assertStringContainsString('droost-workflow bypass', $cli);
     $this->assertStringNotContainsString('droost:workflow:bypass', $cli);
 
-    [, , $drush] = $this->shell($root, 'drush droost:workflow:bypass "x"');
-    $this->assertStringContainsString('droost:workflow:bypass', $drush);
+    // The colon spelling was the retired module's drush verb; the refusal
+    // hands over the droost command, which is what a shell has now.
+    [, , $colon] = $this->shell($root, 'drush droost:workflow:bypass "x"');
+    $this->assertStringContainsString('`droost workflow:bypass …`', $colon);
   }
 
 }

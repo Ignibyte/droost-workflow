@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Knowledge;
 
-use Droost\Workflow\State\RunStateStore;
+use Droost\Workflow\Config\StoragePaths;
 
 /**
  * Droost's code index, read with no Drupal: one SQLite file.
  *
  * Droost writes its search index (the file manifest, the symbol graph) to
- * `<state dir>/code-index.sqlite` through droost-engine's SQLite stores, so
+ * `<state dir>/code-index.sqlite`, or where `storage.index` says
+ * (StoragePaths), through droost-engine's SQLite stores, so
  * a process that boots no Drupal can read what droost indexed: the
  * `vendor/bin/droost` tools, and `plan_grounded` resolving a plan's
  * citations. The schema is the engine's (`droost_search_symbol`,
@@ -62,9 +63,7 @@ final class CodeIndex {
    *   The path, whether or not the file exists.
    */
   public static function path(string $projectRoot): string {
-    $root = rtrim($projectRoot, '/');
-
-    return $root . '/' . RunStateStore::resolveStateDir($root) . '/' . self::FILE;
+    return StoragePaths::index($projectRoot);
   }
 
   /**

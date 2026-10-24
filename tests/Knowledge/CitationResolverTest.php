@@ -68,6 +68,22 @@ final class CitationResolverTest extends WorkflowTestCase {
   }
 
   /**
+   * A wiki elsewhere, named by wiki.path, is where its pages are (F-374).
+   */
+  public function testWikiPathIsHonoured(): void {
+    $root = $this->makeRoot();
+    $this->drupalTree($root);
+    mkdir($root . '/docs/wiki', 0755, TRUE);
+    file_put_contents($root . '/docs/wiki/billing.md', "# Billing\n");
+    file_put_contents($root . '/droost/droost.yml', "wiki:\n  path: docs/wiki\n");
+    $resolver = new CitationResolver();
+    $docroot = CitationResolver::docroot($root);
+    $prefix = CitationResolver::docrootPrefix($root, $docroot);
+    $this->assertSame('wiki', $resolver->resolveStore('billing.md', $root, $docroot, $prefix));
+    $this->assertSame('wiki', $resolver->resolveStore('wiki:billing.md', $root, $docroot, $prefix));
+  }
+
+  /**
    * A `none:` claim cannot resolve while the index cannot be asked.
    */
   public function testNoneNeedsAnIndex(): void {

@@ -4,42 +4,16 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Driver;
 
-use Droost\Workflow\Config\GateSettings;
-use Droost\Workflow\Evidence\EvidenceStore;
-use Droost\Workflow\Spec\SpecContract;
-use Droost\Workflow\State\RunStateStore;
-
 /**
- * Which routes rendered_check renders, and where each one came from.
+ * The vocabulary of a declared route: a path, and the status it must answer.
  *
- * One answer for both site drivers. Each had its own copy of "the `routes`
- * option, or the front page", and for three live rounds that was the whole
- * story: the lever named nothing, so the gate rendered `/` while the ticket
- * built `/camps`, then `/rinks`, then `/private-lessons` — once with the
- * ticket's page returning 500 mid-build while the front page was fine (F-15).
- * The verification floor never asked for the one page the run existed to
- * make.
- *
- * So the spec's routes join the lever. The lever is the project's standing
- * list; the spec is this ticket's. The gate renders the union, and the record
- * names the source of every route, so a reader can see "the spec said
- * `/camps`, and it rendered" rather than an unlabelled green.
- *
- * DECLARED ROWS FIRST, the markdown section only when there are none. A
- * `declare-route` call is a fact with no shape to get wrong; the section is
- * prose whose meaning depends on where a heading sits and whether the writer
- * fenced their list, and two of Part 3's three specs lost their routes to
- * exactly that (F-32, F-34). The parse stays as the fallback for a run that
- * declared nothing — which is every run written before the tool existed —
- * and the record says `spec-declared` or `spec-parsed` so a reader can tell
- * which answered. Phase C deletes the second.
+ * A spec declares the pages its ticket touches (`declare-route`, or its
+ * `## Routes` section), each optionally with the status it must answer:
+ * `/camps`, `/admin/reports@403`, `/portal@302`. The gate that rendered them
+ * left with droost's Drupal module (2026-10-19); the declarations stay, for
+ * the seeker, the browser suite and the record.
  */
 final class RenderedRoutes {
-
-  /**
-   * What is rendered when nobody names anything: the front page.
-   */
-  public const DEFAULT = '/';
 
   /**
    * The statuses a route may be declared to answer an anonymous visitor with.
@@ -61,36 +35,43 @@ final class RenderedRoutes {
   public const REDIRECTS = [301, 302, 303, 307, 308];
 
   /**
+   * The statuses of a page that must not be served to a visitor yet.
+   *
+   * A page held back until an editor publishes it (a privacy page with no
+   * text yet) answers 404 on Drupal CMS, or 410 once it is gone for good: a
+   * declaration the run could not make (F-346, KCH-A run 2), so it declared
+   * a 403 the site never answers.
+   */
+  public const ABSENT = [404, 410];
+
+  /**
+   * The status of a route that takes another method.
+   *
+   * A POST-only endpoint (an API route a form or a client posts to) answers
+   * an anonymous GET with 405 Method Not Allowed. Nothing else described it,
+   * so such a route could not be declared at all (F-364).
+   */
+  public const OTHER_METHOD = [405];
+
+  /**
    * Whether a route may be declared to answer with a status.
    *
    * @param int $status
    *   The status.
    *
    * @return bool
-   *   TRUE for 200, one of REFUSALS or one of REDIRECTS.
+   *   TRUE for 200, one of REFUSALS, REDIRECTS, ABSENT or OTHER_METHOD.
    */
   public static function declarable(int $status): bool {
-    return $status === 200 || in_array($status, [...self::REFUSALS, ...self::REDIRECTS], TRUE);
+    return $status === 200 || in_array(
+      $status,
+      [...self::REFUSALS, ...self::REDIRECTS, ...self::ABSENT, ...self::OTHER_METHOD],
+      TRUE,
+    );
   }
 
   /**
-   * A route's path and the status it must answer an anonymous visitor with.
-   *
-   * @param string $route
-   *   A route as declared: `/camps`, or `/admin/content/x@403`.
-   *
-   * @return array{path: string, status: int}
-   *   The path, and 200 unless the route names a refusal.
-   */
-  public static function expectation(string $route): array {
-    if (preg_match('/^(\/.*)@(\d{3})$/', trim($route), $m) === 1 && (int) $m[2] !== 200 && self::declarable((int) $m[2])) {
-      return ['path' => $m[1], 'status' => (int) $m[2]];
-    }
-    return ['path' => trim($route), 'status' => 200];
-  }
-
-  /**
-   * A route string carrying its expected status, as expectation() reads it.
+   * A route string carrying its expected status: `path@status`.
    *
    * @param string $path
    *   The path.
@@ -102,182 +83,6 @@ final class RenderedRoutes {
    */
   public static function withStatus(string $path, int $status): string {
     return $status === 200 ? $path : $path . '@' . $status;
-  }
-
-  /**
-   * Resolves the routes for one gate run.
-   *
-   * @param \Droost\Workflow\Config\GateSettings $gate
-   *   The gate, whose `routes` option is the lever's list.
-   * @param string $projectRoot
-   *   The repository. The open run's spec is read from its state directory;
-   *   when there is no run, no spec, or no section, only the lever answers.
-   *
-   * @return array{routes: list<string>, sources: array<string, string>, spec: string|null, none: bool}
-   *   The routes in order, each route's source (`lever`, `default`,
-   *   `spec-declared`, `spec-parsed`), the spec that was consulted (NULL when
-   *   none was) and whether that spec declared `none`.
-   */
-  public static function resolve(GateSettings $gate, string $projectRoot): array {
-    $sources = [];
-    // One route per PATH. A later declaration of a path replaces an earlier
-    // one, so a plan that declared an admin page bare can correct it to the
-    // refusal it is (`declare-route /admin/x --status=403`) instead of being
-    // held to a render no anonymous visitor can get (F-120).
-    // The same route declared again keeps its first label: the lever's
-    // standing list is a stronger claim than this ticket repeating it.
-    $add = static function (string $route, string $source, bool $replace) use (&$sources): void {
-      $path = self::expectation($route)['path'];
-      foreach (array_keys($sources) as $existing) {
-        if (self::expectation($existing)['path'] === $path) {
-          if (!$replace || $existing === $route) {
-            return;
-          }
-          unset($sources[$existing]);
-        }
-      }
-      $sources[$route] = $source;
-    };
-    foreach (self::fromOption($gate->option('routes')) as $route) {
-      $add($route, 'lever', FALSE);
-    }
-    if ($sources === []) {
-      $sources[self::DEFAULT] = 'default';
-    }
-
-    $none = FALSE;
-    $declared = self::declaredRoutes($projectRoot);
-    foreach ($declared as $route) {
-      $add($route, 'spec-declared', TRUE);
-    }
-
-    // The document, only when nothing was declared. A run that called the
-    // tool has said what it means; re-reading its prose could only disagree
-    // with it, and a disagreement between two sources for the same fact is
-    // the defect this whole redesign removes rather than arbitrates.
-    $spec = self::specPath($projectRoot);
-    if ($declared === [] && $spec !== NULL) {
-      $parsed = SpecContract::routes($projectRoot, $spec);
-      if ($parsed === NULL) {
-        $spec = NULL;
-      }
-      else {
-        $none = $parsed['none'];
-        foreach ($parsed['routes'] as $route) {
-          $add($route, 'spec-parsed', FALSE);
-        }
-      }
-    }
-
-    return [
-      'routes' => array_keys($sources),
-      'sources' => $sources,
-      'spec' => $spec,
-      'none' => $none,
-    ];
-  }
-
-  /**
-   * The open run's declared routes, from the store.
-   *
-   * @param string $projectRoot
-   *   The repository.
-   *
-   * @return list<string>
-   *   The paths, in declaration order. Empty when no run is open, none were
-   *   declared, or the store cannot be read — an unreachable store is not a
-   *   reason to fail a render, and the summary says which source answered.
-   */
-  private static function declaredRoutes(string $projectRoot): array {
-    try {
-      $store = new RunStateStore($projectRoot);
-      $state = $store->exists() ? $store->load() : NULL;
-      if ($state === NULL) {
-        return [];
-      }
-
-      return array_column((new EvidenceStore($projectRoot))->specRoutes($state->runId), 'path');
-    }
-    catch (\Throwable) {
-      return [];
-    }
-  }
-
-  /**
-   * The routes with their sources, for a summary a reader can check.
-   *
-   * @param array{routes: list<string>, sources: array<string, string>, spec: string|null, none: bool} $resolved
-   *   What resolve() returned.
-   *
-   * @return string
-   *   E.g. "/ (default), /camps (spec-declared)" — with "; the spec declares
-   *   no routes" when it said so, and "; no run spec to read" when there was
-   *   no spec to ask, so an unlabelled front page is never mistaken for a
-   *   ticket that had no page.
-   */
-  public static function describe(array $resolved): string {
-    $parts = [];
-    foreach ($resolved['sources'] as $route => $source) {
-      $parts[] = sprintf('%s (%s)', $route, $source);
-    }
-    $line = implode(', ', $parts);
-    // A run that DECLARED its routes needs no sentence about the document:
-    // the rows answered, and "no run spec to read" beside a declared route
-    // would read as a gap where there is none.
-    if (in_array('spec-declared', $resolved['sources'], TRUE)) {
-      return $line;
-    }
-    if ($resolved['spec'] === NULL) {
-      return $line . '; no run spec to read';
-    }
-    if ($resolved['none']) {
-      return $line . '; the spec declares no routes';
-    }
-    return $line;
-  }
-
-  /**
-   * The lever's comma-separated list, as routes.
-   *
-   * @param mixed $option
-   *   The `routes` option.
-   *
-   * @return list<string>
-   *   Non-empty trimmed paths, in order.
-   */
-  private static function fromOption(mixed $option): array {
-    if (!is_string($option) || trim($option) === '') {
-      return [];
-    }
-    $routes = [];
-    foreach (explode(',', $option) as $route) {
-      $route = trim($route);
-      if ($route !== '' && !in_array($route, $routes, TRUE)) {
-        $routes[] = $route;
-      }
-    }
-    return $routes;
-  }
-
-  /**
-   * The open run's spec, project-relative, when there is one.
-   *
-   * @param string $projectRoot
-   *   The repository.
-   *
-   * @return string|null
-   *   The path, or NULL when no run is open or its record cannot be read. A
-   *   record that cannot be read is not a reason to fail the render; the
-   *   summary says no spec was consulted.
-   */
-  private static function specPath(string $projectRoot): ?string {
-    try {
-      $store = new RunStateStore($projectRoot);
-      return $store->exists() ? $store->load()?->specPath : NULL;
-    }
-    catch (\Throwable) {
-      return NULL;
-    }
   }
 
 }

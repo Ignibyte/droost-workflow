@@ -7,6 +7,7 @@ namespace Droost\Workflow\Tests\Pack;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Evidence\EvaluationReport;
 use Droost\Workflow\Evidence\WorkType;
+use Droost\Workflow\Knowledge\DroostCli;
 use Droost\Workflow\Pack\PackManifest;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -62,7 +63,9 @@ class PackContentLintTest extends TestCase {
       if (in_array($file->getFilename(), self::OS_ARTIFACTS, TRUE)) {
         continue;
       }
-      if ($relative !== PackManifest::CONFIG_FILE) {
+      // The lever template is written once, and the guard is never copied:
+      // each runs from the pack (droost off Drupal, 2026-10-19).
+      if ($relative !== PackManifest::CONFIG_TEMPLATE && $relative !== PackManifest::GUARD) {
         $onDisk[] = $relative;
       }
     }
@@ -155,146 +158,91 @@ class PackContentLintTest extends TestCase {
   }
 
   /**
-   * No pack file names a droost tool that does not exist.
+   * No pack file names a droost command that does not exist, or a tool id.
    *
-   * The one lint here that catches a FALSE claim rather than a missing
-   * section. An early draft of this design cited "droost worker-docs", which
-   * is not a tool; nothing but this test would have caught it before an agent
-   * tried to call it.
+   * The pack is prose served to a coding agent as authoritative, and nothing
+   * else lints prose: a confidently wrong command would be acted on. An early
+   * draft cited "droost worker-docs", which never existed. droost is one
+   * command since 2026-10-19, so every `droost <command>` the pack names must
+   * be one it lists, and no pack file may name a Drupal-era tool id
+   * (`droost_symbol`, `droost_wiki_write`, …) at all.
    */
-  public function testNoPackFileNamesAnUnknownTool(): void {
+  public function testNoPackFileNamesAnUnknownCommandOrRetiredTool(): void {
+    $known = self::droostCommands();
     $unknown = [];
-
     foreach ($this->allPackFiles() as $relative) {
       $body = $this->read($relative);
-      $found = preg_match_all('/\bdroost_[a-z_]+/', $body, $matches);
-      if ($found === FALSE || $found === 0) {
-        continue;
+      if (preg_match_all('/\bdroost_[a-z_]+/', $body, $ids) > 0) {
+        foreach (array_unique($ids[0]) as $id) {
+          $unknown[] = $relative . ': the tool id ' . $id;
+        }
       }
-      foreach (array_unique($matches[0]) as $identifier) {
-        // Tools and modules both match droost_*; both vocabularies are real
-        // and both are checked, so naming either wrongly still fails.
-        if (!in_array($identifier, [...PackManifest::CITABLE_TOOLS, ...PackManifest::CITABLE_MODULES], TRUE)) {
-          $unknown[] = $relative . ': ' . $identifier;
+      preg_match_all('/(?<![\w\/:.-])droost ((?:code|search|workflow):[a-z-]+|brief|init|migrate|doctor|guard)\b/', $body, $commands);
+      foreach (array_unique($commands[1]) as $command) {
+        if (!in_array($command, $known, TRUE)) {
+          $unknown[] = $relative . ': droost ' . $command;
         }
       }
     }
 
-    $this->assertSame([], $unknown, 'Pack files name non-existent tools');
+    $this->assertSame([], $unknown, 'Pack files name commands droost does not have');
   }
 
   /**
-   * No pack file claims droost_verify checks the rendered result.
+   * Every command the droost binary answers, read from its own lists.
    *
-   * Its legs are phpcs, phpstan, phpunit and deprecations. It does not render
-   * anything, and a skill that says otherwise teaches an agent to report a
-   * check that never happened.
+   * @return list<string>
+   *   `code:wiki`, `workflow:run`, `init`, …
    */
-  public function testNoPackFileClaimsVerifyRenders(): void {
-    foreach ($this->allPackFiles() as $relative) {
-      $body = strtolower($this->read($relative));
-      if (!str_contains($body, 'droost_verify')) {
-        continue;
-      }
-      foreach (['droost_verify renders', 'droost_verify checks the rendered'] as $claim) {
-        $this->assertStringNotContainsString($claim, $body, $relative);
-      }
+  private static function droostCommands(): array {
+    $commands = array_map(static fn (array $definition): string => $definition['command'], DroostCli::definitions());
+    foreach (array_keys(DroostCli::otherCommands()) as $other) {
+      $commands[] = explode(' ', $other)[0];
     }
-    // And the partial states the real leg list.
+    $dispatcher = (string) file_get_contents(dirname(__DIR__, 2) . '/src/Cli/ArgvDispatcher.php');
+    preg_match_all('/^\s+\'([a-z][a-z-]*)\' => \$this->/m', $dispatcher, $verbs);
+    foreach ($verbs[1] as $verb) {
+      $commands[] = 'workflow:' . $verb;
+    }
+    $commands[] = 'guard';
+
+    return array_values(array_unique($commands));
+  }
+
+  /**
+   * The pack says what droost reads, and what it does not.
+   *
+   * The droost command reads files and its code index, with no site
+   * (2026-10-19). The running site — content, active configuration, rendered
+   * pages — is not
+   * droost's, and a pack that implied otherwise would have an agent report
+   * the site checked when only its files were.
+   */
+  public function testThePackSaysDroostReadsFilesNotTheRunningSite(): void {
     $partial = $this->read('partials/droost-usage.md');
-    foreach (['phpcs', 'phpstan', 'phpunit', 'deprecations'] as $leg) {
-      $this->assertStringContainsString($leg, $partial);
+    $this->assertStringContainsString('boots no Drupal and never calls drush', $partial);
+    $this->assertStringContainsString('The running site is not droost\'s', $partial);
+    foreach (['droost code:wiki', 'droost code:tree', 'droost search:arch'] as $command) {
+      $this->assertStringContainsString($command, $partial, 'the partial names the three knowledge commands plan requires');
     }
   }
 
   /**
-   * Wherever the pack explains droost_verify, it explains the opt-ins.
+   * The complete skill says how a wiki page is written, and that droost reads.
    *
-   * The tool defaults to phpcs and phpstan; deprecations must be named and
-   * phpunit additionally needs confirm: true. An earlier draft called all
-   * four "the whole list", which would have had an agent report tests green
-   * that were never executed.
-   *
-   * @param string $source
-   *   The pack-relative path of a file that explains the tool.
+   * `droost code:wiki` reads the wiki and writes nothing; a page is a file the
+   * agent writes, and `droost code:wiki stamp` records its sources' hashes.
+   * An earlier draft called the read tools "where durable knowledge
+   * belongs", which invites an agent to attempt a write, find none, and
+   * record the wiki as updated.
    */
-  #[DataProvider('verifyExplainers')]
-  public function testVerifyOptInsAreStated(string $source): void {
-    $body = $this->read($source);
-
-    $this->assertStringContainsString('confirm', $body, $source
-      . ' explains droost_verify without mentioning the phpunit confirm flag');
-    $this->assertStringContainsString('opt-in', $body, $source
-      . ' explains droost_verify without saying deprecations is opt-in');
-  }
-
-  /**
-   * The files that describe droost_verify in detail.
-   *
-   * @return array<string, array{string}>
-   *   Case name to pack-relative path.
-   */
-  public static function verifyExplainers(): array {
-    return [
-      'the partial' => ['partials/droost-usage.md'],
-      'the test skill' => ['skills/workflow-test/SKILL.md'],
-    ];
-  }
-
-  /**
-   * No pack file tells an agent a droost tool works without a site.
-   *
-   * All 70 droost tools are mcp_server plugins backed by the container, so
-   * there is no site-independent subset — not even the scaffolding tools,
-   * whose generators are Drupal-free but which are only reachable through a
-   * booted site. An earlier draft put droost_scaffold in a "works anywhere"
-   * column, which would send a CLI-surface agent to call a tool that cannot
-   * answer.
-   */
-  public function testNoPackFileClaimsToolsWorkWithoutSite(): void {
-    // Phrased as claims about TOOL AVAILABILITY. A blunter list caught
-    // "this phase needs no site tools" in the complete skill, which is the
-    // opposite claim and a true one — that phase calls nothing, it presents
-    // what the run already recorded.
-    $forbidden = [
-      'works anywhere',
-      'need nothing running',
-      'tools work without a site',
-      'tools need no site',
-      'available without a site',
-      'still available with no site',
-    ];
-
-    foreach ($this->allPackFiles() as $relative) {
-      $body = strtolower($this->read($relative));
-      foreach ($forbidden as $phrase) {
-        $this->assertStringNotContainsString($phrase, $body, sprintf(
-          '%s implies a droost tool works with no site (%s)',
-          $relative,
-          $phrase,
-        ));
-      }
-    }
-  }
-
-  /**
-   * The pack never presents the wiki tools as somewhere it can write.
-   *
-   * WikiPages and WikiFactsheet both declare readOnly: TRUE, and no MCP tool
-   * writes the wiki at all — the only path is `drush droost:wiki:generate`.
-   * An earlier draft called them "where durable knowledge belongs", which
-   * invites an agent to attempt a write, fail to find one, and record the
-   * wiki as updated.
-   */
-  public function testWikiToolsArePresentedAsReadOnly(): void {
+  public function testTheWikiIsReadByDroostAndWrittenByTheAgent(): void {
     $body = $this->read('skills/workflow-complete/SKILL.md');
 
     $this->assertStringContainsString('read-only', strtolower($body));
-    $this->assertStringContainsString('droost:wiki:generate', $body);
-    $this->assertStringNotContainsString(
-      'where durable knowledge belongs',
-      $body,
-    );
+    $this->assertStringContainsString('droost code:wiki stamp', $body);
+    $this->assertStringContainsString('xxh3:0000000000000000', $body, 'the placeholder hash a new page starts from');
+    $this->assertStringNotContainsString('where durable knowledge belongs', $body);
   }
 
   /**
@@ -408,8 +356,9 @@ class PackContentLintTest extends TestCase {
   public function testShippedLeverFileResolvesToCustom(): void {
     $root = sys_get_temp_dir() . '/dwf-pack-lint-' . bin2hex(random_bytes(6));
     mkdir($root, 0755, TRUE);
+    mkdir($root . '/droost', 0755, TRUE);
     copy(
-      $this->packDir() . '/' . PackManifest::CONFIG_FILE,
+      $this->packDir() . '/' . PackManifest::CONFIG_TEMPLATE,
       $root . '/' . PackManifest::CONFIG_FILE,
     );
 
@@ -425,6 +374,7 @@ class PackContentLintTest extends TestCase {
     }
     finally {
       unlink($root . '/' . PackManifest::CONFIG_FILE);
+      rmdir($root . '/droost');
       rmdir($root);
     }
   }
@@ -436,7 +386,7 @@ class PackContentLintTest extends TestCase {
    *   Pack-relative paths.
    */
   private function allPackFiles(): array {
-    return [...array_keys(PackManifest::FILES), PackManifest::CONFIG_FILE];
+    return [...array_keys(PackManifest::FILES), PackManifest::CONFIG_TEMPLATE];
   }
 
   /**
@@ -545,7 +495,7 @@ class PackContentLintTest extends TestCase {
     $trees = explode('|', $m[1]);
     $this->assertContains('profiles', $trees, 'profiles/custom is the one that was missing');
 
-    $levers = (string) file_get_contents($this->packDir() . '/' . PackManifest::CONFIG_FILE);
+    $levers = (string) file_get_contents($this->packDir() . '/' . PackManifest::CONFIG_TEMPLATE);
     $section = strstr($levers, '# require_run:');
     $this->assertIsString($section, 'the lever file must document require_run');
     $section = substr($section, 0, (int) strpos($section, "\nrequire_run:"));
@@ -607,7 +557,7 @@ class PackContentLintTest extends TestCase {
     $this->assertStringContainsString('there is NO wiki step', $complete, 'the rule the plan must match');
     $this->assertStringContainsString('Plan only the capture your level makes', $plan);
     $this->assertMatchesRegularExpression('/At\s+\*\*`low`\*\*\s+complete writes\s+\*\*no wiki pages\*\*/', $plan, 'the plan skill must say a low run writes no wiki');
-    $this->assertStringContainsString('`droost_wiki_write` page is a promise the level forbids you to keep', $plan);
+    $this->assertMatchesRegularExpression('/planning a wiki page is a\s+promise the level forbids you to keep/', $plan);
   }
 
   /**
@@ -659,8 +609,8 @@ class PackContentLintTest extends TestCase {
     $this->assertIsString($template);
     $this->assertSame(1, preg_match('/^\| \*\*Knowledge calls\*\* \(([^)]*)\)/m', $template, $row), 'the template has a Knowledge calls row');
 
-    preg_match_all('/`([a-z_]+)`/', $row[1], $names);
-    $listed = array_map(static fn (string $name): string => 'droost_' . $name, $names[1]);
+    preg_match_all('/`([a-z_:]+)`/', $row[1], $names);
+    $listed = $names[1];
     sort($listed);
     $counted = EvaluationReport::KNOWLEDGE_TOOLS;
     sort($counted);

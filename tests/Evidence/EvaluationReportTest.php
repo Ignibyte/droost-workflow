@@ -294,6 +294,33 @@ final class EvaluationReportTest extends TestCase {
   }
 
   /**
+   * A self-reviewed round is labelled, and its "resolved" is not a seeker's.
+   *
+   * The engine releases a hold only on a seeker's ledger, and §4d counted the
+   * author's own status update alike: a live run read "0 still open" because
+   * the author marked an independent MEDIUM resolved (F-332).
+   */
+  public function testSelfReviewedRoundIsLabelledAndCountedApart(): void {
+    $store = new EvidenceStore($this->root);
+    $store->upsertRun('r1', ['preset' => 'max']);
+    $f1 = [
+      'id' => 'F1',
+      'severity' => 'MEDIUM',
+      'location' => 'tests/a.spec.js',
+      'finding' => 'passes with the fix reverted',
+    ];
+    $store->recordSeekerFindings('r1', 'code', 1, [$f1 + ['status' => 'open']], 'independent');
+    $store->recordSeekerFindings('r1', 'code', 2, [$f1 + ['status' => 'resolved']], 'self-reviewed');
+
+    $report = (new EvaluationReport($store))->render('r1');
+
+    $this->assertStringContainsString('1 distinct finding across 2 rounds; 0 still open', $report);
+    $this->assertStringContainsString('- round 2: 1 finding — SELF-REVIEWED', $report);
+    $this->assertStringContainsString('| 2 (self-reviewed) |', $report);
+    $this->assertStringContainsString('**1 still open as the last seeker left them.**', $report);
+  }
+
+  /**
    * An environment block prints its remedy; nothing else may.
    *
    * A remedy printed beside work the agent must simply do reads as a way out of
@@ -332,8 +359,8 @@ final class EvaluationReportTest extends TestCase {
    */
   public function testKnowledgeCallsAreCountedFromTheLedger(): void {
     $store = new EvidenceStore($this->root);
-    $store->recordToolCall('r1', 'plan', 'droost_symbol', 'ok');
-    $store->recordToolCall('r1', 'code', 'droost_search', 'ok');
+    $store->recordToolCall('r1', 'plan', 'code:symbol', 'ok');
+    $store->recordToolCall('r1', 'code', 'search:code', 'ok');
     $store->recordToolCall('r1', 'code', 'droost_scaffold', 'fail');
 
     $report = (new EvaluationReport($store))->render('r1');
@@ -342,7 +369,7 @@ final class EvaluationReportTest extends TestCase {
     $this->assertStringContainsString('| Total calls | 3 |', $report);
     $this->assertStringContainsString('| Distinct tools | 3 |', $report);
     $this->assertStringContainsString('| Refusals (`outcome: fail`) | 1 |', $report);
-    $this->assertStringContainsString('| `droost_search` | 1 | knowledge |', $report);
+    $this->assertStringContainsString('| `search:code` | 1 | knowledge |', $report);
     $this->assertStringContainsString('| `droost_scaffold` | 1 | — |', $report);
     $this->assertStringNotContainsString('router', strtolower((string) strstr($report, '## 4a.')), 'no router is counted: there is none (owner, 2026-10-15)');
   }
@@ -387,7 +414,7 @@ final class EvaluationReportTest extends TestCase {
       $report,
       'every name in, one knowledge call each out',
     );
-    $this->assertContains('droost_brief', EvaluationReport::KNOWLEDGE_TOOLS, 'the site brief is knowledge');
+    $this->assertContains('brief', EvaluationReport::KNOWLEDGE_TOOLS, 'the site brief is knowledge');
     foreach (EvaluationReport::KNOWLEDGE_TOOLS as $tool) {
       $this->assertStringContainsString('| `' . $tool . '` | 1 | knowledge |', $report);
     }
@@ -395,36 +422,16 @@ final class EvaluationReportTest extends TestCase {
   }
 
   /**
-   * Grounding names all three tiers, including the one with no rows.
-   *
-   * An absent tier is a reading, not a gap. Most often it is `contrib`, whose
-   * absence means nobody asked whether a module already does this — the most
-   * valuable row in the table and the easiest to leave out.
+   * The grounding section points at the check and the ledger, not a verdict.
    */
-  public function testGroundingNamesEveryTierIncludingTheEmptyOne(): void {
-    $store = new EvidenceStore($this->root);
-    $store->connection()->prepare(
-      'INSERT INTO grounding_row (run_id, phase, tier, asked, found, citation, resolved, store)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    )->execute(['r1', 'plan', 'custom', 'is there a rink bundle?', 'nothing matched', 'none:rink', 1, 'symbol graph']);
-
-    $report = (new EvaluationReport($store))->render('r1');
-
-    $this->assertStringContainsString('| `custom` | 1 | 1 | 1 | symbol graph |', $report);
-    $this->assertStringContainsString('| `contrib` | 0 | 0 | 0 | ' . EvaluationReport::NOT_RECORDED . ' |', $report);
-    $this->assertStringContainsString('| `core` | 0 | 0 | 0 | ', $report);
-  }
-
-  /**
-   * With no grounding rows the section says so rather than implying a verdict.
-   */
-  public function testGroundingWithNoRowsSaysSoPlainly(): void {
+  public function testGroundingPointsAtTheCheckAndTheLedger(): void {
     $this->seed();
 
     $report = (new EvaluationReport(new EvidenceStore($this->root)))->render('r1');
 
-    $this->assertStringContainsString('**The store holds no grounding rows for this run.**', $report);
-    $this->assertStringContainsString('That is not a', $report);
+    $this->assertStringContainsString('## 4b. Grounding', $report);
+    $this->assertStringContainsString('`plan_grounded` resolves the spec', $report);
+    $this->assertStringContainsString('§4a says whether any knowledge command', $report);
   }
 
   /**
@@ -439,7 +446,7 @@ final class EvaluationReportTest extends TestCase {
 
     $report = (new EvaluationReport(new EvidenceStore($this->root)))->render('r1');
 
-    foreach (['eslint', 'stylelint', 'prettier', 'mutation', 'coverage', 'wiki_fresh', 'grounding_check'] as $gate) {
+    foreach (['eslint', 'stylelint', 'prettier', 'mutation', 'coverage', 'wiki_fresh', 'house_rules'] as $gate) {
       $this->assertStringContainsString(
         '| `' . $gate . '` | ' . EvaluationReport::NOT_RECORDED . ' | 0 |',
         $report,
@@ -1180,42 +1187,6 @@ final class EvaluationReportTest extends TestCase {
       $report,
       'the lever table says off, not "not recorded"',
     );
-  }
-
-  /**
-   * Section 4b does not contradict its own table about core (F-28).
-   *
-   * The prose asserted "core resolves against the brain, and only the brain,"
-   * and that "a round reporting core citations resolving against the symbol
-   * graph has a wrong probe, not a finding." The autoloader fallback landed in
-   * the grounding redesign and was verified live in KCH-3, after which the
-   * table four lines above printed `brain, autoloader` while the paragraph
-   * below denied it. Harmless where the table is read; dangerous where the
-   * prose is, because it tells a reader that a correct observation is a broken
-   * instrument.
-   */
-  public function testSection4bDoesNotDenyTheStoresItReports(): void {
-    $store = new EvidenceStore($this->root);
-    $store->upsertRun('r1', ['preset' => 'medium', 'seekers' => 'on']);
-    $store->recordGroundingRow(
-      'r1',
-      'code',
-      'core',
-      'the node entity class',
-      'Drupal\\node\\Entity\\Node',
-      'Drupal\\node\\Entity\\Node',
-      TRUE,
-      'autoloader',
-    );
-
-    $report = (new EvaluationReport($store))->render('r1');
-
-    $this->assertStringNotContainsString(
-      'and only the brain',
-      $report,
-      'the prose may not deny a store the table can print',
-    );
-    $this->assertStringContainsString('autoloader', $report);
   }
 
 }

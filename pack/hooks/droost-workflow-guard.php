@@ -38,12 +38,10 @@
  *     run the agent cannot advance.
  *
  *   php .claude/hooks/droost-workflow-guard.php operator-commands
- *     Wired to the Bash tool. Refuses `droost:workflow:gate-waive`,
- *     `droost:workflow:bypass` (granting; `--off` re-arms the wall and is
- *     allowed) and ARMING a droost write gate (`droost:gate <flag> on`,
- *     `config:set droost.settings allow_* true`; disarming is allowed) from
- *     the agent's own shell, run or no run — plus writing the baseline and
- *     moving the effort dial, which is five commands, and the README's table
+ *     Wired to the Bash tool. Refuses `droost workflow:gate-waive` and
+ *     `droost workflow:bypass` (granting; `--off` re-arms the wall and is
+ *     allowed) from the agent's own shell, run or no run — plus writing the
+ *     baseline and moving the effort dial, and the README's table
  *     lists them with what stays the agent's. Each is the operator's
  *     signature; "CLI-only" never excluded an agent, which has a shell — round
  *     23 watched a subject run the waiver itself after the operator picked it
@@ -57,6 +55,8 @@
  */
 
 declare(strict_types=1);
+
+use Symfony\Component\Yaml\Yaml;
 
 $mode = $argv[1] ?? '';
 // A hook runs from the invoking tool's cwd, which the agent's Bash tool can
@@ -96,7 +96,7 @@ if (!$named) {
       $boundary = NULL;
       break;
     }
-    if ($levers === NULL && is_file($here . '/droost.workflow.yml')) {
+    if ($levers === NULL && (is_file($here . '/droost/droost.yml') || is_file($here . '/droost.workflow.yml'))) {
       $levers = $here;
     }
     // A worktree and a submodule carry `.git` as a FILE, so `is_dir` alone
@@ -207,7 +207,7 @@ set_exception_handler(static function (\Throwable $error) use ($crashExit): void
     'The droost workflow guard could not complete this check (%s: %s at %s:%d), '
     . 'so it refused rather than permitted. A guard that cannot decide has not '
     . 'decided in your favour. Retry the action as written; if it keeps failing, '
-    . 'the OPERATOR reinstalls the hook with `droost-workflow init`.',
+    . 'the OPERATOR reinstalls the hook with `droost init`.',
     $error::class,
     $error->getMessage(),
     basename($error->getFile()),
@@ -222,7 +222,7 @@ register_shutdown_function(static function () use ($crashExit): void {
     $GLOBALS['workflow_guard_rule'] = 'crash:fatal';
     fwrite(STDERR, sprintf(
       'The droost workflow guard died before it could decide (%s at %s:%d), so '
-      . 'it refused. The OPERATOR reinstalls the hook with `droost-workflow init`.',
+      . 'it refused. The OPERATOR reinstalls the hook with `droost init`.',
       $fatal['message'],
       basename($fatal['file']),
       $fatal['line'],
@@ -338,11 +338,39 @@ $recordCall = static function () use ($root, $stateDir): void {
     'rule' => $GLOBALS['workflow_guard_rule'] ?? NULL,
     'at' => date('c'),
   ];
+  // A raw drush php or SQL call, for the site_tools house rule (F-366).
+  $raw = $GLOBALS['workflow_guard_raw_site'] ?? NULL;
+  if (is_string($raw) && $raw !== '') {
+    $row['raw_site'] = $raw;
+  }
   // WHICH SUBAGENT RETURNED, on a `dispatched` row: seeker-report files a
   // ledger only after a `workflow-seeker` has.
   $agent = $GLOBALS['workflow_guard_agent'] ?? NULL;
   if (is_string($agent) && $agent !== '') {
     $row['agent'] = $agent;
+  }
+  // Made inside a subagent (F-336): not the run agent's own call.
+  $subagent = $GLOBALS['workflow_guard_subagent'] ?? NULL;
+  if (is_string($subagent) && !in_array($GLOBALS['workflow_guard_mode'] ?? '', ['dispatched', 'launched'], TRUE)) {
+    $row['subagent'] = $subagent;
+  }
+  // And who it is, so a teammate's return is read back to its type (F-333).
+  foreach (['name' => 'workflow_guard_agent_name', 'agent_id' => 'workflow_guard_agent_id'] as $key => $global) {
+    $value = $GLOBALS[$global] ?? NULL;
+    if (is_string($value) && $value !== '') {
+      $row[$key] = $value;
+    }
+  }
+  // WHAT IT TOUCHED, in a few words: a project file, or a shell program and
+  // the word after it (never its arguments past that, which can hold a
+  // secret). The run panel's Activity tab reads it.
+  $subject = guard_call_subject(
+    is_string($GLOBALS['workflow_guard_tool'] ?? NULL) ? $GLOBALS['workflow_guard_tool'] : '',
+    is_array($GLOBALS['workflow_guard_input'] ?? NULL) ? $GLOBALS['workflow_guard_input'] : [],
+    $root,
+  );
+  if ($subject !== NULL) {
+    $row['subject'] = $subject;
   }
   // WHAT IT RETURNED, as a ledger digest, so an independent ledger is held to
   // the rows the seeker wrote (0.14.19).
@@ -390,6 +418,13 @@ $GLOBALS['workflow_guard_continued'] = $stopHookActive;
 // The session and its transcript, for the host record the diary writes.
 $GLOBALS['workflow_guard_session'] = is_string($payload['session_id'] ?? NULL) ? $payload['session_id'] : NULL;
 $GLOBALS['workflow_guard_transcript'] = is_string($payload['transcript_path'] ?? NULL) ? $payload['transcript_path'] : NULL;
+// WHICH AGENT MADE THE CALL (F-336). A hook that fires inside a subagent is
+// handed `agent_id` and `agent_type`; the main session's calls carry neither.
+// A live run's four refusals were a background research subagent's, and the
+// diary filed them as the run's.
+$GLOBALS['workflow_guard_subagent'] = is_string($payload['agent_id'] ?? NULL) && $payload['agent_id'] !== ''
+  ? substr(is_string($payload['agent_type'] ?? NULL) && $payload['agent_type'] !== '' ? $payload['agent_type'] : 'subagent', 0, 120)
+  : NULL;
 
 // THE TOOL'S NAME, recorded and never acted on here. Every other branch in
 // this file infers what is happening from `tool_input` — a `command` key means
@@ -408,6 +443,22 @@ $GLOBALS['workflow_guard_tool'] = is_string($toolName) && $toolName !== ''
   ? substr($toolName, 0, 120)
   : NULL;
 $guardInput = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
+
+// THE HARNESS, AND DROOST'S OWN EVENT. Each harness's hook configuration
+// calls this guard with `--harness=<name>`; its payload is translated into
+// the shape the rules below read (Claude Code's passes through), and the call
+// is named in droost's own vocabulary for the project's walls.
+$harness = guard_harness($argv);
+$translated = guard_payload_for($harness, $payload);
+if ($translated !== $payload) {
+  $payload = $translated;
+  $stdin = (string) json_encode($payload);
+  $guardInput = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
+}
+$guardEvent = guard_event($mode, $payload);
+// What the call touched, for the diary's `subject` (the run panel's Activity
+// tab shows what the agent did, not only what it says it did).
+$GLOBALS['workflow_guard_input'] = $guardInput;
 
 // RECORD MODE ENDS HERE, and ending here is the whole design (F-37).
 //
@@ -429,6 +480,20 @@ $guardInput = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] 
 // The shutdown function is already registered above and writes the row however
 // this script leaves, so `return` here is a complete recording.
 if ($mode === 'record') {
+  // The project's walls are asked about every call this registration sees:
+  // a tracker's write tools are MCP calls (droost off Drupal, 2026-10-19).
+  guard_walls($root, $guardEvent, $harness);
+  // THE MCP DOOR TO DROOST'S OWN TOOLS (PLAN-DROOST-TOOLS B2). MCP Server's
+  // Tool API bridge names a tool `tool_api__<id>`, so a site that offers
+  // droost's tools over a local MCP server hands the agent
+  // `mcp__<server>__tool_api__droost_entity_create`: the same tool as
+  // `drush droost:tool droost_entity_create`, held the same way. Only
+  // droost's ids are read; every other MCP tool is recorded, as before.
+  if (is_string($toolName) && preg_match('/^mcp__.+__tool_api__(droost_[a-z0-9_]+)$/', $toolName, $mcpTool) === 1) {
+    $mcpState = $root . '/' . $stateDir . '/run.json';
+    $mcpDocument = is_file($mcpState) ? json_decode((string) @file_get_contents($mcpState), TRUE) : NULL;
+    site_tool_judge($mcpTool[1], NULL, (string) json_encode($guardInput, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), $root, $stateDir, is_array($mcpDocument) ? $mcpDocument : []);
+  }
   return;
 }
 
@@ -446,22 +511,38 @@ if ($mode === 'record') {
 // for nothing; a return is a `completed` result here, or SubagentStop (mode
 // `subagent-stop`), which carries the subagent's final message. Either way
 // the ledger it wrote is kept as a digest the ledger filed must match.
+//
+// A NAMED AGENT IS A TEAMMATE (F-333). Given a `name`, the Agent tool starts a
+// teammate and answers `status: teammate_spawned` at once, which this read as
+// a return: a live run's seeker was counted returned the second it launched,
+// with no ledger to hold the filed one to. Any status but `completed` is a
+// launch now. And a teammate's SubagentStop names it by its NAME, not its
+// type, so the launch row keeps both, and seeker-report reads the type back
+// through them: a general-purpose agent named `workflow-seeker` is not one.
 if ($mode === 'dispatched' || $mode === 'subagent-stop') {
   if ($mode === 'dispatched') {
     $type = $guardInput['subagent_type'] ?? NULL;
     $response = $payload['tool_response'] ?? NULL;
     $text = guard_response_text($response);
-    $launched = (is_array($response) && ($response['status'] ?? NULL) === 'async_launched')
-      || str_contains($text, 'Async agent launched');
+    $status = is_array($response) ? ($response['status'] ?? NULL) : NULL;
+    $launched = is_string($status)
+      ? $status !== 'completed'
+      : str_contains($text, 'Async agent launched') || str_contains($text, 'Spawned successfully');
+    $name = $guardInput['name'] ?? NULL;
+    $agentId = is_array($response) ? ($response['agentId'] ?? $response['agent_id'] ?? NULL) : NULL;
   }
   else {
     $type = $payload['agent_type'] ?? NULL;
     $text = is_string($payload['last_assistant_message'] ?? NULL) ? $payload['last_assistant_message'] : '';
     $launched = FALSE;
+    $name = NULL;
+    $agentId = $payload['agent_id'] ?? NULL;
     $GLOBALS['workflow_guard_tool'] = 'SubagentStop';
   }
   $GLOBALS['workflow_guard_mode'] = $launched ? 'launched' : 'dispatched';
   $GLOBALS['workflow_guard_agent'] = is_string($type) && $type !== '' ? substr($type, 0, 120) : 'general-purpose';
+  $GLOBALS['workflow_guard_agent_name'] = is_string($name) && $name !== '' ? substr($name, 0, 120) : NULL;
+  $GLOBALS['workflow_guard_agent_id'] = is_string($agentId) && $agentId !== '' ? substr($agentId, 0, 120) : NULL;
   if (!$launched) {
     $GLOBALS['workflow_guard_ledger'] = guard_ledger_digest($text);
   }
@@ -469,6 +550,27 @@ if ($mode === 'dispatched' || $mode === 'subagent-stop') {
 }
 
 // ANSWERS MODE: the human's answers to an intake's questions, on record.
+// QUESTION MODE: PreToolUse on AskUserQuestion, before the dialog opens. A
+// question is the human's to answer, and the tool's input has room for
+// answers (`answers`, `annotations`) that the dialog fills; input that
+// arrives already carrying them is the agent answering its own question,
+// which would read as the human's in the intake record and at a human-led
+// run's complete hold (owner, 2026-10-20). Refused, whatever else is open.
+if ($mode === 'question') {
+  $GLOBALS['workflow_guard_quiet'] = TRUE;
+  foreach (['answers', 'annotations'] as $key) {
+    $prefilled = $guardInput[$key] ?? NULL;
+    if ((is_array($prefilled) && $prefilled !== []) || (is_string($prefilled) && trim($prefilled) !== '')) {
+      $GLOBALS['workflow_guard_quiet'] = FALSE;
+      guard_refuse('question:prefilled', sprintf(
+        'This question arrives with its %s already filled in. A question is the human\'s to answer: ask it with `questions` only, and the dialog records what they choose.',
+        $key,
+      ));
+    }
+  }
+  exit(0);
+}
+
 // Wired to PostToolUse on AskUserQuestion, so the dialog has closed and the
 // result is what the human chose or typed. An intake's questions are its
 // Q&A with the human, and `intake check` holds `questions.md` to what is
@@ -478,6 +580,50 @@ if ($mode === 'dispatched' || $mode === 'subagent-stop') {
 // kept. Never a wall: nothing here can refuse.
 if ($mode === 'answers') {
   $GLOBALS['workflow_guard_quiet'] = TRUE;
+  // THE COMPLETE HOLD OF A HUMAN-LED RUN (owner, 2026-10-20): the human's
+  // answer to the agent's question is what finishes it, so it is recorded
+  // here, from the tool's RESULT only (what the dialog returned, never the
+  // input the agent wrote), in a file the agent cannot write. `workflow:answer`
+  // reads it back.
+  $record = json_decode((string) @file_get_contents($root . '/' . $stateDir . '/run.json'), TRUE);
+  $awaiting = is_array($record) && is_array($record['awaiting'] ?? NULL) ? $record['awaiting'] : NULL;
+  if ($awaiting !== NULL && ($awaiting['phase'] ?? NULL) === 'complete' && ($record['lead'] ?? NULL) === 'human-led' && is_string($record['run_id'] ?? NULL)) {
+    $response = $payload['tool_response'] ?? NULL;
+    $map = is_array($response) && is_array($response['answers'] ?? NULL) ? $response['answers'] : [];
+    // THE HOLD'S OWN QUESTION, word for word: a "yes" to some other question
+    // asked while the run waits ("shall I run lint?") is not an approval to
+    // finish it.
+    $holdQuestion = is_string($awaiting['question'] ?? NULL) ? trim($awaiting['question']) : '';
+    $given = [];
+    foreach ($map as $question => $answer) {
+      if (is_string($question) && $holdQuestion !== '' && trim($question) === $holdQuestion && (is_string($answer) || is_array($answer))) {
+        $given[$question] = is_array($answer) ? implode(', ', array_filter($answer, 'is_string')) : $answer;
+      }
+    }
+    // A dialog that asked something else is kept too, with no answer, so a
+    // refused `answer` can say what was asked against what the hold asks
+    // (F-360): the reader takes only a row that carries answers.
+    $asked = array_values(array_filter(array_keys($map), 'is_string'));
+    if ($given !== [] || $asked !== []) {
+      $line = json_encode([
+        'run' => $record['run_id'],
+        'phase' => 'complete',
+        'asked_at' => is_string($awaiting['asked_at'] ?? NULL) ? $awaiting['asked_at'] : '',
+        'answers' => $given,
+        'asked' => $asked,
+        'via' => 'AskUserQuestion',
+        'at' => date('c'),
+      ], JSON_UNESCAPED_SLASHES);
+      if ($line !== FALSE) {
+        @file_put_contents($root . '/' . $stateDir . '/hold-answers.jsonl', $line . "\n", FILE_APPEND | LOCK_EX);
+      }
+    }
+    if ($given !== []) {
+      $GLOBALS['workflow_guard_quiet'] = FALSE;
+      $GLOBALS['workflow_guard_verdict'] = 'note';
+      $GLOBALS['workflow_guard_rule'] = 'hold-answer';
+    }
+  }
   $intake = json_decode((string) @file_get_contents($root . '/' . $stateDir . '/intake.json'), TRUE);
   if (is_array($intake) && ($intake['status'] ?? NULL) === 'open' && is_string($intake['id'] ?? NULL)) {
     $answers = guard_question_answers($payload);
@@ -508,10 +654,15 @@ if ($mode === 'answers') {
 // is written, and ask droost instead of walking core and contrib. It never
 // says how to build (owner, 2026-10-15). Each note is
 // a diary row (verdict `note`), so a record shows the nudge and what the agent
-// did next; a call that earns nothing leaves no row. The Claude mod carries
-// the same notes in the same words where this floor is not installed.
+// did next; a call that earns nothing leaves no row.
 if ($mode === 'nudge') {
   $GLOBALS['workflow_guard_quiet'] = TRUE;
+  // A generator's files go in the scaffold record before anything else.
+  if ($guardEvent['kind'] === 'shell' && guard_scaffold_after($guardEvent['command'], $root, $stateDir) > 0) {
+    $GLOBALS['workflow_guard_quiet'] = FALSE;
+    $GLOBALS['workflow_guard_verdict'] = 'note';
+    $GLOBALS['workflow_guard_rule'] = 'scaffold-recorded';
+  }
   $guardResponse = is_array($payload['tool_response'] ?? NULL) ? $payload['tool_response'] : [];
   $note = guard_nudge($root . '/' . $stateDir, $GLOBALS['workflow_guard_tool'] ?? '', $guardInput, $guardResponse);
   if ($note !== NULL) {
@@ -569,6 +720,10 @@ if (str_contains($stdin, "\0") || $carriesNul($payload)) {
 }
 
 if ($mode === 'operator-commands') {
+  // The project's own walls and operator-only scripts first: they are the
+  // project's signature, run or no run.
+  guard_walls($root, $guardEvent, $harness);
+  guard_operator_only($guardEvent['command'], $root);
   // A shell is a file editor. `baseline_dir_guard()` refuses the store and the
   // baseline for Edit|Write|MultiEdit|NotebookEdit, and Bash is wired to THIS
   // branch — which only ever looked at drush command names and returned. So the
@@ -615,10 +770,20 @@ if ($mode === 'operator-commands') {
       );
     }
   }
+  // Droost's site-write tools change the live site from the shell, so the
+  // run holds them as it holds an edit.
+  if (is_string($shellCommand) && $shellCommand !== '') {
+    site_tool_guard(operator_commands_scan_text($shellCommand), $root, $stateDir, $shellDocument);
+    $GLOBALS['workflow_guard_raw_site'] = site_raw_call(operator_commands_scan_text($shellCommand));
+  }
+  // Allowed: when it runs a code generator, note what was already untracked,
+  // so the call's return can record what the generator wrote.
+  guard_scaffold_before($guardEvent['command'], $root, $stateDir);
   exit(0);
 }
 
 if ($mode === 'pre-tool-use') {
+  guard_walls($root, $guardEvent, $harness);
   // Run or no run, the adoption baseline is never the agent's to edit.
   baseline_dir_guard($stdin, $root, $stateDir);
 }
@@ -648,7 +813,7 @@ if (!is_array($document)) {
       . 'having no run: something wrote junk into it, or it was truncated '
       . 'mid-write. Nothing can say which phase this run is in or what it has '
       . 'passed, so the turn does not end here. An operator can archive it with '
-      . '`droost-workflow reset --force`, which keeps it rather than discarding '
+      . '`droost workflow:reset --force`, which keeps it rather than discarding '
       . 'it.',
       $stateDir,
     ));
@@ -1473,10 +1638,10 @@ function guard_question_answers(array $payload): array {
  * `droost:workflow:gate-waive`, `droost:workflow:bypass` and
  * `droost:workflow:effort <level>` exist so a human can loosen the pipeline
  * deliberately — a waiver or bypass with a recorded reason, or the effort
- * dial moved in a reviewable line. They have no MCP surface, but an agent
- * running with permissions bypassed has a shell, and Drush is a shell command
- * — so the harness is where the agent's hand has to be stopped. Recognises
- * the full command names and the Drush aliases (dwfgw, dwfby, dwfe);
+ * dial moved in a reviewable line. An agent running with permissions bypassed
+ * has a shell — so the harness is where the agent's hand has to be stopped.
+ * Recognises `droost workflow:<verb>`, the `droost-workflow <verb>` alias and
+ * the colon spelling `droost:workflow:<verb>`;
  * `bypass --off` re-arms the wall, and a bare `effort` or an `effort <level>
  * --preview` only reports, so those are always allowed. The adoption baseline
  * (`droost:workflow:baseline`, `droost-workflow baseline`) is the operator's
@@ -1520,8 +1685,8 @@ function operator_commands_guard(string $stdin): void {
     guard_refuse('operator-command:substitution',
       'This command builds a droost command out of a substitution, so what it '
       . 'actually runs cannot be read here — and the operator-only verbs '
-      . '(bypass, gate-waive, baseline, effort, arming a write gate) are '
-      . 'exactly what that hides. Write the drush command out in full. If you '
+      . '(bypass, gate-waive, baseline, effort) are '
+      . 'exactly what that hides. Write the command out in full. If you '
       . 'genuinely need a computed argument, compute it into a variable on its '
       . 'own line first; it is the VERB that has to be legible.');
   }
@@ -1529,8 +1694,8 @@ function operator_commands_guard(string $stdin): void {
   // let each answer come from a different command: `bypass "hotfix"; echo
   // --off` read its exemption out of the `echo`, `"droost:workflow:byp"ass`
   // defeated every verb because quoting splits a word to a regex and joins it
-  // to the shell, and `droost:gate allow_entity_write "on"` armed a write gate
-  // because `"on"` is not `on`.
+  // to the shell, and the retired module's `droost:gate allow_entity_write
+  // "on"` armed a write gate because `"on"` is not `on`.
   foreach (with_find_exec_commands(operator_commands_invocations($command)) as $tokens) {
     // A MULTI-WORD token is a quoted argument — a commit message, a PR body, a
     // sentence being echoed — and a verb inside one is prose, not an
@@ -1548,9 +1713,17 @@ function operator_commands_guard(string $stdin): void {
       $tokens,
       static fn (string $token): bool => preg_match('/\s/', $token) !== 1,
     ));
+    // THE droost COMMAND SPELLS EVERY VERB `droost workflow:<verb>` (droost
+    // off Drupal, 2026-10-19), from wherever it is installed
+    // (`tools/droost/vendor/bin/droost workflow:bypass`). The verbs below are
+    // matched in the colon spelling, so the new one is read as that spelling
+    // here. Without this the command every pack file now teaches granted the
+    // operator's bypass from the agent's own shell.
+    $line = (string) preg_replace('/(?<![\w-])droost\s+workflow:/', 'droost:workflow:', $line);
     if (operator_commands_opaque_head($tokens)) {
       guard_refuse('operator-command:variable-program',
-        'This command runs whatever a variable happens to hold, so what it '
+        'This command runs whatever a variable happens to hold'
+        . guard_found_in_script($tokens, $command) . ', so what it '
         . 'actually does cannot be read here — and the operator-only verbs '
         . '(bypass, gate-waive, baseline, effort, arming a write gate) are '
         . 'exactly what that hides. Write the program name out: `bash -c "…"`, '
@@ -1605,11 +1778,11 @@ function operator_commands_guard(string $stdin): void {
     // bypass from the agent's own shell, past a wall that refuses the drush
     // spelling of the identical act. A verb is the same act whichever surface
     // spells it.
-    if (preg_match('/droost:workflow:gate-waive\b|(?<![\w-])dwfgw\b'
+    if (preg_match('/droost:workflow:gate-waive\b'
       . '|droost-workflow\s+gate-waive\b/', $line) === 1) {
       $which = 'gate-waive';
     }
-    elseif (preg_match('/(?:droost:workflow:baseline|(?<![\w-])dwfbl|droost-workflow\s+baseline)\b/', $line) === 1
+    elseif (preg_match('/(?:droost:workflow:baseline|droost-workflow\s+baseline)\b/', $line) === 1
       && !operator_commands_flagged($tokens, ['--status', '--measure'])) {
       // Writing or refreshing the baseline decides what counts as inherited
       // debt for every later run. The bill (--measure) and the record
@@ -1617,12 +1790,12 @@ function operator_commands_guard(string $stdin): void {
       // to baseline; the write is the operator's.
       $which = 'baseline';
     }
-    elseif (preg_match('/droost:workflow:bypass\b|(?<![\w-])dwfby\b'
+    elseif (preg_match('/droost:workflow:bypass\b'
       . '|droost-workflow\s+bypass\b/', $line) === 1
       && !operator_commands_flagged($tokens, ['--off'])) {
       $which = 'bypass';
     }
-    elseif (preg_match('/(?:droost:workflow:effort|(?<![\w-])dwfe'
+    elseif (preg_match('/(?:droost:workflow:effort'
       . '|droost-workflow\s+effort)\b/', $line) === 1
       && !operator_commands_flagged($tokens, ['--preview'])
       && array_intersect($tokens, ['custom', 'low', 'medium', 'high', 'xhigh', 'max', 'factory', 'light']) !== []) {
@@ -1646,62 +1819,41 @@ function operator_commands_guard(string $stdin): void {
     // are the human's: an agent never answers its own question. Approval is
     // the agent's to run once the human has said yes in the session (owner,
     // 2026-10-08), so it is not refused here; the guard records that yes
-    // from AskUserQuestion like every other answer. `dwfin` is the drush
-    // alias. Checking, reading and asking (`intake ask`) stay the agent's.
-    // Options may stand between the command and its verb (drush takes
-    // `dwfin --via=cockpit answer …`), so they are skipped, not required
-    // absent: a verb found only when it comes first is a bypass.
-    elseif (preg_match('/(?:droost-workflow\s+' . $options . '|droost:workflow:)intake\s+' . $options . 'abandon\b|(?<![\w-])dwfin\s+' . $options . 'abandon\b/', $line) === 1) {
+    // from AskUserQuestion like every other answer. Checking, reading and
+    // asking (`intake ask`) stay the agent's. Options may stand between the
+    // command and its verb (`intake --via=cockpit answer …`), so they are
+    // skipped, not required absent: a verb found only when it comes first is
+    // a bypass.
+    elseif (preg_match('/(?:droost-workflow\s+' . $options . '|droost:workflow:)intake\s+' . $options . 'abandon\b/', $line) === 1) {
       $which = 'intake abandon';
     }
-    elseif (preg_match('/(?:droost-workflow\s+' . $options . '|droost:workflow:)intake\s+' . $options . 'answer\b|(?<![\w-])dwfin\s+' . $options . 'answer\b/', $line) === 1) {
+    elseif (preg_match('/(?:droost-workflow\s+' . $options . '|droost:workflow:)intake\s+' . $options . 'answer\b/', $line) === 1) {
       $which = 'intake answer';
-    }
-    elseif (operator_commands_arms_write_gate($tokens)
-      || operator_commands_php_arms_write_gate($tokens)) {
-      // ARMING a write gate is the operator's act too (round 25, R25-F2: the
-      // subject asked for allow_entity_write rather than arming it — this makes
-      // asking the only path). Disarming is a tightening and is not matched.
-      $which = 'gate (arming a write gate)';
     }
     if ($which === NULL) {
       continue;
     }
-    $gate = str_starts_with($which, 'gate (');
-    // Name it back in the spelling that was USED. Every one of these verbs
-    // now exists on two surfaces, and telling an operator to run the drush
-    // command on a project with no Drupal is advice they cannot take.
-    $words = array_map(static fn (string $w): string => preg_quote($w, '/'), explode(' ', $which));
-    $cli = !$gate && preg_match('/droost-workflow\s+' . $options . implode('\s+' . $options, $words) . '\b/', $line) === 1;
-    $name = match (TRUE) {
-      $gate => 'droost:gate',
-      $cli => 'droost-workflow ' . $which,
-      default => 'droost:workflow:' . $which,
-    };
-    // The rule tag is the verb, which is what an evaluator wants to see
-    // counted.
-    //
-    // The RUNNABLE command, which is not the same string as the verb's name.
-    // A drush verb is not a command without `drush` in front of it, and the
-    // hand-over line is the whole point of this refusal: printing
-    // `droost:workflow:gate-waive …` gives the operator something their
-    // shell does not have. The standalone binary IS the command, so it stands
-    // alone. Caught by GuardTest, which pins the hand-over's exact shape.
+    // Name it back as a command the operator can run: the deprecated
+    // `droost-workflow` alias when that was used, else `droost workflow:`.
+    // The colon spelling was the retired module's drush verb, and no shell
+    // has it now. The rule tag is the verb, which is what an evaluator wants
+    // to see counted. Caught by GuardTest, which pins the hand-over's shape.
     //
     // AND A TERMINAL OF THEIR OWN (F-256). The refusal used to say "in Claude
     // Code: `! …`", and Claude Code's `!` gives a command no terminal: the
     // operator who followed it was refused as the agent is.
-    $handover = $cli ? $name : 'drush ' . $name;
+    $words = array_map(static fn (string $w): string => preg_quote($w, '/'), explode(' ', $which));
+    $cli = preg_match('/droost-workflow\s+' . $options . implode('\s+' . $options, $words) . '\b/', $line) === 1;
+    $name = $cli ? 'droost-workflow ' . $which : 'droost workflow:' . $which;
     guard_refuse('operator-command:' . $which, sprintf(
       '%1$s is the OPERATOR\'s command — an agent may propose it, never run it. '
       . 'Show the operator the exact command with your reason and ask them to '
       . 'run it in a terminal of THEIR own, outside this session: `%2$s …`. '
       . 'Not with Claude Code\'s `!`, which runs a command with no terminal, '
       . 'so it is refused there as it is here. Continue once they say it is '
-      . 'done. The record must carry a human\'s decision, not yours.%3$s',
+      . 'done. The record must carry a human\'s decision, not yours.',
       $name,
-      $handover,
-      $gate ? ' (Disarming a gate — `off` — needs no operator; only arming does.)' : '',
+      $name,
     ));
   }
 }
@@ -1901,134 +2053,6 @@ function operator_commands_opaque_head(array $tokens): bool {
   // quoted payload is dropped as prose. A reviewer used it to overwrite this
   // file and take `stop` from 2 to 0.
   return str_starts_with($head, '$') || str_contains($head, '`');
-}
-
-/**
- * Whether an argument list arms a droost write gate.
- *
- * Both spellings: `droost:gate allow_x on` and `config:set droost.settings
- * allow_x true`. Read from tokens, because the value arrived quoted — `"on"` —
- * and a raw-string match let a write gate be armed. Flags may sit anywhere;
- * only the ORDER of the gate name and its value matters.
- *
- * @param list<string> $tokens
- *   The argument list.
- *
- * @return bool
- *   TRUE when this command arms one.
- */
-function operator_commands_arms_write_gate(array $tokens): bool {
-  $arming = ['on', 'true', '1', 'yes', 'arm', 'armed'];
-  // `droost:install` (alias `droost`) arms the gates it is told to: with
-  // `--gates=<flags|all>` or the deprecated `--scaffold`. With neither it
-  // keeps what is armed (F-286); with `--gates=none` it arms nothing.
-  foreach ($tokens as $index => $token) {
-    if (!in_array(strtolower($token), ['droost:install', 'droost'], TRUE)) {
-      continue;
-    }
-    foreach (array_slice($tokens, $index + 1) as $offset => $option) {
-      $lower = strtolower($option);
-      if (preg_match('/^--gates(?:=(.*))?$/', $lower, $m) === 1) {
-        $value = $m[1] ?? strtolower($tokens[$index + 2 + $offset] ?? '');
-        if (!in_array(trim($value, "'\" "), ['none', 'no', 'n', 'false', 'off', '0', ''], TRUE)) {
-          return TRUE;
-        }
-      }
-      if (preg_match('/^--scaffold(?:=(.*))?$/', $lower, $m) === 1
-        && !in_array(trim($m[1] ?? 'yes', "'\" "), ['no', 'n', 'false', 'off', '0'], TRUE)) {
-        return TRUE;
-      }
-    }
-  }
-  $words = array_values(array_filter(
-    $tokens,
-    static fn (string $token): bool => !str_starts_with($token, '-'),
-  ));
-  $verb = NULL;
-  foreach ($words as $index => $word) {
-    $lower = strtolower($word);
-    if ($lower === 'droost:gate' || $lower === 'dgate') {
-      $verb = $index;
-      break;
-    }
-    if (in_array($lower, ['config:set', 'config-set', 'cset'], TRUE)) {
-      // The settings object has to be named for this to be droost's gate.
-      $next = strtolower($words[$index + 1] ?? '');
-      if ($next === 'droost.settings') {
-        $verb = $index + 1;
-        break;
-      }
-      // The DOTTED spelling is the same command. `drush cset
-      // droost.settings.allow_entity_write true` names the key in one token,
-      // which read as neither the object nor the flag, and armed a write gate
-      // with the guard watching. Drush accepts both forms; so does this.
-      if (preg_match('/^droost\.settings\.(allow_\w+)$/i', $next) === 1
-        && in_array(strtolower($words[$index + 2] ?? ''), $arming, TRUE)) {
-        return TRUE;
-      }
-    }
-  }
-  if ($verb === NULL) {
-    return FALSE;
-  }
-  $flag = $words[$verb + 1] ?? '';
-  $value = $words[$verb + 2] ?? '';
-
-  return preg_match('/^allow_\w+$/i', $flag) === 1
-    && in_array(strtolower($value), $arming, TRUE);
-}
-
-/**
- * Whether a line of PHP arms a droost write gate.
- *
- * `drush php:eval` is a runner, so the tokeniser already hands the PHP through
- * as its own invocation — and then every matcher looked for `droost:gate` or
- * `config:set` and found neither, because this spelling has no drush verb at
- * all:
- *
- *     drush php:eval "\Drupal::configFactory()
- *       ->getEditable('droost.settings')
- *       ->set('allow_entity_write', TRUE)->save();"
- *
- * Same config object, same key, same effect, and it was permitted. The shape to
- * match is not a verb but the three things that have to be present for the
- * write to mean anything: droost's settings, an allow_* key, and a truthy.
- *
- * @param list<string> $tokens
- *   The invocation's tokens.
- *
- * @return bool
- *   TRUE when the invocation writes a droost allow_* switch on.
- */
-function operator_commands_php_arms_write_gate(array $tokens): bool {
-  // Flattened from the tokens rather than matched against PHP source, because
-  // by the time this sees it there is no PHP source left. The tokeniser splits
-  // on grouping punctuation and marks `>` as a redirect, so
-  // `->set('allow_entity_write', TRUE)` arrives as `-`, `\x01set`,
-  // `allow_entity_write,`, `TRUE`. A pattern written against the code an agent
-  // typed matches none of that, which is why the first cut of this permitted
-  // the write it was added to refuse.
-  $flat = strtolower(implode(' ', array_map(
-    static fn (string $token): string => ltrim($token, "\x01"),
-    $tokens,
-  )));
-  // `$settings['droost']['allow_entity_write'] = TRUE;` is the arming that
-  // actually takes effect — GateState reads exactly that shape. The config
-  // spelling below is kept because an operator may reasonably TRY it, and
-  // refusing a no-op costs nothing; this is the one that works.
-  if (preg_match('/settings.{0,4}droost|droost.{0,4}settings|droost_workflow/', $flat) !== 1) {
-    return FALSE;
-  }
-  if (preg_match('/allow_\w+/', $flat) !== 1) {
-    return FALSE;
-  }
-  // Something that WRITES, and something truthy. Reading the switch is not
-  // arming it — `\Drupal::config('droost.settings')->get('allow_entity_write')`
-  // is a perfectly good thing for an agent to ask, and asking is the behaviour
-  // this whole rule is trying to produce.
-  return (preg_match('/(?<![a-z_])(set|setmultiple|save|seteditable|setsetting)(?![a-z_])/', $flat) === 1
-    || str_contains($flat, '='))
-    && preg_match('/(?<![a-z_])(true|1|on)(?![a-z_0-9])/', $flat) === 1;
 }
 
 /**
@@ -2594,8 +2618,8 @@ function guard_named_root(): string {
  * One tokeniser, because three ad-hoc scanners over the raw string each missed
  * a different thing and each fix reopened another's hole:
  *
- *   * `droost:gate allow_entity_write "on"` armed a write gate — the value was
- *     matched as a raw word and `"on"` is not `on`;
+ *   * the retired module's `droost:gate allow_entity_write "on"` armed a
+ *     write gate — the value was matched as a raw word and `"on"` is not `on`;
  *   * `drush "droost:workflow:byp"ass` defeated every verb, because quoting
  *     splits a word to a regex and JOINS it to the shell;
  *   * `bypass "hotfix"; echo --off` read the `--off` from a different command
@@ -3232,6 +3256,9 @@ function operator_commands_invocations(string $command, int $depth = 0, ?array &
             continue;
           }
         }
+        // Which file this was, so a refusal found in its lines can say so
+        // rather than quote a command they are not in (F-334).
+        $GLOBALS['guard_scripts_read'][] = $file;
         // SHELL IS TOKENISED AS SHELL. EVERY OTHER LANGUAGE IS READ AS TEXT.
         //
         // This tier exists to catch an operator verb hidden in a file —
@@ -3488,7 +3515,7 @@ function operator_commands_closing_paren(string $command, int $open): int {
  *   The invocation's unwrapped tokens.
  *
  * @return bool
- *   TRUE when a `droost:workflow:*` verb, its `dwf*` alias, or a
+ *   TRUE when a `droost:workflow:*` verb, a `droost workflow:*` one, or a
  *   `droost-workflow` verb is followed by `--help` or `-h` and nothing else
  *   but redirection targets, or is the whole argument of `drush help`.
  */
@@ -3499,11 +3526,16 @@ function operator_commands_help_only(array $plain): bool {
   )));
   $verb = NULL;
   foreach ($words as $index => $word) {
-    if (preg_match('/^(?:droost:workflow:[a-z-]+|dwf[a-z]+)$/', $word) === 1) {
+    if (preg_match('/^droost:workflow:[a-z-]+$/', $word) === 1) {
       $verb = $index;
       break;
     }
     if (basename($word) === 'droost-workflow' && isset($words[$index + 1])) {
+      $verb = $index + 1;
+      break;
+    }
+    // `droost workflow:<verb> --help`, the droost command's spelling.
+    if (basename($word) === 'droost' && preg_match('/^workflow:[a-z-]+$/', $words[$index + 1] ?? '') === 1) {
       $verb = $index + 1;
       break;
     }
@@ -3707,6 +3739,242 @@ function shell_phase_guard(
 }
 
 /**
+ * The droost module's tools that write to the live site.
+ *
+ * Their reading twins (droost_entities, droost_config_get, droost_views_get,
+ * droost_logs and the rest) are free in every phase: looking is what plan is
+ * for. Kept by id because the guard boots no Drupal and cannot ask a tool
+ * what it is.
+ *
+ * @return list<string>
+ *   The tool ids.
+ */
+function site_tool_write_ids(): array {
+  return [
+    'droost_entity_create', 'droost_entity_update', 'droost_entity_delete',
+    'droost_canvas_tree_set',
+    'droost_canvas_component_toggle', 'droost_canvas_variant_tree_set',
+    'droost_config_set', 'droost_config_import_one', 'droost_structure_create',
+    'droost_views_compose', 'droost_views_alter',
+    'droost_db_create', 'droost_db_update', 'droost_db_delete',
+    'droost_eval', 'droost_module_install', 'droost_module_uninstall',
+    'droost_cron_run', 'droost_cache_rebuild', 'droost_generate', 'droost_deploy_hook_reset',
+    'droost_ai_invoke',
+  ];
+}
+
+/**
+ * The tool one invocation runs through drush, or NULL when it runs none.
+ *
+ * `drush droost:tool <id>` (alias `dtool`) is droost's door, and
+ * `drush tool:run <id>` is Tool API's, which reaches the same tools. Any
+ * drush counts: `drush`, `vendor/bin/drush`, `ddev drush`, and the payload
+ * of `ddev exec "…"`, which the tokeniser has already unwrapped.
+ *
+ * @param list<string> $tokens
+ *   One invocation's tokens.
+ *
+ * @return string|null
+ *   The tool id, or NULL.
+ */
+function site_tool_named(array $tokens): ?string {
+  $words = array_values(array_map(static fn (string $token): string => ltrim($token, "\x01"), operator_commands_unwrapped($tokens)));
+  foreach ($words as $i => $word) {
+    if (basename($word) !== 'drush') {
+      continue;
+    }
+    $rest = array_values(array_filter(array_slice($words, $i + 1), static fn (string $w): bool => !str_starts_with($w, '-')));
+    if (!in_array($rest[0] ?? '', ['droost:tool', 'dtool', 'tool:run'], TRUE)) {
+      return NULL;
+    }
+    $id = $rest[1] ?? '';
+    return preg_match('/^[a-z0-9_:]+$/', $id) === 1 ? $id : NULL;
+  }
+  return NULL;
+}
+
+/**
+ * The raw drush php or SQL verb a command runs, or NULL.
+ *
+ * What the site_tools house rule counts: PHP evaluated in the site, a PHP
+ * script run in it, or SQL run against its database, which no run records
+ * and the guard cannot hold (F-366).
+ *
+ * @param string $command
+ *   The command, scanned.
+ *
+ * @return string|null
+ *   The verb, in its canonical spelling, or NULL.
+ */
+function site_raw_call(string $command): ?string {
+  foreach (operator_commands_invocations($command) as $tokens) {
+    $verb = site_raw_verb($tokens);
+    if ($verb !== NULL) {
+      return $verb;
+    }
+  }
+  return NULL;
+}
+
+/**
+ * The raw drush verb one invocation runs, or NULL.
+ *
+ * Judged on the invocation's own tokens: re-scanning a joined command string
+ * mid-scan changed what the rest of the scan saw.
+ *
+ * @param list<string> $tokens
+ *   One invocation's tokens.
+ *
+ * @return string|null
+ *   The verb, canonical, or NULL.
+ */
+function site_raw_verb(array $tokens): ?string {
+  $aliases = [
+    'php:eval' => ['php:eval', 'php-eval', 'ev'],
+    'php:script' => ['php:script', 'php-script', 'scr'],
+    'sql:query' => ['sql:query', 'sql-query', 'sqlq'],
+    'sql:cli' => ['sql:cli', 'sql-cli', 'sqlc'],
+  ];
+  $canonical = [];
+  foreach ($aliases as $verb => $spellings) {
+    $canonical += array_fill_keys($spellings, $verb);
+  }
+  $words = array_values(array_map(static fn (string $token): string => ltrim($token, "\x01"), operator_commands_unwrapped($tokens)));
+  foreach ($words as $i => $word) {
+    if (basename($word) !== 'drush') {
+      continue;
+    }
+    $rest = array_values(array_filter(array_slice($words, $i + 1), static fn (string $w): bool => !str_starts_with($w, '-')));
+    return $canonical[$rest[0] ?? ''] ?? NULL;
+  }
+  return NULL;
+}
+
+/**
+ * Holds droost's site-write tools to the run, as the edit wall holds files.
+ *
+ * A whole content model can be built through droost's tools without touching
+ * a file, and the edit wall never saw it. So a write tool is refused while the
+ * run is in plan, and refused with no run open under require_run: hard,
+ * unless the operator granted a bypass. In code, test and complete it runs.
+ *
+ * @param string $command
+ *   The command, scanned.
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The state directory, project-relative.
+ * @param array<string, mixed> $document
+ *   The run record, or [] when there is none.
+ */
+function site_tool_guard(string $command, string $root, string $stateDir, array $document): void {
+  foreach (operator_commands_invocations($command) as $tokens) {
+    $said = implode(' ', array_map(static fn (string $token): string => ltrim($token, "\x01"), $tokens));
+    site_tool_judge(site_tool_named($tokens), site_raw_verb($tokens), $said, $root, $stateDir, $document);
+  }
+}
+
+/**
+ * Judges one call of a droost site tool, or of raw drush PHP or SQL.
+ *
+ * Two doors reach the same tools: `drush droost:tool <id>` in the shell, and
+ * MCP Server's Tool API bridge (`mcp__<server>__tool_api__<id>`). Both are
+ * held here, the same way.
+ *
+ * @param string|null $tool
+ *   The tool id, or NULL for a raw drush call.
+ * @param string|null $raw
+ *   The raw drush verb, or NULL.
+ * @param string $said
+ *   Everything the call was handed, as text.
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The state directory, project-relative.
+ * @param array<string, mixed> $document
+ *   The run record, or [] when there is none.
+ */
+function site_tool_judge(?string $tool, ?string $raw, string $said, string $root, string $stateDir, array $document): void {
+  if ($tool === NULL && $raw === NULL) {
+    return;
+  }
+  // THE COCKPIT RULE (PLAN-DROOST-TOOLS): no tool, through any door,
+  // reads or writes droost's run state. A site tool or raw drush PHP or
+  // SQL handed a file of the state directory that the guard protects (the
+  // run record, the ledgers, the history, the evidence store) is pointed
+  // at what only droost and the operator touch. A scratch file there, the
+  // shell's hand-off (F-345), stays open, as it does to the shell. A wall
+  // against the obvious route, as every path rule here is: PHP that builds
+  // the path in pieces is not seen.
+  $dirs = array_unique(['droost/droost-workflow', '.droost-workflow', trim($stateDir, '/')]);
+  foreach ($dirs as $dir) {
+    if ($dir === '' || preg_match_all('#' . preg_quote($dir, '#') . '(/[^\s\'"\\\\),;]*)?#', $said, $hits) < 1) {
+      continue;
+    }
+    foreach ($hits[0] as $hit) {
+      $relative = rtrim(trim($stateDir, '/') . substr($hit, strlen($dir)), '/');
+      if ($relative === trim($stateDir, '/') || enforcement_refusal_for($relative, $root, $stateDir) !== '') {
+        guard_refuse('site-tool:run-state', sprintf(
+          'droost workflow: %s is pointed at %s, droost\'s run state. No '
+          . 'tool reads or writes it, through any door: the run record is '
+          . 'droost\'s and the operator\'s. Read the run with droost '
+          . 'workflow:status; if content merely mentions the path, phrase '
+          . 'it another way.',
+          $tool ?? 'drush ' . $raw,
+          $hit,
+        ));
+      }
+    }
+  }
+  if ($tool === NULL || !in_array($tool, site_tool_write_ids(), TRUE)) {
+    return;
+  }
+  $phase = is_string($document['current_phase'] ?? NULL) ? $document['current_phase'] : NULL;
+  $phases = is_array($document['phases'] ?? NULL) ? $document['phases'] : [];
+  $status = $phase !== NULL && is_string($phases[$phase] ?? NULL) ? $phases[$phase] : '';
+  $live = $phase !== NULL && $status !== 'failed' && $status !== 'passed';
+  if ($live && $phase === 'plan') {
+    guard_refuse('site-tool:plan', sprintf(
+      'droost:workflow:continue: the active run is still in PLAN, and %s '
+      . 'changes the site. Write the spec under %s/ and advance the run '
+      . '(/droost:workflow:continue) before building. A droost tool that '
+      . 'writes is the same act as an edit; the reading tools stay free.',
+      $tool,
+      $stateDir,
+    ));
+  }
+  if ($live) {
+    return;
+  }
+  $level = 'hard';
+  $lever = guard_lever_file($root);
+  $levers = $lever !== '' ? (string) @file_get_contents($lever) : '';
+  if (preg_match('/^require_run:\s*["\']?(hard|soft|off)\b["\']?/m', $levers, $m) === 1) {
+    $level = $m[1];
+  }
+  if ($level !== 'hard') {
+    return;
+  }
+  $grant = is_file($root . '/' . $stateDir . '/bypass.json')
+    ? json_decode((string) @file_get_contents($root . '/' . $stateDir . '/bypass.json'), TRUE)
+    : NULL;
+  if (is_array($grant)
+    && is_string($grant['reason'] ?? NULL) && $grant['reason'] !== ''
+    && is_string($grant['granted_at'] ?? NULL) && $grant['granted_at'] !== '') {
+    return;
+  }
+  guard_refuse('site-tool:require-run', sprintf(
+    'droost workflow: %s changes the site and there is no active run. '
+    . 'Building is governed by the pipeline. Do ONE of: (1) start a run with '
+    . '/droost:workflow:start, write the spec, then build inside the run; or '
+    . '(2) if this is a deliberate one-off, ask the OPERATOR to grant a '
+    . 'bypass with: droost workflow:bypass "<reason>". Do NOT grant it '
+    . 'yourself.',
+    $tool,
+  ));
+}
+
+/**
  * Refuses a shell command that reaches the evidence store or the baseline.
  *
  * The file-path guard covers the editing tools. This covers the other editor
@@ -3757,8 +4025,9 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
   // guard that refuses that is a guard somebody deletes.
   // CODE HEREDOCS ARE CODE (F-78): checked as text for the two things that
   // matter, as `python3 -c` code is below, and left out of the shell parse.
+  $away = is_string($command) ? guard_runs_outside($command, $root) : FALSE;
   foreach (is_string($command) ? operator_commands_code_heredocs($command) : [] as $body) {
-    guard_judge_code($body, $command, $root, $stateDir);
+    guard_judge_code($body, $command, $root, $stateDir, $away && !guard_code_reaches_project($body, $root));
   }
   $command = is_string($command) ? operator_commands_scan_text($command) : '';
   if ($command === '') {
@@ -3840,11 +4109,12 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // that feeds both walls is blind in the same way.
     if (operator_commands_opaque_head($tokens)) {
       guard_refuse('protected-path:variable-program', sprintf(
-        'This command runs whatever a variable happens to hold, so where it '
+        'This command runs whatever a variable happens to hold%s, so where it '
         . 'writes cannot be read here — and the run record, the evidence store '
         . 'and this guard are all one redirect away. Write the program name '
         . 'out. A variable is fine in an ARGUMENT; it is the program that has '
         . 'to be legible. (Refused: %s)',
+        guard_found_in_script($tokens, $command),
         trim($command),
       ));
     }
@@ -4059,7 +4329,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
               . 'which one this is, and moving or removing it disarms every one of '
               . 'them at once while leaving the files intact somewhere else. Act '
               . 'on a named file inside it instead. If the state itself has to go, '
-              . 'that is the OPERATOR\'s `droost-workflow reset --force`, which '
+              . 'that is the OPERATOR\'s `droost workflow:reset --force`, which '
               . 'archives rather than discards. (Refused: %s)',
               $landing,
               trim($command),
@@ -4192,6 +4462,11 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       || ($verb === 'git' && in_array($sub, [
         'diff', 'log', 'show', 'status', 'blame', 'grep', 'add', 'commit', 'check-ignore', 'check-attr', 'ls-files',
       ], TRUE))
+      // `git remote` READS when it lists: bare, `-v`, `get-url`, `show`.
+      // A subject's agent asked which remote the droost module's checkout came
+      // from (`git -C …/modules/contrib/droost remote -v`) and was refused
+      // as writing it (F-367's replay). `add`, `set-url`, `remove` write.
+      || ($verb === 'git' && $sub === 'remote' && guard_git_remote_lists($plain))
       // `sed` READS unless it edits in place (F-83). Its program writes only
       // through `w`, and the program is read as code above, so what is left
       // for this tier is `-i`: `sed -n 60,200p droost/droost-workflow/run.json`
@@ -4222,8 +4497,12 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     // it writes (F-156). A capture of the site into a scratch directory is a
     // measurement, and P6 run 23's agent was refused one, with the template
     // edit beside it in the same command.
-    if ($parityVerb === 'droost-parity' && $paritySub === 'capture' && guard_run_is_live($root, $stateDir)) {
-      $reference = guard_parity_reference($root, $stateDir);
+    if ($parityVerb === 'droost-parity' && $paritySub === 'capture') {
+      // A live run's frozen reference, else the one an approved intake holds
+      // (F-354): either way the agent's capture would rewrite the yardstick.
+      $reference = guard_run_is_live($root, $stateDir)
+        ? guard_parity_reference($root, $stateDir)
+        : guard_parity_held_by_intake($root, $stateDir);
       $out = 'droost/parity';
       for ($i = 2, $n = count($parity); $i < $n; $i++) {
         $token = ltrim($parity[$i], "\x01");
@@ -4497,7 +4776,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       . 'run\'s own record of what droost measured — gate verdicts, which '
       . 'citations resolved, which tools were called — and a record its subject '
       . 'can edit proves nothing about its subject. Read it with '
-      . '`droost-workflow evidence` (or `drush droost:workflow:evidence`), which '
+      . '`droost workflow:evidence`, which '
       . 'renders the whole round. If a verdict in it is wrong, fix the thing it '
       . 'measured and let the gate run again; if the store itself is broken, the '
       . 'OPERATOR clears it. (Refused: %s)',
@@ -4514,11 +4793,14 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     && !baseline_only_read($invocations, $pipes)) {
     guard_refuse('protected-path:baseline:shell', sprintf(
       'A shell command in this run reaches droost/baseline/. That is the '
-      . 'OPERATOR\'s adoption record, written by `droost-workflow baseline` from '
+      . 'OPERATOR\'s adoption record, written by `droost workflow:baseline` from '
       . 'their terminal and never by hand — editing it is the one move that turns '
       . 'the whole discipline into a formality, because it redefines what counts '
-      . 'as debt. Read it with `droost-workflow baseline --status`. If debt was '
-      . 'paid, ask the operator for `baseline --refresh`. (Refused: %s)',
+      . 'as debt. Read it with `droost workflow:baseline --status`, or a plain '
+      . 'reader (cat, head, grep, jq): code handed to an interpreter cannot be '
+      . 'told from a write, so `python3 -c` and its kind are refused here while '
+      . 'those are not. If debt was paid, ask the operator for `baseline '
+      . '--refresh`. (Refused: %s)',
       trim($command),
     ));
   }
@@ -4660,6 +4942,26 @@ function guard_git_subcommand(array $plain): string {
     }
   }
   return '';
+}
+
+/**
+ * Whether a `git remote` only lists the remotes.
+ *
+ * @param list<string> $plain
+ *   The unwrapped command, `git` first.
+ *
+ * @return bool
+ *   TRUE for `git remote`, `remote -v`, `remote get-url …` and
+ *   `remote show …`.
+ */
+function guard_git_remote_lists(array $plain): bool {
+  $words = array_map(static fn (string $word): string => ltrim($word, "\x01"), $plain);
+  $at = array_search('remote', $words, TRUE);
+  if ($at === FALSE) {
+    return FALSE;
+  }
+  $next = $words[$at + 1] ?? '';
+  return in_array($next, ['', '-v', '--verbose', 'get-url', 'show'], TRUE);
 }
 
 /**
@@ -4942,7 +5244,7 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
       . 'has passed, whether enforcement is on. droost writes it; an agent that '
       . 'edits it is not advancing a run, it is rewriting the referee. If the '
       . 'record is wrong, the OPERATOR clears it with '
-      . '`droost-workflow reset --force`, which archives it rather than '
+      . '`droost workflow:reset --force`, which archives it rather than '
       . 'discarding it.';
   }
 
@@ -4951,7 +5253,7 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
       . 'edits, holds a phase until its checks resolve, and keeps the evidence '
       . 'store out of reach — and an agent that can rewrite it has none of those '
       . 'things. If the guard is wrong, the OPERATOR reinstalls it with '
-      . '`droost-workflow init`, which takes the shipped version.';
+      . '`droost init`, which takes the shipped version.';
   }
   // `settings.local.json` too. It was unprotected while `settings.json`
   // was, and
@@ -4964,7 +5266,8 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
   // So the places a mod is loaded from are the operator's, run or no run:
   // the mods Claude writes (`~/.claude/dev-mods/`), installed plugins
   // (`~/.claude/plugins/`), Claude Code's own state (`~/.claude.json`, which
-  // holds trust and MCP servers), and droost's own mod in the project.
+  // holds trust and MCP servers), and the mod directory an earlier droost
+  // copied into a project, which Claude Code still loads once registered.
   if (preg_match('#(^|/)\.claude/(dev-mods|plugins|droost-plugins)(/|$)#', $relative) === 1
     || preg_match('#(^|/)\.claude\.json$#', $relative) === 1) {
     return 'That is where Claude Code loads plugins and mods from, or the file '
@@ -4974,10 +5277,35 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
       . 'agent\'s. If the work needs a plugin, name it and why, and let the '
       . 'operator install it.';
   }
+  // THE PACKAGE THIS GUARD RUNS FROM (droost off Drupal, 2026-10-19): the
+  // guard is no longer copied into the project, so the copy every hook calls
+  // is the one in the package — `tools/droost/`, or wherever Composer put
+  // it. An agent that can rewrite the vendored guard has no guard.
+  $package = guard_package_relative($root);
+  if (preg_match('#^tools/droost(/|$)#', $relative) === 1
+    || ($package !== '' && ($relative === $package || str_starts_with($relative, $package . '/')))) {
+    return 'That is droost itself: the package this guard, the gates and the '
+      . 'run record are read from. An agent that can rewrite it can make the '
+      . 'guard allow anything and any gate pass. The OPERATOR installs and '
+      . 'updates it with composer (`composer install -d tools/droost`).';
+  }
+  // THE DROOST MODULE (F-367): the site's tools, their record of each call,
+  // and the checks a Canvas page and a component pass (droost_canvas's tree
+  // validation and component lint, which a project's component_lint gate
+  // calls). Copied into droost/gates/ those checks were frozen with the
+  // rules; in the module they are Composer's, and an agent that can rewrite
+  // them can make a refused tree or component pass.
+  if (preg_match('#(^|/)modules/contrib/droost(/|$)#', $relative) === 1) {
+    return 'That is the droost module: the site tools this run is recorded '
+      . 'through and the checks its Canvas pages and components pass. An agent '
+      . 'that can rewrite it can make a refused tree or a blocked component '
+      . 'pass. The OPERATOR updates it with composer (`composer update '
+      . 'drupal/droost`); a fix it needs goes to droost.';
+  }
   if (preg_match('#(^|/)\.claude/settings(\.local)?\.json$#', $relative) === 1) {
     return 'That file wires the enforcement in. Removing an entry from it '
       . 'disarms the wall exactly as surely as deleting the guard, and quietly. '
-      . 'The OPERATOR rewires it with `droost-workflow init`, which merges '
+      . 'The OPERATOR rewires it with `droost init`, which merges '
       . 'rather than overwrites and leaves everything else in the file alone.';
   }
 
@@ -5013,35 +5341,14 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
       . 'never by writing the file.';
   }
 
-  // WHERE THE WRITE GATES ACTUALLY LIVE. `Drupal\droost\GateState` reads the
-  // seven `allow_*` switches out of `$settings['droost']` in a dedicated
-  // `settings.droost.php` beside settings.php — deliberately not in config, so
-  // a `config:export`/`config:import` cannot arm them on another site. This
-  // guard was matching `droost.settings` config, which GateState never reads:
-  // it refused a command that does nothing and permitted the file that arms
-  // every destructive gate droost has. Writing it is the operator's act at a
-  // TTY, per environment, which is the whole design of putting it there.
-  if (preg_match('#(^|/)settings\.droost\.php$#', $relative) === 1) {
-    return 'That file IS the write-gate arming — the `allow_*` switches that '
-      . 'authorise destructive work. droost reads them live out of it, and it '
-      . 'lives outside config precisely so that arming one is a human decision '
-      . 'made per environment at a terminal. An agent writing its own is not '
-      . 'obtaining permission. Show the OPERATOR the gate you need and why, '
-      . 'and let them arm it: `drush droost:gate <gate> on`.';
-  }
-  // settings.php too, because `$settings['droost'][…]` set there is honoured
-  // as the base GateState overlays. A different file, the same arming.
+  // The site's settings.php: its database credentials and hash salt.
   // AND THE FILES IT INCLUDES (F-199). On DDEV, settings.php includes
   // settings.ddev.php, and the stock file offers settings.local.php: either
-  // sets `$settings['droost']` as surely as settings.php does, and the Write
-  // tool was allowed both.
+  // sets what settings.php does, and the Write tool was allowed both.
   if (preg_match('#(^|/)sites/[^/]+/settings(?:\.[A-Za-z0-9_-]+)?\.php$#', $relative) === 1) {
-    return 'That is the site\'s settings.php or a file it includes, and droost honours '
-      . '`$settings[\'droost\'][\'allow_*\']` set there as the base for its '
-      . 'write gates — so an edit to it can arm destructive work. It is also '
-      . 'the file holding the database credentials and the hash salt. Ask the '
-      . 'OPERATOR for whatever this needs; if it is a gate, the command is '
-      . '`drush droost:gate <gate> on`.';
+    return 'That is the site\'s settings.php or a file it includes: the file '
+      . 'holding the database credentials and the hash salt. Ask the OPERATOR '
+      . 'for whatever this needs.';
   }
 
   if (preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/bypass\.json$#', $relative) === 1) {
@@ -5049,7 +5356,7 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
       . 'to let this session build with no run at all. Writing your own is not '
       . 'obtaining permission, it is forging the signature on it. If work '
       . 'genuinely has to happen outside the pipeline, show the operator '
-      . '`drush droost:workflow:bypass "<reason>"` and let them run it; they '
+      . '`droost workflow:bypass "<reason>"` and let them run it; they '
       . 'close it again with `bypass --off`.';
   }
 
@@ -5062,8 +5369,8 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
   // the gate that holds a run to the tools its plan named. The guard's own
   // rows are what §7a counts, and the scaffold record is what sets an
   // untouched scaffold aside from `tests_in_diff`. No run open is no
-  // exception: a row written before the run opens is attributed to it. The
-  // spec is the one file here the agent writes.
+  // exception: a forged row before a run opens is a forged record all the
+  // same. The spec is the one file here the agent writes.
   //
   // BY NAME, OR BY BEING THERE. The operand loop hands this every word of a
   // command, resolved against its `cd`, so after `cd droost/droost-workflow`
@@ -5100,14 +5407,24 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
     && preg_match('#^evidence\.sqlite(-wal|-shm|-journal)?$#', $inState[3]) !== 1) {
     if (preg_match('#^(tool-calls\.jsonl|guard-calls\.jsonl|scaffolded\.jsonl|pack\.lock)$|^history(/|$)#', $inState[3]) === 1) {
       return 'That file is part of the run\'s own evidence: the tool-call ledger '
-        . '`grounding_check` reads, the guard\'s record of itself, the scaffold '
+        . '`plan_grounded` reads, the guard\'s record of itself, the scaffold '
         . 'record, the pack lock or an archived run. droost and the pipeline '
         . 'write it. A line written by hand is a forged entry in the record the '
         . 'gates and the evaluation are built from, with a run open or not. The '
         . 'spec is the one file in this directory that is yours: write it with '
         . 'the Write or Edit tool. Reading the rest is not refused: `cat`, `head` '
-        . 'and `grep` read it, so does the Read tool, and `droost-workflow '
-        . 'evidence` renders the whole record.';
+        . 'and `grep` read it, so does the Read tool, and `droost '
+        . 'workflow:evidence` renders the whole record.';
+    }
+    // THE HUMAN'S ANSWER TO A HUMAN-LED RUN'S COMPLETE HOLD (owner,
+    // 2026-10-20): what finishes the run, written by the guard from the
+    // dialog's result. A line written by hand is an approval nobody gave.
+    if ($inState[3] === 'hold-answers.jsonl') {
+      return 'That file is the human\'s answer to a human-led run\'s complete hold, '
+        . 'which the guard writes from AskUserQuestion\'s result. A line written by '
+        . 'hand is an approval the human never gave, whether the file exists yet '
+        . 'or not. Ask them with AskUserQuestion, then run `droost workflow:answer`; '
+        . 'droost takes their answer from here. Reading it is not refused.';
     }
     if (preg_match('#^(intake\.json|intake-answers\.jsonl)$#', $inState[3]) === 1) {
       return 'That file is the intake\'s record: its state (the audit it argues '
@@ -5120,7 +5437,7 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
         . 'puts it on record for the host to show the human); `intake check` and '
         . '`intake status` read the record, and so do `cat` and the Read tool.';
     }
-    if (preg_match('#^(events\.jsonl|host\.json|host-mods\.json|\.?work-item-[A-Za-z0-9._-]*|\.guard-warned-[A-Za-z0-9._-]+)$#', $inState[3]) === 1) {
+    if (preg_match('#^(events\.jsonl|hook-calls\.jsonl|host\.json|host-mods\.json|\.?work-item-[A-Za-z0-9._-]*|\.guard-warned-[A-Za-z0-9._-]+|\.guard-scaffold-pending\.json)$#', $inState[3]) === 1) {
       return 'That file is one the pipeline writes beside the run\'s record: the '
         . 'run-event log, the host record the run reports, a cached work item or '
         . 'a warn-once marker. droost, the guard and the pipeline write it, and '
@@ -5152,6 +5469,24 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
   // walk that could not change `preset:` anywhere because of a run finished
   // the previous month.
   if (!guard_run_is_live($root, $stateDir)) {
+    // THE REFERENCE OUTLIVES THE RUN (F-354). Walled only while a run was
+    // live, the yardstick was one `reset` away: UNI-A run 2's agent proposed
+    // resetting the run and trimming the reference until the site passed.
+    // Once the human approved the roadmap, every page is held to it, between
+    // runs as much as during one.
+    $held = guard_parity_held_by_intake($root, $stateDir);
+    if ($held !== '' && ($relative === $held || str_starts_with($relative, $held . '/'))) {
+      return 'That is the parity gate\'s reference, the source the approved '
+        . 'roadmap holds every page to. It is the yardstick between runs as '
+        . 'well as during one: no run being open does not make it yours to '
+        . 'edit, and a reference trimmed until the site passes measures '
+        . 'nothing. Read it as much as you like: the Read tool, `cat` and '
+        . '`droost-parity judge` all read it. If it is wrong (a page the '
+        . 'client changed, a route not built yet), tell the OPERATOR: they '
+        . 're-capture it with `droost-parity capture` in their terminal, and '
+        . 'the routes a rung is judged on are the `routes` lever '
+        . '(`droost workflow:intake routes <rung>`).';
+    }
     return '';
   }
   // ANCHORED, not "any path ending in the name". The lever file that governs
@@ -5174,12 +5509,27 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
       . 'wrong, the OPERATOR re-captures it with `droost-parity capture` '
       . 'before a run.';
   }
-  if (preg_match('#^droost\.workflow\.yml$#', $relative) === 1) {
+  if (preg_match('#^(droost/droost\.yml|droost\.workflow\.yml)$#', $relative) === 1) {
     return 'The lever file sets what this run is held to, and a run is under '
       . 'way. Its levers were frozen when the run began, so editing it now '
       . 'cannot change THIS run — but it changes the next one, and moving the '
       . 'effort dial is the operator\'s decision rather than the agent\'s. '
       . 'Before a run, it is an ordinary file.';
+  }
+  // THE PROJECT'S OWN RULES (droost off Drupal, 2026-10-19): the gate, hook
+  // and wall files `droost/droost.yml` points at, and the text droost adds to
+  // the AGENTS block. A run froze their hashes when it began, and the gate
+  // that runs a changed file names it — but an agent that can rewrite the
+  // gate judging it has replaced the verdict, so the earlier word is here.
+  // And the run panel's tab files (`droost/panel/`): a tab only draws, but
+  // what it draws is what a person reads about the run.
+  if (preg_match('#^droost/(gates|hooks|walls|panel)(/|$)#', $relative) === 1
+    || $relative === 'droost/agents.md') {
+    return 'That is one of the project\'s own rules: a gate, hook, wall or panel '
+      . 'tab file droost/droost.yml runs, or the text it adds to AGENTS.md. A run is under '
+      . 'way, and it is held to these as they stood when it began; a gate you '
+      . 'can rewrite is not a gate. Read them as much as you like. Change them '
+      . 'before a run, or ask the OPERATOR.';
   }
   // COMMANDS too. Skills and agents were refused and `.claude/commands/` was
   // not, and a slash command is the same thing wearing a different extension:
@@ -5192,7 +5542,7 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
     return 'That is one of the briefs this run is being held to, and a run is '
       . 'under way. Rewriting your own instructions mid-run is not the same act '
       . 'as improving them: do it before a run, or ask the operator. '
-      . '`droost-workflow init` takes the shipped versions.';
+      . '`droost init` takes the shipped versions.';
   }
 
   return '';
@@ -5483,6 +5833,62 @@ function guard_parity_reference(string $root, string $stateDir): string {
 }
 
 /**
+ * The parity reference an approved intake holds, project-relative, or ''.
+ *
+ * The roadmap the human approved holds every page to the reference, so it is
+ * the yardstick between runs as well as during one (F-354). The directory is
+ * the lever file's `gates.parity.reference`, as a run would freeze it, else
+ * `droost/parity`; only one that exists is walled. While the intake is open
+ * the agent writes `decided.json` there, as the intake skill asks, so an
+ * intake not yet approved holds nothing.
+ *
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The resolved state directory.
+ *
+ * @return string
+ *   The reference directory without slashes at either end, or '' for none.
+ */
+function guard_parity_held_by_intake(string $root, string $stateDir): string {
+  $intake = json_decode((string) @file_get_contents(rtrim($root, '/') . '/' . $stateDir . '/intake.json'), TRUE);
+  if (!is_array($intake) || ($intake['status'] ?? NULL) !== 'approved') {
+    return '';
+  }
+  $reference = 'droost/parity';
+  $levers = guard_lever_file($root);
+  $text = $levers === '' ? '' : (string) @file_get_contents($levers);
+  if (preg_match('/^\s*reference\s*:|\breference\s*:/m', $text) === 1) {
+    if (!class_exists('Symfony\Component\Yaml\Yaml', FALSE)) {
+      foreach ([dirname(__DIR__, 2) . '/vendor/autoload.php', dirname(__DIR__, 4) . '/autoload.php'] as $autoload) {
+        if (is_file($autoload)) {
+          require_once $autoload;
+          break;
+        }
+      }
+    }
+    try {
+      $parsed = class_exists('Symfony\Component\Yaml\Yaml') ? Yaml::parse($text) : NULL;
+    }
+    catch (\Throwable) {
+      $parsed = NULL;
+    }
+    $named = is_array($parsed) && is_array($parsed['gates']['parity'] ?? NULL) ? ($parsed['gates']['parity']['reference'] ?? NULL) : NULL;
+    if (is_string($named) && $named !== '') {
+      $reference = $named;
+    }
+  }
+  $path = normalised_path($reference);
+  $rootPath = normalised_path($root);
+  if (str_starts_with($path, $rootPath . '/')) {
+    $path = substr($path, strlen($rootPath) + 1);
+  }
+  $path = trim($path, '/');
+
+  return $path !== '' && is_dir(rtrim($root, '/') . '/' . $path) ? $path : '';
+}
+
+/**
  * The operator-only verbs, as one pattern.
  *
  * Asked by the tokeniser (is this quoted payload a command line worth
@@ -5495,10 +5901,8 @@ function guard_parity_reference(string $root, string $stateDir): string {
  */
 function operator_verb_pattern(): string {
   return '/droost:workflow:(gate-waive|baseline|bypass|effort)\b'
-    . '|(?<![\w-])(dwfgw|dwfbl|dwfby|dwfe)\b'
     . '|droost-workflow\s+(baseline|gate-waive|bypass|effort)\b'
-    . '|(?:droost-workflow\s+|droost:workflow:)ticket\s+move\b'
-    . '|(?:droost:gate|(?<![\w-])dgate)\b/';
+    . '|(?:droost-workflow\s+|droost:workflow:)ticket\s+move\b/';
 }
 
 /**
@@ -5673,7 +6077,7 @@ function enforcement_path_markers(): string {
   return '#droost-workflow-guard\.php|\brun\.json|\bbypass\.json|evidence\.sqlite'
     . '|tool-calls\.jsonl|guard-calls\.jsonl|scaffolded\.jsonl|\bpack\.lock'
     . '|settings\.local\.json|\bsettings\.json|settings\.droost\.php'
-    . '|droost\.workflow\.yml|\.claude/hooks|\.claude/(?:skills|agents|commands)'
+    . '|droost\.workflow\.yml|droost/droost\.yml|\.claude/hooks|\.claude/(?:skills|agents|commands)'
     . '|droost/droost-workflow|\.droost-workflow|droost/baseline#';
 }
 
@@ -5744,14 +6148,55 @@ function guard_judge_library_code(string $code, string $command, string $what, ?
     '%s that loads %s while a run is live. The library is what keeps the run '
     . 'record, the levers and the tool-call ledger, and its methods are the '
     . 'operator verbs (gate-waive, bypass, effort, baseline): calling them '
-    . 'from code is calling the verbs. Use the commands you are given '
-    . '(`vendor/bin/droost`, `drush droost:tool`, `drush droost:workflow:*` '
-    . 'or `vendor/bin/droost-workflow`), and show the OPERATOR any verb that '
-    . 'is theirs. (Refused: %s)',
+    . 'from code is calling the verbs. Use the command you are given '
+    . '(`droost`: its knowledge commands and `droost workflow:*`), and show '
+    . 'the OPERATOR any verb that is theirs. (Refused: %s)',
     $what,
     $names,
     trim($command),
   ));
+}
+
+/**
+ * Whether a command's first step is a literal `cd` out of the project.
+ *
+ * @param string $command
+ *   The command line.
+ * @param string $root
+ *   The project root.
+ *
+ * @return bool
+ *   TRUE when the command starts `cd <literal path> &&` (or `;`) and that
+ *   path lies outside the project.
+ */
+function guard_runs_outside(string $command, string $root): bool {
+  if (preg_match('/^\s*cd\s+("[^"$`]+"|\'[^\']+\'|[^\s;&|$`~*?]+)\s*(?:&&|;)/', $command, $m) !== 1) {
+    return FALSE;
+  }
+  $target = trim($m[1], '"\'');
+  if (!str_starts_with($target, '/')) {
+    return FALSE;
+  }
+  $project = realpath($root) ?: rtrim($root, '/');
+  $there = guard_cd_to($project, $target, $project);
+  return $there !== $project && !str_starts_with($there . '/', $project . '/');
+}
+
+/**
+ * Whether code names a path into the project, or climbs out of where it is.
+ *
+ * @param string $code
+ *   The program's text.
+ * @param string $root
+ *   The project root.
+ *
+ * @return bool
+ *   TRUE when the code holds the project's absolute path, or `..`.
+ */
+function guard_code_reaches_project(string $code, string $root): bool {
+  $project = realpath($root) ?: rtrim($root, '/');
+  return str_contains($code, $project) || str_contains($code, rtrim($root, '/')) || str_contains($code, '..')
+    || preg_match('/(?:CLAUDE_PROJECT_DIR|getcwd|chdir|os\.chdir|process\.chdir|DROOST_PROJECT_ROOT)/', $code) === 1;
 }
 
 /**
@@ -5776,8 +6221,10 @@ function guard_judge_library_code(string $code, string $command, string $what, ?
  *   The project root, or NULL for the one this hook runs in.
  * @param string|null $stateDir
  *   The state directory, or NULL for the one this hook resolved.
+ * @param bool $outside
+ *   The code runs from outside the project and names no path into it.
  */
-function guard_judge_code(string $code, string $command, ?string $root = NULL, ?string $stateDir = NULL): void {
+function guard_judge_code(string $code, string $command, ?string $root = NULL, ?string $stateDir = NULL, bool $outside = FALSE): void {
   guard_judge_library_code($code, $command, 'This hands an interpreter code', $root, $stateDir);
   if (preg_match(operator_verb_pattern(), $code) === 1) {
     guard_refuse('operator-command:in-interpreter', sprintf(
@@ -5788,7 +6235,13 @@ function guard_judge_code(string $code, string $command, ?string $root = NULL, ?
       trim($command),
     ));
   }
-  if (code_names_enforcement($code) && code_writes($code)) {
+  // CODE RUN FROM OUTSIDE THE PROJECT (F-376). An adopter's agent edited its
+  // own memory file with `cd ~/.claude/projects/…/memory && python3 - <<EOF`,
+  // and the code's prose named droost/baseline: refused, though a relative
+  // path from there reaches nothing of the project. Code that names no
+  // absolute path into the project and climbs no `..`, run after a `cd` out
+  // of it, cannot write the enforcement it names.
+  if (!$outside && code_names_enforcement($code) && code_writes($code)) {
     guard_refuse('protected-path:interpreter', sprintf(
       'This hands an interpreter code that names the enforcement itself — the '
       . 'guard, the run record, the evidence store, the baseline or the '
@@ -5801,7 +6254,11 @@ function guard_judge_code(string $code, string $command, ?string $root = NULL, ?
   }
   $root ??= is_string($GLOBALS['root'] ?? NULL) ? $GLOBALS['root'] : guard_named_root();
   $stateDir ??= is_string($GLOBALS['stateDir'] ?? NULL) ? $GLOBALS['stateDir'] : 'droost/droost-workflow';
-  $reference = $root === '' ? '' : guard_parity_reference($root, $stateDir);
+  $reference = match (TRUE) {
+    $root === '' => '',
+    guard_run_is_live($root, $stateDir) => guard_parity_reference($root, $stateDir),
+    default => guard_parity_held_by_intake($root, $stateDir),
+  };
   if ($reference !== '' && code_writes_path($code, $reference)) {
     guard_refuse('protected-path:interpreter', sprintf(
       '%s Code handed to an interpreter that writes and names it is refused the same way. (Refused: %s)',
@@ -6155,6 +6612,7 @@ function enforcement_protected_dirs(string $stateDir): array {
     '.claude/hooks',
     '.claude',
     'droost',
+    'tools/droost',
     trim($stateDir, '/'),
   ]));
 }
@@ -6308,7 +6766,17 @@ function enforcement_protected_files(string $root, string $stateDir): array {
     }
     return enforcement_refusal_for($relative, $root, $stateDir) !== '';
   };
-  foreach (array_unique([...$wholeTrees, '.claude', 'vendor/bin', 'node_modules/.bin']) as $tree) {
+  $walked = [
+    ...$wholeTrees,
+    '.claude',
+    'vendor/bin',
+    'node_modules/.bin',
+    'droost/gates',
+    'droost/hooks',
+    'droost/walls',
+    'droost/panel',
+  ];
+  foreach (array_unique($walked) as $tree) {
     if ($tree === '' || !is_dir($root . '/' . $tree)) {
       continue;
     }
@@ -6316,7 +6784,7 @@ function enforcement_protected_files(string $root, string $stateDir): array {
   }
   $found = array_values(array_filter($found, $include));
   // The standalone files, wherever the rule places them.
-  $candidates = ['droost.workflow.yml'];
+  $candidates = ['droost/droost.yml', 'droost.workflow.yml', 'droost/agents.md'];
   foreach (glob($root . '/{web/,docroot/,}sites/*/settings*.php', GLOB_BRACE) ?: [] as $absolute) {
     $candidates[] = ltrim(substr($absolute, strlen($root)), '/');
   }
@@ -6677,6 +7145,28 @@ function wildcard_directory_refusal(string $directory, string $root, string $sta
   if ($landing !== '') {
     $landing = trim($landing, '/');
   }
+  // OUTSIDE THE PROJECT, NOTHING IS IN REACH but a store configured there.
+  // A directory outside the project resolves to no project-relative path,
+  // and that empty path was read as the project root: `rm -f /tmp/x*.csv`
+  // (and the same through `ddev exec "…"`, the container's /tmp) was refused
+  // as expanding across the hook that is this enforcement (a live run's).
+  // A directory ABOVE the project still reaches it (`rm -rf /*`), real paths
+  // compared, since /tmp may be a link to the directory the project is in.
+  $realDirectory = realpath($directory);
+  $realRoot = realpath($root);
+  $above = static fn (string $dir, string $inner): bool => str_starts_with(rtrim($inner, '/') . '/', rtrim($dir, '/') . '/');
+  $ancestor = $above($path, $rootPath)
+    || ($realDirectory !== FALSE && $realRoot !== FALSE && $above($realDirectory, $realRoot));
+  if ($landing === '' && !$ancestor && !str_starts_with($path . '/', $rootPath . '/')) {
+    $store = normalised_path(dirname(guard_evidence_path($root, $stateDir)));
+    return str_starts_with($store . '/', rtrim($path, '/') . '/')
+      ? sprintf(
+        'This shell command expands a wildcard across `%s`, which holds the run\'s evidence store. '
+        . 'The shell expands it; this guard sees a `*` and never the names it becomes. Name the file you mean.',
+        $directory,
+      )
+      : '';
+  }
 
   // Protected as a TREE: everything under these is enforcement, so a wildcard
   // that reaches them from ABOVE is refused too. `rm -r droost/*` takes the run
@@ -6764,6 +7254,24 @@ function baseline_dir_guard(string $stdin, string $root, string $stateDir): void
   if ($refusal !== '') {
     guard_refuse('protected-path:editor', sprintf('%s (Refused: %s)', $refusal, $file));
   }
+  // A NEW FILE IN THE STATE DIRECTORY, FROM THE EDITOR (F-345). The shell may
+  // make one there, to hand a script to the container in one command (copy,
+  // run, remove: see enforcement_refusal_for()). The editor cannot: a file it
+  // makes is already there when the next command runs it, every file already
+  // there is protected, and it is left for the operator to remove. The spec is
+  // the one file here that is the agent's.
+  $relativeFile = ltrim(substr(normalised_path($file), strlen(normalised_path($root))), '/');
+  if (str_starts_with(normalised_path($file), normalised_path($root))
+    && preg_match('#^(droost/droost-workflow|\.droost-workflow)/(.+)$#', $relativeFile, $inState) === 1
+    && preg_match('#^(tmp-)?spec(-[A-Za-z0-9._-]+)?\.md$#', $inState[2]) !== 1
+    && !is_file($root . '/' . $relativeFile)) {
+    guard_refuse('protected-path:editor', sprintf(
+      'That would be a new file in droost\'s state directory, made with the editor, which the shell could then neither run nor remove: '
+      . 'the guard protects every file already there. Keep scratch files outside the project (your scratchpad), and hand one to the DDEV container '
+      . 'by piping it in: `ddev exec sh -c \'cat > /tmp/<name>\' < <file>`. The spec is the one file here that is yours. (Refused: %s)',
+      $file,
+    ));
+  }
   // The evidence store belongs here for the same reason the baseline does: it
   // is the run's own record, and a record the subject can edit is not evidence.
   // EvidenceStore's docblock says "rows droost wrote and the agent cannot", and
@@ -6772,7 +7280,10 @@ function baseline_dir_guard(string $stdin, string $root, string $stateDir): void
   // in plan the store was allowed by the state-dir exemption, and in every
   // other phase pre-tool-use returned before any file check ran.
   $normalised = normalised_path($file);
-  $isStore = preg_match('#(^|/)(droost/droost-workflow|\.droost-workflow)/evidence\.sqlite(-wal|-shm|-journal)?$#', $normalised) === 1;
+  // By NAME, wherever it is: a project may keep the store elsewhere
+  // (droost.yml's storage.evidence, which must keep this name, so a Cockpit
+  // can hold it), and the wall goes where the store goes.
+  $isStore = preg_match('#(^|/)evidence\.sqlite(-wal|-shm|-journal)?$#', $normalised) === 1;
   if (preg_match('#(^|/)droost/baseline(/|$)#', $normalised) !== 1 && !$isStore) {
     return;
   }
@@ -6783,16 +7294,16 @@ function baseline_dir_guard(string $stdin, string $root, string $stateDir): void
       . 'written by droost and never by hand, and a record its subject can edit '
       . 'proves nothing about its subject. If a verdict in it is wrong, fix the '
       . 'thing it measured and let the gate run again; if the store itself is '
-      . 'broken, the OPERATOR clears it with: drush droost:workflow:reset --force '
+      . 'broken, the OPERATOR clears it with: droost workflow:reset --force '
       . '(Refused: %s)',
       $file,
     ));
   }
   guard_refuse('protected-path:baseline', sprintf(
     'droost/baseline/ is the OPERATOR\'s adoption record — it is written by '
-    . '`drush droost:workflow:baseline` (or `droost-workflow baseline`) from '
-    . 'their terminal and never edited by hand or by an agent. If debt was '
-    . 'paid, ask the operator to run `droost:workflow:baseline --refresh`; if '
+    . '`droost workflow:baseline` from their terminal and never edited by '
+    . 'hand or by an agent. If debt was paid, ask the operator to run `droost '
+    . 'workflow:baseline --refresh`; if '
     . 'new debt must be accepted, `--refresh --grow --reason="…"`. '
     . '(Refused: %s)',
     $file,
@@ -6837,6 +7348,29 @@ function require_run_names_path(string $root, string $file, string $levers): boo
 }
 
 /**
+ * The lever file in force, absolute, or '' when the project has none.
+ *
+ * `droost/droost.yml`, or the root `droost.workflow.yml` a project keeps for
+ * one release. Mirrors ConfigLocator::found(), which `PackGuardParityTest`
+ * holds this copy to.
+ *
+ * @param string $root
+ *   The project root.
+ *
+ * @return string
+ *   The absolute path, or ''.
+ */
+function guard_lever_file(string $root): string {
+  foreach (['droost/droost.yml', 'droost.workflow.yml'] as $relative) {
+    if (is_file(rtrim($root, '/') . '/' . $relative)) {
+      return rtrim($root, '/') . '/' . $relative;
+    }
+  }
+
+  return '';
+}
+
+/**
  * Refuses ungoverned custom-code edits when no run is ACTIVE (require_run).
  *
  * The one gap "no run, no opinion" leaves open: an agent quietly building
@@ -6851,7 +7385,7 @@ function require_run_names_path(string $root, string $file, string $levers): boo
  * paths land here, so finishing ticket A never leaves ticket B ungoverned and
  * corrupting run.json is not a self-disarm.
  *
- * The level lives in droost.workflow.yml (require_run: hard|soft|off), read
+ * The level lives in droost/droost.yml (require_run: hard|soft|off), read
  * here with a dependency-free regex because the hook cannot boot Drupal;
  * absent or unreadable defaults to hard, because building is exactly where the
  * pipeline must engage. hard blocks (exit 2) and names the two ways forward —
@@ -6873,8 +7407,8 @@ function require_run_guard(string $root, string $mode, string $stdin, string $st
     return;
   }
   $level = 'hard';
-  $lever = $root . '/droost.workflow.yml';
-  $levers = is_file($lever) ? (string) file_get_contents($lever) : '';
+  $lever = guard_lever_file($root);
+  $levers = $lever !== '' ? (string) file_get_contents($lever) : '';
   // Optional quotes: the lever parser reads "off" and off as the same value,
   // so the regex must too — or the hook enforces hard while status says off.
   if (preg_match('/^require_run:\s*["\']?(hard|soft|off)\b["\']?/m', $levers, $m) === 1) {
@@ -6942,19 +7476,16 @@ function require_run_guard(string $root, string $mode, string $stdin, string $st
   // message never mentioned — so an agent following the instructions had
   // nowhere to go, and one ignoring them did.
   $ended = is_file($root . '/' . $stateDir . '/run.json');
-  // THE OPERATOR'S COMMAND ON THE SURFACE THAT EXISTS (F-171). This named
-  // drush alone, and a project with no drupal/droost has no drush surface:
-  // druplit's operator was told a command that is not there. The standalone
-  // binary's path is the one init renders into this file.
-  $bypass = is_file($root . '/vendor/bin/drush')
-    ? 'drush droost:workflow:bypass "<reason>"'
-    : 'vendor/bin/droost-workflow bypass "<reason>"';
+  // THE OPERATOR'S COMMAND ON THE SURFACE THAT EXISTS (F-171). This once
+  // named drush alone, which a project with no drupal/droost does not have.
+  // There is one command now, `droost`, and the AGENTS block says where it is.
+  $bypass = 'droost workflow:bypass "<reason>"';
   $message = $ended
     ? sprintf(
       'droost workflow: "%s" is custom code, and this run has ENDED — its '
       . 'record is still here but no phase is open, so there is nothing to '
       . 'build inside. Starting a run will not help while that record stands: '
-      . 'clear it first with `droost-workflow reset --force` (it archives the '
+      . 'clear it first with `droost workflow:reset --force` (it archives the '
       . 'record under history/ rather than discarding it), then start the next '
       . 'run and write its spec. If instead this edit genuinely belongs outside '
       . 'the pipeline, that is the OPERATOR\'s call: show them '
@@ -7035,7 +7566,7 @@ function unresolved_checks(string $root, string $stateDir, mixed $runId, string 
   if (!is_string($runId) || $runId === '' || !extension_loaded('pdo_sqlite')) {
     return [];
   }
-  $path = $root . '/' . $stateDir . '/evidence.sqlite';
+  $path = guard_evidence_path($root, $stateDir);
   if (!is_file($path)) {
     return [];
   }
@@ -7126,7 +7657,65 @@ function unresolved_checks(string $root, string $stateDir, mixed $runId, string 
 }
 
 /**
- * The words of each note, identical to the Claude mod's (`NOTES`).
+ * What a tool call touched, in a few words, for the diary.
+ *
+ * A file the editor writes, by its path in the project (one outside it is
+ * named only as that); a shell command by its program and at most two words
+ * after it, stopping at the first flag, quote, assignment or long word, so an
+ * argument that holds a secret never reaches the diary; a skill or subagent
+ * by its name. Anything else: NULL.
+ *
+ * @param string $tool
+ *   The tool's name.
+ * @param array<mixed> $input
+ *   The call's input.
+ * @param string $root
+ *   The project root.
+ *
+ * @return string|null
+ *   The subject.
+ */
+function guard_call_subject(string $tool, array $input, string $root): ?string {
+  if (in_array($tool, ['Write', 'Edit', 'MultiEdit', 'NotebookEdit'], TRUE)) {
+    $path = $input['file_path'] ?? $input['notebook_path'] ?? NULL;
+    if (!is_string($path) || $path === '') {
+      return NULL;
+    }
+    $prefix = rtrim($root, '/') . '/';
+    if (str_starts_with($path, $prefix)) {
+      return mb_substr(substr($path, strlen($prefix)), 0, 160);
+    }
+    return str_starts_with($path, '/') ? '(a file outside the project)' : mb_substr($path, 0, 160);
+  }
+  if ($tool === 'Bash' && is_string($input['command'] ?? NULL)) {
+    $words = preg_split('/\s+/', trim(strtok($input['command'], "\n") ?: '')) ?: [];
+    $kept = [];
+    foreach ($words as $word) {
+      if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*=/', $word) === 1 && $kept === []) {
+        continue;
+      }
+      if (preg_match('#^[A-Za-z0-9_.:/@+-]{1,40}$#', $word) !== 1 || str_starts_with($word, '-')) {
+        break;
+      }
+      $kept[] = $kept === [] ? basename($word) : $word;
+      if (count($kept) === 3) {
+        break;
+      }
+    }
+    return $kept === [] ? NULL : implode(' ', $kept);
+  }
+  if ($tool === 'Skill' && is_string($input['skill'] ?? NULL)) {
+    return mb_substr($input['skill'], 0, 80);
+  }
+  if (in_array($tool, ['Agent', 'Task'], TRUE)) {
+    $what = $input['description'] ?? $input['subagent_type'] ?? NULL;
+    return is_string($what) ? mb_substr($what, 0, 80) : NULL;
+  }
+  return NULL;
+}
+
+/**
+ * The words of each note.
  *
  * A function, not a constant: a `const` at the foot of this file is not yet
  * defined when the code above it runs, where a function is.
@@ -7136,8 +7725,8 @@ function unresolved_checks(string $root, string $stateDir, mixed $runId, string 
  */
 function guard_nudge_notes(): array {
   return [
-    'ground' => 'droost: look before you spec. `drush droost:brief` gives the site\'s facts, and `vendor/bin/droost droost_search`, `droost_symbol`, `droost_wiki` and the other knowledge tools (or droost\'s MCP tools, when the project wires its server; `ddev exec vendor/bin/droost …` on DDEV; no site needed) find the code and pages that already cover what this plan touches. The spec\'s `## Grounding` cites what you found; plan does not close until its citations resolve and droost was asked. How you build is your choice.',
-    'traverse' => 'droost: droost knows this codebase first-hand, core and contrib included. `vendor/bin/droost droost_symbol` says where a class or hook lives and what calls it, `droost_graph` what depends on what, `droost_module_docs` what an installed module gives you, `droost_wiki` how this project is put together, and `droost_search` finds this site\'s code by words. Reading files works too; asking is faster, and it is recorded.',
+    'ground' => 'droost: look before you spec. `droost code:wiki` (how this project is put together, and every contrib module and theme it installs) and `droost code:tree` (its modules, files, classes, hooks, services and routes) are the two looks plan cannot close without; `droost search:arch`, `droost code:symbol`, `droost code:graph` and `droost search:code` answer the narrower questions. droost reads files, so no site is needed. The spec\'s `## Grounding` cites what you found; plan does not close until its citations resolve and droost was asked. How you build is your choice.',
+    'traverse' => 'droost: droost knows this codebase first-hand, core and contrib included. `droost code:symbol` says where a class or hook lives, `droost code:graph` what calls it and what it calls, `droost code:tree` how a module is laid out, `droost code:wiki` how this project is put together and what each installed module provides, and `droost search:code` finds this project\'s code by words. Reading files works too; asking is faster, and it is recorded.',
   ];
 }
 
@@ -7276,24 +7865,54 @@ function guard_nudge(string $directory, string $tool, array $input, array $respo
 /**
  * Whether the tool-call ledger shows droost's knowledge asked for this run.
  *
- * A row made before the run opened (`run` null) counts, as the ledger's own
- * reader keeps such rows for the run that opens next. The list is the
- * evidence report's KNOWLEDGE_TOOLS and the mod's.
+ * With a run open, only its own rows count: a row made before it opened is
+ * no run's (owner, 2026-10-20; F-331). With none open, any row does. The
+ * list is the evidence report's KNOWLEDGE_TOOLS.
  */
 function guard_nudge_grounded(string $directory, ?string $run): bool {
   $knowledge = [
-    'droost_search', 'droost_symbol', 'droost_graph', 'droost_module_docs', 'droost_deprecations',
-    'droost_entities', 'droost_routes', 'droost_capabilities', 'droost_architecture', 'droost_services',
-    'droost_db_schema', 'droost_wiki', 'droost_brief',
+    'code:wiki', 'code:tree', 'search:arch', 'code:symbol', 'code:graph',
+    'code:docs', 'code:deprecations', 'search:code', 'brief',
   ];
   foreach (@file($directory . '/tool-calls.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
     $row = json_decode($line, TRUE);
     if (is_array($row) && in_array($row['tool'] ?? NULL, $knowledge, TRUE) && ($row['outcome'] ?? NULL) === 'ok'
-      && (($row['run'] ?? NULL) === NULL || $run === NULL || $row['run'] === $run)) {
+      && ($run === NULL || ($row['run'] ?? NULL) === $run)) {
       return TRUE;
     }
   }
   return FALSE;
+}
+
+/**
+ * Where a refused invocation was found, when it is not in the command typed.
+ *
+ * A script the command runs or feeds is read here and its lines judged with
+ * the command's own, so a refusal found in one quoted the outer command:
+ * `ddev exec "cat > /tmp/r.sh" < r.sh` was refused as running a variable,
+ * and the line holding none left its reader nothing to fix (F-334).
+ *
+ * @param list<string> $tokens
+ *   The refused invocation.
+ * @param string $command
+ *   The command as typed.
+ *
+ * @return string
+ *   '' when the invocation's program is in the command; otherwise ` — in
+ *   <file>, which this command runs or feeds: \`<line>\``.
+ */
+function guard_found_in_script(array $tokens, string $command): string {
+  $scripts = array_values(array_unique($GLOBALS['guard_scripts_read'] ?? []));
+  $plain = array_map(static fn (string $t): string => ltrim($t, "\x01"), operator_commands_unwrapped($tokens));
+  $head = trim($plain[0] ?? '', "\"'");
+  if ($scripts === [] || $head === '' || str_contains($command, $head)) {
+    return '';
+  }
+  return sprintf(
+    ' — in %s, which this command runs or feeds: `%s`',
+    implode(', ', $scripts),
+    mb_substr(implode(' ', $plain), 0, 120),
+  );
 }
 
 /**
@@ -7365,4 +7984,534 @@ function guard_ledger_digest(string $text): ?string {
   }
   sort($rows);
   return implode(',', $rows);
+}
+
+/**
+ * Which agent harness invoked this hook: `--harness=<name>`, else claude.
+ *
+ * The rules are written once against droost's own events; the shim each
+ * harness's hook configuration calls names the harness, and the translator
+ * below turns its payload into the shape the rules read. Claude Code is the
+ * first and, today, the only harness whose hooks can refuse a tool call.
+ *
+ * @param list<string> $argv
+ *   The process arguments.
+ *
+ * @return string
+ *   The harness name.
+ */
+function guard_harness(array $argv): string {
+  foreach ($argv as $argument) {
+    if (is_string($argument) && str_starts_with($argument, '--harness=')) {
+      $name = strtolower(substr($argument, strlen('--harness=')));
+      return preg_match('/^[a-z0-9_-]{1,32}$/', $name) === 1 ? $name : 'claude';
+    }
+  }
+
+  return 'claude';
+}
+
+/**
+ * A harness's hook payload, in the shape droost's rules read.
+ *
+ * The rules were written against Claude Code's payload (`tool_name`,
+ * `tool_input.file_path`, `tool_input.command`, `stop_hook_active`), so that
+ * shape is droost's own. Claude Code's payload passes through; another
+ * harness's translator maps its fields onto it here, and nowhere else.
+ *
+ * @param string $harness
+ *   The harness name.
+ * @param array<array-key, mixed> $payload
+ *   The payload as the harness sent it.
+ *
+ * @return array<array-key, mixed>
+ *   The payload droost's rules read.
+ */
+function guard_payload_for(string $harness, array $payload): array {
+  return match ($harness) {
+    // Codex and the others: after everything else is fixed (owner,
+    // 2026-10-19). Until a translator exists, their payload is read as
+    // Claude Code's, and status says their enforcement is advisory.
+    default => $payload,
+  };
+}
+
+/**
+ * The event a payload describes, in droost's own vocabulary.
+ *
+ * @param string $mode
+ *   The hook mode the harness invoked.
+ * @param array<array-key, mixed> $payload
+ *   The normalised payload.
+ *
+ * @return array{kind: string, tool: string, path: string, command: string, input: array<array-key, mixed>}
+ *   kind is one of: write (a file edit), shell (a command), tool (any other
+ *   call), stop, subagent.
+ */
+function guard_event(string $mode, array $payload): array {
+  $tool = $payload['tool_name'] ?? $payload['tool'] ?? '';
+  $tool = is_string($tool) ? $tool : '';
+  $input = is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
+  $path = $input['file_path'] ?? $input['notebook_path'] ?? '';
+  $command = $input['command'] ?? '';
+  $kind = match (TRUE) {
+    $mode === 'stop' => 'stop',
+    $mode === 'subagent-stop' || $mode === 'dispatched' => 'subagent',
+    is_string($command) && $command !== '' => 'shell',
+    is_string($path) && $path !== '' => 'write',
+    default => 'tool',
+  };
+
+  return [
+    'kind' => $kind,
+    'tool' => $tool,
+    'path' => is_string($path) ? $path : '',
+    'command' => is_string($command) ? $command : '',
+    'input' => $input,
+  ];
+}
+
+/**
+ * The package this guard runs from, relative to the project, or ''.
+ *
+ * The guard ships in the package (pack/hooks/ under the package root) and
+ * each harness's hook configuration calls it there. An agent that can edit
+ * the vendored guard has no guard, so the package directory is protected run
+ * or no run. A copy outside a package (the old `.claude/hooks/` install) has
+ * no package to protect, and a package that IS the project (droost's own
+ * repository) is not walled off from itself.
+ *
+ * @param string $root
+ *   The project root.
+ *
+ * @return string
+ *   The package root relative to the project, or ''.
+ */
+function guard_package_relative(string $root): string {
+  if (basename(__DIR__) !== 'hooks' || basename(dirname(__DIR__)) !== 'pack') {
+    return '';
+  }
+  $package = realpath(dirname(__DIR__, 2));
+  $project = realpath($root);
+  if ($package === FALSE || $project === FALSE || $package === $project
+    || !str_starts_with($package . '/', $project . '/')) {
+    return '';
+  }
+
+  return trim(substr($package, strlen($project)), '/');
+}
+
+/**
+ * The project's walls and operator-only scripts, from droost/droost.yml.
+ *
+ * Read only when the file mentions either, because reading YAML needs a
+ * parser, which this file does not carry: the package's own (Symfony Yaml,
+ * through the autoloader beside the package) is loaded for it then and only
+ * then. A file that cannot be read yields none, and the row says so: the
+ * lever reports already refuse a broken file loudly, and a wall nobody can
+ * read cannot be asked.
+ *
+ * @param string $root
+ *   The project root.
+ *
+ * @return array{walls: array<string, array{tools: string, run: string}>, operator_only: list<string>, error: string}
+ *   The rules.
+ */
+function guard_project_rules(string $root): array {
+  static $cache = [];
+  if (isset($cache[$root])) {
+    return $cache[$root];
+  }
+  $none = ['walls' => [], 'operator_only' => [], 'error' => ''];
+  $file = rtrim($root, '/') . '/droost/droost.yml';
+  $text = is_file($file) ? (string) @file_get_contents($file) : '';
+  if ($text === '' || preg_match('/^(walls|operator_only)\s*:/m', $text) !== 1) {
+    return $cache[$root] = $none;
+  }
+  if (!class_exists('Symfony\Component\Yaml\Yaml', FALSE)) {
+    foreach ([dirname(__DIR__, 2) . '/vendor/autoload.php', dirname(__DIR__, 4) . '/autoload.php'] as $autoload) {
+      if (is_file($autoload)) {
+        require_once $autoload;
+        break;
+      }
+    }
+  }
+  if (!class_exists('Symfony\Component\Yaml\Yaml')) {
+    return $cache[$root] = ['error' => 'no YAML parser beside the package'] + $none;
+  }
+  try {
+    $parsed = Yaml::parse($text);
+  }
+  catch (\Throwable $e) {
+    return $cache[$root] = ['error' => 'droost/droost.yml does not parse'] + $none;
+  }
+  $walls = [];
+  foreach ((is_array($parsed) && is_array($parsed['walls'] ?? NULL)) ? $parsed['walls'] : [] as $id => $wall) {
+    if (is_string($id) && is_array($wall) && is_string($wall['tools'] ?? NULL) && is_string($wall['run'] ?? NULL)) {
+      $walls[$id] = ['tools' => $wall['tools'], 'run' => ltrim(preg_replace('#^(\./)+#', '', $wall['run']) ?? '', '/')];
+    }
+  }
+  $operatorOnly = [];
+  foreach ((is_array($parsed) && is_array($parsed['operator_only'] ?? NULL)) ? $parsed['operator_only'] : [] as $script) {
+    if (is_string($script) && trim($script) !== '') {
+      $operatorOnly[] = ltrim(preg_replace('#^(\./)+#', '', trim($script)) ?? '', '/');
+    }
+  }
+
+  return $cache[$root] = ['walls' => $walls, 'operator_only' => $operatorOnly, 'error' => ''];
+}
+
+/**
+ * Asks the project's walls about a tool call, and refuses on their word.
+ *
+ * Each wall whose `tools` regex matches the tool's name runs as its own
+ * process from the project root with the call as JSON on stdin (tool,
+ * tool_name, input, project_root, harness) and DROOST_PROJECT_ROOT in its
+ * environment. Exit 0 allows. Exit 2 refuses, with the wall's stderr as the
+ * reason. Anything else — a missing file, a crash, a timeout — refuses too,
+ * because a wall's silence is never consent. The refusal is the guard's own,
+ * recorded in the diary under `wall:<id>`.
+ *
+ * @param string $root
+ *   The project root.
+ * @param array{kind: string, tool: string, path: string, command: string, input: array<array-key, mixed>} $event
+ *   The call, in droost's vocabulary.
+ * @param string $harness
+ *   The harness that made it.
+ */
+function guard_walls(string $root, array $event, string $harness): void {
+  $rules = guard_project_rules($root);
+  // A droost.yml that declares walls the guard cannot read (it will not
+  // parse, or there is no YAML parser beside the package) has walls nobody
+  // asked. Reading that as "no walls" let every call through: a wall that
+  // did not run was read as consent (F-302). Refuse instead, except the one
+  // write that repairs it; during a run that write is the rule-file wall's
+  // to refuse, and the operator's to make.
+  if ($rules['error'] !== '') {
+    $target = is_string($event['input']['file_path'] ?? NULL) ? $event['input']['file_path'] : '';
+    if (preg_match('#(^|/)droost/droost\.yml$#', $target) !== 1) {
+      guard_refuse('wall:unreadable', sprintf(
+        'droost/droost.yml declares walls or operator-only scripts, and the guard could not read them (%s), so this %s call is refused: a wall that was never asked has not said yes. Fix droost/droost.yml (or the package\'s install), or tell the OPERATOR.',
+        $rules['error'],
+        $event['tool'] !== '' ? $event['tool'] : 'tool',
+      ));
+    }
+  }
+  foreach ($rules['walls'] as $id => $wall) {
+    if ($event['tool'] === '' || @preg_match('#' . str_replace('#', '\#', $wall['tools']) . '#', $event['tool']) !== 1) {
+      continue;
+    }
+    [$exit, $reason] = guard_run_wall($root, $wall['run'], [
+      'wall' => $id,
+      'tool' => $event['tool'],
+      'tool_name' => $event['tool'],
+      'input' => $event['input'],
+      'project_root' => rtrim($root, '/'),
+      'harness' => $harness,
+    ]);
+    if ($exit === 0) {
+      continue;
+    }
+    if ($exit === 2) {
+      guard_refuse('wall:' . $id, $reason !== ''
+        ? $reason
+        : sprintf('The project\'s wall "%s" refused this %s call and gave no reason.', $id, $event['tool']));
+    }
+    guard_refuse('wall:' . $id, sprintf(
+      'The project\'s wall "%s" (%s) could not answer for this %s call (%s), so the call is refused: a wall that cannot decide has not decided in your favour. If the wall is broken, tell the OPERATOR; it is theirs to fix.',
+      $id,
+      $wall['run'],
+      $event['tool'],
+      $reason !== '' ? $reason : 'exit ' . $exit,
+    ));
+  }
+}
+
+/**
+ * Runs one wall file with the call on stdin.
+ *
+ * @param string $root
+ *   The project root.
+ * @param string $run
+ *   The wall's file, relative to the root.
+ * @param array<string, mixed> $call
+ *   What the wall is told.
+ *
+ * @return array{int, string}
+ *   The exit code (-1 when it could not be started or timed out) and its
+ *   reason: the first lines of stderr, or what went wrong.
+ */
+function guard_run_wall(string $root, string $run, array $call): array {
+  $file = rtrim($root, '/') . '/' . $run;
+  if (!is_file($file)) {
+    return [-1, 'its file ' . $run . ' is not there'];
+  }
+  $php = str_ends_with($run, '.php');
+  if (!$php && !is_executable($file)) {
+    return [-1, 'its file ' . $run . ' is neither .php nor executable'];
+  }
+  $command = $php ? [PHP_BINARY, $file] : [$file];
+  $env = getenv();
+  $env['DROOST_PROJECT_ROOT'] = rtrim($root, '/');
+  $pipes = [];
+  $process = @proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $root, $env);
+  if (!is_resource($process)) {
+    return [-1, 'it could not be started'];
+  }
+  fwrite($pipes[0], (string) json_encode($call, JSON_UNESCAPED_SLASHES));
+  fclose($pipes[0]);
+  stream_set_blocking($pipes[1], FALSE);
+  stream_set_blocking($pipes[2], FALSE);
+  $stderr = '';
+  $deadline = microtime(TRUE) + 10;
+  $exit = NULL;
+  while (TRUE) {
+    $stderr .= (string) stream_get_contents($pipes[2]);
+    stream_get_contents($pipes[1]);
+    $status = proc_get_status($process);
+    if (!$status['running']) {
+      $exit = $status['exitcode'];
+      break;
+    }
+    if (microtime(TRUE) > $deadline) {
+      proc_terminate($process, 9);
+      $exit = -1;
+      $stderr = 'it did not answer within 10 seconds';
+      break;
+    }
+    usleep(10000);
+  }
+  $stderr .= (string) stream_get_contents($pipes[2]);
+  fclose($pipes[1]);
+  fclose($pipes[2]);
+  proc_close($process);
+
+  return [(int) $exit, mb_substr(trim($stderr), 0, 1000)];
+}
+
+/**
+ * Refuses a project's operator-only script from the agent's shell.
+ *
+ * `operator_only` in droost/droost.yml names scripts that are the
+ * OPERATOR's signature — arming tracker writes, say — the way bypass and
+ * gate-waive are droost's. Run directly or through an interpreter or a
+ * wrapper, from the agent's shell, each is refused, run or no run.
+ *
+ * @param string $command
+ *   The command as the agent typed it.
+ * @param string $root
+ *   The project root.
+ */
+function guard_operator_only(string $command, string $root): void {
+  $scripts = guard_project_rules($root)['operator_only'];
+  if ($scripts === [] || trim($command) === '') {
+    return;
+  }
+  $rootPaths = array_unique([rtrim($root, '/'), rtrim((string) (realpath($root) ?: $root), '/')]);
+  foreach (operator_commands_invocations(operator_commands_scan_text($command)) as $tokens) {
+    $plain = operator_commands_unwrapped(array_map(static fn (string $t): string => trim(ltrim($t, "\x01"), '\'"'), $tokens));
+    if ($plain === []) {
+      continue;
+    }
+    $candidates = [$plain[0]];
+    if (in_array(strtolower(basename($plain[0])), ['php', 'sh', 'bash', 'zsh', 'dash', 'source', '.'], TRUE)) {
+      foreach (array_slice($plain, 1) as $word) {
+        if ($word !== '' && !str_starts_with($word, '-')) {
+          $candidates[] = $word;
+          break;
+        }
+      }
+    }
+    if (strtolower(basename($plain[0])) === 'ddev' && ($plain[1] ?? '') === 'exec') {
+      $candidates[] = $plain[2] ?? '';
+    }
+    foreach ($candidates as $word) {
+      $relative = $word;
+      foreach ($rootPaths as $rootPath) {
+        if (str_starts_with($relative, $rootPath . '/')) {
+          $relative = substr($relative, strlen($rootPath) + 1);
+        }
+      }
+      $relative = (string) preg_replace('#^(\./)+#', '', $relative);
+      if (in_array($relative, $scripts, TRUE)) {
+        guard_refuse('operator-only', sprintf(
+          '`%s` is one of this project\'s operator-only scripts (operator_only in droost/droost.yml): it is the OPERATOR\'s signature, never the agent\'s, run or no run. Show the operator the exact command and why, and let them run it in their own terminal.',
+          $relative,
+        ));
+      }
+    }
+  }
+}
+
+/**
+ * Whether a shell command runs a code generator droost records.
+ *
+ * `drush generate` (or `gen`), directly, through `vendor/bin/drush`, or
+ * through `ddev drush`; and `dcg`, Drupal Code Generator's own binary. What
+ * they write is the generator's, not the agent's: a generated test that was
+ * never touched does not meet the tests-in-diff demand (F-65), and droost's
+ * own scaffolding, which used to record it, left with the module (DO8).
+ *
+ * @param string $command
+ *   The command as the agent typed it.
+ *
+ * @return bool
+ *   TRUE when the command runs a generator.
+ */
+function guard_runs_generator(string $command): bool {
+  return preg_match('#(?:^|[\s;&|(])(?:\S*/)?(?:drush(?:\.php)?\s+(?:[^;&|\n]*\s)?(?:generate|gen)(?:\s|$)|dcg(?:\s|$))#', $command) === 1;
+}
+
+/**
+ * The project's untracked files, as git sees them, or NULL without git.
+ *
+ * @param string $root
+ *   The project root.
+ *
+ * @return list<string>|null
+ *   Project-relative paths.
+ */
+function guard_untracked_files(string $root): ?array {
+  if (!is_dir($root . '/.git') && !is_file($root . '/.git')) {
+    return NULL;
+  }
+  $pipes = [];
+  $process = @proc_open(
+    ['git', '-C', $root, 'ls-files', '--others', '--exclude-standard', '-z'],
+    [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+    $pipes,
+  );
+  if (!is_resource($process)) {
+    return NULL;
+  }
+  $out = (string) stream_get_contents($pipes[1]);
+  stream_get_contents($pipes[2]);
+  fclose($pipes[1]);
+  fclose($pipes[2]);
+  if (proc_close($process) !== 0) {
+    return NULL;
+  }
+
+  return array_values(array_filter(explode("\0", $out), static fn (string $p): bool => $p !== ''));
+}
+
+/**
+ * Before a generator runs: what was already untracked.
+ *
+ * @param string $command
+ *   The command about to run.
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The state directory, where the snapshot waits for the call's return.
+ */
+function guard_scaffold_before(string $command, string $root, string $stateDir): void {
+  if (!guard_runs_generator($command) || !is_dir($root . '/' . $stateDir)) {
+    return;
+  }
+  $untracked = guard_untracked_files($root);
+  if ($untracked === NULL) {
+    return;
+  }
+  @file_put_contents(
+    $root . '/' . $stateDir . '/.guard-scaffold-pending.json',
+    (string) json_encode(['command' => mb_substr($command, 0, 500), 'untracked' => $untracked, 'at' => date('c')], JSON_UNESCAPED_SLASHES),
+    LOCK_EX,
+  );
+}
+
+/**
+ * After a generator ran: each new file, with its hash, in the scaffold record.
+ *
+ * ScaffoldRecord reads these rows the way it read droost's own blueprints':
+ * a file still holding exactly what the generator wrote is the generator's.
+ *
+ * @param string $command
+ *   The command that ran.
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The state directory.
+ *
+ * @return int
+ *   How many files were recorded.
+ */
+function guard_scaffold_after(string $command, string $root, string $stateDir): int {
+  $marker = $root . '/' . $stateDir . '/.guard-scaffold-pending.json';
+  if (!is_file($marker)) {
+    return 0;
+  }
+  $before = json_decode((string) @file_get_contents($marker), TRUE);
+  @unlink($marker);
+  if (!is_array($before) || !guard_runs_generator($command) || !is_array($before['untracked'] ?? NULL)) {
+    return 0;
+  }
+  $now = guard_untracked_files($root);
+  if ($now === NULL) {
+    return 0;
+  }
+  $run = NULL;
+  $record = json_decode((string) @file_get_contents($root . '/' . $stateDir . '/run.json'), TRUE);
+  if (is_array($record) && is_string($record['run_id'] ?? NULL)) {
+    $run = $record['run_id'];
+  }
+  $recorded = 0;
+  foreach (array_diff($now, $before['untracked']) as $path) {
+    $absolute = $root . '/' . $path;
+    if (str_starts_with($path, trim($stateDir, '/') . '/') || !is_file($absolute)) {
+      continue;
+    }
+    $hash = @hash_file('sha256', $absolute);
+    if (!is_string($hash)) {
+      continue;
+    }
+    $line = json_encode([
+      'path' => $path,
+      'hash' => 'sha256:' . $hash,
+      'run' => $run,
+      'blueprint' => 'generator',
+      'command' => mb_substr($command, 0, 300),
+      'at' => date('c'),
+    ], JSON_UNESCAPED_SLASHES);
+    if ($line !== FALSE) {
+      @file_put_contents($root . '/' . $stateDir . '/scaffolded.jsonl', $line . "\n", FILE_APPEND | LOCK_EX);
+      $recorded++;
+    }
+  }
+
+  return $recorded;
+}
+
+/**
+ * Where the evidence store is, configured or the state directory's.
+ *
+ * The droost.yml storage.evidence key, by the same rule as
+ * StoragePaths::evidence(), read here with no autoloader and no YAML parser:
+ * the `evidence:` key indented under a top-level `storage:`, followed only
+ * when its file is called evidence.sqlite, the name every wall on the store
+ * goes by.
+ *
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The resolved state directory.
+ *
+ * @return string
+ *   The store's path, absolute.
+ */
+function guard_evidence_path(string $root, string $stateDir): string {
+  $default = rtrim($root, '/') . '/' . $stateDir . '/evidence.sqlite';
+  $text = (string) @file_get_contents(rtrim($root, '/') . '/droost/droost.yml');
+  if ($text === '' || preg_match('/^storage:[ \t]*\n((?:[ \t]+[^\n]*\n?|[ \t]*\n)*)/m', $text, $block) !== 1) {
+    return $default;
+  }
+  if (preg_match('/^[ \t]+evidence:[ \t]*["\']?([^"\'#\n]+?)["\']?[ \t]*(?:#.*)?$/m', $block[1], $m) !== 1) {
+    return $default;
+  }
+  $configured = trim($m[1]);
+  if ($configured === '' || basename($configured) !== 'evidence.sqlite') {
+    return $default;
+  }
+
+  return str_starts_with($configured, '/') ? $configured : rtrim($root, '/') . '/' . $configured;
 }

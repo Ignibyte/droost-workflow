@@ -5,28 +5,31 @@ declare(strict_types=1);
 namespace Droost\Workflow\Cli;
 
 use Droost\Workflow\Evidence\CheckAdjudicators;
-use Droost\Workflow\Evidence\UnreachableChecks;
 use Droost\Workflow\Baseline\BaselineError;
+use Droost\Workflow\Baseline\BaselineStore;
 use Droost\Workflow\Config\ConfigError;
 use Droost\Workflow\Config\Phase;
-use Droost\Workflow\Config\DrushCatalogResolver;
 use Droost\Workflow\Config\EffortSwitch;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Config\WorkItemSettings;
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Driver\RenderedRoutes;
 use Droost\Workflow\Evidence\EvidenceError;
+use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Event\RunEventLog;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Gate\ShellGateExecutor;
 use Droost\Workflow\Intake\IntakeError;
 use Droost\Workflow\Intake\IntakeFinding;
 use Droost\Workflow\Intake\IntakeService;
 use Droost\Workflow\Intake\IntakeStore;
+use Droost\Workflow\Knowledge\SiteCalls;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Pack\PackError;
+use Droost\Workflow\Panel\ActivityLog;
+use Droost\Workflow\Panel\PanelTabRunner;
+use Droost\Workflow\Panel\RunPanel;
 use Droost\Workflow\Seeker\SeekerError;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
@@ -48,10 +51,8 @@ use Droost\Workflow\WorkItem\WorkItemSources;
  * audience do not justify the dependency, and a typed error rendered to
  * stderr with a non-zero exit is the whole UX contract.
  *
- * This surface always uses NullSiteDriver, so every site-dependent gate
- * comes back "skipped, no site" with its reason attached. That is the point:
- * the CLI is not a degraded live run pretending otherwise, it is a run that
- * says exactly which checks it could not perform.
+ * droost left Drupal (2026-10-19): this is the runtime's whole surface, and
+ * no gate needs a booted site.
  */
 final class ArgvDispatcher {
 
@@ -141,12 +142,22 @@ final class ArgvDispatcher {
       $this->usage();
       return $verb === '' ? self::EXIT_USAGE : self::EXIT_OK;
     }
+    // HELP BEFORE ANY VERB ACTS. `droost workflow:run help` opened a run: the
+    // verbs read their own arguments, `run` ignored a word it did not know,
+    // and the AGENTS block promises `droost <command> help` explains one (a
+    // live project, 2026-10-21: a reviewer looking up a flag opened a run).
+    // `help` as the first word, or `--help` / `-h` anywhere, answers here and
+    // touches nothing; a later bare `help` stays a value (an answer, a reason).
+    $rest = array_slice($argv, 1);
+    if (in_array($rest[0] ?? '', ['help', '--help', '-h'], TRUE)
+      || array_intersect($rest, ['--help', '-h']) !== []) {
+      return $this->verbHelp($verb);
+    }
 
-    // `--project` on EVERY verb, because the other two surfaces have it and
-    // this one did not. The MCP tools take a `project` argument and the drush
-    // commands a `--project` option; `bin/droost-workflow` took the working
-    // directory and nothing else, so the same instruction written once for an
-    // agent worked on two surfaces and was an unknown flag on the third.
+    // `--project` on EVERY verb. When drush and MCP were doors too (until
+    // 2026-10-19) they took one and this binary did not, so the same
+    // instruction written once for an agent was an unknown flag here; it
+    // stays, because a shell that has moved needs it.
     //
     // It also answers the moved-cwd case. An agent's shell can `cd`, and the
     // binary resolving its root from wherever the shell happens to be means the
@@ -227,10 +238,12 @@ final class ArgvDispatcher {
       return match ($verb) {
         'init' => $this->init($projectRoot, $argv),
         'status' => $this->status($projectRoot),
+        'report' => $this->report($projectRoot),
         'run' => $this->run($projectRoot, $argv),
         'answer' => $this->answer($projectRoot, $argv),
+        'lead' => $this->lead($projectRoot, $argv),
         'swap' => $this->swap($projectRoot, $argv),
-        'seeker-report' => $this->seekerReport($projectRoot),
+        'seeker-report' => $this->seekerReport($projectRoot, $argv),
         'declare-browser' => $this->declareBrowser($projectRoot, $argv),
         'declare-tasks' => $this->declareTasks($projectRoot, $argv),
         'declare-changes' => $this->declareChanges($projectRoot, $argv),
@@ -253,6 +266,8 @@ final class ArgvDispatcher {
         'specs' => $this->specs($projectRoot),
         'gate' => $this->gate($projectRoot, $argv),
         'relay' => $this->relay($projectRoot),
+        'panel' => $this->panel($projectRoot, $argv),
+        'say' => $this->activity($projectRoot, $argv),
         default => $this->unknown($verb),
       };
     }
@@ -331,7 +346,7 @@ final class ArgvDispatcher {
         || is_file($here . '/.droost-workflow/run.json')) {
         return $here;
       }
-      if ($levers === NULL && is_file($here . '/droost.workflow.yml')) {
+      if ($levers === NULL && (is_file($here . '/droost/droost.yml') || is_file($here . '/droost.workflow.yml'))) {
         $levers = $here;
       }
       // A repository boundary is a hard stop, checked AFTER the directory
@@ -528,16 +543,16 @@ final class ArgvDispatcher {
 "
       . "
 "
-      . "Those come from droost.workflow.yml, which is yours to edit — it is
+      . "Those come from droost/droost.yml, which is yours to edit — it is
 "
-      . "version-controlled intent and no re-install overwrites it. `%s status`
+      . "version-controlled intent and no re-install overwrites it. `%s`
 "
       . "prints this at any time.",
       is_scalar($levers['preset'] ?? NULL) ? (string) $levers['preset'] : '?',
       is_scalar($levers['enforcement'] ?? NULL) ? (string) $levers['enforcement'] : '?',
       is_scalar($levers['mode'] ?? NULL) ? (string) $levers['mode'] : '?',
       $off === [] ? 'none — every gate runs' : implode(', ', $off),
-      'droost-workflow',
+      'droost workflow:status',
     );
   }
 
@@ -557,6 +572,29 @@ final class ArgvDispatcher {
   }
 
   /**
+   * The current or last run as a readable workchain (RunReport).
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function report(string $projectRoot): int {
+    $facade = $this->facade($projectRoot);
+    $status = $facade->status($projectRoot);
+    $runId = is_array($status['run'] ?? NULL) && is_string($status['run']['run_id'] ?? NULL) ? $status['run']['run_id'] : NULL;
+    $site = $runId === NULL ? [] : [
+      'tools' => SiteCalls::tools($projectRoot, $runId),
+      'raw' => SiteCalls::raw($projectRoot, $runId)[1],
+    ];
+    foreach (RunReport::lines($status, $facade->bypassState($projectRoot), $site) as $line) {
+      $this->say($line);
+    }
+    return self::EXIT_OK;
+  }
+
+  /**
    * Advances the run by one phase.
    *
    * @param string $projectRoot
@@ -572,9 +610,14 @@ final class ArgvDispatcher {
   private function run(string $projectRoot, array $argv): int {
     $spec = NULL;
     $ticket = NULL;
+    $lead = NULL;
     $count = count($argv);
     for ($i = 0; $i < $count; $i++) {
       $arg = $argv[$i];
+      if (str_starts_with($arg, '--lead=')) {
+        $lead = substr($arg, 7);
+        continue;
+      }
       if (str_starts_with($arg, '--spec=')) {
         $spec = substr($arg, 7);
         continue;
@@ -606,8 +649,44 @@ final class ArgvDispatcher {
         $spec = $argv[++$i];
       }
     }
-    $outcome = $this->facade($projectRoot)->run($projectRoot, $spec, $ticket);
-    $this->say($this->encode($outcome->toArray()));
+    // Choosing autonomous, where the levers would make the run human-led, is
+    // the operator's: an agent that could would finish every run it began.
+    if ($lead === 'autonomous' && !$this->operatorTerminal()
+      && (new RunStateStore($projectRoot))->load() === NULL
+      && WorkflowConfig::load($projectRoot)->lead() !== 'autonomous') {
+      $this->fail($this->noTerminalRefusal('run --lead=autonomous'));
+      return self::EXIT_USAGE;
+    }
+    $facade = $this->facade($projectRoot);
+    $opening = (new RunStateStore($projectRoot))->load() === NULL;
+    $outcome = $facade->run($projectRoot, $spec, $ticket, $lead);
+    $document = $outcome->toArray();
+    // A RUN THAT OPENS WITH NO BASELINE SAYS SO (F-371). Every gate then
+    // judges the whole tree, so a codebase with findings that predate the
+    // ticket fails on them. While the run is in plan, the operator can still
+    // record one and have it frozen into this run.
+    $found = $opening ? $outcome->state->preexistingPaths() : [];
+    if ($found !== []) {
+      $document['preexisting'] = sprintf(
+        '%d file(s) were already changed when this run opened (%s%s). The code gates leave them out unless they change again. '
+        . 'If they are this ticket\'s work, claim them: droost workflow:declare-changes --files=<paths> (F-373).',
+        count($found),
+        implode(', ', array_slice($found, 0, 5)),
+        count($found) > 5 ? ', …' : '',
+      );
+    }
+    if ($opening && WorkflowConfig::load($projectRoot)->baseline && !BaselineStore::exists($projectRoot)) {
+      $document['baseline'] = 'none recorded: every gate judges the whole tree, so findings that predate this ticket fail it. '
+        . 'If the codebase has them, ask the operator to run `droost workflow:baseline` in their terminal now, '
+        . 'while the run is in plan: it is frozen into this run. After plan, only a new run takes one.';
+    }
+    // What the project's hooks said: a hook cannot hold the run, but it can
+    // tell the agent something, and this is where the agent reads it.
+    $notes = $facade->takeHookNotes();
+    if ($notes !== []) {
+      $document['hooks'] = $notes;
+    }
+    $this->say($this->encode($document));
 
     // A paused run has not failed; it is waiting. Only a genuine failure
     // gets a non-zero exit, so a pair-mode pause does not break a script
@@ -622,6 +701,37 @@ final class ArgvDispatcher {
     return in_array($outcome->outcome, [Outcome::Failed, Outcome::Blocked, Outcome::Returned], TRUE)
       ? self::EXIT_RUN_FAILED
       : self::EXIT_OK;
+  }
+
+  /**
+   * Changes the open run's lead: `lead human-led|autonomous`.
+   *
+   * Anyone may make a run human-led; only the operator's terminal may make
+   * one autonomous (owner, 2026-10-20).
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The arguments.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function lead(string $projectRoot, array $argv): int {
+    $lead = $argv[1] ?? '';
+    if (!in_array($lead, RunState::LEADS, TRUE)) {
+      $this->fail('lead takes human-led or autonomous: droost workflow:lead human-led');
+      return self::EXIT_USAGE;
+    }
+    if ($lead === RunState::LEAD_AUTONOMOUS && !$this->operatorTerminal()) {
+      $this->fail($this->noTerminalRefusal('lead autonomous'));
+      return self::EXIT_USAGE;
+    }
+    $state = $this->facade($projectRoot)->lead($projectRoot, $lead);
+    $this->say(sprintf('lead: %s — %s', $state->lead, $state->lead === RunState::LEAD_HUMAN
+      ? 'the complete hold is answered from the operator\'s terminal'
+      : 'the agent may answer every hold, complete\'s included'));
+    return self::EXIT_OK;
   }
 
   /**
@@ -647,10 +757,16 @@ final class ArgvDispatcher {
     ));
     $text = trim(implode(' ', $words));
     if ($text === '') {
-      $this->fail('answer needs the answer: droost-workflow answer "yes"');
+      $this->fail('answer needs the answer: droost workflow:answer "yes"');
       return self::EXIT_USAGE;
     }
-    $outcome = $this->facade($projectRoot)->answer($projectRoot, $text);
+    $facade = $this->facade($projectRoot);
+    $outcome = $facade->answer($projectRoot, $text, $this->operatorTerminal() ? 'terminal' : 'agent');
+    // An answer that moves the run fires the next phase's hooks: say what they
+    // said, as `run` does.
+    foreach ($facade->takeHookNotes() as $note) {
+      $this->say(sprintf('hook %s (%s)%s: %s', $note['event'], $note['file'], $note['ok'] ? '' : ' FAILED', $note['note']));
+    }
     $phase = $outcome->state->currentPhase;
     // Answering IS the check-in the pause was for, so the run moved on;
     // say where it now stands rather than a bare acknowledgment.
@@ -663,8 +779,8 @@ final class ArgvDispatcher {
     if ($outcome->outcome === Outcome::Failed && $phase !== NULL) {
       $this->say(sprintf(
         'answered — the run is STOPPED at %s on your word, not on a gate. '
-        . 'Nothing further will advance it. `droost-workflow evidence` renders '
-        . 'what it had measured; `droost-workflow reset --force` archives it '
+        . 'Nothing further will advance it. `droost workflow:evidence` renders '
+        . 'what it had measured; `droost workflow:reset --force` archives it '
         . 'once you know what made it stick.',
         $phase->value,
       ));
@@ -698,7 +814,7 @@ final class ArgvDispatcher {
       }
       $this->fail(
         'Clear what they name and answer again, or `answer "stop here"` to end '
-        . 'the run on your word. `droost-workflow evidence` renders every row.',
+        . 'the run on your word. `droost workflow:evidence` renders every row.',
       );
 
       return self::EXIT_RUN_FAILED;
@@ -737,30 +853,82 @@ final class ArgvDispatcher {
   }
 
   /**
-   * Records a seeker inspection from the ledger on standard input.
+   * Records a seeker inspection: from a file named, or from standard input.
+   *
+   * `seeker-report <spec-or-section.md>` reads the file, and the ledger is its
+   * LAST `## Seeker Inspection` section. With no file it reads stdin, and
+   * refuses rather than waits when stdin is a terminal: given a file it once
+   * ignored, it blocked on an open stdin for good (F-318).
    *
    * @param string $projectRoot
    *   The repository.
+   * @param list<string> $argv
+   *   The verb's arguments: an optional file.
    *
    * @return int
    *   The exit code.
    */
-  private function seekerReport(string $projectRoot): int {
-    $text = $this->in !== NULL
-      ? ($this->in)()
-      : (string) stream_get_contents(\STDIN);
-    if (trim($text) === '') {
-      $this->fail(
-        'seeker-report reads the ledger from stdin: '
-        . 'droost-workflow seeker-report < section.md',
-      );
+  private function seekerReport(string $projectRoot, array $argv = []): int {
+    $usage = 'seeker-report reads the ledger from a file or from stdin: '
+      . 'droost workflow:seeker-report droost/droost-workflow/spec-<slug>.md, or '
+      . 'droost workflow:seeker-report < section.md';
+    $files = array_values(array_filter(array_slice($argv, 1), static fn (string $word): bool => !str_starts_with($word, '--')));
+    if (count($files) > 1) {
+      $this->fail($usage . ' (one file).');
       return self::EXIT_USAGE;
     }
-    $record = $this->facade($projectRoot)->recordSeeker($projectRoot, $text);
+    if ($files !== []) {
+      $path = str_starts_with($files[0], '/') ? $files[0] : rtrim($projectRoot, '/') . '/' . $files[0];
+      $text = is_file($path) ? (string) @file_get_contents($path) : '';
+      if ($text === '') {
+        $this->fail(sprintf('seeker-report: %s is not a readable file. %s', $files[0], $usage));
+        return self::EXIT_USAGE;
+      }
+    }
+    elseif ($this->in !== NULL) {
+      $text = ($this->in)();
+    }
+    elseif (function_exists('posix_isatty') && @posix_isatty(\STDIN)) {
+      $this->fail($usage . ' (stdin is a terminal, so there is nothing to read).');
+      return self::EXIT_USAGE;
+    }
+    else {
+      $text = (string) stream_get_contents(\STDIN);
+    }
+    if (trim($text) === '') {
+      $this->fail($usage);
+      return self::EXIT_USAGE;
+    }
+    $facade = $this->facade($projectRoot);
+    $before = self::awaiting($facade->status($projectRoot));
+    $record = $facade->recordSeeker($projectRoot, $text);
     $this->say($this->encode($record));
+    // A run paused at a hold is released by a new inspection: the next
+    // `run` re-runs the phase's gates and holds again. Say so, rather than
+    // leave `answer` to report that nothing is waiting (F-319).
+    $after = self::awaiting($facade->status($projectRoot));
+    if ($before !== NULL && $after === NULL) {
+      $this->fail('seeker-report: the run was paused, waiting for an answer; recording the inspection released that hold. `droost workflow:run` re-runs the phase\'s gates and holds again.');
+    }
     // Recording findings is a SUCCESSFUL report — the run's advance is
     // where a dirty inspection bites, not here.
     return self::EXIT_OK;
+  }
+
+  /**
+   * What a status report's run is waiting on, or NULL when it waits on nothing.
+   *
+   * @param array<string, mixed> $status
+   *   The facade's status.
+   *
+   * @return array<mixed>|null
+   *   The awaiting record.
+   */
+  private static function awaiting(array $status): ?array {
+    $run = $status['run'] ?? NULL;
+    $awaiting = is_array($run) ? ($run['awaiting'] ?? NULL) : NULL;
+
+    return is_array($awaiting) ? $awaiting : NULL;
   }
 
   /**
@@ -815,6 +983,8 @@ final class ArgvDispatcher {
       match (TRUE) {
         $status === 200 => '',
         in_array($status, RenderedRoutes::REDIRECTS, TRUE) => sprintf(' (must redirect an anonymous visitor with %d)', $status),
+        in_array($status, RenderedRoutes::ABSENT, TRUE) => sprintf(' (must not be served to an anonymous visitor yet: %d)', $status),
+        in_array($status, RenderedRoutes::OTHER_METHOD, TRUE) => sprintf(' (takes another method: an anonymous GET gets %d)', $status),
         default => sprintf(' (must refuse an anonymous visitor with %d)', $status),
       },
       $page['kind'] === NULL ? '' : sprintf(' — a %s, built as %s%s', $page['kind'], $page['owner'], $page['except'] === NULL ? '' : ' (an exception: ' . $page['except'] . ')'),
@@ -822,6 +992,44 @@ final class ArgvDispatcher {
     ));
 
     return self::EXIT_OK;
+  }
+
+  /**
+   * Refuses a verb whose sentence arrived as more words than it takes.
+   *
+   * A verb that keeps its first words and drops the rest records the wrong
+   * thing and exits 0. A launcher that loses the quoting (DDEV's custom
+   * commands join arguments into one bash -c string) turned "When an account
+   * node is saved …" into the criterion "When" (F-316). Every positional
+   * argument past the last one the verb takes is refused, naming the cause.
+   *
+   * @param string $verb
+   *   The verb.
+   * @param list<string> $argv
+   *   The verb and its arguments.
+   * @param int $takes
+   *   How many positional arguments the verb takes.
+   * @param string $example
+   *   A correctly quoted call.
+   *
+   * @return bool
+   *   TRUE when refused.
+   */
+  private function splitSentence(string $verb, array $argv, int $takes, string $example): bool {
+    $positional = array_values(array_filter(array_slice($argv, 1), static fn (string $word): bool => !str_starts_with($word, '--')));
+    if (count($positional) <= $takes) {
+      return FALSE;
+    }
+    $this->fail(sprintf(
+      '%s takes %d argument(s) and got %d: "%s". A sentence arrived split into words, so nothing was recorded. Quote it (%s); if it was quoted, the launcher dropped the quoting: on DDEV use `ddev exec --raw -- php tools/droost/vendor/bin/droost …`, or a custom command with `## ExecRaw: true`.',
+      $verb,
+      $takes,
+      count($positional),
+      implode('" "', $positional),
+      $example,
+    ));
+
+    return TRUE;
   }
 
   /**
@@ -836,6 +1044,9 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function declareCriterion(string $projectRoot, array $argv): int {
+    if ($this->splitSentence('declare-criterion', $argv, 2, 'declare-criterion AC-1 "the listing shows every published rink"')) {
+      return self::EXIT_USAGE;
+    }
     $ref = $argv[1] ?? '';
     $statement = $argv[2] ?? '';
     if ($ref === '' || $statement === '') {
@@ -885,13 +1096,21 @@ final class ArgvDispatcher {
           ? '  [not checked]'
           : sprintf('  [checked %s, in %s: %s]', $criterion['verified_at'] ?? '?', $criterion['phase'], $criterion['verified_by']),
       ));
+      // What this run changed after the proof was recorded (F-289).
+      if ($criterion['changed_after'] !== NULL && $criterion['changed_after'] !== []) {
+        $this->say('    changed after this proof: ' . implode(', ', $criterion['changed_after']));
+      }
     }
 
     return self::EXIT_OK;
   }
 
   /**
-   * Records a proof: `verify-criterion <ref> <what proves it>`.
+   * Records a proof: `verify-criterion <ref> <what proves it> [--outcome=…]`.
+   *
+   * `--outcome=partly` or `--outcome=failed` records a proof that did not
+   * hold, which counts the criterion unverified (F-357); `proven` is the
+   * default.
    *
    * @param string $projectRoot
    *   The repository.
@@ -902,17 +1121,29 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function verifyCriterion(string $projectRoot, array $argv): int {
-    $ref = $argv[1] ?? '';
-    $by = $argv[2] ?? '';
+    if ($this->splitSentence('verify-criterion', $argv, 2, 'verify-criterion AC-1 "RinkListTest::testEveryPublished"')) {
+      return self::EXIT_USAGE;
+    }
+    $words = array_values(array_filter(array_slice($argv, 1), static fn (string $word): bool => !str_starts_with($word, '--')));
+    $ref = $words[0] ?? '';
+    $by = $words[1] ?? '';
+    $outcome = 'proven';
+    foreach ($argv as $argument) {
+      if (str_starts_with($argument, '--outcome=')) {
+        $outcome = substr($argument, strlen('--outcome='));
+      }
+    }
     if ($ref === '' || $by === '') {
       $this->fail(
         'verify-criterion needs a ref and what proves it: verify-criterion '
-        . 'AC-1 "RinkListTest::testEveryPublished"',
+        . 'AC-1 "RinkListTest::testEveryPublished" [--outcome=proven|partly|failed]',
       );
       return self::EXIT_USAGE;
     }
-    $this->facade($projectRoot)->verifyCriterion($projectRoot, $ref, $by);
-    $this->say(sprintf('verified: %s by %s', $ref, $by));
+    $this->facade($projectRoot)->verifyCriterion($projectRoot, $ref, $by, $outcome);
+    $this->say($outcome === 'proven'
+      ? sprintf('verified: %s by %s', $ref, $by)
+      : sprintf('recorded: %s %s by %s, so it counts as unverified', $ref, $outcome, $by));
 
     return self::EXIT_OK;
   }
@@ -929,6 +1160,9 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function declareNote(string $projectRoot, array $argv): int {
+    if ($this->splitSentence('declare-note', $argv, 3, 'declare-note grounding "Drupal\\node\\Entity\\Node" "the entity the listing reads"')) {
+      return self::EXIT_USAGE;
+    }
     $kind = $argv[1] ?? '';
     $subject = $argv[2] ?? '';
     if ($kind === '' || $subject === '') {
@@ -982,7 +1216,7 @@ final class ArgvDispatcher {
    * @param list<string> $argv
    *   The arguments: --json for the machine-readable result, --phase=<phase>
    *   for a phase other than test, --base=<ref> to read what changed since a
-   *   commit.
+   *   commit, --skip=<gate,…> to leave gates out.
    *
    * @return int
    *   The exit code: 0 when no gate blocks, 1 when one does.
@@ -991,9 +1225,13 @@ final class ArgvDispatcher {
     $json = FALSE;
     $phase = Phase::Test;
     $base = NULL;
+    $skip = [];
     foreach (array_slice($argv, 1) as $argument) {
       if ($argument === '--json') {
         $json = TRUE;
+      }
+      elseif (str_starts_with($argument, '--skip=')) {
+        $skip = array_values(array_filter(array_map('trim', explode(',', substr($argument, 7)))));
       }
       elseif (str_starts_with($argument, '--base=')) {
         $base = substr($argument, 7);
@@ -1007,11 +1245,22 @@ final class ArgvDispatcher {
         }
       }
       else {
-        $this->fail(sprintf('gate: unknown argument "%s" (accepted: --json, --phase=<phase>, --base=<ref>).', $argument));
+        $this->fail(sprintf('gate: unknown argument "%s" (accepted: --json, --phase=<phase>, --base=<ref>, --skip=<gate,…>).', $argument));
         return self::EXIT_USAGE;
       }
     }
-    $result = $this->facade($projectRoot)->gates($projectRoot, $phase, $base);
+    // Nothing is recorded, but every gate runs for real: say so where it
+    // reaches the site (a browser suite can leave state behind), before it
+    // does.
+    $browser = WorkflowConfig::load($projectRoot)->resolvedGates()['playwright'] ?? NULL;
+    if ($phase !== Phase::Code && !in_array('playwright', $skip, TRUE) && is_array($browser) && ($browser['on'] ?? FALSE) === TRUE) {
+      $this->fail(sprintf(
+        'gate: playwright runs the browser suite against the site at %s%s. Nothing is recorded, but the suite runs for real; --skip=playwright leaves it out.',
+        $phase->value,
+        $base === NULL ? ' (with no --base the scope is unknown, so the WHOLE suite)' : '',
+      ));
+    }
+    $result = $this->facade($projectRoot)->gates($projectRoot, $phase, $base, $skip);
     if ($json) {
       $this->say($this->encode($result));
     }
@@ -1181,8 +1430,20 @@ final class ArgvDispatcher {
    */
   private function reset(string $projectRoot, array $argv): int {
     $force = in_array('--force', $argv, TRUE);
-    $archived = $this->facade($projectRoot)->reset($projectRoot, $force);
+    $facade = $this->facade($projectRoot);
+    $archived = $facade->reset($projectRoot, $force);
     $this->say('run cleared — record archived to ' . $archived);
+    $spec = $facade->lastResetSpec();
+    if ($spec !== NULL) {
+      $this->say(sprintf(
+        'its spec moved too: %s → %s. To work the same ticket again, put it back (cp %s %s) or name it: droost workflow:run --spec=%s',
+        $spec['from'],
+        $spec['to'],
+        $spec['to'],
+        $spec['from'],
+        $spec['to'],
+      ));
+    }
     return self::EXIT_OK;
   }
 
@@ -1193,7 +1454,7 @@ final class ArgvDispatcher {
    * (first, or `--refresh`, or `--refresh --grow --reason=…`) is the
    * operator's act; this surface has no terminal check of its own because it
    * IS the operator's terminal — the pack guard is what refuses the agent's
-   * shell. There is no site here, so config_clean is never measured.
+   * shell.
    *
    * @param string $projectRoot
    *   The repository.
@@ -1266,6 +1527,10 @@ final class ArgvDispatcher {
         : 'no bypass was granted — the wall was already armed.');
       return self::EXIT_OK;
     }
+    $words = array_values(array_filter($flags, static fn (string $flag): bool => !str_starts_with($flag, '--')));
+    if ($this->splitSentence('bypass', ['bypass', ...$words], 1, 'bypass "the reason, quoted"')) {
+      return self::EXIT_USAGE;
+    }
     $reason = '';
     foreach ($flags as $flag) {
       if (!str_starts_with($flag, '--')) {
@@ -1274,7 +1539,7 @@ final class ArgvDispatcher {
       }
     }
     if (trim($reason) === '') {
-      $this->fail('Usage: droost-workflow bypass "<why>" — the reason goes on the record. `--off` re-arms the wall.');
+      $this->fail('Usage: droost workflow:bypass "<why>" — the reason goes on the record. `--off` re-arms the wall.');
       return self::EXIT_USAGE;
     }
     if (!$this->operatorTerminal()) {
@@ -1284,14 +1549,14 @@ final class ArgvDispatcher {
     $written = $facade->grantBypass($projectRoot, $reason);
     $this->say(sprintf(
       'require_run bypass GRANTED (%s): %s. Ungoverned custom-code edits are '
-      . 'allowed until you run: droost-workflow bypass --off',
+      . 'allowed until you run: droost workflow:bypass --off',
       $written,
       trim($reason),
     ));
     $this->say(
       'NOTE: this drops the WHOLE require_run wall. To waive one blocking gate '
       . 'for the current run instead — the usual intent — use: '
-      . 'droost-workflow gate-waive <gate> "<reason>".',
+      . 'droost workflow:gate-waive <gate> "<reason>".',
     );
     return self::EXIT_OK;
   }
@@ -1312,10 +1577,13 @@ final class ArgvDispatcher {
       array_slice($argv, 1),
       static fn (string $word): bool => !str_starts_with($word, '--'),
     ));
+    if ($this->splitSentence('gate-waive', ['gate-waive', ...$operands], 2, 'gate-waive phpcs "the reason, quoted"')) {
+      return self::EXIT_USAGE;
+    }
     $gate = $operands[0] ?? '';
     $reason = $operands[1] ?? '';
     if (trim($gate) === '' || trim($reason) === '') {
-      $this->fail('Usage: droost-workflow gate-waive <gate> "<reason>" — both are required; the reason goes on the record.');
+      $this->fail('Usage: droost workflow:gate-waive <gate> "<reason>" — both are required; the reason goes on the record.');
       return self::EXIT_USAGE;
     }
     if (!$this->operatorTerminal()) {
@@ -1440,7 +1708,7 @@ final class ArgvDispatcher {
     $rules = $open ? $state->rules : WorkflowConfig::load($projectRoot)->rules()->toArray();
     $house = is_array($rules['house'] ?? NULL) ? array_values(array_filter($rules['house'], 'is_array')) : [];
     $written = array_diff_key($rules, ['house' => TRUE]);
-    $source = $open ? sprintf('as run %s holds them (frozen when it began)', $state->runId) : 'as droost.workflow.yml writes them';
+    $source = $open ? sprintf('as run %s holds them (frozen when it began)', $state->runId) : 'as droost/droost.yml writes them';
     if (in_array('--json', $argv, TRUE)) {
       $this->say((string) json_encode(['source' => $source, 'house' => $house, 'pages' => $written], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
       return self::EXIT_OK;
@@ -1457,7 +1725,7 @@ final class ArgvDispatcher {
       $this->say(sprintf('  %s [%s] %s', $text($rule['id'] ?? NULL, '?'), $judge, $text($rule['rule'] ?? NULL, '')));
     }
     $this->say('');
-    $this->say('Page rules written (every kind not named keeps the site\'s case default; droost:workflow:status resolves them):');
+    $this->say('Page rules written (every kind not named keeps the site\'s case default; droost workflow:status resolves them):');
     if ($written === []) {
       $this->say('  none');
     }
@@ -1618,6 +1886,12 @@ final class ArgvDispatcher {
         $this->say('Answer recorded.');
         return self::EXIT_OK;
 
+      case 'routes':
+        // The parity gate's `routes` lever for a rung (F-354), one line to
+        // copy into droost/droost.yml between rungs.
+        $this->say(implode(',', $intake->routesThrough($positional[0] ?? '')));
+        return self::EXIT_OK;
+
       case 'approve':
         $state = $intake->approve($this->operatorTerminal() ? 'terminal' : 'agent');
         $this->say(sprintf('Intake %s APPROVED: its rungs may run, each from its ticket in %s/tickets/. Its ledgers are in history, so no run inherits its consults.', $state->id, IntakeStore::DIR));
@@ -1629,16 +1903,18 @@ final class ArgvDispatcher {
         return self::EXIT_OK;
 
       default:
-        $this->fail('intake needs one of: start --request="…" --source=<path|URL>, audit --url=<served> [--files=<dir>], check, status, ask --file=<batch.json> (a host with no AskUserQuestion), approve (on the human\'s yes), and the operator\'s abandon "<why>", answer [--via=terminal|cockpit] "<question>" "<answer>".');
+        $this->fail('intake needs one of: start --request="…" --source=<path|URL>, audit --url=<served> [--files=<dir>], check, status, ask --file=<batch.json> (a host with no AskUserQuestion), approve (on the human\'s yes), routes <rung> (the parity routes built through a rung), and the operator\'s abandon "<why>", answer [--via=terminal|cockpit] "<question>" "<answer>".');
         return self::EXIT_USAGE;
     }
   }
 
   /**
-   * The project's built-in work-item source, or NULL when it has none.
+   * The project's work-item source, or NULL when it has none.
    *
-   * A lever file that cannot be read has no source here: the verb that needs
-   * the levers says what is wrong with them, and every other verb carries on.
+   * With no built-in provider, the follow-ups droost filed are the source
+   * (WorkItemSources::forTickets(), F-358). A lever file that cannot be read
+   * has no source here: the verb that needs the levers says what is wrong
+   * with them, and every other verb carries on.
    *
    * @param string $projectRoot
    *   The repository.
@@ -1647,7 +1923,7 @@ final class ArgvDispatcher {
    *   The source.
    */
   private function workItemSource(string $projectRoot): ?WorkItemSourceInterface {
-    return WorkItemSources::fromSettings($this->workItemSettings($projectRoot), $projectRoot);
+    return WorkItemSources::forTickets($this->workItemSettings($projectRoot), $projectRoot);
   }
 
   /**
@@ -1728,10 +2004,9 @@ final class ArgvDispatcher {
   /**
    * Whether a person is typing this into a terminal.
    *
-   * The same second line of defence the drush surface has, in the same words,
-   * because the two surfaces now offer the same three operator verbs and a
-   * rule that holds on one and not the other is not a rule. The guard hook is
-   * the first line: it refuses these verbs from the agent's Bash tool. Not
+   * The second line of defence for the three operator verbs (drush's door
+   * had the same, in the same words, until 2026-10-19). The guard hook is the
+   * first line: it refuses these verbs from the agent's Bash tool. Not
    * tamper-proof — a PTY can be faked — but it turns "the agent ran it in
    * passing" into "the agent went out of its way", which the seeker's
    * discipline lens then catches.
@@ -1754,12 +2029,13 @@ final class ArgvDispatcher {
    */
   private function noTerminalRefusal(string $command): string {
     return sprintf(
-      'droost-workflow %1$s is the operator\'s command and this shell has no '
+      'droost workflow:%1$s is the operator\'s command and this shell has no '
       . 'terminal (an agent\'s tool shell, a pipe, a script). It records a '
-      . 'HUMAN\'s decision, so a human types it: run `droost-workflow %1$s …` '
-      . 'in a terminal of your own, outside the agent\'s session. Claude '
-      . 'Code\'s `!` runs a command with no terminal, so it is refused there '
-      . 'too (F-256).',
+      . 'HUMAN\'s decision, so a human types it: run `droost workflow:%1$s …` '
+      . '(`ddev droost workflow:%1$s …` on DDEV) in a terminal window of your '
+      . 'own, outside the agent\'s session. Claude Code\'s `!` runs a command '
+      . 'in the agent\'s shell, with no terminal, so it is refused there too '
+      . '(F-256).',
       $command,
     );
   }
@@ -1783,24 +2059,227 @@ final class ArgvDispatcher {
    * Prints how to use this.
    */
   private function usage(): void {
-    $this->say(<<<'TXT'
+    $this->say(self::usageText());
+  }
+
+  /**
+   * The run panel: `panel [--json]`.
+   *
+   * What the droost mod draws (RunPanel), as JSON with `--json`, and as a
+   * few lines without: the run, its phases, and each tab's badge.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The verb's arguments.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function panel(string $projectRoot, array $argv): int {
+    $config = WorkflowConfig::load($projectRoot);
+    $facade = $this->facade($projectRoot);
+    $status = $facade->status($projectRoot);
+    // One check of each: the record, then its id. Asking the id twice read
+    // as a redundant check to the oldest phpstan the constraints allow, and
+    // the 8.3/lowest leg failed on it.
+    $run = is_array($status['run'] ?? NULL) ? $status['run'] : NULL;
+    $runId = $run !== NULL && is_string($run['run_id'] ?? NULL) ? $run['run_id'] : NULL;
+    if ($runId === NULL) {
+      $run = NULL;
+    }
+    $open = $run !== NULL && ($run['archived'] ?? FALSE) !== TRUE;
+    $criteria = [];
+    $findings = [];
+    $files = NULL;
+    if ($open) {
+      try {
+        $criteria = $facade->criteria($projectRoot);
+      }
+      catch (\Throwable) {
+        // A run whose criteria cannot be read still has a panel.
+      }
+      try {
+        $files = $facade->runFiles($projectRoot);
+      }
+      catch (\Throwable) {
+        // The Files tab says the repository cannot say.
+      }
+    }
+    if ($runId !== NULL) {
+      try {
+        $findings = (new EvidenceStore($projectRoot))->seekerFindings($runId);
+      }
+      catch (\Throwable) {
+        // No store yet, or one that cannot be read: the Seeker tab says none.
+      }
+    }
+    $summary = $run === NULL ? NULL : RunPanel::summary($run);
+    $runner = new PanelTabRunner($projectRoot);
+    $tabs = [];
+    foreach ($config->panelTabs as $id => $tab) {
+      $tabs[$id] = ['title' => $tab['title']] + $runner->run($id, $tab, $summary);
+    }
+    $spec = NULL;
+    $specPath = is_array($run) && is_string($run['spec'] ?? NULL) ? $run['spec'] : NULL;
+    if ($specPath !== NULL) {
+      $file = str_starts_with($specPath, '/') ? $specPath : rtrim($projectRoot, '/') . '/' . $specPath;
+      $read = is_file($file) ? @file_get_contents($file, FALSE, NULL, 0, 200000) : FALSE;
+      $spec = is_string($read) ? $read : NULL;
+    }
+    $log = new ActivityLog($projectRoot);
+    $document = RunPanel::document(
+      $run,
+      $criteria,
+      $findings,
+      $log->forRun($runId),
+      $tabs,
+      ($this->clock)(),
+      $spec,
+      $log->actions($runId),
+      $config->panelOpen,
+      $files,
+    );
+    if (in_array('--json', $argv, TRUE)) {
+      $this->say($this->encode($document));
+      return self::EXIT_OK;
+    }
+    $this->say($summary === NULL
+      ? 'No run: the panel shows the project\'s own tabs only.'
+      : sprintf('Run %s · %s · %s', $summary['id'] ?? '?', $summary['phase'] ?? 'done', $summary['state']));
+    $this->say(implode(' › ', array_map(static fn (array $p): string => $p['label'] . ' ' . $p['status'], $document['phases'])));
+    foreach ($document['tabs'] as $tab) {
+      $badge = $tab['badge'] === NULL ? '' : ' (' . $tab['badge'] . ')';
+      $this->say(sprintf('  %s%s%s', $tab['title'], $badge, $tab['error'] === NULL ? '' : ' — ' . $tab['error']));
+    }
+
+    return self::EXIT_OK;
+  }
+
+  /**
+   * What the agent says it is doing: `say "<text>" [--detail=<…>]`.
+   *
+   * A line in the panel's Activity tab, stamped with the open run. The
+   * agent's own account, recorded as that, never as evidence.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The verb's arguments.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function activity(string $projectRoot, array $argv): int {
+    $detail = NULL;
+    $words = [];
+    foreach (array_slice($argv, 1) as $argument) {
+      if (str_starts_with($argument, '--detail=')) {
+        $detail = substr($argument, strlen('--detail='));
+        continue;
+      }
+      $words[] = $argument;
+    }
+    $text = trim(implode(' ', $words));
+    if ($text === '') {
+      $this->fail('Usage: droost workflow:say "<what you are doing>" [--detail="<a file, a count, a name>"]');
+      return self::EXIT_USAGE;
+    }
+    $state = (new RunStateStore($projectRoot))->load();
+    if (!(new ActivityLog($projectRoot))->append($text, $detail, $state?->runId, ($this->clock)())) {
+      $this->fail('The activity line could not be written to the state directory.');
+      return self::EXIT_USAGE;
+    }
+    $this->say('said: ' . $text);
+
+    return self::EXIT_OK;
+  }
+
+  /**
+   * One verb's lines of the usage, for `<verb> help`.
+   *
+   * Read out of the usage text, so the two can never say different things. A
+   * verb listed more than once (`ticket`, `intake`: what the agent runs, and
+   * what is the operator's) gets every entry.
+   *
+   * @param string $verb
+   *   The verb asked about.
+   *
+   * @return int
+   *   The exit code: 0, or the usage code for a verb that does not exist.
+   */
+  private function verbHelp(string $verb): int {
+    $entries = [];
+    $current = NULL;
+    foreach (explode("\n", self::usageText()) as $line) {
+      if (preg_match('/^  (\S+)/', $line, $match) === 1) {
+        $current = $match[1] === $verb ? count($entries) : NULL;
+        if ($current !== NULL) {
+          $entries[$current] = [$line];
+        }
+        continue;
+      }
+      if ($current !== NULL && preg_match('/^   /', $line) === 1) {
+        $entries[$current][] = $line;
+        continue;
+      }
+      $current = NULL;
+    }
+    if ($entries === []) {
+      return $this->unknown($verb);
+    }
+    $this->say(sprintf('droost workflow:%s', $verb));
+    $this->say('');
+    foreach ($entries as $lines) {
+      $this->say(implode("\n", $lines));
+    }
+    $this->say('');
+    $this->say('--project=<path> works on every verb. `droost workflow:help` lists them all.');
+
+    return self::EXIT_OK;
+  }
+
+  /**
+   * The usage, as text.
+   *
+   * @return string
+   *   Every verb and what it does.
+   */
+  private static function usageText(): string {
+    return <<<'TXT'
     droost-workflow — the phased, gated pipeline, standalone.
 
       init             install the pack (AGENTS.md on every host, plus
                        .claude/ for Claude Code) and a default lever file
       uninstall        take it back out: the pack's files, its guard hooks
                        in settings.json and its AGENTS.md block. KEEPS
-                       droost.workflow.yml and the state directory — your
+                       droost/droost.yml and the state directory — your
                        intent, and this project's run records — and names
                        them so you can remove them deliberately
       status           what this repo resolves to, and where a run has got to
+      report           the current or last run as a readable workchain: each
+                       phase, each gate's verdict and why, criteria, seeker
       run              start a run, or advance it by one phase
                    (--spec=<path> declares which spec governs the run;
                    --ticket=<id> binds it to a ticket, which moves to
                    in_progress, and to review when the run completes)
-      answer <text>    answer a paused run's question (the run then advances)
+      lead human-led|autonomous
+                       who may finish the open run: human-led (the complete
+                       hold is answered from the operator's terminal) or
+                       autonomous (the agent may answer every hold). Making a
+                       run autonomous needs the operator's terminal; `run
+                       --lead=<lead>` chooses it when a run begins, and
+                       droost.yml's `lead:` is the default (else interactive
+                       mode is human-led, agentic autonomous)
+      answer <text>    answer a paused run's question (the run then advances).
+                       It prints one line, not a JSON envelope: exit 0 when
+                       the run moved, non-zero when a check still holds it
+                       (the reasons on stderr) or your answer stopped it;
+                       `status` and `report` say where it stands
       swap agentic     stop holding at phases and finish without stopping
-      seeker-report    record an adversarial inspection (ledger on stdin)
+      seeker-report [<file>]
+                       record an adversarial inspection (the ledger from the
+                       file, or on stdin)
       declare-changes  say what this run will touch, before touching it:
                        --files=<a,b> --tests=<X,Y> [--type=<kind>]
                        [--work-item=<id>]. The code
@@ -1812,14 +2291,19 @@ final class ArgvDispatcher {
                        recorded by name. --type is one of code, content_model,
                        theme, content, docs, mixed and never turns a gate off;
                        it says which gates must have MEASURED something.
-      declare-route    declare a path this change serves, which is what
-                       rendered_check renders: `declare-route /rinks "the new
+      declare-route    declare a path this change serves, which the seeker,
+                       the browser suite and the record read: `declare-route /rinks "the new
                        listing"`. A page that must refuse an anonymous
                        visitor (an admin listing) takes `--status=403`, one
                        that sends them elsewhere its redirect
-                       (`--status=303`), and the gate checks exactly that
-                       answer; declaring a path again
-                       replaces it. Repeatable and idempotent. `## Routes` stays
+                       (`--status=303`), one held back until an editor
+                       publishes it `--status=404` (`410` once it is gone
+                       for good), and a POST-only route the 405 an anonymous
+                       GET gets (`--status=405`); declaring a path again replaces it,
+                       whatever its status. A page also takes `--kind=` and
+                       `--owner=` (what it is, what builds it), and
+                       `--except=` where it breaks the owner's rules.
+                       Repeatable and idempotent. `## Routes` stays
                        in the spec for a human; nothing mechanical reads it,
                        so a fenced list or a heading in the wrong place can no
                        longer cost a run
@@ -1833,13 +2317,14 @@ final class ArgvDispatcher {
       criteria         the run's criteria and what proved each, with when
                        (`--json` for data): what the seeker reads
       verify-criterion record what proves one: `verify-criterion AC-1
-                       "RinkListTest::testEveryPublished"`. Refused when no
-                       such criterion was declared, which is the only refusal
-                       on this surface
+                       "RinkListTest::testEveryPublished"`; a proof that did
+                       not hold takes `--outcome=partly` or `--outcome=failed`
+                       and counts unverified. Refused when no such criterion
+                       was declared, which is the only refusal on this surface
       declare-note     anything else the spec would have said in prose:
                        `declare-note grounding "Drupal\node\Entity\Node"
                        "the entity the listing reads"`. Kinds are open —
-                       grounding, tooling, decision, or a contributed step's
+                       grounding, decision, or a contributed step's
       declare-browser  record the session's browser tier (playwright-mcp,
                        native, none)
       declare-tasks    record the host task surface this session can drive,
@@ -1864,13 +2349,17 @@ final class ArgvDispatcher {
                        record instead of running them again, while the tree
                        is unchanged
       gate [--json] [--phase=code|test|complete] [--base=<ref>]
+           [--skip=<gate,…>]
                        run one phase's gates (test by default) outside any
                        run, from the lever file as a run would freeze it, and
                        keep nothing: no run is opened or advanced, no evidence
                        written, no retry spent. Ticket-scoped gates read what
                        changed since --base, or their full set without it.
-                       Refused while this project's run is at test. Exit 0
-                       when no gate blocks, 1 when one does
+                       --skip=<gate,…> leaves gates out (recorded off): the
+                       browser suite runs for real against the site, and
+                       --skip=playwright leaves it out. Refused while this
+                       project's run is at test. Exit 0 when no gate blocks,
+                       1 when one does
       reset [--force]  clear a finished run (archives its record to
                        the state dir's history/); --force abandons a live one
       rules [--json]   the site's rules: each house rule (rules.house) with its
@@ -1888,6 +2377,13 @@ final class ArgvDispatcher {
                        cursor to the cockpit now (they also go after every
                        event and when every command ends); exits 0 when
                        nothing is left to send, 1 otherwise
+      panel [--json]   the run panel the droost mod draws: the run, its
+                       phases, a question it waits on, and tabs (Spec,
+                       Activity, Gates, Seeker, then the project's own
+                       from droost.yml panel.tabs)
+      say "<what>" [--detail=<…>]
+                       tell the panel what you are doing now (its Activity
+                       tab): your own account, never evidence
       ticket           this project's tickets, with work_item.provider:
                        markdown or droost_cockpit: `ticket list
                        [--status=<state>]`, `ticket show <id>`, `ticket new
@@ -1943,27 +2439,17 @@ final class ArgvDispatcher {
                        (paid-off debt drops, growth is refused unless
                        --grow --reason="…"). Writing is the operator's act.
 
-    --project=<path> works on every verb and names the repository to act on,
-    the way the drush commands' --project and the MCP tools' `project`
-    argument do. Without it the working directory is the repository — which
+    --project=<path> works on every verb and names the repository to act on.
+    Without it the working directory is the repository — which
     is wrong the moment a shell has moved, and wrong quietly: a subdirectory
     has no lever file, so the run reports built-in defaults as though the
     project had none.
 
-    Every site-dependent gate reports "skipped, no site" here, with its
-    reason. That is deliberate: this surface tells you what it could not
-    check rather than quietly leaving it out.
-    TXT);
+    TXT;
   }
 
   /**
-   * A facade wired for the siteless surface.
-   *
-   * Siteless, not blind: the gates enabled modules contribute (D72) live in
-   * the site, so this surface asks drush for them before it resolves a single
-   * lever (R31-F3 — a run begun here was held to fewer gates than the same run
-   * through drush, and nothing said so). No drush, or a site that cannot
-   * answer, resolves to none, with the reason in `levers.contributed_source`.
+   * A facade wired for this surface: the whole runtime, with no Drupal.
    *
    * @param string $projectRoot
    *   The repository the verb acts on.
@@ -1972,16 +2458,6 @@ final class ArgvDispatcher {
    *   The facade.
    */
   private function facade(string $projectRoot): WorkflowFacade {
-    $catalog = (new DrushCatalogResolver(
-      static function (array $argv, string $cwd, int $timeout): array {
-        return CliProcess::run($argv, $cwd, $timeout);
-      },
-    ))->resolve($projectRoot);
-    // A site here means contributed checks may exist that this surface cannot
-    // ask — the binary boots no Drupal. Saying so beats recording nothing,
-    // which read downstream exactly like a run that had been asked.
-    $hasSite = is_file($projectRoot . '/vendor/bin/drush');
-
     return new WorkflowFacade(
       new ShellGateExecutor(
         static function (array $argv, string $cwd, int $timeout): array {
@@ -1989,17 +2465,12 @@ final class ArgvDispatcher {
         },
         static fn (): int => (int) (hrtime(TRUE) / 1_000_000),
       ),
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       $this->clock,
       $this->ids,
       NULL,
-      NULL,
-      $catalog['gates'],
-      $catalog['source'],
-      // The library's own checks (plan_grounded) are asked here as on drush;
-      // only what a module contributes needs a booted site (F-276).
-      CheckAdjudicators::withLibraryChecks(new UnreachableChecks($hasSite)),
+      // The library's own checks (plan_grounded) are the checks there are.
+      CheckAdjudicators::withLibraryChecks(),
       $this->workItemSource($projectRoot),
       $this->relayFor($projectRoot),
     );

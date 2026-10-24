@@ -11,7 +11,6 @@ use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\Vcs\VcsInterface;
@@ -138,7 +137,7 @@ final class FindingsOutsideTheDiffTest extends WorkflowTestCase {
    */
   private function phpstanAfter(array $findings, ?array $changed): GateResult {
     $root = $this->makeRootWithConfig("preset: max\n");
-    $runner = new GateRunner($this->executor($findings), new NullSiteDriver(), $this->vcs($changed));
+    $runner = new GateRunner($this->executor($findings), $this->vcs($changed));
     $state = RunState::begin('run-1', '2026-09-24T00:00:00+00:00', WorkflowConfig::load($root), 'abc', NULL);
 
     foreach ($runner->run($state, Phase::Code, $root)->results as $result) {

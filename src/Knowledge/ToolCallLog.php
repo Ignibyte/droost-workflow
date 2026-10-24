@@ -17,14 +17,14 @@ use Droost\Workflow\State\RunStateStore;
  *
  * It lived in droost until 2026-10-15, which a Drupal-free reader could not
  * reach: `plan_grounded` reads it, and a plan held only where Drupal boots is
- * a plan the standalone binary closed unasked (F-276). Both droost's tools,
- * run through drush, and `vendor/bin/droost`, with no Drupal, append here.
+ * a plan the standalone binary closed unasked (F-276). The droost command's
+ * knowledge calls (`code:wiki`, `code:tree`, …) append here, with no Drupal.
  *
  * Deliberately append-only, outside the run record (a run may not be open,
  * and a ledger that needed one would miss the calls made while deciding
  * whether to open it), and mirrored into the evidence store when a run is
- * open. A row with no run was made before one opened; `reset` archives the
- * file, so such a row can belong only to the run that opens next (F-6).
+ * open. A row with no run was made before one opened, and is no run's: a plan
+ * looks once its run is open (owner, 2026-10-20; F-331).
  */
 final class ToolCallLog {
 
@@ -103,8 +103,7 @@ final class ToolCallLog {
    * @param string $projectRoot
    *   The repository root.
    * @param string|null $runId
-   *   A run to filter by. With one, rows made under ANOTHER run are skipped;
-   *   rows made under no run are kept (see the class docblock).
+   *   A run to filter by: only the rows it made (ofRun()).
    *
    * @return list<array{tool: string, outcome: string, at: string, run: string|null, phase: string|null}>
    *   The calls.
@@ -140,17 +139,33 @@ final class ToolCallLog {
           'phase' => is_string($decoded['phase'] ?? NULL) ? $decoded['phase'] : NULL,
         ];
       }
-      if ($runId !== NULL) {
-        $calls = array_values(array_filter(
-          $calls,
-          static fn (array $call): bool => $call['run'] === $runId || $call['run'] === NULL,
-        ));
-      }
-
-      return $calls;
+      return $runId === NULL
+        ? $calls
+        : array_map(static fn (int $i): array => $calls[$i], self::ofRun(array_column($calls, 'run'), $runId));
     }
 
     return [];
+  }
+
+  /**
+   * The rows that are one run's: the ones it made.
+   *
+   * A row made with no run open belonged to the run that opened next, because
+   * a plan once grounded before `workflow:run`. It cannot say what it was
+   * for, and a lookup made between two runs for another purpose read as the
+   * next plan's consult (a live run's, F-331). Since 2026-10-20 (owner) a plan
+   * looks once its run is open, so a run's rows are the ones it made.
+   *
+   * @param list<string|null> $runs
+   *   Each row's run, oldest first.
+   * @param string $runId
+   *   The run.
+   *
+   * @return list<int>
+   *   The positions of its rows, oldest first.
+   */
+  public static function ofRun(array $runs, string $runId): array {
+    return array_keys(array_filter($runs, static fn (?string $run): bool => $run === $runId));
   }
 
   /**

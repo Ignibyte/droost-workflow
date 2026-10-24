@@ -53,7 +53,7 @@ final class StateError extends \RuntimeException {
     return new self(
       $path,
       'there is no run in progress — start one with /droost:workflow:start '
-      . '(or vendor/bin/droost-workflow run) before this command applies',
+      . '(or droost workflow:run) before this command applies',
     );
   }
 
@@ -76,7 +76,7 @@ final class StateError extends \RuntimeException {
     return new self(
       $path,
       'this run has ended — its record is history. Clear it with reset '
-      . '(drush droost:workflow:reset, or vendor/bin/droost-workflow reset), '
+      . '(droost workflow:reset), '
       . 'then start the next run',
     );
   }
@@ -103,7 +103,7 @@ final class StateError extends \RuntimeException {
       'this run has already finished, so %s was NOT adopted and nothing ran. '
       . 'A spec governs a run from its plan phase onward, and there is no '
       . 'phase left here to hold to it. Archive this run first — '
-      . '`droost-workflow reset`, which keeps the record under history/ — '
+      . '`droost workflow:reset`, which keeps the record under history/ — '
       . 'then begin the next ticket with --spec=%s.',
       $spec,
       $spec,
@@ -143,7 +143,7 @@ final class StateError extends \RuntimeException {
   public static function gatesDuringRunTests(string $path, string $runId): self {
     return new self($path, sprintf(
       'run %s is at its test phase, whose gates may be running now; '
-      . 'droost-workflow gate does not run the suites beside them. Run it '
+      . 'droost workflow:gate does not run the suites beside them. Run it '
       . 'once that run has moved past test or ended',
       $runId,
     ));

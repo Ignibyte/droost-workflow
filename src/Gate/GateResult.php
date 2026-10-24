@@ -345,29 +345,6 @@ final class GateResult {
   }
 
   /**
-   * A gate that needs a booted site when there is none.
-   *
-   * @param string $gate
-   *   The gate name.
-   * @param string $reason
-   *   Why no site was available.
-   *
-   * @return self
-   *   The result.
-   */
-  public static function skippedNoSite(
-    string $gate,
-    string $reason = NullSiteDriver::REASON,
-  ): self {
-    return new self(
-      $gate,
-      GateStatus::SkippedNoSite,
-      summary: 'not run — ' . $reason,
-      skipReason: $reason,
-    );
-  }
-
-  /**
    * A gate whose tool is not installed.
    *
    * ONE SENTENCE FOR FOUR DIFFERENT FAULTS. This constructor is the only way
@@ -424,7 +401,7 @@ final class GateResult {
         'Install %1$s so the gate can run — `composer require --dev` or '
         . '`npm install` it, whichever owns it in this project — or, if this '
         . 'project genuinely does not use %1$s, ask the OPERATOR to turn the '
-        . 'gate off in droost.workflow.yml (`gates.%1$s.on: false`). An agent '
+        . 'gate off in droost/droost.yml (`gates.%1$s.on: false`). An agent '
         . 'cannot decide either of those.',
         $gate,
       ),
@@ -600,6 +577,10 @@ final class GateResult {
       'invocation' => $this->invocation,
       'inherited' => $this->inherited,
       'new' => $this->new,
+      // Which gate the phase tally's `labelled` counts: a pass that examined
+      // nothing. Without it the record said `labelled: 1` and no row said
+      // whose (a live run's record: F-326).
+      'labelled' => $this->labelledPass,
     ];
   }
 

@@ -18,9 +18,9 @@ use Droost\Workflow\Gate\ShellGateExecutor;
  * longer match and REFUSES to add any, unless the operator says --grow with a
  * reason, which the manifest then carries forever.
  *
- * Nothing here decides who may call it. That is the surfaces' job: the drush
- * verb demands an operator terminal and the pack guard refuses the agent's
- * shell, because a baseline the agent can write is a finding it can hide.
+ * Nothing here decides who may call it. That is the surface's job: the guard
+ * refuses `droost workflow:baseline --write` from the agent's shell, because
+ * a baseline the agent can write is a finding it can hide.
  */
 final class BaselineWriter {
 
@@ -53,14 +53,11 @@ final class BaselineWriter {
    *   The resolved levers.
    * @param string $projectRoot
    *   The repository.
-   * @param list<string>|null $configDrift
-   *   The site's current config drift, measured by the live surface, or NULL
-   *   when there is no site to ask.
    *
    * @return \Droost\Workflow\Baseline\Measurement
    *   What was found, and what could not be measured.
    */
-  public function measure(WorkflowConfig $config, string $projectRoot, ?array $configDrift = NULL): Measurement {
+  public function measure(WorkflowConfig $config, string $projectRoot): Measurement {
     $root = rtrim($projectRoot, '/');
     $findings = [];
     $skipped = [];
@@ -72,12 +69,6 @@ final class BaselineWriter {
       $settings = $config->gates[$gate] ?? NULL;
       if ($settings === NULL || !$settings->on) {
         $skipped[$gate] = sprintf('off at level %s — a baseline records only what the level judges', $config->preset);
-        continue;
-      }
-      if ($gate === 'config_clean') {
-        if ($configDrift === NULL) {
-          $skipped[$gate] = 'no site — config drift is measured by the live surface (drush)';
-        }
         continue;
       }
       if ($gate === 'phpstan') {
@@ -152,7 +143,7 @@ final class BaselineWriter {
       }
     }
 
-    return new Measurement($findings, $prettier, $neon, $metrics, $configDrift, $skipped);
+    return new Measurement($findings, $prettier, $neon, $metrics, $skipped);
   }
 
   /**
@@ -312,27 +303,6 @@ final class BaselineWriter {
       }
     }
 
-    // config_clean: set arithmetic on the drift entries.
-    if ($measured->configDrift === NULL) {
-      $this->carryForward('config_clean', $previous, $files, $gates);
-    }
-    else {
-      $current = $measured->configDrift;
-      $record = $current;
-      if ($previous !== NULL) {
-        $old = $previous->has('config_clean') ? $previous->configDrift() : [];
-        $kept = array_values(array_intersect($current, $old));
-        $new = count($current) - count($kept);
-        if ($new > 0) {
-          $added['config_clean'] = $new;
-        }
-        $record = $grow ? $current : $kept;
-      }
-      $content = json_encode(['v' => 1, 'drift' => $record], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
-      $files[Baseline::FILES['config_clean']] = $content;
-      $gates['config_clean'] = self::entry(Baseline::FILES['config_clean'], count($record), $content);
-    }
-
     if ($added !== [] && !$grow) {
       throw BaselineError::refusedGrowth($added);
     }
@@ -465,7 +435,7 @@ final class BaselineWriter {
     }
     $includes[] = Baseline::FILES['phpstan'];
     $lines = [
-      '# Written by droost (`droost:workflow:baseline`). The phpstan gate runs',
+      '# Written by droost (`droost workflow:baseline`). The phpstan gate runs',
       '# through this file while a baseline is honoured: the project\'s own',
       '# config, then the recorded baseline. Unmatched ignores are paid-off',
       '# debt and never fail a run — a refresh drops them. Do not edit by hand.',

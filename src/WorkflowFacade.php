@@ -4,26 +4,29 @@ declare(strict_types=1);
 
 namespace Droost\Workflow;
 
+use Droost\Workflow\Gate\GateResult;
+use Droost\Workflow\Config\RuleFiles;
 use Droost\Workflow\Driver\RenderedRoutes;
 use Droost\Workflow\Baseline\BaselineError;
 use Droost\Workflow\Baseline\BaselineStore;
 use Droost\Workflow\Baseline\BaselineWriter;
 use Droost\Workflow\Cli\CliProcess;
+use Droost\Workflow\Event\ProjectHooks;
+use Droost\Workflow\Pack\PackManifest;
 use Droost\Workflow\State\StateError;
+use Droost\Workflow\Vcs\AddedFilesInterface;
 use Droost\Workflow\Vcs\CliVcs;
+use Droost\Workflow\Vcs\LineCountsInterface;
 use Droost\Workflow\Vcs\RefResolverInterface;
 use Droost\Workflow\Vcs\VcsInterface;
 use Droost\Workflow\Config\BuildRules;
-use Droost\Workflow\Config\ContributedGate;
 use Droost\Workflow\Config\Mode;
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Config\GateSettings;
-use Droost\Workflow\Event\NullWorkflowListener;
 use Droost\Workflow\Event\RunEventLog;
 use Droost\Workflow\Intake\IntakeError;
 use Droost\Workflow\Intake\IntakeService;
-use Droost\Workflow\Event\WorkflowListenerInterface;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Evidence\CheckAdjudicatorInterface;
 use Droost\Workflow\Evidence\CheckRecord;
@@ -41,7 +44,6 @@ use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\ParityReference;
 use Droost\Workflow\Gate\ShellGateExecutor;
-use Droost\Workflow\Gate\SiteDriverInterface;
 use Droost\Workflow\Mode\ModeEngine;
 use Droost\Workflow\Mode\PendingQuestion;
 use Droost\Workflow\Mode\Outcome;
@@ -68,12 +70,11 @@ use Droost\Workflow\WorkItem\WorkItemSourceInterface;
 /**
  * The one place a workflow run is orchestrated.
  *
- * Four fronts call this: the standalone bin, the drush commands, and two MCP
- * tools. Each of them parses input, calls a method here, and renders the
- * result — and does nothing else. That is what makes surface parity
- * architectural rather than aspirational: there is no second implementation
- * to drift, because the only difference between the surfaces is which
- * SiteDriver they inject.
+ * One front calls this since droost left Drupal (2026-10-19): the `droost`
+ * command (`droost workflow:<verb>`, and the `droost-workflow` alias), through
+ * ArgvDispatcher, which parses input, calls a method here, and renders the
+ * result — and does nothing else. A second front (Cockpit's, say) would do
+ * the same, so there is no second implementation to drift.
  *
  * This class is also where run state finally gets a production writer. Until
  * now `RunState::begin()` and `RunStateStore` were exercised only by tests,
@@ -88,9 +89,9 @@ final class WorkflowFacade {
   private const string DECLARED_SOURCE = 'declared';
 
   /**
-   * Observes lifecycle transitions. A notification, never the record.
+   * What a criterion's proof can come to (`verify-criterion --outcome=`).
    */
-  private readonly WorkflowListenerInterface $listener;
+  public const array OUTCOMES = ['proven', 'partly', 'failed'];
 
   /**
    * Answers where the tree is (base commit) and what changed since.
@@ -98,13 +99,21 @@ final class WorkflowFacade {
   private readonly VcsInterface $vcs;
 
   /**
+   * What the project's hooks said during this call, for the caller to show.
+   *
+   * A hook notifies and cannot hold the run, and what it said reached only
+   * `hook-calls.jsonl`, so a hook had no way to tell the agent anything
+   * (owner, 2026-10-20: a project's moves the ticket to In Progress at code).
+   *
+   * @var list<array{event: string, file: string, ok: bool, note: string}>
+   */
+  private array $hookNotes = [];
+
+  /**
    * Constructs a WorkflowFacade.
    *
    * @param \Droost\Workflow\Gate\GateExecutorInterface $executor
    *   Runs the gates that need only a checkout.
-   * @param \Droost\Workflow\Gate\SiteDriverInterface $driver
-   *   Runs the gates that need a site. The ONLY thing that differs between
-   *   the CLI surface and the live one.
    * @param \Droost\Workflow\Mode\QuestionSinkInterface $sink
    *   Delivers a paused run's question.
    * @param callable(): string $clock
@@ -112,29 +121,13 @@ final class WorkflowFacade {
    *   from the surface rather than from a value object.
    * @param callable(): string $ids
    *   Returns a fresh run identifier.
-   * @param \Droost\Workflow\Event\WorkflowListenerInterface|null $listener
-   *   Observes lifecycle transitions (run start, phase change, completion).
-   *   Optional and defaults to a no-op, so the CLI and every existing caller
-   *   are unaffected; the Drupal surfaces inject a bridge that re-broadcasts to
-   *   hooks. A notification, never the record — see the interface.
    * @param \Droost\Workflow\Vcs\VcsInterface|null $vcs
    *   Version-control facts: the base commit frozen at begin and the files
    *   changed since. Defaults to the git binary; a test injects a fake.
-   * @param list<\Droost\Workflow\Config\ContributedGate>|null $contributed
-   *   The gates enabled modules declare (D72). The Drupal surfaces pass their
-   *   catalog (an empty list when no module contributes); the standalone CLI
-   *   passes what drush answered, or NULL when nothing could be resolved —
-   *   and NULL leaves a lever file's `gates.contributed` block alone rather
-   *   than refusing it as naming a gate no module declares. Every lever load
-   *   this facade performs resolves against the same list, so the run's
-   *   frozen set and the status document agree.
-   * @param string|null $contributedSource
-   *   Where that list came from, for status (R31-F3): the booted site's
-   *   catalog, drush asked from the standalone binary, or the reason none
-   *   could be resolved. NULL lets the facade say "none resolved".
    * @param \Droost\Workflow\Evidence\CheckAdjudicatorInterface|null $checks
-   *   The contributed checks this surface can ask, or NULL when it has
-   *   none. Asked once per phase, after the gates and before advancing.
+   *   The checks this surface asks (the library's own, plan_grounded, and any
+   *   a door adds), or NULL. Asked once per phase, after the gates and before
+   *   advancing.
    * @param \Droost\Workflow\WorkItem\WorkItemSourceInterface|null $workItems
    *   Where this project's tickets come from (`work_item.provider:
    *   markdown`), or NULL when it has no built-in source: a run then binds
@@ -145,19 +138,14 @@ final class WorkflowFacade {
    */
   public function __construct(
     private readonly GateExecutorInterface $executor,
-    private readonly SiteDriverInterface $driver,
     private readonly QuestionSinkInterface $sink,
     private readonly mixed $clock,
     private readonly mixed $ids,
-    ?WorkflowListenerInterface $listener = NULL,
     ?VcsInterface $vcs = NULL,
-    private readonly ?array $contributed = NULL,
-    private readonly ?string $contributedSource = NULL,
     private readonly ?CheckAdjudicatorInterface $checks = NULL,
     private readonly ?WorkItemSourceInterface $workItems = NULL,
     private readonly ?CockpitEventRelay $relay = NULL,
   ) {
-    $this->listener = $listener ?? new NullWorkflowListener();
     $this->vcs = $vcs ?? new CliVcs(CliProcess::run(...));
   }
 
@@ -208,7 +196,7 @@ final class WorkflowFacade {
    *   to guess which.
    */
   public function status(string $projectRoot): array {
-    $config = WorkflowConfig::load($projectRoot, $this->contributed);
+    $config = WorkflowConfig::load($projectRoot);
     $store = new RunStateStore($projectRoot);
     $state = $store->load();
     // With none open, the last run if it completed: a completed run is
@@ -272,24 +260,11 @@ final class WorkflowFacade {
         // Whether a committed adoption baseline is honoured (strict mode when
         // FALSE). What it holds is the `baseline` block below.
         'baseline' => $config->baseline,
-        // The gates enabled modules contributed (D72), with their provenance
-        // and the sentence each declared for its verdict — "not moved by the
-        // dial": a level change never turns these on or off.
-        'contributed' => array_map(
-          static fn (ContributedGate $gate): array => [
-            'provider' => $gate->provider,
-            'phases' => $gate->phases,
-            'default_mode' => $gate->defaultMode,
-            'command' => $gate->command,
-            'verdict' => $gate->verdict,
-          ],
-          $config->contributedGates,
-        ),
-        // Where this surface got that list (R31-F3): a booted site reads its
-        // own catalog; the standalone binary asks drush; a surface that could
-        // resolve none says so here rather than presenting a shorter set as
-        // the whole truth.
-        'contributed_source' => $this->contributedSource(),
+        // The project's own rules (droost/droost.yml): hook files by event,
+        // walls by id, and the scripts only the operator runs.
+        'hooks' => $config->hooks,
+        'walls' => $config->walls,
+        'operator_only' => $config->operatorOnly,
       ],
       // The adoption baseline: present or not, honoured or not, what each
       // gate inherits — so "why did phpstan pass over 123 errors" is
@@ -363,10 +338,9 @@ final class WorkflowFacade {
       // begin, so a report can say what "new" was measured against.
       'base_commit' => $state->baseCommit,
       'baseline_hash' => $state->baselineHash,
-      // Which door began the run, as far as contributed gates go, and which
-      // of them a later, seeing surface had to weave in (R31-F3/F5).
-      'contributed_source' => $state->contributedSource,
-      'late_woven' => $state->lateWoven,
+      // The project's own rule files the run is held to, with their hashes
+      // at begin (droost/droost.yml's gates, hooks and walls; agents.md).
+      'rule_files' => $state->ruleFiles,
       // The ticket this run answers (`run --ticket`), NULL when none.
       'work_item' => $state->workItem,
       'phases' => array_map(
@@ -388,7 +362,17 @@ final class WorkflowFacade {
       // Same method as the envelope, not a second copy of the arithmetic.
       'retries' => $state->retries(),
       'awaiting' => $question?->toArray(),
-      'answered' => count($state->qaHistory),
+      // A check-in a later step released before anyone answered it is not an
+      // answered one: counting every exchange read 5 answered for a run that
+      // answered 4 and had one released by a seeker report (F-321).
+      'answered' => count(array_filter($state->qaHistory, static fn (mixed $q): bool => is_array($q) && ($q['answer'] ?? NULL) !== NULL)),
+      'released' => count(array_filter($state->qaHistory, static fn (mixed $q): bool => is_array($q) && ($q['answer'] ?? NULL) === NULL)),
+      // A check-in is the human's; an answer typed with no terminal is how an
+      // agent answers one, and the count alone read as four human decisions
+      // where an agent's session had made all four (F-335).
+      'lead' => $state->lead,
+      'answered_by_question' => count(array_filter($state->qaHistory, static fn (mixed $q): bool => is_array($q) && ($q['via'] ?? NULL) === 'question')),
+      'answered_by_agent' => count(array_filter($state->qaHistory, static fn (mixed $q): bool => is_array($q) && ($q['answer'] ?? NULL) !== NULL && ($q['via'] ?? NULL) === 'agent')),
     ];
     return $status;
   }
@@ -451,7 +435,7 @@ final class WorkflowFacade {
    *   manifest reports `error` rather than pretending to be absent.
    */
   public function baselineStatus(string $projectRoot): array {
-    return $this->baselineSummary($projectRoot, WorkflowConfig::load($projectRoot, $this->contributed));
+    return $this->baselineSummary($projectRoot, WorkflowConfig::load($projectRoot));
   }
 
   /**
@@ -463,15 +447,13 @@ final class WorkflowFacade {
    *
    * @param string $projectRoot
    *   The repository.
-   * @param list<string>|null $configDrift
-   *   The site's current config drift, from the live surface, or NULL.
    *
    * @return array<string, mixed>
    *   The level, the per-gate bill, and the gates that could not be measured.
    */
-  public function baselineMeasure(string $projectRoot, ?array $configDrift = NULL): array {
-    $config = WorkflowConfig::load($projectRoot, $this->contributed);
-    $measured = $this->writer()->measure($config, $projectRoot, $configDrift);
+  public function baselineMeasure(string $projectRoot): array {
+    $config = WorkflowConfig::load($projectRoot);
+    $measured = $this->writer()->measure($config, $projectRoot);
     return [
       'level' => $config->preset,
       'bill' => $measured->bill(),
@@ -494,8 +476,6 @@ final class WorkflowFacade {
    *   Allow the refresh to record more debt than before.
    * @param string|null $reason
    *   Why growth is accepted; required with $grow.
-   * @param list<string>|null $configDrift
-   *   The site's current config drift, from the live surface, or NULL.
    *
    * @return array<string, mixed>
    *   The manifest written, the bill, the skipped gates, and the new hash.
@@ -509,14 +489,23 @@ final class WorkflowFacade {
     bool $refresh = FALSE,
     bool $grow = FALSE,
     ?string $reason = NULL,
-    ?array $configDrift = NULL,
   ): array {
-    $active = (new RunStateStore($projectRoot))->load();
-    if ($active !== NULL && $active->currentPhase !== NULL) {
+    $store = new RunStateStore($projectRoot);
+    $active = $store->load();
+    // ONE OPEN RUN MAY TAKE ITS FIRST BASELINE (F-371). An adopter opened a run
+    // with the lever on and nothing recorded, could not record a baseline
+    // while it was open, and had to reset. While the run is in plan, opened
+    // with no baseline, and no gate has run, nothing has been judged against
+    // one: the first baseline is written and frozen into the run as if it
+    // had been there at the start. A refresh, or any later moment, still
+    // waits for the run to end.
+    $adopting = $active !== NULL && $active->currentPhase === Phase::Plan
+      && $active->baselineHash === NULL && $active->gateResults === [] && !$refresh;
+    if ($active !== NULL && $active->currentPhase !== NULL && !$adopting) {
       throw BaselineError::runActive();
     }
-    $config = WorkflowConfig::load($projectRoot, $this->contributed);
-    $measured = $this->writer()->measure($config, $projectRoot, $configDrift);
+    $config = WorkflowConfig::load($projectRoot);
+    $measured = $this->writer()->measure($config, $projectRoot);
     $manifest = $this->writer()->write(
       $projectRoot,
       $measured,
@@ -526,12 +515,17 @@ final class WorkflowFacade {
       $grow,
       $reason,
     );
+    $hash = BaselineStore::hash($projectRoot);
+    if ($adopting && $active !== NULL && $hash !== NULL && $config->baseline) {
+      $store->save($active->withBaselineHash($hash));
+    }
     return [
       'manifest' => $manifest->toArray(),
       'bill' => $measured->bill(),
       'skipped' => $measured->skipped,
-      'hash' => BaselineStore::hash($projectRoot),
+      'hash' => $hash,
       'dir' => BaselineStore::DIR,
+      'frozen_into_run' => $adopting ? $active?->runId : NULL,
     ];
   }
 
@@ -549,23 +543,6 @@ final class WorkflowFacade {
       throw new \LogicException('baseline measurement needs the shell executor — this facade was built with another.');
     }
     return new BaselineWriter($this->executor, $this->clock);
-  }
-
-  /**
-   * Where this surface's contributed gates came from, for status (R31-F3).
-   *
-   * @return string
-   *   The surface's own sentence when it gave one; otherwise "none resolved"
-   *   for an empty list, so a shorter gate set never reads as the whole.
-   */
-  private function contributedSource(): string {
-    if ($this->contributedSource !== NULL) {
-      return $this->contributedSource;
-    }
-    if ($this->contributed === NULL) {
-      return RunState::CONTRIBUTED_BLIND;
-    }
-    return $this->contributed === [] ? 'declared to this surface (none)' : 'declared to this surface';
   }
 
   /**
@@ -620,12 +597,8 @@ final class WorkflowFacade {
   /**
    * The toolchain rows: per named gate, the binary it runs and its presence.
    *
-   * Custom gates are absent by design — their cmd runs through the shell,
-   * whose own 127 is the probe. Site gates are absent too: rendered_check
-   * runs through the injected site driver, never a binary, and probing
-   * binaryPathFor() for it invented a vendor/bin/rendered_check that cannot
-   * exist on any repo — a row that read "missing" forever while every
-   * remedy pointed at packages that do not provide it. The phpunit row also
+   * A project's own gates are absent by design — their cmd or file runs
+   * itself, and its own failure to start is the probe. The phpunit row also
    * reports whether a suite config exists, because the gate refuses to run
    * without one.
    *
@@ -644,9 +617,7 @@ final class WorkflowFacade {
     $root = rtrim($projectRoot, '/');
     $rows = [];
     foreach ($config->gates as $name => $gate) {
-      if (GateSettings::isCustom($name)
-        || GateSettings::isContributed($name)
-        || in_array($name, GateRunner::SITE_GATES, TRUE)) {
+      if (GateSettings::isCustom($name)) {
         continue;
       }
       // Where the gate runs its tool (F-161): a gate's `root` names the
@@ -656,10 +627,16 @@ final class WorkflowFacade {
       $under = $gate->option('root');
       $under = is_string($under) && trim($under, '/') !== '' ? trim($under, '/') . '/' : '';
       $binary = $under . ShellGateExecutor::binaryPathFor($name);
+      $present = is_file($root . '/' . $binary);
+      if ($name === 'parity' && !$present) {
+        // The runner ships in droost's own package (F-344).
+        $binary = ShellGateExecutor::parityBinary($root);
+        $present = is_file($binary);
+      }
       $row = [
         'on' => $gate->on,
         'binary' => $binary,
-        'present' => is_file($root . '/' . $binary),
+        'present' => $present,
       ];
       if ($name === 'phpunit' || $name === 'coverage') {
         $row['suite_config'] = is_file($root . '/' . $under . 'phpunit.xml')
@@ -694,6 +671,10 @@ final class WorkflowFacade {
    *   The ticket this run answers (--ticket), bound when the run begins.
    *   Naming the ticket a run is already bound to is a no-op; naming any
    *   other, or binding a run that began with none, is refused.
+   * @param string|null $lead
+   *   The lead chosen for a run this call begins (`human-led` or
+   *   `autonomous`); NULL for the lever's. Naming one for a run already open
+   *   is refused: `workflow:lead` changes it.
    *
    * @return \Droost\Workflow\Mode\RunOutcome
    *   What happened. The state is persisted before this returns.
@@ -702,7 +683,7 @@ final class WorkflowFacade {
    *   When a ticket is named and no source is configured, the source has no
    *   such ticket, or the run already answers another.
    */
-  public function run(string $projectRoot, ?string $spec = NULL, ?string $ticket = NULL): RunOutcome {
+  public function run(string $projectRoot, ?string $spec = NULL, ?string $ticket = NULL, ?string $lead = NULL): RunOutcome {
     $store = new RunStateStore($projectRoot);
     $state = $store->load();
     $ticket = $ticket === NULL || trim($ticket) === '' ? NULL : trim($ticket);
@@ -721,6 +702,17 @@ final class WorkflowFacade {
         throw WorkItemError::alreadyStarted($item->id, is_string($bound) ? $bound : NULL, $state->runId);
       }
     }
+    if ($lead !== NULL && !in_array($lead, RunState::LEADS, TRUE)) {
+      throw new \InvalidArgumentException(sprintf('--lead=%s is not a lead: human-led or autonomous.', $lead));
+    }
+    // The lead is the run's, chosen when it begins (owner, 2026-10-20).
+    if ($lead !== NULL && $state !== NULL && $lead !== $state->lead) {
+      throw new \InvalidArgumentException(sprintf(
+        'This run is already %s; --lead chooses a run\'s lead when it begins. `droost workflow:lead %s` changes it (to autonomous, only from the operator\'s terminal).',
+        $state->lead,
+        $lead,
+      ));
+    }
 
     if ($state === NULL) {
       // Nothing builds before the human approves an intake's roadmap: while
@@ -729,7 +721,7 @@ final class WorkflowFacade {
       if ($intake !== NULL) {
         throw IntakeError::buildBeforeApproval($intake->id);
       }
-      $config = WorkflowConfig::load($projectRoot, $this->contributed);
+      $config = WorkflowConfig::load($projectRoot);
       // Frozen with the levers: where the tree is, and which baseline the
       // run is held to (none when the lever refuses one). A baseline that
       // moves under the run is then caught by every gate that consults it.
@@ -742,10 +734,11 @@ final class WorkflowFacade {
         $config,
         $this->vcs->head($projectRoot),
         $config->baseline ? BaselineStore::hash($projectRoot) : NULL,
-        $this->contributedSource(),
         is_array($parity) && ($parity['on'] ?? FALSE) === TRUE
           ? ParityReference::digest($projectRoot, ParityReference::directory($parity['reference'] ?? NULL))
           : NULL,
+        RuleFiles::hash($projectRoot, $config),
+        $lead,
       );
       if ($item !== NULL) {
         $state = $state->withWorkItem($item->binding());
@@ -766,12 +759,10 @@ final class WorkflowFacade {
         'spec' => $state->specPath,
         'base_commit' => $state->baseCommit,
       ]);
-      $this->notify(fn () => $this->listener->onRunStart($state));
       // The run's first phase is now active: the first cycle step begins.
       if ($state->currentPhase !== NULL) {
         $begin = $state->currentPhase;
         $this->event($store, $state, 'phase.began', ['phase' => $begin->value]);
-        $this->notify(fn () => $this->listener->onPhaseBegin($state, $begin));
       }
     }
 
@@ -909,7 +900,10 @@ final class WorkflowFacade {
     // were never wrong about what the document said — only about whether that
     // should end a run.
     $observations = $this->specShapeObservations($projectRoot, $specPath, $phase, $state->runId);
-    if ($observations !== []) {
+    if ($observations !== [] || $this->specShapeWasObserved($projectRoot, $state->runId, $phase)) {
+      // An attempt that finds nothing still records, once an earlier one
+      // found something: otherwise the earlier row stays the newest, and the
+      // report says the spec lacks what the agent has since added (F-324).
       $this->recordSpecShape($state, $projectRoot, $phase, $observations);
     }
     if ($specPath !== NULL && $phase === Phase::Complete) {
@@ -918,16 +912,10 @@ final class WorkflowFacade {
       $this->recordCriteriaContract(
         $state,
         $projectRoot,
-        CriteriaVerification::resolve($projectRoot, $state->runId, $specPath) !== NULL,
+        CriteriaVerification::resolve($projectRoot, $state->runId, $specPath),
+        SpecContract::criteriaVerification($projectRoot, $specPath),
       );
     }
-
-    // Every door, the same gates (R31-F3/F5): a run begun on a surface that
-    // could not see the site's contributed catalog froze a shorter set. A
-    // surface that CAN see it weaves the missing gates in here, on record,
-    // before this phase's gates run — and complete re-runs everything, so no
-    // run finishes without the gates the site declared.
-    $state = $this->weaveLateContributed($state, $phase, $projectRoot, $store);
 
     $outcome = $this->engine($projectRoot)->runPhase(
       $state,
@@ -990,39 +978,124 @@ final class WorkflowFacade {
   }
 
   /**
-   * Weaves contributed gates this surface can see and the run's record lacks.
+   * The human's answer to the complete hold, as the guard recorded it.
    *
-   * @param \Droost\Workflow\State\RunState $state
-   *   The run about to be gated.
-   * @param \Droost\Workflow\Config\Phase $phase
-   *   The phase about to run.
+   * A row in `hold-answers.jsonl` (the state directory, which the agent
+   * cannot write) for this run's pending hold, written from an
+   * AskUserQuestion's result. Only where the guard refuses a question whose
+   * input arrives pre-answered: without that wiring an answer in the record
+   * could be the agent's, so nothing is taken from it.
+   *
    * @param string $projectRoot
    *   The repository.
    * @param \Droost\Workflow\State\RunStateStore $store
-   *   Where the amended record is saved.
+   *   The run's store.
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run, waiting at complete.
    *
-   * @return \Droost\Workflow\State\RunState
-   *   The run, amended and saved when anything joined; otherwise unchanged.
+   * @return string|null
+   *   Their answer, or NULL when there is none to take.
    */
-  private function weaveLateContributed(RunState $state, Phase $phase, string $projectRoot, RunStateStore $store): RunState {
-    if ($this->contributed === NULL || $this->contributed === []) {
-      return $state;
+  private function humanHoldAnswer(string $projectRoot, RunStateStore $store, RunState $state): ?string {
+    if (!self::guardWired($projectRoot, 'question') || !self::guardWired($projectRoot, 'answers')) {
+      return NULL;
     }
-    $config = WorkflowConfig::load($projectRoot, $this->contributed);
-    $missing = [];
-    foreach ($config->gates as $name => $settings) {
-      if (GateSettings::isContributed($name) && !array_key_exists($name, $state->resolvedGates)) {
-        $missing[$name] = $settings;
+    $askedAt = is_string($state->awaiting['asked_at'] ?? NULL) ? $state->awaiting['asked_at'] : '';
+    $found = NULL;
+    foreach (@file($store->directory() . '/hold-answers.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+      $row = json_decode($line, TRUE);
+      if (!is_array($row) || ($row['run'] ?? NULL) !== $state->runId || ($row['asked_at'] ?? NULL) !== $askedAt || !is_array($row['answers'] ?? NULL)) {
+        continue;
+      }
+      $answers = array_filter($row['answers'], 'is_string');
+      if ($answers === []) {
+        continue;
+      }
+      $found = count($answers) === 1
+        ? (string) reset($answers)
+        : implode('; ', array_map(static fn (string $q, string $a): string => $q . ' → ' . $a, array_keys($answers), $answers));
+    }
+
+    return $found;
+  }
+
+  /**
+   * Why an agent's `answer` to a human-led complete hold was refused.
+   *
+   * It quotes the hold's question and options, which the dialog must ask
+   * word for word, and what the last dialog during this hold asked when it
+   * asked something else (F-360): a refusal that only said "ask them" read
+   * as though no question had been asked.
+   *
+   * @param \Droost\Workflow\State\RunStateStore $store
+   *   The run's store.
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run, waiting at complete.
+   *
+   * @return string
+   *   The refusal.
+   */
+  private function holdRefusal(RunStateStore $store, RunState $state): string {
+    $question = is_string($state->awaiting['question'] ?? NULL) ? trim($state->awaiting['question']) : '';
+    $options = array_values(array_filter((array) ($state->awaiting['options'] ?? []), 'is_string'));
+    $askedAt = is_string($state->awaiting['asked_at'] ?? NULL) ? $state->awaiting['asked_at'] : '';
+    $last = [];
+    foreach (@file($store->directory() . '/hold-answers.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+      $row = json_decode($line, TRUE);
+      if (is_array($row) && ($row['run'] ?? NULL) === $state->runId && ($row['asked_at'] ?? NULL) === $askedAt && is_array($row['asked'] ?? NULL)) {
+        $last = array_values(array_filter($row['asked'], 'is_string'));
       }
     }
-    if ($missing === []) {
-      return $state;
+    $message = 'This run is human-led: its complete hold is answered by a human. Ask them with AskUserQuestion, '
+      . 'the hold\'s question word for word as the question: "' . $question . '"'
+      . ($options === [] ? '' : ', and its options as the choices: ' . self::quoted($options))
+      . '. Then run `answer` again: droost takes THEIR answer, as the guard recorded it from the dialog.';
+    if ($last !== []) {
+      $message .= ' The last dialog asked ' . self::quoted($last) . ', which is not the hold\'s question, so its answer was not taken.';
     }
-    $woven = $state->withLateContributed($missing, $phase);
-    if ($woven !== $state) {
-      $store->save($woven);
+
+    return $message . ' Or they type `droost workflow:answer "<answer>"` (`ddev droost workflow:answer …`) in a '
+      . 'terminal window of their own; Claude Code\'s `!` runs in the agent\'s shell and is refused. Nothing was '
+      . 'recorded, and the run is still waiting.';
+  }
+
+  /**
+   * Texts quoted and joined for a refusal: "a" / "b".
+   *
+   * @param list<string> $texts
+   *   The texts.
+   *
+   * @return string
+   *   The quoted list.
+   */
+  private static function quoted(array $texts): string {
+    return '"' . implode('" / "', $texts) . '"';
+  }
+
+  /**
+   * Changes an open run's lead (`workflow:lead`).
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $lead
+   *   `human-led` or `autonomous`. The caller holds a move to autonomous to
+   *   the operator's terminal.
+   *
+   * @return \Droost\Workflow\State\RunState
+   *   The run, saved.
+   *
+   * @throws \Droost\Workflow\State\StateError
+   *   When there is no run.
+   */
+  public function lead(string $projectRoot, string $lead): RunState {
+    if (!in_array($lead, RunState::LEADS, TRUE)) {
+      throw new \InvalidArgumentException(sprintf('"%s" is not a lead: human-led or autonomous.', $lead));
     }
-    return $woven;
+    $store = new RunStateStore($projectRoot);
+    $state = $this->requireRun($store)->withLead($lead);
+    $store->save($state);
+
+    return $state;
   }
 
   /**
@@ -1032,6 +1105,9 @@ final class WorkflowFacade {
    *   The repository.
    * @param string $answer
    *   What the human said.
+   * @param string|null $via
+   *   `terminal` or `agent`: where the answer came from (F-335). NULL when
+   *   the caller cannot say.
    *
    * @return \Droost\Workflow\Mode\RunOutcome
    *   What answering did — `Advanced`, `Completed`, `Failed` when the answer
@@ -1041,10 +1117,23 @@ final class WorkflowFacade {
    * @throws \Droost\Workflow\State\StateError
    *   When there is no run to answer.
    */
-  public function answer(string $projectRoot, string $answer): RunOutcome {
+  public function answer(string $projectRoot, string $answer, ?string $via = NULL): RunOutcome {
     $store = new RunStateStore($projectRoot);
     $state = $this->requireRun($store);
-    $answered = $this->engine($projectRoot)->answer($state, $answer, $this->now(), $projectRoot);
+    // A HUMAN-LED RUN IS FINISHED BY A HUMAN (owner, 2026-10-20). The agent
+    // may answer plan's, code's and test's holds; complete's is the human's:
+    // their answer to the agent's question in the session (AskUserQuestion,
+    // recorded by the guard from the dialog's result), or typed from the
+    // operator's terminal. The agent's own words are never the answer.
+    if ($via === 'agent' && $state->awaitsHuman()) {
+      $human = $this->humanHoldAnswer($projectRoot, $store, $state);
+      if ($human === NULL) {
+        throw new \InvalidArgumentException($this->holdRefusal($store, $state));
+      }
+      $answer = $human;
+      $via = 'question';
+    }
+    $answered = $this->engine($projectRoot)->answer($state, $answer, $this->now(), $projectRoot, $via);
     $answeredEvent = [
       'question_id' => self::questionId($state, $state->awaiting ?? []),
       'answer' => $answer,
@@ -1211,6 +1300,26 @@ final class WorkflowFacade {
   }
 
   /**
+   * Where the last reset put the run's spec, or NULL when it moved none.
+   *
+   * @var array{from: string, to: string}|null
+   */
+  private ?array $resetSpec = NULL;
+
+  /**
+   * Where the last reset put the run's spec (F-377).
+   *
+   * An adopter's reset moved the intake spec into history/ and said nothing,
+   * and the reopened run had none until it was found and put back by hand.
+   *
+   * @return array{from: string, to: string}|null
+   *   The spec's path before and after, project-relative, or NULL.
+   */
+  public function lastResetSpec(): ?array {
+    return $this->resetSpec;
+  }
+
+  /**
    * Clears a finished run: archives its record and removes run.json.
    *
    * The run's ledgers and the spec it was governed by (when the pack wrote it
@@ -1329,6 +1438,10 @@ final class WorkflowFacade {
         if (@rename($realSpec, $archived) === FALSE) {
           throw StateError::archiveFailed($archived, 'the spec could not be moved');
         }
+        $this->resetSpec = [
+          'from' => (string) $spec,
+          'to' => ltrim(substr($archived, strlen(rtrim($projectRoot, '/'))), '/'),
+        ];
       }
     }
     foreach (glob($stateDir . '/.guard-warned-*') ?: [] as $marker) {
@@ -1425,6 +1538,7 @@ final class WorkflowFacade {
         $state->currentPhase instanceof Phase ? $state->currentPhase->value : 'code',
         count($state->seekerHistory),
         $ledger->findings,
+        $ledger->selfReviewed ? 'self-reviewed' : 'independent',
       );
     }
     catch (\Throwable) {
@@ -1432,6 +1546,32 @@ final class WorkflowFacade {
     }
 
     return $record;
+  }
+
+  /**
+   * Whether the project's Claude Code settings wire the guard for a mode.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $mode
+   *   The guard mode.
+   *
+   * @return bool
+   *   TRUE when a hook command runs droost's guard in that mode.
+   */
+  private static function guardWired(string $projectRoot, string $mode): bool {
+    $settings = json_decode((string) @file_get_contents(rtrim($projectRoot, '/') . '/.claude/settings.json'), TRUE);
+    $hooks = is_array($settings) && is_array($settings['hooks'] ?? NULL) ? $settings['hooks'] : [];
+    foreach ($hooks as $entries) {
+      foreach (is_array($entries) ? $entries : [] as $entry) {
+        foreach (is_array($entry) && is_array($entry['hooks'] ?? NULL) ? $entry['hooks'] : [] as $hook) {
+          if (is_array($hook) && is_string($hook['command'] ?? NULL) && PackManifest::guardMode($hook['command']) === $mode) {
+            return TRUE;
+          }
+        }
+      }
+    }
+    return FALSE;
   }
 
   /**
@@ -1465,19 +1605,44 @@ final class WorkflowFacade {
    *   When every seeker that returned kept a ledger, and this is none of them.
    */
   private function seekerDispatch(string $projectRoot, RunStateStore $store, RunState $state, ?string $digest = NULL): string {
-    $settings = @file_get_contents(rtrim($projectRoot, '/') . '/.claude/settings.json');
-    if (!is_string($settings) || !str_contains($settings, 'droost-workflow-guard.php\\" dispatched')) {
+    if (!self::guardWired($projectRoot, 'dispatched')) {
       return 'unverified';
     }
     $floor = strtotime(self::lastLedgerAt($state));
-    $returned = [];
+    $rows = [];
     foreach (@file(dirname($store->path()) . '/guard-calls.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
       $row = json_decode($line, TRUE);
-      if (!is_array($row)
-        || ($row['mode'] ?? NULL) !== 'dispatched'
+      if (is_array($row)) {
+        $rows[] = $row;
+      }
+    }
+    // What each agent the Agent tool started IS, by its id and its name: the
+    // tool's input says its type, and a teammate's SubagentStop says only its
+    // name (F-333). A stop with neither on record keeps what it says, which is
+    // the type wherever the harness says the type.
+    $typeOf = ['agent_id' => [], 'name' => []];
+    foreach ($rows as $row) {
+      if (in_array($row['tool'] ?? NULL, ['Agent', 'Task'], TRUE) && is_string($row['agent'] ?? NULL)) {
+        foreach (['agent_id', 'name'] as $key) {
+          if (is_string($row[$key] ?? NULL) && $row[$key] !== '') {
+            $typeOf[$key][$row[$key]] = $row['agent'];
+          }
+        }
+      }
+    }
+    $returned = [];
+    foreach ($rows as $row) {
+      if (($row['mode'] ?? NULL) !== 'dispatched'
         || ($row['run'] ?? NULL) !== $state->runId
-        || !is_string($row['agent'] ?? NULL)
-        || preg_match('/(^|:)workflow-seeker$/', $row['agent']) !== 1) {
+        || !is_string($row['agent'] ?? NULL)) {
+        continue;
+      }
+      $agent = $row['agent'];
+      if (!in_array($row['tool'] ?? NULL, ['Agent', 'Task'], TRUE)) {
+        $id = is_string($row['agent_id'] ?? NULL) ? $row['agent_id'] : '';
+        $agent = $typeOf['agent_id'][$id] ?? $typeOf['name'][$agent] ?? $agent;
+      }
+      if (preg_match('/(^|:)workflow-seeker$/', $agent) !== 1) {
         continue;
       }
       $at = is_string($row['at'] ?? NULL) ? strtotime($row['at']) : FALSE;
@@ -1538,8 +1703,9 @@ final class WorkflowFacade {
   /**
    * Declares a route this ticket's change serves.
    *
-   * The tool-call half of the redesign: `rendered_check` renders rows, not a
-   * markdown section. `## Routes` stays in the spec for a human, and nothing
+   * The tool-call half of the redesign: what reads a run's routes reads rows,
+   * not a markdown section. `## Routes` stays in the spec for a human, and
+   * nothing
    * mechanical depends on where it sits or whether the writer fenced it.
    *
    * @param string $projectRoot
@@ -1597,9 +1763,11 @@ final class WorkflowFacade {
     }
     if (!RenderedRoutes::declarable($status)) {
       throw new \InvalidArgumentException(sprintf(
-        'A route is declared to render (200), to refuse an anonymous visitor (%s) or to redirect one (%s) — got %d',
+        'A route is declared to render (200), to refuse an anonymous visitor (%s), to redirect one (%s), to be absent until it is published (%s) or to take another method (%s, a POST-only route) — got %d',
         implode(' or ', RenderedRoutes::REFUSALS),
         implode(', ', RenderedRoutes::REDIRECTS),
+        implode(' or ', RenderedRoutes::ABSENT),
+        implode(' or ', RenderedRoutes::OTHER_METHOD),
         $status,
       ));
     }
@@ -1650,18 +1818,130 @@ final class WorkflowFacade {
   }
 
   /**
-   * The open run's criteria, each with its latest proof and when.
+   * The files the open run changed, for the panel's Files tab.
+   *
+   * The same files the gates judge: changed since the base commit, committed
+   * or not, untracked included, less each one still as the run found it.
+   * Each says how it changed (A added, D deleted, M modified) and its lines
+   * added and removed, NULL where there are none to count (a binary file).
+   * Newest first by modification time, deleted files last. The run's own
+   * state directory is not the run's work and is left out.
    *
    * @param string $projectRoot
    *   The repository.
    *
-   * @return list<array{ref: string, statement: string, verified_by: string|null, verified_at: string|null, phase: string, revisions: int}>
-   *   The criteria, in the order they were declared.
+   * @return list<array{path: string, status: string, added: int|null, removed: int|null}>|null
+   *   The files, or NULL when the repository cannot say (no base commit, no
+   *   repository, a diff git could not read).
+   */
+  public function runFiles(string $projectRoot): ?array {
+    $state = $this->requireRun(new RunStateStore($projectRoot));
+    if ($state->baseCommit === NULL || !$this->vcs->isRepository($projectRoot)) {
+      return NULL;
+    }
+    $changed = $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot);
+    if ($changed === NULL) {
+      return NULL;
+    }
+    $added = $this->vcs instanceof AddedFilesInterface ? $this->vcs->addedFiles($projectRoot, $state->baseCommit) : NULL;
+    $added = array_flip($added ?? []);
+    $counts = $this->vcs instanceof LineCountsInterface ? $this->vcs->lineCounts($projectRoot, $state->baseCommit) : NULL;
+    $root = rtrim($projectRoot, '/');
+    $files = [];
+    $modified = [];
+    foreach ($changed as $path) {
+      if (str_starts_with($path, RunStateStore::STATE_DIR . '/')) {
+        continue;
+      }
+      $file = $root . '/' . $path;
+      $exists = is_file($file);
+      $count = $counts[$path] ?? ($exists && isset($added[$path]) ? self::linesOf($file) : NULL);
+      $files[] = [
+        'path' => $path,
+        'status' => !$exists ? 'D' : (isset($added[$path]) ? 'A' : 'M'),
+        'added' => $count['added'] ?? NULL,
+        'removed' => $count['removed'] ?? NULL,
+      ];
+      $modified[] = $exists ? (int) @filemtime($file) : -1;
+    }
+    array_multisort($modified, SORT_DESC, SORT_NUMERIC, array_column($files, 'path'), SORT_ASC, SORT_STRING, $files);
+    return $files;
+  }
+
+  /**
+   * An untracked file's lines, all added: git has no count for it.
+   *
+   * @param string $file
+   *   The file.
+   *
+   * @return array{added: int, removed: int}|null
+   *   The count, or NULL for a binary file or one too large to read here.
+   */
+  private static function linesOf(string $file): ?array {
+    $size = @filesize($file);
+    if ($size === FALSE || $size > 1048576) {
+      return NULL;
+    }
+    $text = @file_get_contents($file);
+    if (!is_string($text) || str_contains($text, "\0")) {
+      return NULL;
+    }
+    $lines = substr_count($text, "\n") + ($text !== '' && !str_ends_with($text, "\n") ? 1 : 0);
+    return ['added' => $lines, 'removed' => 0];
+  }
+
+  /**
+   * The open run's criteria, each with its latest proof and when.
+   *
+   * And `changed_after`: the files this run changed whose last modification
+   * is later than the proof, so a proof older than an edit that could break
+   * it can be seen without a commit history. The seeker judged that with
+   * `git log -p`, and a run that commits only at the end has none (F-289).
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return list<array{ref: string, statement: string, verified_by: string|null, verified_at: string|null, phase: string, revisions: int, outcome: string|null, standing: string, standing_why: string|null, changed_after: list<string>|null}>
+   *   The criteria, in the order they were declared. `changed_after` is NULL
+   *   for a criterion with no proof, or when the run's diff cannot be read.
+   *   `standing` is how the criterion counts (CriteriaVerification::standing():
+   *   verified, manual or unverified) and `standing_why` why a proof does not.
    */
   public function criteria(string $projectRoot): array {
     $state = $this->requireRun(new RunStateStore($projectRoot));
+    $changed = $state->baseCommit !== NULL && $this->vcs->isRepository($projectRoot)
+      ? $this->vcs->changedFiles($projectRoot, $state->baseCommit)
+      : NULL;
+    $changed = $changed === NULL ? NULL : $state->ownChanges($changed, $projectRoot);
+    $root = rtrim($projectRoot, '/');
+    $out = [];
+    $store = new EvidenceStore($projectRoot);
+    $gates = $store->latestGateStates($state->runId);
+    foreach ($store->specCriteria($state->runId) as $criterion) {
+      $standing = CriteriaVerification::standing($criterion['verified_by'], $criterion['outcome'], $gates);
+      $proved = $criterion['verified_at'] === NULL ? FALSE : strtotime($criterion['verified_at']);
+      $after = NULL;
+      if ($changed !== NULL && $proved !== FALSE) {
+        $after = [];
+        foreach ($changed as $file) {
+          // The run's own record is not code that could break a criterion.
+          if (str_starts_with($file, RunStateStore::STATE_DIR . '/')) {
+            continue;
+          }
+          $modified = @filemtime($root . '/' . $file);
+          if ($modified !== FALSE && $modified > $proved) {
+            $after[] = $file;
+          }
+        }
+      }
+      $out[] = $criterion + [
+        'standing' => $standing['standing'],
+        'standing_why' => $standing['why'],
+        'changed_after' => $after,
+      ];
+    }
 
-    return (new EvidenceStore($projectRoot))->specCriteria($state->runId);
+    return $out;
   }
 
   /**
@@ -1704,6 +1984,9 @@ final class WorkflowFacade {
    *   The criterion's id.
    * @param string $verifiedBy
    *   The test, route or command that proves it.
+   * @param string $outcome
+   *   What the proof came to: `proven` (the default), `partly` or `failed`.
+   *   Only `proven` counts the criterion verified (F-357).
    *
    * @return array<string, mixed>
    *   The criteria the run now declares.
@@ -1714,7 +1997,7 @@ final class WorkflowFacade {
    *   proves whatever it happened to do, which is the circularity the
    *   evidence store exists to make impossible.
    */
-  public function verifyCriterion(string $projectRoot, string $ref, string $verifiedBy): array {
+  public function verifyCriterion(string $projectRoot, string $ref, string $verifiedBy, string $outcome = 'proven'): array {
     $ref = trim($ref);
     $verifiedBy = trim($verifiedBy);
     if ($ref === '' || $verifiedBy === '') {
@@ -1722,9 +2005,16 @@ final class WorkflowFacade {
         'A verification needs a ref and what proves it: verify-criterion AC-1 "RinkListTest::testEveryPublished"',
       );
     }
+    if (!in_array($outcome, self::OUTCOMES, TRUE)) {
+      throw new \InvalidArgumentException(sprintf(
+        'A proof\'s outcome is one of %s, not "%s": a proof that did not hold is recorded as partly or failed, and counts as unverified.',
+        implode(', ', self::OUTCOMES),
+        $outcome,
+      ));
+    }
     $state = $this->requireRun(new RunStateStore($projectRoot));
     $store = new EvidenceStore($projectRoot);
-    if (!$store->verifyCriterion($state->runId, self::openPhase($state), $ref, $verifiedBy, $this->now())) {
+    if (!$store->verifyCriterion($state->runId, self::openPhase($state), $ref, $verifiedBy, $this->now(), $outcome)) {
       throw SpecError::criterionNotDeclared($ref, array_column($store->specCriteria($state->runId), 'ref'));
     }
 
@@ -1784,6 +2074,9 @@ final class WorkflowFacade {
    *   The phase whose gates run.
    * @param string|null $base
    *   A ref to read "what changed" from, as a run's base commit; NULL for none.
+   * @param list<string> $skip
+   *   Gates to leave out: each reads off, "left out on the command line", and
+   *   never runs.
    *
    * @return array{phase: string, preset: string, base: string|null, passed: bool, gates: list<array{gate: string, status: string, outcome: string, summary: string, exit_code: int|null, duration_ms: int|null}>}
    *   Each gate's result, and whether none of them blocks.
@@ -1796,7 +2089,7 @@ final class WorkflowFacade {
    * @throws \InvalidArgumentException
    *   When the base names no commit in this repository.
    */
-  public function gates(string $projectRoot, Phase $phase = Phase::Test, ?string $base = NULL): array {
+  public function gates(string $projectRoot, Phase $phase = Phase::Test, ?string $base = NULL, array $skip = []): array {
     $store = new RunStateStore($projectRoot);
     $open = $store->load();
     if ($open !== NULL && $open->currentPhase === Phase::Test) {
@@ -1814,7 +2107,7 @@ final class WorkflowFacade {
         ));
       }
     }
-    $config = WorkflowConfig::load($projectRoot, $this->contributed);
+    $config = WorkflowConfig::load($projectRoot);
     $parity = $config->resolvedGates()['parity'] ?? NULL;
     $state = RunState::begin(
       'gate-' . $this->newId(),
@@ -1822,12 +2115,40 @@ final class WorkflowFacade {
       $config,
       $commit,
       $config->baseline ? BaselineStore::hash($projectRoot) : NULL,
-      $this->contributedSource(),
       is_array($parity) && ($parity['on'] ?? FALSE) === TRUE
         ? ParityReference::digest($projectRoot, ParityReference::directory($parity['reference'] ?? NULL))
         : NULL,
+      RuleFiles::hash($projectRoot, $config),
     );
-    $report = (new GateRunner($this->executor, $this->driver, $this->vcs, $this->contributed ?? []))
+    // A gate left out on the command line never runs and reads off, with the
+    // reason: a run-less check drives every gate for real (the browser suite
+    // against the site included), and a pre-flight may not want that.
+    $executor = $skip === [] ? $this->executor : new class($this->executor, $skip) implements GateExecutorInterface {
+
+      /**
+       * Wraps the executor.
+       *
+       * @param \Droost\Workflow\Gate\GateExecutorInterface $inner
+       *   The executor that runs every gate not left out.
+       * @param list<string> $skip
+       *   The gates left out.
+       */
+      public function __construct(
+        private readonly GateExecutorInterface $inner,
+        private readonly array $skip,
+      ) {}
+
+      /**
+       * {@inheritdoc}
+       */
+      public function execute(GateSettings $gate, string $projectRoot): GateResult {
+        return in_array($gate->name, $this->skip, TRUE)
+          ? GateResult::off($gate->name, 'left out on the command line (gate --skip), not run')
+          : $this->inner->execute($gate, $projectRoot);
+      }
+
+    };
+    $report = (new GateRunner($executor, $this->vcs))
       ->run($state, $phase, $projectRoot, NULL, NULL, FALSE);
 
     $gates = [];
@@ -1844,6 +2165,9 @@ final class WorkflowFacade {
           $result->status === GateStatus::Reported => 'reported',
           default => 'skipped',
         },
+        // A pass that examined nothing, named as the run record names it
+        // (F-326), so the check's JSON does not read it as measured (F-341).
+        'labelled' => $result->labelledPass,
         'summary' => $result->summary,
         'exit_code' => $result->exitCode,
         'duration_ms' => $result->durationMs,
@@ -1889,7 +2213,7 @@ final class WorkflowFacade {
         $state->currentPhase->value ?? 'its end',
       ));
     }
-    $runner = new GateRunner($this->executor, $this->driver, $this->vcs, $this->contributed ?? []);
+    $runner = new GateRunner($this->executor, $this->vcs);
     $result = $runner->run($state, Phase::Test, $projectRoot, NULL, ['playwright'], FALSE)->results[0] ?? NULL;
     if ($result === NULL || $result->status === GateStatus::Off) {
       throw new \InvalidArgumentException(
@@ -2063,6 +2387,13 @@ final class WorkflowFacade {
     }
     foreach ($kinds as $kind => $values) {
       self::recordDeclaration($store, $state->runId, $phase, $kind, $values, $now);
+    }
+    // Declared files are this run's work, even ones it found already
+    // changed: the gates judge them (F-373).
+    $claimed = array_values(array_intersect($files, $state->preexistingPaths()));
+    if ($claimed !== []) {
+      $state = $state->withClaimed($claimed);
+      $runs->save($state);
     }
     // The run record names the ticket too. It held only `run --ticket`'s
     // binding, so a run whose check said "tied to" its ticket carried
@@ -2399,7 +2730,7 @@ final class WorkflowFacade {
    * Waives ONE gate for the rest of this run, on the operator's authority.
    *
    * The scoped alternative to dropping the whole wall: two live rounds
-   * reached for `droost:workflow:bypass` believing it cleared a gate, and
+   * reached for the bypass believing it cleared a gate, and
    * it arms ungoverned edits instead — the wrong hammer. A waiver is
    * per-gate, run-scoped (it dies with the run record), always carries its
    * reason, renders as its own status (never a pass), and enters ONLY
@@ -2432,15 +2763,23 @@ final class WorkflowFacade {
         'a gate waiver requires a reason — an unexplained waiver is indistinguishable from tampering',
       );
     }
-    if (!in_array($gate, GateSettings::KNOWN_GATES, TRUE)) {
+    $store = new RunStateStore($projectRoot);
+    $run = $this->requireRun($store);
+    // A PROJECT'S OWN GATE IS WAIVED LIKE A BUILT-IN ONE (F-372). An adopter's
+    // run could not waive custom:gitleaks over a finding that predated the
+    // ticket: only the built-in names were accepted. A custom:<id> is
+    // accepted when this run resolved it, so a typo is still refused.
+    $custom = array_values(array_filter(
+      array_map('strval', array_keys($run->resolvedGates)),
+      static fn (string $name): bool => GateSettings::isCustom($name),
+    ));
+    if (!in_array($gate, GateSettings::KNOWN_GATES, TRUE) && !in_array($gate, $custom, TRUE)) {
       throw new \InvalidArgumentException(sprintf(
         'unknown gate "%s" (known: %s)',
         $gate,
-        implode(', ', GateSettings::KNOWN_GATES),
+        implode(', ', [...GateSettings::KNOWN_GATES, ...$custom]),
       ));
     }
-    $store = new RunStateStore($projectRoot);
-    $run = $this->requireRun($store);
     // The trio takes a waiver only on a run that froze `preset: custom`, the
     // level whose file owns every lever (owner, 2026-10-12). Everywhere else
     // its failures are fixed at the source, or the level is changed.
@@ -2657,13 +2996,12 @@ final class WorkflowFacade {
       // binary had none, and `droost-workflow gate-waive` has been one of its
       // verbs since; an operator on a project with no Drupal was told the only
       // exit was `reset`.
-      'remedy' => 'Read the full report with `droost-workflow status` or '
-      . '`droost-workflow evidence`, then clear the run with '
-      . '`droost-workflow reset` and begin the next one. If every gate that '
+      'remedy' => 'Read the full report with `droost workflow:status` or '
+      . '`droost workflow:evidence`, then clear the run with '
+      . '`droost workflow:reset` and begin the next one. If every gate that '
       . 'killed the phase has been answered for, the OPERATOR can waive them '
-      . 'from a terminal, with `droost-workflow gate-waive <gate> "<reason>"` '
-      . 'or `drush droost:workflow:gate-waive <gate> "<reason>"`, and the '
-      . 'phase reopens. Both refuse without a terminal, so an agent cannot '
+      . 'from a terminal, with `droost workflow:gate-waive <gate> "<reason>"`, '
+      . 'and the phase reopens. It refuses without a terminal, so an agent cannot '
       . 'grant one, and the mandatory trio takes one only at preset custom.',
       'guidance' => '',
     ];
@@ -2730,7 +3068,7 @@ final class WorkflowFacade {
           Fault::Environment,
           'The declaration audit could not read the run\'s own record: ' . $error::class,
           'Re-run the phase. If it persists, check that nothing else is holding '
-          . 'the evidence store open, then inspect it with `droost-workflow evidence`.',
+          . 'the evidence store open, then inspect it with `droost workflow:evidence`.',
         ),
         $this->now(),
       );
@@ -2843,7 +3181,7 @@ final class WorkflowFacade {
           'why' => $routes === NULL
             ? sprintf(
               'no route was declared with `declare-route`, and no "%s" section '
-              . 'to fall back on — so rendered_check has only the lever to go on',
+              . 'to fall back on — so the record names no page this ticket serves',
               SpecContract::ROUTES_HEADING,
           )
             : sprintf(
@@ -2884,6 +3222,33 @@ final class WorkflowFacade {
   }
 
   /**
+   * Whether an earlier attempt of this phase recorded spec-shape observations.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $runId
+   *   The run.
+   * @param \Droost\Workflow\Config\Phase $phase
+   *   The phase.
+   *
+   * @return bool
+   *   TRUE when the newest spec/shape row of this phase still holds some.
+   */
+  private function specShapeWasObserved(string $projectRoot, string $runId, Phase $phase): bool {
+    try {
+      foreach ((new EvidenceStore($projectRoot))->checklist($runId, $phase->value) as $row) {
+        if (($row['kind'] ?? NULL) === 'spec' && ($row['name'] ?? NULL) === 'shape') {
+          return ($row['state'] ?? NULL) !== CheckState::Satisfied->value;
+        }
+      }
+    }
+    catch (\Throwable) {
+      return FALSE;
+    }
+    return FALSE;
+  }
+
+  /**
    * Records spec-shape observations as one non-blocking check.
    *
    * `CheckState::Recorded` renders as "recorded (not blocking)" and
@@ -2901,6 +3266,26 @@ final class WorkflowFacade {
    *   What specShapeObservations() found.
    */
   private function recordSpecShape(RunState $state, string $projectRoot, Phase $phase, array $observations): void {
+    if ($observations === []) {
+      try {
+        (new EvidenceStore($projectRoot))->record(
+          $state->runId,
+          $phase->value,
+          new CheckRecord(
+            'spec',
+            'shape',
+            CheckState::Satisfied,
+            Fault::None,
+            'no spec-shape observation now: what an earlier attempt found missing from the document is there.',
+          ),
+          $this->now(),
+        );
+      }
+      catch (\Throwable) {
+        // The store is unreachable; the phase's own audit already says so.
+      }
+      return;
+    }
     $findings = [];
     foreach ($observations as $o) {
       $findings[] = [
@@ -2947,16 +3332,48 @@ final class WorkflowFacade {
    *   The run.
    * @param string $projectRoot
    *   The repository.
-   * @param bool $present
-   *   Whether the spec has a criteria table.
+   * @param array{total: int, verified: list<string>, manual: list<string>, unverified: list<string>, unnamed: list<string>, misshapen: list<string>, column_missing: bool, source: string}|null $criteria
+   *   The run's criteria as counted: the declared rows when there are any,
+   *   else the spec's table. NULL when neither carries one.
+   * @param array{total: int, verified: list<string>, manual: list<string>, unverified: list<string>, unnamed: list<string>, misshapen: list<string>, column_missing: bool}|null $table
+   *   The spec's table as parsed, whichever source counted.
    *
    * @return bool
    *   Whether the level would once have refused. Kept so the signature does
    *   not churn while Phase B is built; no caller acts on it.
    */
-  private function recordCriteriaContract(RunState $state, string $projectRoot, bool $present): bool {
+  private function recordCriteriaContract(RunState $state, string $projectRoot, ?array $criteria, ?array $table): bool {
     $demanding = in_array($state->preset, ['high', 'xhigh', 'max', 'factory'], TRUE);
-    if ($present) {
+    if ($criteria !== NULL) {
+      // Say what was counted, and by what. This row said "every criterion in
+      // it was held to its `Verified By` cell" whatever counted them; on a
+      // live run the declared rows did, and the table, read alone, had every
+      // `Verified By` in the wrong cell (F-328).
+      $summary = $criteria['source'] === 'declared'
+        ? sprintf(
+          '%d criteria were declared this run and are counted by their declared proofs '
+          . '(%d verified by a test, %d manual, %d unverified); the spec\'s table does not count them.',
+          $criteria['total'],
+          count($criteria['verified']),
+          count($criteria['manual']),
+          count($criteria['unverified']),
+        )
+        : sprintf(
+          'The spec\'s `## Acceptance criteria` table counts %d criteria, each by its `Verified By` cell '
+          . '(%d verified by a test, %d manual, %d unverified).',
+          $criteria['total'],
+          count($criteria['verified']),
+          count($criteria['manual']),
+          count($criteria['unverified']),
+        );
+      if ($table !== NULL && $table['misshapen'] !== []) {
+        $summary .= sprintf(
+          ' The spec\'s table has %d row(s) with more or fewer cells than its header (%s): each '
+          . 'cell sits under another\'s heading, so read alone their `Verified By` is the wrong cell.',
+          count($table['misshapen']),
+          implode(', ', $table['misshapen']),
+        );
+      }
       // A SATISFIED row, not silence. The store is append-only and the
       // checklist reads the latest attempt per check, so returning early here
       // left an earlier `blocked` row standing as the current verdict — which
@@ -2973,8 +3390,7 @@ final class WorkflowFacade {
             'criteria_table',
             CheckState::Satisfied,
             Fault::None,
-            'The spec carries an `## Acceptance criteria` table, so every criterion in it was '
-            . 'held to its `Verified By` cell.',
+            $summary,
           ),
           $this->now(),
         );
@@ -3433,7 +3849,7 @@ final class WorkflowFacade {
     // The ticket source as the lever file names it now. A file that no longer
     // loads costs the cockpit, never the follow-ups: markdown takes them.
     try {
-      $settings = WorkflowConfig::load($projectRoot, $this->contributed)->workItem;
+      $settings = WorkflowConfig::load($projectRoot)->workItem;
     }
     catch (\Throwable) {
       $settings = NULL;
@@ -3462,7 +3878,7 @@ final class WorkflowFacade {
               is_string($record['note'] ?? NULL) ? '; ' . $record['note'] : '',
             )
             : sprintf('%s failed, and %s.', $gate, $record['note'] ?? 'no follow-up could be written'),
-          $written ? NULL : 'Write the follow-up by hand: droost-workflow ticket new --title="…" --type=bug',
+          $written ? NULL : 'Write the follow-up by hand: droost workflow:ticket new --title="…" --type=bug',
         ), $this->now());
       }
       catch (\Throwable) {
@@ -3516,7 +3932,7 @@ final class WorkflowFacade {
   }
 
   /**
-   * Announces a run's advance or completion to the listener, if it moved.
+   * Records a run's advance or completion in the event log, if it moved.
    *
    * Derived purely from the resulting state so both run() and answer() share
    * it: a NULL current phase is completion, a changed current phase is an
@@ -3534,25 +3950,20 @@ final class WorkflowFacade {
       // The final phase ended; then the run completed (its event is written
       // by the caller, which holds the outcome).
       $this->event($store, $after, 'phase.ended', ['phase' => $from->value]);
-      $this->notify(fn () => $this->listener->onPhaseEnd($after, $from));
-      $this->notify(fn () => $this->listener->onRunComplete($after));
       return;
     }
     if ($after->currentPhase !== $from) {
       $to = $after->currentPhase;
       // The left phase ended, the run changed phase, the entered phase began.
       $this->event($store, $after, 'phase.ended', ['phase' => $from->value]);
-      $this->notify(fn () => $this->listener->onPhaseEnd($after, $from));
-      $this->notify(fn () => $this->listener->onPhaseChange($after, $from, $to));
       $this->event($store, $after, 'phase.began', ['phase' => $to->value]);
-      $this->notify(fn () => $this->listener->onPhaseBegin($after, $to));
     }
   }
 
   /**
    * Appends one event to the run-event log, after the state it records.
    *
-   * The engine's record, not a listener's notification: written at every
+   * The engine's record, not a notification: written at every
    * point the run's state is persisted, and a log that cannot be written is
    * reported once and never stops the run.
    *
@@ -3570,6 +3981,47 @@ final class WorkflowFacade {
     (new RunEventLog($store->directory(), NULL, fn (): string => $this->now()))
       ->append($state->runId, is_string($workItem) ? $workItem : NULL, $type, $payload);
     $this->relayEvents();
+    // The project's hook for this event, told and never asked: a hook that
+    // fails is recorded beside the run, and the run goes on.
+    $this->notify(function () use ($store, $state, $type, $payload, $workItem): void {
+      if (!isset(ProjectHooks::EVENTS[$type])) {
+        return;
+      }
+      $hooks = WorkflowConfig::load($store->projectRoot())->hooks;
+      if ($hooks === []) {
+        return;
+      }
+      $row = (new ProjectHooks($store->projectRoot(), $store->directory(), $hooks))->fire($type, [
+        'run_id' => $state->runId,
+        'phase' => is_string($payload['phase'] ?? NULL) ? $payload['phase'] : $state->currentPhase?->value,
+        'work_item' => is_string($workItem) ? $workItem : NULL,
+        'payload' => $payload,
+      ], $state->ruleFiles, $this->now());
+      // What it said, or that it failed: a hook that ran and printed nothing
+      // has nothing to tell the agent, and "told" at every phase read as a
+      // message (a live run's).
+      if ($row !== NULL && (($row['said'] ?? FALSE) === TRUE || ($row['ok'] ?? FALSE) !== TRUE)) {
+        $this->hookNotes[] = [
+          'event' => is_string($row['event'] ?? NULL) ? $row['event'] : '',
+          'file' => is_string($row['file'] ?? NULL) ? $row['file'] : '',
+          'ok' => ($row['ok'] ?? FALSE) === TRUE,
+          'note' => is_string($row['note'] ?? NULL) ? $row['note'] : '',
+        ];
+      }
+    });
+  }
+
+  /**
+   * What the project's hooks said since the last call, and forgets it.
+   *
+   * @return list<array{event: string, file: string, ok: bool, note: string}>
+   *   One row per hook told.
+   */
+  public function takeHookNotes(): array {
+    $notes = $this->hookNotes;
+    $this->hookNotes = [];
+
+    return $notes;
   }
 
   /**
@@ -3603,7 +4055,7 @@ final class WorkflowFacade {
    * In cockpit mode, carries what the log holds past the cursor.
    *
    * Never failing the run: the relay stops itself after one failure, and
-   * anything it raises is swallowed as a listener's would be.
+   * anything it raises is swallowed (notify()).
    */
   private function relayEvents(): void {
     if ($this->relay !== NULL) {
@@ -3661,12 +4113,11 @@ final class WorkflowFacade {
   }
 
   /**
-   * Delivers a lifecycle callback, swallowing any failure it raises.
+   * Delivers a notification, swallowing any failure it raises.
    *
-   * A listener is a notification, never the record: the transition is already
-   * persisted, so a listener that throws must not turn a saved, correct run
-   * into a failed one — the state-first/listener-second contract the pause
-   * path keeps, applied to lifecycle events.
+   * A notification is never the record: the transition is already persisted,
+   * so one that throws must not turn a saved, correct run into a failed one —
+   * the state-first/notification-second contract the pause path keeps.
    *
    * @param callable(): void $emit
    *   The callback to run.
@@ -3676,7 +4127,7 @@ final class WorkflowFacade {
       $emit();
     }
     catch (\Throwable) {
-      // Intentionally swallowed: a broken listener cannot break a run.
+      // Intentionally swallowed: a broken notification cannot break a run.
     }
   }
 
@@ -3692,7 +4143,7 @@ final class WorkflowFacade {
    */
   private function engine(?string $projectRoot = NULL): ModeEngine {
     return new ModeEngine(
-      new GateRunner($this->executor, $this->driver, $this->vcs, $this->contributed ?? []),
+      new GateRunner($this->executor, $this->vcs),
       $this->sink,
       $this->checks,
       $projectRoot === NULL ? NULL : static function (RunState $paused) use ($projectRoot): void {

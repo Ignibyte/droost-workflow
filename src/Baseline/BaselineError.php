@@ -26,7 +26,7 @@ final class BaselineError extends \RuntimeException {
   public static function corrupt(string $label, string $why): self {
     return new self(sprintf(
       '%s is not a baseline this package can read: %s. A baseline is written '
-      . 'by `droost:workflow:baseline` (or `droost-workflow baseline`) and '
+      . 'by `droost workflow:baseline` and '
       . 'never by hand — regenerate it from an operator terminal.',
       $label,
       $why,

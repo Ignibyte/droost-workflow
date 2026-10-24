@@ -1,5 +1,14 @@
 # droost/workflow 0.3.0 — the enforcement arc
 
+> **History note (2026-10-19).** This is the design record as it was written.
+> droost has since left Drupal: the lever file is `droost/droost.yml`, every
+> `drush droost:workflow:<verb>` and `droost-workflow <verb>` is `droost
+> workflow:<verb>`, the four in-process site gates (`rendered_check`,
+> `config_clean`, `grounding_check`, `composition_check`) and the
+> module-contributed gates are gone, and a project's own gates, hooks and
+> walls are files in `droost/` (README, "The project's own gates, hooks and
+> walls"). Where this record and the README disagree, the README is current.
+
 **Status: DESIGN, decided with the owner 2026-08-18.** Extends
 [`design.md`](design.md) (the 0.1/0.2 pipeline design); nothing below changes
 the phase model, the two-surface contract, or the artifacts-are-truth rule.

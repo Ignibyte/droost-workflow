@@ -13,7 +13,7 @@ final class IntakeFinding {
    * Constructs a finding.
    *
    * @param string $check
-   *   The check: files, evidence, coverage, consulted, answered or ladder.
+   *   The check: files, evidence, coverage, answered, asked or ladder.
    * @param string $message
    *   What is wrong and what to do, in one sentence.
    */

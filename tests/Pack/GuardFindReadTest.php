@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Pack;
 
+use Droost\Workflow\Tests\Levers;
 use Droost\Workflow\Tests\WorkflowTestCase;
 
 /**
@@ -61,7 +62,7 @@ final class GuardFindReadTest extends WorkflowTestCase {
     mkdir($root . '/vendor/droost/workflow/src', 0755, TRUE);
     mkdir($root . '/.claude/hooks', 0755, TRUE);
     file_put_contents($root . '/vendor/droost/workflow/src/A.php', "<?php\n");
-    file_put_contents($root . '/droost.workflow.yml', "preset: xhigh\n");
+    file_put_contents(Levers::path($root), "preset: xhigh\n");
     file_put_contents($root . '/.claude/hooks/droost-workflow-guard.php', "<?php\n");
     file_put_contents($root . '/droost/droost-workflow/tool-calls.jsonl', "\n");
     file_put_contents($root . '/droost/droost-workflow/run.json', (string) json_encode([

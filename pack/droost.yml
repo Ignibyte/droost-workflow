@@ -1,0 +1,346 @@
+# droost's levers for this repo: droost/droost.yml.
+#
+# This file is the source of truth for how the workflow runs here. It is a
+# file on purpose: the agent has to be able to read it while the site is
+# mid-build or broken, every agent harness gets the same answers with no site
+# at all, and loosening a gate should show up in review as a diff. During a
+# run the guard refuses edits to it, and to the gate, hook and wall files it
+# names: they are the rules the run is held to.
+#
+# Everything below is written out explicitly. That is deliberate — a file
+# that named no preset would resolve to `max` (the top of the dial, tests
+# required to exist included), because a repo that has said nothing has not
+# opted out of anything. Naming a level, or `custom`, is how you choose a
+# gentler set on purpose — in a line a reviewer can see.
+
+# agentic | interactive
+#   agentic     — run plan through complete without stopping.
+#   interactive — hold at every phase and converse before advancing: what the
+#                 phase produced, what is recommended, and the questions that
+#                 actually need an answer.
+# The earlier spellings `automated` and `pair` still load, and mean agentic
+# and interactive respectively.
+#
+# `agentic` HOLDS THE PHASE BOUNDARY even when `enforcement` below is `soft`,
+# because "without stopping" is a promise and the stop hook is the only thing
+# that can keep it. Until this was fixed, only `enforcement: hard` held a stop,
+# so an agentic run announced it was continuing and the turn ended anyway —
+# three times across two measured rounds, once for thirty minutes with nothing
+# built. It is still one enforced continuation per stop attempt, never a
+# deadlock, and `enforcement: off` still silences the hooks entirely.
+mode: agentic
+
+# human-led | autonomous — who may finish a run. In a human-led run the agent
+# may answer the plan, code and test holds, and the complete hold (held in
+# agentic mode too) is answered from the operator's terminal: an answer with
+# no terminal is refused there. An autonomous run is the agent's to finish.
+# Unset, interactive mode is human-led and agentic autonomous. A run's lead is
+# chosen when it begins (`droost workflow:run --lead=<lead>`) and changed with
+# `droost workflow:lead <lead>`; making one autonomous needs the terminal.
+# lead: human-led
+
+# custom | low | medium | high | xhigh | max — one dial for how hard the
+# workflow VERIFIES. A spec is always written and droost's wiki and code tree
+# are always consulted at every level; the dial scales gates, thresholds and
+# written artefacts only.
+# Consent (the write wall, require_run) is never in a preset.
+#   low    — basic static checks, NO tests, the browser check, no wiki. Seeker
+#            off. The one level whose base turns a mandatory gate off — allowed
+#            only here because this line is loud and reviewable; the gate is
+#            recorded off, never passed. Never the default.
+#   medium — the mandatory trio with phpstan 2, a shorter EARS spec, docs in
+#            chat. (Formerly `light`, unchanged.)
+#   high   — solid static + unit tests (phpstan 6), no slow tiers; hard.
+#   xhigh  — + coverage/mutation at 60, the front-end trio, phpstan 8.
+#   max    — everything strict AND tests required to exist (phpunit and
+#            playwright carry required: true — a missing suite FAILS). The
+#            default when no preset is named. (Formerly `factory` + required.)
+#   custom — not a point on the dial: the values spelled out below, and
+#            nothing else. The one level where this file owns the mandatory
+#            trio too: phpcs, phpstan and phpunit may be turned off or put in
+#            report mode here, and the operator may waive them (recorded
+#            off, reported or waived, never passed).
+# `factory`/`light` still load as aliases of max/medium (recorded under the
+# canonical name, with a notice). `fast` was retired in 0.3 and is refused.
+#
+# CHANGING THIS LINE ALONE DOES NOT MOVE EVERYTHING. Every key below is
+# written out, and an explicit key beats the preset — so setting `preset: max`
+# here still leaves `enforcement: soft`, still leaves mutation and
+# coverage off, and still leaves max_gate_retries at 2. To let a level decide
+# a lever, DELETE that lever's line.
+#
+# `droost workflow:status`, under `deprecations`, names the SWITCHES a named
+# level cannot reach past a value spelled here — mode, enforcement, seekers,
+# max_gate_retries, and any gate the level runs that this file turns off. It
+# does NOT list a gate's own TUNING (a `phpstan.level`, a `phpcs.standard`, a
+# `paths`): that is yours, it always wins, and it is visible in this file. So
+# at `preset: low` with `phpstan: { level: 6 }` still written below, the
+# analyser runs at 6 and status says nothing about it — delete the `level:`
+# line to let the level decide.
+preset: custom
+
+# flow: fast | strict  (omitted, the level decides)
+#   Which phases run which gates. fast, the default at low and medium: each
+#   gate runs once, at the phase that owns it. Code runs the analysers and the
+#   unit tests, test runs the browser suite and parity, and complete runs
+#   nothing but wiki_fresh on the documentation it writes.
+#   strict, the default from high up: every gate at every phase that writes
+#   source, and complete re-runs the whole set as the terminal safety net.
+#
+# Each of phpcs, phpstan, eslint, stylelint, prettier, phpunit and playwright
+#   also takes scope: ticket | full. ticket: the files this run changed, and
+#   for the suites the test files it added or changed. full: the whole
+#   configured set, a full regression for the suites. The analysers (phpcs,
+#   phpstan and the front-end trio) default to ticket at every level; the
+#   suites at low and medium.
+#     gates:
+#       playwright: { scope: full }
+#   playwright also takes reuse: recorded | never. recorded (the default at
+#   low): the test phase takes the run `droost workflow:specs` recorded of the
+#   ticket's specs, on the same tree, instead of running them again.
+#
+# max_loops: <n>  (omitted, the level decides: low 2, medium 3, high+ 5)
+#   In the fast flow, how many times a failure at test sends the run back to
+#   code. Code edited after its gates ran also sends it back, and spends
+#   nothing. Once the loops are spent, or for a failure outside the ticket, the
+#   failure becomes a follow-up ticket and test is recorded deferred, never
+#   passed. At max a spent budget fails the phase instead.
+#
+# follow_ups: auto | markdown | cockpit | none  (omitted: auto)
+#   Where follow-up tickets go. auto: the cockpit when work_item.provider
+#   names it, markdown otherwise (the project's ticket directory, or
+#   docs/tickets/). none: nowhere, so a spent budget fails the phase.
+
+# hard | soft | off
+#   How hard the harness hooks hold the phase discipline WHILE A RUN IS
+#   ACTIVE — outside a run the hooks are silent by construction. hard blocks
+#   out-of-phase actions; soft warns once per phase; off stands the hooks
+#   down and leaves only the gates. Orthogonal to the preset on purpose: you
+#   MAY pair max gates with enforcement off. Not advised — but this file
+#   is a reviewable diff, and a visible loosening is the honest way to allow
+#   it. (Preset defaults: hard from `high` up; soft at `low`, `medium` and
+#   `custom`.)
+#
+#   NOT orthogonal to `mode`, for stops only: `mode: agentic` raises this to
+#   `hard` at a phase boundary, so a run that promised not to stop does not.
+#   `off` still wins — it is an explicit "stay out of the way" — and tool-use
+#   enforcement is exactly what this lever says, agentic or not.
+enforcement: soft
+
+# require_run: hard | soft | off
+#   What happens when custom code is edited with NO active run — the trigger
+#   that makes the pipeline the end game, not an opt-in an eager agent can
+#   skip. hard BLOCKS the edit (start a run, or take an operator-granted
+#   bypass: `droost workflow:bypass "<why>"`); soft nudges once; off is
+#   silent (pre-require_run behaviour). Defaults hard.
+#
+#   THE THREE TREES IT COVERS, stated because this said two of them (F-8):
+#     modules/custom   themes/custom   profiles/custom
+#   An install profile is PHP that builds the entire site, so leaving it out
+#   would have walled the module beside it and waved the profile through. The
+#   gate executor has always analysed all three; only this text lagged.
+#
+#   Narrow by design otherwise: docs, config outside those trees and
+#   non-Drupal files never trip it.
+require_run: hard
+
+# custom_code: "modules,recipes"
+#   More of the project's own code for require_run to hold, beside the three
+#   trees above: directories relative to the project, comma-separated. For a
+#   repository whose modules live outside a Drupal docroot (linked into the
+#   site by Composer), which no `modules/custom/` segment names. Unset, the
+#   three trees alone.
+
+# DEPRECATED (0.3) and ignored: every run walks plan, code, test, complete
+# (0.4 folded document into complete). Tune gate weight per phase instead of
+# dropping phases; naming a subset here earns a deprecation notice in every
+# lever report.
+# phases: [plan, code, test, complete]
+
+# WHETHER an optional gate runs is this file's business; WHEN it runs is the
+# engine's phase map — plan runs none, code runs the static pair (then the
+# seeker checkpoint), test runs the functional gates, complete captures the
+# documentation and re-runs everything enabled, wiki_fresh included. The
+# continue command documents the map.
+gates:
+  # "on" is the only switch a gate has. A threshold does NOT turn one on:
+  # setting coverage.min without coverage.on leaves coverage where the preset
+  # put it.
+  #
+  # THE MANDATORY TRIO (0.4): phpcs, phpstan and phpunit cannot be turned
+  # off from this block — they are the toolchain Drupal core itself develops
+  # with. (The `low` preset's BASE is the one place phpunit is off: one loud
+  # line above, recorded off, never passed.) Their
+  # tuning levers below still apply; an `on: false` here is recorded as a
+  # deprecation notice and superseded. A site that cannot run one of them
+  # yet gets an honest labeled answer, never a silent pass.
+  #
+  # The static pair also accepts `paths` — comma-separated repo-relative
+  # files or directories to analyse. Omitted, each tool discovers the repo's
+  # own config (phpcs.xml.dist, phpstan.neon); set it where no such config
+  # exists, e.g. a Drupal site root pointing at the custom-code directories.
+  # A configured path holding nothing analysable reports a labeled pass.
+  phpcs:          { standard: "Drupal,DrupalPractice" }
+
+  # level: 0-9 or "max". ("off" is superseded like on: false — the analyser
+  # is mandatory; lower the level instead of disarming it.)
+  phpstan:        { level: 6 }
+
+  phpunit:        { }
+
+  # Every gate that spawns a tool also takes `timeout` (seconds) — how long
+  # it may run before it is killed and reported as "could not run". The
+  # default is 600; xhigh and max give mutation 1800 and coverage 900, since
+  # infection over one kernel-test-heavy module already outruns ten minutes.
+  # Raise it here rather than narrowing what the tool scans.
+  # mutation runs infection, which needs an infection.json5 naming what to
+  # mutate and a coverage driver (pcov or xdebug) in the PHP running it.
+  mutation:       { on: false, msi_min: 0 }
+  playwright:     { on: true, required: true }
+  # parity: the site's pages against references captured from the source it
+  # rebuilds (`tools/droost/vendor/bin/droost-parity capture --source <url> --routes /,…`
+  # writes them to droost/parity/). No reference is a labelled pass that
+  # measured nothing; `required: true` makes it a failure. `scope: frame`
+  # judges only the header and footer; `reference:` moves the directory.
+  parity:         { on: true }
+  coverage:       { on: false, min: 0 }
+
+  # THE FRONT-END TRIO: eslint, stylelint, prettier — the JS/CSS analogue of
+  # the PHP static pair, first-class gates that run at code and complete. Off
+  # here (a custom repo opts in); `xhigh` and `max` turn all three on. Given
+  # no `paths` of their own they take phpcs's, and with none there either,
+  # the project's own trees that hold a file each tool reads, so a level
+  # never lints the repository root or runs a tool on nothing. Each finds its
+  # own config (.eslintrc, .stylelintrc, .prettierrc) and runs from
+  # node_modules/.bin, so a repo with no front-end toolchain reports
+  # tool-missing rather than a silent pass. Keep those configs at the repo
+  # root: a `config:` lever reaches one gate only, and eslint's and
+  # stylelint's prettier rules find prettier's config by looking, so a pinned
+  # one leaves two gates demanding opposite formatting of one file. prettier runs in --check mode
+  # (it reports drift, never rewrites). Like the PHP pair they accept `paths`
+  # — comma-separated repo-relative files or directories. Uncomment to arm:
+  # eslint:         { on: true, paths: "web/modules/custom,web/themes/custom" }
+  # stylelint:      { on: true, paths: "web/themes/custom" }
+  # prettier:       { on: true, paths: "web/modules/custom,web/themes/custom" }
+
+  # The project's own gates, as files or one-line commands: semgrep, gitleaks,
+  # a config check, anything. A gate is a name with `run:` (a file under
+  # droost/gates/, run as its own process with the run's JSON on stdin) or
+  # `cmd:` (one shell line). Everything is explicit (a project's gate has no
+  # preset base): `phase` (code | test, or "code,test"; the strict flow also
+  # re-runs every enabled gate at complete, the fast flow does not), `mode`
+  # (block | report) and `timeout` (seconds, default 600).
+  #
+  # The verdict is the exit code: 0 passed, 1 failed, and the output is the
+  # gate's report; 4 is "ran and examined nothing", recorded as a labelled
+  # pass. Anything else — a missing file, a crash, a timeout, exit 3 or any
+  # other code — is recorded as NOT RUN, never as passed. The file's
+  # hash is frozen when a run begins, and the guard refuses an edit to it
+  # while a run is under way. Uncomment to use:
+  # gitleaks:     { phase: code, run: droost/gates/gitleaks.php, mode: report }
+  # config_clean: { phase: test, cmd: "drush config:status --format=json" }
+  # The older spelling under `custom:` still loads:
+  # custom:
+  #   semgrep: { on: true, phase: code, cmd: "semgrep scan --error --quiet" }
+
+# hooks: told about the run's events, never able to hold it. Each names a file
+# run as its own process with the event as JSON on stdin; a hook that fails is
+# recorded beside the run, and the run goes on. What it prints (its first
+# line) is shown to the agent in `workflow:run` and `workflow:answer` output,
+# so a hook can tell the agent something. Events: run_start, phase_begin,
+# phase_end, run_complete.
+# hooks:
+#   run_start: droost/hooks/ticket-in-progress.php
+
+# walls: asked before a tool call, and able to refuse it. `tools` is a regex
+# over the tool's name; the file gets the call as JSON on stdin (tool,
+# tool_name, input, project_root). Exit 0 allows, exit 2 refuses with the
+# reason on stderr; a wall that crashes or times out refuses too — its silence
+# is never consent.
+# walls:
+#   tracker_writes: { tools: "^mcp__atlassian__(create|edit|transition)", run: droost/walls/tracker-writes.php }
+
+# panel: the project's own tabs in the run panel (`droost workflow:panel`, the
+# droost mod's pane), after droost's Spec, Activity, Gates and Seeker. Each
+# file gets the open run as JSON on stdin and prints {"badge", "sections"}
+# (README: The run panel). .ts and .js run under node.
+# `open` is when the droost mod opens the panel by itself: auto (a run is
+# under way, the default), always, or never.
+# panel:
+#   open: always
+#   tabs:
+#     ticket: { title: Ticket, run: droost/panel/ticket.ts }
+
+# operator_only: scripts of the project's own that only a person may run from
+# their terminal (arming tracker writes, say). The guard refuses them from
+# the agent's shell, as it refuses `droost workflow:bypass`.
+# operator_only:
+#   - droost/bin/tracker-writes
+
+# Where droost keeps its two stores, relative to the project (or absolute).
+# Omitted, both live in the state directory, droost/droost-workflow/.
+# storage:
+#   index: droost/droost-workflow/code-index.sqlite
+#   evidence: droost/droost-workflow/evidence.sqlite
+
+# Semantic search: `droost code:index` embeds the code and `droost
+# search:code` adds the nearest chunks when an endpoint is named here. The
+# key is never written in this committed file: name the environment variable
+# that holds it.
+# search:
+#   embeddings: { endpoint: "http://localhost:11434/api/embeddings", model: nomic-embed-text, format: ollama }
+
+# The wiki droost reads (`droost code:wiki`) and checks (`wiki_fresh`).
+# contrib_scope: reached (the contrib modules the project's code reaches are
+# owed a page) or all.
+# wiki:
+#   path: droost/wiki
+#   contrib_scope: reached
+
+# The seeker checkpoint: an adversarial reviewer (the workflow-seeker agent)
+# inspects the run's diff after the code phase's gates pass. Gates verify
+# rules; the seeker verifies judgment — dead new code, drift from the spec,
+# coupling the change breaks, weak tests, security smells, rebuilding what
+# exists, discipline defeats, and this site's house rules (below). On by
+# default and highly recommended. WHAT it looks at is not configurable (the
+# one-hop blast radius and the nine lenses are the pattern, not a per-repo
+# choice — a reviewer you can remap is a reviewer you can negotiate with).
+# HOW MANY TIMES it looks, and what holds the run, is yours:
+#   holds: critical | high | medium | none   which open findings hold the run
+#                                           (the level decides when omitted)
+#   at_complete: true                       complete waits for its own
+#                                           inspection too
+#
+# `rounds` is a FLOOR the code phase will not advance below, 1 to 5. One is
+# the default and the fast path. Raise it on a rung where a second pass
+# earns its cost: on the run that prompted this lever, five rounds took
+# about forty minutes, the second caught a fix that had introduced a test
+# incapable of failing, and the third found a stored XSS the first two read
+# straight past.
+#
+# Turning it off, or down, is a reviewable line in this file — which is why
+# the levers live in a file.
+seekers: { on: true, rounds: 1 }
+
+# House rules: how THIS site is built, held by a gate or by the seeker.
+# droost prescribes no way to build; a site's own rules say what shape the
+# result must take. Each rule has an id, its text, and its judge:
+#   gate    checked mechanically by the house_rules gate, through either
+#           check: sdc_markup (new markup outside an SDC component's
+#           directory) or cmd: your own command, handed the files the run
+#           changed (narrowed by files: globs; exit 0 holds the rule;
+#           timeout: seconds); mode: report (default), block or off
+#   seeker  read against the diff by the seeker (its lens 8); a break is HIGH
+# An exception is the operator's to grant, recorded in the spec. To make the
+# rules binding, hold on HIGH: `seekers: { holds: high, at_complete: true }`.
+# `droost workflow:rules` prints the resolved rules. For example:
+# rules:
+#   house:
+#     - { id: HR1, rule: "New markup lives in an SDC component", judge: gate, check: sdc_markup }
+#     - { id: HR2, rule: "A landing page is a Canvas page, one component per section", judge: seeker }
+#     - { id: HR3, rule: "No direct database queries", judge: gate, cmd: "! grep -n 'Drupal::database'", files: "*.{php,module}", mode: block }
+
+# How many times a failing gate may drive the feedback loop before the run
+# fails. 0 means a gate gets one attempt and no retry. The seeker hold is
+# not a failing gate and spends none of this.
+max_gate_retries: 2

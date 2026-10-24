@@ -13,7 +13,6 @@ use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\Tests\WorkflowTestCase;
 use Droost\Workflow\Vcs\CliVcs;
@@ -58,6 +57,24 @@ final class HouseRulesTest extends WorkflowTestCase {
   }
 
   /**
+   * A built-in check that read files records that it ran (F-347).
+   *
+   * `sdc_markup` is judged in-process, in well under a millisecond, and only
+   * a rule's `cmd` was timed, so the verdict carried `duration_ms: 0` and the
+   * evaluation read it as "the tool never spawned" beside the break it found
+   * (KCH-A run 2, HR1 on the page template).
+   */
+  public function testBuiltInCheckThatReadFilesRecordsItRan(): void {
+    $root = $this->repo(self::SDC);
+    $this->write($root, 'web/themes/custom/site/templates/card.html.twig', '<div>{{ title }}</div>');
+
+    $result = $this->houseRules($root);
+
+    $this->assertSame(GateStatus::Failed, $result->status);
+    $this->assertGreaterThan(0, $result->durationMs, 'a check that read a file ran');
+  }
+
+  /**
    * Editing a template that was already there is not adding one.
    */
   public function testEditingAnExistingTemplateIsNoBreak(): void {
@@ -93,6 +110,7 @@ final class HouseRulesTest extends WorkflowTestCase {
 
     $this->assertSame(GateStatus::Off, $result->status);
     $this->assertStringContainsString('no house rule is judged by a gate', $result->summary);
+    $this->assertStringContainsString('no house rule is judged by a gate', (string) $result->skipReason, 'the reason rides as the skip reason, which the report prints (F-330)');
   }
 
   /**
@@ -286,7 +304,7 @@ final class HouseRulesTest extends WorkflowTestCase {
   private function houseRules(string $root): GateResult {
     $base = trim((string) shell_exec(sprintf('git -C %s rev-parse HEAD', escapeshellarg($root))));
     $state = RunState::begin('run-hr', '2026-10-15T00:00:00+00:00', WorkflowConfig::load($root), $base);
-    $runner = new GateRunner($this->passing(), new NullSiteDriver(), new CliVcs(CliProcess::run(...)));
+    $runner = new GateRunner($this->passing(), new CliVcs(CliProcess::run(...)));
     foreach ($runner->run($state, Phase::Code, $root)->results as $result) {
       if ($result->gate === 'house_rules') {
         return $result;

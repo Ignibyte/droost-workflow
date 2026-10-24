@@ -15,9 +15,8 @@ use Symfony\Component\Yaml\Yaml;
  * versus the canonical name that is written, and how many explicit switches
  * the file's `gates:` block still carries, each of which overrides the level
  * (the standing gotcha: a file that spells out every gate changes only what
- * it leaves unsaid when the dial moves). Framework-free so the drush surface
- * can wrap it with the operator-terminal check and its printing, and so it is
- * tested here in seconds.
+ * it leaves unsaid when the dial moves). The binary wraps it with the
+ * operator-terminal check and its printing; it is tested here in seconds.
  */
 final class EffortSwitch {
 
@@ -50,11 +49,12 @@ final class EffortSwitch {
         implode(', ', PresetResolver::KNOWN_PRESETS),
       ));
     }
-    $path = rtrim($root, '/') . '/' . WorkflowConfig::FILENAME;
+    $file = ConfigLocator::relative($root);
+    $path = rtrim($root, '/') . '/' . $file;
     if (!is_file($path)) {
       throw new \InvalidArgumentException(sprintf(
-        'No %s at %s — nothing to switch. `drush droost:workflow:install` (or `droost-workflow init`) writes one.',
-        WorkflowConfig::FILENAME,
+        'No %s at %s — nothing to switch. `droost init` writes one.',
+        $file,
         $root,
       ));
     }
@@ -109,11 +109,12 @@ final class EffortSwitch {
         implode(', ', PresetResolver::KNOWN_PRESETS),
       ));
     }
-    $path = rtrim($root, '/') . '/' . WorkflowConfig::FILENAME;
+    $file = ConfigLocator::relative($root);
+    $path = rtrim($root, '/') . '/' . $file;
     if (!is_file($path)) {
       throw new \InvalidArgumentException(sprintf(
-        'No %s at %s — nothing to preview. `drush droost:workflow:install` (or `droost-workflow init`) writes one.',
-        WorkflowConfig::FILENAME,
+        'No %s at %s — nothing to preview. `droost init` writes one.',
+        $file,
         $root,
       ));
     }
@@ -124,20 +125,20 @@ final class EffortSwitch {
       $parsed = Yaml::parse($after);
     }
     catch (ParseException $e) {
-      throw ConfigError::unparseable(WorkflowConfig::FILENAME, $e, $path);
+      throw ConfigError::unparseable($file, $e, $path);
     }
     if ($parsed === NULL) {
       $parsed = [];
     }
     if (!is_array($parsed)) {
-      throw ConfigError::notMapping(WorkflowConfig::FILENAME, get_debug_type($parsed));
+      throw ConfigError::notMapping($file, get_debug_type($parsed));
     }
     return new EffortChange(
       $previousConfig->preset,
       $canonical,
       $level === $canonical ? NULL : $level,
       self::overrides($after),
-      WorkflowConfig::fromArray($parsed, WorkflowConfig::FILENAME . ' (preview)'),
+      WorkflowConfig::fromArray($parsed, $file . ' (preview)'),
       $previousConfig,
     );
   }

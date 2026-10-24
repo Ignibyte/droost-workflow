@@ -20,8 +20,8 @@ exists at every level:
 2. What will be built, each piece named, and the approach, including what is
    deliberately NOT being done. How each is built is the plan's call: no
    tool or generator is prescribed.
-3. The house rules the change meets: read them with `vendor/bin/droost-workflow
-   rules` (or in `drush droost:brief`) and say, per rule that applies, how the
+3. The house rules the change meets: read them in the researcher's
+   findings, or in `rules.house` in `droost/droost.yml`, and say, per rule that applies, how the
    change meets it. An exception is the OPERATOR's to grant, never yours.
 4. Acceptance criteria in EARS form — "When <trigger>, the <system> shall
    <observable response>" — as a table `| ID | Criterion | Check | Verified By |`:
@@ -40,8 +40,9 @@ the ceremony does not.
 
 **Two sections are NOT optional at either weight.** `## Grounding` is what the
 `plan_grounded` check reads: plan does not close until its citations resolve
-and the run has asked droost's knowledge. `## Routes` is what the rendered
-check falls back on; a missing one is recorded. Both are short:
+and the run has asked droost's knowledge. `## Routes` is the human's copy of the
+routes the run declares with `declare-route`; a missing one is recorded. Both
+are short:
 
 ```markdown
 ## Grounding
@@ -58,12 +59,12 @@ check falls back on; a missing one is recorded. Both are short:
 - /rinks/ice-house — one detail page, so the display renders with real content
 ```
 
-`## Routes` is what `rendered_check` renders at test and complete, beside the
-front page — the paths this change adds or alters, as the site serves them
-(`/camps`, never `/node/7`). A ticket that touches no route writes
-`none — <why>` instead; the gate then renders `/` and the record says the spec
-declared none. Every route you name here is a page the run must make render;
-name the ones the ticket is for, not every page on the site.
+`## Routes` is the paths this change adds or alters, as the site serves them
+(`/camps`, never `/node/7`): what the seeker, the browser check and the
+report read as the pages this ticket is about. A ticket that touches no route
+writes `none — <why>` instead, and the record says the spec declared none.
+Every route you name here is a page the run must make render; name the ones
+the ticket is for, not every page on the site.
 
 All three tiers at `plan`, each with something that resolves, or the gate
 names the ones you skipped and stops.
@@ -76,7 +77,7 @@ Both weights build on the researcher's findings, never on assumption. Where
 a finding is marked UNVERIFIED, the spec carries that marker forward.
 
 **When the spec file already exists, extend it — never replace it.** A
-work-item intake (`/droost:work` and its kin) writes the first half before you
+project's own work-item command (a tracker bridge's, say) writes the first half before you
 are dispatched: the request as the ticket states it, the acceptance criteria
 the developer agreed (possibly already written back to the tracker), their
 testing expectations, the track. Keep every one of those sections and the

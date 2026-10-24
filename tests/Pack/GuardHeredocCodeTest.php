@@ -93,6 +93,31 @@ CMD;
   }
 
   /**
+   * Code run from outside the project may name droost's paths (F-376).
+   *
+   * An adopter's agent edited its own memory file from ~/.claude with a Python
+   * heredoc whose prose named droost/baseline, and was refused as writing
+   * the enforcement. From outside the project a relative path reaches none
+   * of it; an absolute path into it, or `..`, still does.
+   */
+  public function testCodeRunElsewhereMayNameTheEnforcement(): void {
+    $root = $this->makeRoot();
+    $elsewhere = sys_get_temp_dir();
+    $memory = "cd $elsewhere && python3 -I - notes.md <<'EOF'\nimport sys\nopen(sys.argv[1],'a').write('reset needed: droost/baseline was empty')\nEOF";
+    [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $memory]]);
+    $this->assertSame(0, $exit, 'a note about the baseline, written elsewhere: ' . $stderr);
+
+    foreach ([
+      "cd $elsewhere && python3 - <<'EOF'\nopen('$root/droost/baseline/x.json','w').write('{}')\nEOF" => 'an absolute path into the project',
+      "cd $elsewhere && python3 - <<'EOF'\nopen('../droost/baseline/x.json','w').write('{}')\nEOF" => 'a climb',
+      "python3 - <<'EOF'\nopen('droost/baseline/x.json','w').write('{}')\nEOF" => 'the same code inside the project',
+    ] as $command => $what) {
+      [$exit] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
+      $this->assertSame(2, $exit, $what . ' is still refused');
+    }
+  }
+
+  /**
    * A shell heredoc is still shell, and a data heredoc is still data.
    */
   public function testShellHeredocsAreStillShell(): void {

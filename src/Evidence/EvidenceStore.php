@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Evidence;
 
-use Droost\Workflow\State\RunStateStore;
+use Droost\Workflow\Config\StoragePaths;
 
 /**
  * What a run actually measured, in rows droost wrote and the agent cannot.
@@ -60,7 +60,7 @@ final class EvidenceStore {
    * build does not know about costs it nothing. A store written by an older one
    * is migrated up in place.
    */
-  public const int SCHEMA_VERSION = 13;
+  public const int SCHEMA_VERSION = 16;
 
   /**
    * Substrings that identify a browser tool in a host's tool name.
@@ -117,8 +117,8 @@ final class EvidenceStore {
    *   The absolute path.
    */
   public static function pathFor(string $projectRoot): string {
-    return rtrim($projectRoot, '/') . '/'
-      . RunStateStore::resolveStateDir($projectRoot) . '/' . self::FILENAME;
+    // droost.yml's storage.evidence, or the state directory (StoragePaths).
+    return StoragePaths::evidence($projectRoot);
   }
 
   /**
@@ -182,13 +182,6 @@ final class EvidenceStore {
   }
 
   /**
-   * Brings the schema up to SCHEMA_VERSION.
-   *
-   * @param \PDO $pdo
-   *   The connection.
-   */
-
-  /**
    * Brings the schema up to SCHEMA_VERSION, one version at a time.
    *
    * A step ladder rather than a chain of `if ($at < N)`: the last rung of a
@@ -233,6 +226,9 @@ final class EvidenceStore {
         11 => $this->migrateToV11($pdo),
         12 => $this->migrateToV12($pdo),
         13 => $this->migrateToV13($pdo),
+        14 => $this->migrateToV14($pdo),
+        15 => $this->migrateToV15($pdo),
+        16 => $this->migrateToV16($pdo),
         default => NULL,
       };
       // Stamped per rung, so an interrupted upgrade resumes where it stopped
@@ -339,7 +335,8 @@ final class EvidenceStore {
         mode     TEXT NOT NULL,
         verdict  TEXT NOT NULL,
         rule     TEXT,
-        at       TEXT NOT NULL
+        at       TEXT NOT NULL,
+        subagent TEXT
       );
       CREATE INDEX IF NOT EXISTS guard_call_by_run ON guard_call (run_id, phase, mode);
       CREATE INDEX IF NOT EXISTS guard_call_by_tool ON guard_call (run_id, phase, tool);
@@ -365,7 +362,8 @@ final class EvidenceStore {
         statement   TEXT NOT NULL,
         verified_by TEXT,
         verified_at TEXT,
-        declared_at TEXT NOT NULL
+        declared_at TEXT NOT NULL,
+        outcome     TEXT
       );
       CREATE INDEX IF NOT EXISTS spec_criterion_by_run ON spec_criterion (run_id, ref, revision);
 
@@ -379,18 +377,6 @@ final class EvidenceStore {
         declared_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS spec_note_by_run ON spec_note (run_id, kind, subject, revision);
-
-      CREATE TABLE IF NOT EXISTS grounding_row (
-        run_id    TEXT NOT NULL,
-        phase     TEXT NOT NULL,
-        tier      TEXT NOT NULL,
-        asked     TEXT NOT NULL DEFAULT '',
-        found     TEXT NOT NULL DEFAULT '',
-        citation  TEXT NOT NULL DEFAULT '',
-        resolved  INTEGER NOT NULL DEFAULT 0,
-        store     TEXT NOT NULL DEFAULT ''
-      );
-      CREATE INDEX IF NOT EXISTS grounding_by_run ON grounding_row (run_id, phase, tier);
 
       CREATE TABLE IF NOT EXISTS declaration (
         run_id       TEXT NOT NULL,
@@ -409,7 +395,8 @@ final class EvidenceStore {
         severity  TEXT NOT NULL,
         location  TEXT NOT NULL DEFAULT '',
         finding   TEXT NOT NULL DEFAULT '',
-        status    TEXT NOT NULL DEFAULT ''
+        status    TEXT NOT NULL DEFAULT '',
+        inspector TEXT
       );
       CREATE INDEX IF NOT EXISTS seeker_by_run ON seeker_finding (run_id, round);
       SQL);
@@ -1079,7 +1066,7 @@ final class EvidenceStore {
   /**
    * The newest run a gate's tool made outside a phase, with its findings.
    *
-   * `droost-workflow specs` runs the browser gate exactly as the test phase
+   * `droost workflow:specs` runs the browser gate exactly as the test phase
    * would and records it here, as `recorded_run` (0.11). At a level whose
    * playwright gate takes `reuse: recorded`, the phase takes this row instead
    * of running the suite again, while the tree is the one it was run on.
@@ -1330,68 +1317,6 @@ final class EvidenceStore {
   }
 
   /**
-   * Records one adjudicated grounding row.
-   *
-   * `store` is the column worth having: it says WHICH store answered, and the
-   * asymmetry it exposes is one nothing else in the record can. Core resolves
-   * against the brain and never the symbol graph, because `droost:search:index`
-   * runs custom|contrib|themes|wiki and leaves core out — so a round claiming a
-   * core citation resolved against the symbol graph has a broken probe rather
-   * than a finding.
-   *
-   * @param string $runId
-   *   The run.
-   * @param string $phase
-   *   The phase that adjudicated it.
-   * @param string $tier
-   *   Either custom, contrib or core.
-   * @param string $asked
-   *   The question the row recorded, when the caller has it.
-   * @param string $found
-   *   What the row said came back.
-   * @param string $citation
-   *   The Evidence cell.
-   * @param bool $resolved
-   *   Whether it resolved against this site.
-   * @param string $store
-   *   Which store answered.
-   */
-  public function recordGroundingRow(
-    string $runId,
-    string $phase,
-    string $tier,
-    string $asked,
-    string $found,
-    string $citation,
-    bool $resolved,
-    string $store,
-  ): void {
-    $this->connection()
-      ->prepare('INSERT INTO grounding_row (run_id, phase, tier, asked, found, citation, resolved, store) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      ->execute([$runId, $phase, $tier, $asked, $found, $citation, $resolved ? 1 : 0, $store]);
-  }
-
-  /**
-   * Clears a phase's grounding rows before they are written again.
-   *
-   * The gate runs more than once per phase — a failed attempt, a retry — and
-   * each run re-adjudicates the whole table. Appending would leave a reader
-   * counting the same citation twice and unable to tell which verdict was the
-   * last one. This is the one table where the latest reading replaces the
-   * previous, because unlike a check it is not an attempt, it is a reading.
-   *
-   * @param string $runId
-   *   The run.
-   * @param string $phase
-   *   The phase.
-   */
-  public function clearGrounding(string $runId, string $phase): void {
-    $this->connection()
-      ->prepare('DELETE FROM grounding_row WHERE run_id = ? AND phase = ?')
-      ->execute([$runId, $phase]);
-  }
-
-  /**
    * What kind of work this run declared itself to be.
    *
    * @param string $runId
@@ -1412,9 +1337,10 @@ final class EvidenceStore {
    * The gates that cannot show a measurement, through nothing the agent did.
    *
    * Two ways in, and they were found one at a time. A site gate on the
-   * standalone binary is ON and unreachable — no booted site, so
-   * `rendered_check` and its kin record `skipped` — which wedged the test phase
-   * forever for anyone following the plan skill's own `--type=theme` example.
+   * standalone binary was ON and unreachable — no booted site, so the
+   * page-rendering gate and its kin recorded `skipped` — which wedged the test
+   * phase forever for anyone following the plan skill's own `--type=theme`
+   * example.
    *
    * And a WAIVED gate, which is worse, because the waiver is the operator's
    * rescue: a run blocks, the operator lifts the gate to free it, the gate then
@@ -1465,19 +1391,22 @@ final class EvidenceStore {
    *   Which inspection this is.
    * @param list<array<string, mixed>> $findings
    *   The parsed ledger rows.
+   * @param string|null $inspector
+   *   `independent` or `self-reviewed`, as the ledger declared it; NULL when
+   *   the caller does not know.
    */
-  public function recordSeekerFindings(string $runId, string $phase, int $round, array $findings): void {
+  public function recordSeekerFindings(string $runId, string $phase, int $round, array $findings, ?string $inspector = NULL): void {
     $pdo = $this->connection();
     // One transaction, because this is a DELETE followed by inserts: a crash
     // between them would leave the round with its previous findings erased and
     // its new ones unwritten, which reads as a clean inspection. Losing a
     // finding is the failure this table exists to stop.
-    $this->writeTransaction($pdo, function () use ($pdo, $runId, $phase, $round, $findings): void {
+    $this->writeTransaction($pdo, function () use ($pdo, $runId, $phase, $round, $findings, $inspector): void {
       $pdo->prepare('DELETE FROM seeker_finding WHERE run_id = ? AND phase = ? AND round = ?')
         ->execute([$runId, $phase, $round]);
       $insert = $pdo->prepare(
-        'INSERT INTO seeker_finding (run_id, phase, round, ref, severity, location, finding, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO seeker_finding (run_id, phase, round, ref, severity, location, finding, status, inspector)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
       );
       foreach ($findings as $finding) {
         $insert->execute([
@@ -1489,6 +1418,7 @@ final class EvidenceStore {
           self::text($finding, 'location'),
           self::text($finding, 'finding'),
           self::text($finding, 'status'),
+          $inspector,
         ]);
       }
       // A CLEAN ROUND LEAVES A ROW. One row per finding meant a round that
@@ -1500,7 +1430,7 @@ final class EvidenceStore {
       // is `clean`, which no finding ever carries, so the open-findings
       // reader skips it by the filter it already applies.
       if ($findings === []) {
-        $insert->execute([$runId, $phase, $round, '—', '', '', 'inspection filed: no findings', 'clean']);
+        $insert->execute([$runId, $phase, $round, '—', '', '', 'inspection filed: no findings', 'clean', $inspector]);
       }
     });
   }
@@ -1607,7 +1537,7 @@ final class EvidenceStore {
    * the highest one is the count, and the attempt just made.
    *
    * ONLY THE PHASE'S OWN CHECKS (F-201). The agent's recorded suite runs
-   * (`recorded_run`, one row per `droost-workflow specs`) and a return's
+   * (`recorded_run`, one row per `droost workflow:specs`) and a return's
    * marker (`loop`) are stored under the phase too, numbered by themselves.
    * Counted, they made P7 run 15's single test attempt "attempt 2" in the
    * run-event log, since the agent had recorded its spec twice, and a
@@ -1844,8 +1774,8 @@ final class EvidenceStore {
    * Declares a route this ticket's change serves.
    *
    * Written by a TOOL CALL, never parsed out of a document. `## Routes` is
-   * still in the spec for a human to read; this is what `rendered_check`
-   * renders, and the difference is that a row has no shape to get wrong.
+   * still in the spec for a human to read; this is what the seeker, the
+   * browser check and the report read, and a row has no shape to get wrong.
    * Part 3 lost two runs to a route list written inside a fence, which is
    * the natural markdown for "one per line" and declared nothing (F-34).
    *
@@ -1897,11 +1827,14 @@ final class EvidenceStore {
    */
   public function specRoutes(string $runId): array {
     $statement = $this->connection()->prepare(
+      // One route per PATH, the newest declaration of it (F-346): the status
+      // rides on the path (`/terms@403`), so a path declared again with a
+      // corrected status is the same route, and replaces it.
       'SELECT path, phase, reason, declared_at, kind, owner, exception FROM spec_route r
-        WHERE run_id = ? AND revision = (
-          SELECT MAX(revision) FROM spec_route WHERE run_id = r.run_id AND path = r.path
+        WHERE run_id = ? AND rowid = (
+          SELECT MAX(rowid) FROM spec_route WHERE run_id = r.run_id AND CASE WHEN instr(path, \'@\') > 0 THEN substr(path, 1, instr(path, \'@\') - 1) ELSE path END = CASE WHEN instr(r.path, \'@\') > 0 THEN substr(r.path, 1, instr(r.path, \'@\') - 1) ELSE r.path END
         )
-        ORDER BY (SELECT MIN(rowid) FROM spec_route WHERE run_id = r.run_id AND path = r.path)'
+        ORDER BY (SELECT MIN(rowid) FROM spec_route WHERE run_id = r.run_id AND CASE WHEN instr(path, \'@\') > 0 THEN substr(path, 1, instr(path, \'@\') - 1) ELSE path END = CASE WHEN instr(r.path, \'@\') > 0 THEN substr(r.path, 1, instr(r.path, \'@\') - 1) ELSE r.path END)'
     );
     $statement->execute([$runId]);
     $out = [];
@@ -1982,13 +1915,16 @@ final class EvidenceStore {
    *   whether it is a real test is the test gate's question, not this one's.
    * @param string|null $now
    *   The timestamp, ISO-8601.
+   * @param string $outcome
+   *   What the proof came to: `proven`, `partly` or `failed`. Only `proven`
+   *   counts the criterion verified (F-357).
    *
    * @return bool
    *   FALSE when no such criterion was declared — the one thing here that is
    *   an error rather than a row, because verifying a criterion nobody stated
    *   is how a run proves whatever it happened to do.
    */
-  public function verifyCriterion(string $runId, string $phase, string $ref, string $verifiedBy, ?string $now = NULL): bool {
+  public function verifyCriterion(string $runId, string $phase, string $ref, string $verifiedBy, ?string $now = NULL, string $outcome = 'proven'): bool {
     $latest = $this->latestCriterion($runId, $ref);
     if ($latest === NULL) {
       return FALSE;
@@ -1997,8 +1933,8 @@ final class EvidenceStore {
     $this->connection()
       ->prepare(
         'INSERT INTO spec_criterion
-          (run_id, phase, revision, ref, statement, verified_by, verified_at, declared_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+          (run_id, phase, revision, ref, statement, verified_by, verified_at, declared_at, outcome)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
       )
       ->execute([
         $runId,
@@ -2011,6 +1947,7 @@ final class EvidenceStore {
         $verifiedBy,
         $at,
         self::nullableText($latest, 'declared_at') ?? $at,
+        $outcome,
       ]);
 
     return TRUE;
@@ -2022,8 +1959,11 @@ final class EvidenceStore {
    * @param string $runId
    *   The run.
    *
-   * @return list<array{ref: string, statement: string, verified_by: string|null, verified_at: string|null, phase: string, revisions: int}>
+   * @return list<array{ref: string, statement: string, verified_by: string|null, verified_at: string|null, phase: string, revisions: int, outcome: string|null}>
    *   One entry per distinct ref, in the order they were first declared.
+   *   `outcome` is what the latest proof came to (`proven`, `partly`,
+   *   `failed`), NULL with no proof, and `proven` for a proof recorded before
+   *   outcomes were.
    *   `revisions` counts EVERY row for that ref, verifications included — a
    *   verification writes a revision too. A caller that wants "how many
    *   times was this restated" counts distinct statements instead, which is
@@ -2032,7 +1972,7 @@ final class EvidenceStore {
    */
   public function specCriteria(string $runId): array {
     $statement = $this->connection()->prepare(
-      'SELECT ref, statement, verified_by, verified_at, phase,
+      'SELECT ref, statement, verified_by, verified_at, phase, outcome,
               (SELECT COUNT(*) FROM spec_criterion WHERE run_id = c.run_id AND ref = c.ref) AS revisions
          FROM spec_criterion c
         WHERE run_id = ? AND revision = (
@@ -2050,10 +1990,36 @@ final class EvidenceStore {
         'verified_at' => self::nullableText($row, 'verified_at'),
         'phase' => self::text($row, 'phase'),
         'revisions' => self::number($row, 'revisions'),
+        'outcome' => self::nullableText($row, 'verified_by') === NULL ? NULL : (self::nullableText($row, 'outcome') ?? 'proven'),
       ];
     }
 
     return $out;
+  }
+
+  /**
+   * Each gate's latest verdict in the run, by name.
+   *
+   * The last row recorded for the gate, whichever phase recorded it: what a
+   * proof naming the gate is checked against (F-357).
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return array<string, string>
+   *   The CheckState value by gate name.
+   */
+  public function latestGateStates(string $runId): array {
+    $statement = $this->connection()->prepare(
+      'SELECT name, state FROM check_result WHERE run_id = ? AND kind = \'gate\' ORDER BY id'
+    );
+    $statement->execute([$runId]);
+    $states = [];
+    foreach (self::rows($statement) as $row) {
+      $states[self::text($row, 'name')] = self::text($row, 'state');
+    }
+
+    return $states;
   }
 
   /**
@@ -2217,6 +2183,9 @@ final class EvidenceStore {
    * @param string|null $tool
    *   The tool the hook fired on, as the host named it, or NULL when the host
    *   sent no name. Recorded, never enforced on — see migrateToV8().
+   * @param string|null $subagent
+   *   The subagent that made the call (its type), or NULL for the run
+   *   agent's own (F-336).
    */
   public function recordGuardCall(
     string $runId,
@@ -2226,10 +2195,37 @@ final class EvidenceStore {
     ?string $rule = NULL,
     ?string $at = NULL,
     ?string $tool = NULL,
+    ?string $subagent = NULL,
   ): void {
     $this->connection()
-      ->prepare('INSERT INTO guard_call (run_id, phase, tool, mode, verdict, rule, at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      ->execute([$runId, $phase, $tool, $mode, $verdict, $rule, $at ?? date('c')]);
+      ->prepare('INSERT INTO guard_call (run_id, phase, tool, mode, verdict, rule, at, subagent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      ->execute([$runId, $phase, $tool, $mode, $verdict, $rule, $at ?? date('c'), $subagent]);
+  }
+
+  /**
+   * The guard calls subagents made, by subagent.
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return list<array{subagent: string, calls: int, refusals: int}>
+   *   One row per subagent type, most calls first.
+   */
+  public function guardCallsBySubagent(string $runId): array {
+    $statement = $this->connection()->prepare(
+      "SELECT subagent, COUNT(*) AS calls, SUM(CASE WHEN verdict = 'refuse' THEN 1 ELSE 0 END) AS refusals "
+      . 'FROM guard_call WHERE run_id = ? AND subagent IS NOT NULL GROUP BY subagent ORDER BY calls DESC, subagent',
+    );
+    $statement->execute([$runId]);
+    $out = [];
+    foreach (self::rows($statement) as $row) {
+      $out[] = [
+        'subagent' => is_string($row['subagent'] ?? NULL) ? $row['subagent'] : '',
+        'calls' => is_numeric($row['calls'] ?? NULL) ? (int) $row['calls'] : 0,
+        'refusals' => is_numeric($row['refusals'] ?? NULL) ? (int) $row['refusals'] : 0,
+      ];
+    }
+    return $out;
   }
 
   /**
@@ -2757,7 +2753,8 @@ final class EvidenceStore {
         mode     TEXT NOT NULL,
         verdict  TEXT NOT NULL,
         rule     TEXT,
-        at       TEXT NOT NULL
+        at       TEXT NOT NULL,
+        subagent TEXT
       );
       CREATE INDEX IF NOT EXISTS guard_call_by_run ON guard_call (run_id, phase, mode);
       CREATE INDEX IF NOT EXISTS guard_call_by_tool ON guard_call (run_id, phase, tool);
@@ -3015,6 +3012,65 @@ SQL);
       catch (\PDOException) {
         // Already there — V1's DDL carries it for a new store.
       }
+    }
+  }
+
+  /**
+   * V14 — who inspected each seeker round.
+   *
+   * The engine releases a hold only on a seeker's ledger, never on the
+   * author's self-review; the record counted both alike, so a live run's
+   * evidence said "0 still open" on the strength of the author marking an
+   * independent finding resolved (F-332). NULL on every round recorded before
+   * this version: who inspected it was not kept.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   */
+  private function migrateToV14(\PDO $pdo): void {
+    try {
+      $pdo->exec('ALTER TABLE seeker_finding ADD COLUMN inspector TEXT');
+    }
+    catch (\PDOException) {
+      // Already there — V1's DDL carries it for a new store.
+    }
+  }
+
+  /**
+   * V15 — which guard calls a subagent made.
+   *
+   * The guard filed every call under the open run, and a live run's four
+   * refusals were a background research subagent's (F-336). NULL is the run
+   * agent's own call, or one recorded before this version.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   */
+  private function migrateToV15(\PDO $pdo): void {
+    try {
+      $pdo->exec('ALTER TABLE guard_call ADD COLUMN subagent TEXT');
+    }
+    catch (\PDOException) {
+      // Already there — V1's DDL carries it for a new store.
+    }
+  }
+
+  /**
+   * V16 — what a criterion's proof came to.
+   *
+   * A proof was recorded and never its result, so a criterion whose proof
+   * read "Parity: FAILS D5 on all 7 routes" counted verified (F-357). NULL is
+   * a proof recorded before this version, read as `proven` as it was then.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   */
+  private function migrateToV16(\PDO $pdo): void {
+    try {
+      $pdo->exec('ALTER TABLE spec_criterion ADD COLUMN outcome TEXT');
+    }
+    catch (\PDOException) {
+      // Already there — V1's DDL carries it for a new store.
     }
   }
 

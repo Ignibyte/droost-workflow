@@ -1,125 +1,85 @@
 # Using droost from the workflow
 
-[droost](https://www.drupal.org/project/droost) is what the agent knows about
-this site — its code, its structure, its live state; this workflow is how it
-works. Every phase leans on it, and every phase has to cope with it being
-unavailable.
+droost is what the agent knows about this codebase: its code, its structure,
+the modules and themes it has installed, and its wiki. This workflow is how
+it works. Every phase leans on it, and every phase has to cope with part of
+it being unavailable.
 
 ## How to call it
 
-droost's tools are reachable two ways, and they are the same tools with the
-same record: **through MCP**, when the project's editor config names droost's
-server (`mcp__droost__<id>`), or **by command**. Use whichever your host
-offers. Each MCP call runs the same command underneath, as a fresh process,
-so an answer always comes from the code on disk.
-
-By command there are two: one for the code, one for the live site.
+droost is one command, `droost`, installed in the project's own
+`tools/droost/` vendor directory. It boots no Drupal and never calls drush,
+so it answers while the site is broken, which is when you most need it.
 
 ```bash
-vendor/bin/droost                                        # the code: every tool, one line each
-vendor/bin/droost droost_symbol '{"name":"NodeType"}'    # run one: JSON in, JSON out
-drush droost:tool                                        # the live site: every tool, one line each
-drush droost:tool droost_entities help                   # one tool's arguments (`<id> help`, either command)
-drush droost:brief                                       # the site's facts and house rules
+droost                                   # every command, one line each
+droost code:wiki help                    # one command's arguments (`<command> help`)
+droost code:wiki camps                   # run one: arguments as words, --name=value, or one JSON object
+droost code:tree camps
+droost search:arch "camp registration"
 ```
 
-`vendor/bin/droost` answers about the code: symbols, the code graph,
-lexical search, wiki pages, module docs, deprecations, and the last brief.
-It boots no Drupal. It reads the code index droost writes and the files on
-disk, so it answers while the site is broken, which is when you most need
-it. `drush droost:tool` answers about the running site: entities, fields,
-routes, services, config, views, the database, semantic search, and every
-tool that writes. It needs a site that boots.
+On DDEV, run it in the container (`ddev droost …` when the project has that
+command, else `ddev exec tools/droost/vendor/bin/droost …`). Every answer is
+JSON, and a command exits 1 when it says no. Every knowledge call is
+recorded in the run's tool-call ledger by droost itself, and plan reads that
+ledger: a call you only describe is not a call.
 
-On DDEV, run both in the container: `ddev exec vendor/bin/droost …` and
-`ddev drush droost:tool …`. Each prints the tool's answer as JSON and exits
-1 when the tool says no. Every call is recorded in the run's tool-call
-ledger, whichever door made it, and plan reads that ledger.
+## The three knowledge commands plan requires
+
+- **`droost code:wiki [page]`**: the project's wiki (`droost/wiki`) and a
+  generated page for every installed contrib module and theme: its version
+  from `composer.lock`, what it needs and provides from its own YAML, and
+  whether it is enabled according to the last configuration export (the page
+  says how old that export is).
+- **`droost code:tree [module|path]`**: the code's structure from the code
+  index: modules and themes, their files, classes, functions and methods,
+  and each module's hooks, services and routes.
+- **`droost search:arch <words>`**: plain text search over the documentation:
+  the wiki, the inventory, each module's and theme's README and docs.
+
+Plan is held until the ledger shows a `code:wiki` and a `code:tree` call
+since the run began. `brief` alone is not looking.
+
+## The rest
+
+- `droost code:symbol <name>`: where a class, interface, function or method
+  is defined.
+- `droost code:graph <symbol>`: what calls it, what it injects, what it
+  implements; `service:<id>`, `route:<name>` and `hook:<name>` work too.
+- `droost search:code <query>`: symbol names and wiki text, lexically, and the
+  nearest code chunks when `droost.yml` names an embeddings endpoint. The
+  answer's `mode` says which ran.
+- `droost code:docs`: module documentation across core, contrib and custom.
+- `droost code:deprecations`: Drupal core deprecations, offline.
+- `droost brief`: the project in one answer, from its files.
 
 ## What needs what
 
-- **`drush droost:tool` needs a booted site.** Its tools are Drupal plugins
-  run against the site.
-- **`vendor/bin/droost` needs the code index**, which a site writes
-  (`drush droost:search:index`). On a checkout that has never had a site,
-  there is no index, and it says so rather than answering empty.
+- **The code index** (`droost code:index`, about a minute the first time and
+  seconds after) feeds `code:tree`, `code:symbol`, `code:graph`, and
+  `search:code`. Without it they say so rather than answering empty.
+  `search:arch` falls back to reading the files.
+- **The wiki** exists only if someone wrote it. droost writes no page prose;
+  `droost code:wiki status` says which pages are stale against their sources.
+- **The running site is not droost's.** Content, the database, active
+  configuration and rendered pages are read with the project's own tools
+  (drush, the browser). droost answers about the code and the files.
 
-So on a checkout with no site and no index, you have no droost. Plan without
-grounding, build by hand, and be explicit in every artefact about which of
-your foundations you could not check. This is worth stating plainly because
-the opposite assumption is the easy one to make, and it produces exactly the
-failure this workflow exists to prevent: an agent that believes it verified
-something it never could.
+So on a checkout with no index and no wiki, droost can still read the
+inventory and the documentation, and little else. Plan with what you could
+check, and say in every artefact which of your foundations you could not.
+This is worth stating plainly because the opposite assumption is the easy
+one to make, and it produces exactly the failure this workflow exists to
+prevent: an agent that believes it verified something it never could.
 
-## When a call fails because the site did
-
-A `ddev snapshot restore`, a `ddev restart`, a failed module install or a
-fatal in a plugin you just wrote can leave the site unable to boot. Then
-every `drush droost:tool` call fails the same way, with the site's error.
-`vendor/bin/droost` still answers about the code: use it to find what broke.
-Fix the site (read `drush watchdog:show`, or the fatal drush prints), then
-call again. Nothing is repeated for you, so read the state before repeating
-a call that writes.
-
-## What droost_verify actually does
-
-It runs static and test legs over a target — **and which legs run depends on
-what you ask for**:
-
-| Call | Legs that run |
-|---|---|
-| no `module` and no `path` | **none at all** — it returns an inventory of what could run. Useful, but it is not a run and must never be reported as one |
-| a target, no `checks` | **phpcs and phpstan only** |
-| `checks: [deprecations]` | deprecations — it is opt-in, never a default |
-| `checks: [phpunit], confirm: true` | phpunit — it needs `confirm` as well, because the suite creates and drops databases |
-
-Getting this wrong is easy and costly: a plain call returns "passed" having
-run two static checks, and an agent that assumed all four ran will report
-tests as green that were never executed.
-
-**None of the legs render anything.** `droost_verify` does not fetch a URL
-and does not check that the site works. It checks that the code is
-well-formed, well-typed, and — when asked — that its tests pass. Those are
-valuable, they are not "the site works", and a report that blurs the two
-misleads in the direction that matters.
-
-## Three ways a tool is present but will not help you
-
-Having a site is necessary and not sufficient. Each of these produces a
-result that is easy to misread:
-
-**1. Some tools need an index that may never have been built.**
-`droost_capabilities` and `droost_architecture` fail cleanly and tell you to
-run `drush droost:brain:build`. `vendor/bin/droost` fails when there is no
-code index and tells you to run `drush droost:search:index`. `drush
-droost:tool droost_search` (semantic) can return **empty** when its vectors
-were never built, which reads exactly like "this project has no
-documentation". If a search comes back empty, check whether the index was
-ever built before you conclude anything from it.
-
-**2. Every write tool is switched off until the site opts in.**
-`droost_scaffold`, `droost_structure_create`, the entity writers and
-`droost_config_set` each refuse unless their flag is set in droost's settings
-(`allow_scaffold`, `allow_entity_write`, `allow_config_write`, or the master
-`allow_destructive`). The refusal names the flag. That is a configuration
-answer, not a broken site and not something to work around — report it and
-stop.
-
-**3. Some tools live in submodules that may not be installed.** The brain,
-codebase search and the wiki ship in droost core — so `droost_capabilities`,
-`droost_architecture`, `droost_search`, the wiki tools and every
-`vendor/bin/droost` tool are there whenever droost is. What genuinely may be absent
-are the backend-bridging submodules — Canvas, Devel and AI tooling. A
-perfectly healthy site can be missing any of those; `drush droost:tool`
-lists only what this site has.
-
-## When a tool is unavailable
+## When a command is unavailable
 
 Say so, in the artefact you are producing, where the person reading it will
 see it.
 
-The failure mode this workflow exists to prevent is not "a tool was
-unavailable" — that is normal. It is a run that could not check something,
+The failure mode this workflow exists to prevent is not "a command was
+unavailable", which is normal. It is a run that could not check something,
 did not say so, and produced a report indistinguishable from one where
 everything was verified. An unchecked thing recorded as unchecked is fine. An
 unchecked thing recorded as passed is a lie the next person acts on.

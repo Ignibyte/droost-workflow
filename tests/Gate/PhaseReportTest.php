@@ -6,7 +6,6 @@ namespace Droost\Workflow\Tests\Gate;
 
 use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Gate\GateResult;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\PhaseReport;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -134,7 +133,7 @@ class PhaseReportTest extends TestCase {
         [['file' => 'a.php']],
         'vendor/bin/phpcs -q',
       ))
-      ->with(GateResult::skippedNoSite('rendered_check'))
+      ->with(new GateResult('rendered_check', GateStatus::SkippedNoSite))
       ->with(GateResult::off('mutation'))
       ->with(GateResult::toolMissing('phpstan', 'vendor/bin/phpstan analyse'));
 
@@ -169,25 +168,21 @@ class PhaseReportTest extends TestCase {
       'invocation' => 'vendor/bin/phpcs -q',
       'inherited' => NULL,
       'new' => NULL,
+      'labelled' => FALSE,
     ], $gates[0]);
   }
 
   /**
-   * A skip always carries the reason it was skipped.
+   * A labelled pass says so in its own row, not only in the phase's tally.
+   *
+   * A live run's record read `labelled: 1` and no gate row said whose
+   * (F-326).
    */
-  public function testSkipsCarryTheirReason(): void {
-    $result = GateResult::skippedNoSite('rendered_check');
+  public function testLabelledPassIsNamedInItsRow(): void {
+    $row = GateResult::labelledPass('stylelint', 0, 5, 'stylelint: no file in scope', 'stylelint')->toArray();
 
-    // Asserted through the constant rather than a copy of its text: this
-    // string reaches the CLI's output, run.json and droost's report, and a
-    // test holding its own copy just means the wording drifts in two places.
-    $this->assertSame(NullSiteDriver::REASON, $result->skipReason);
-    $this->assertStringContainsString('not run', $result->summary);
-    // The reason must keep naming the remedy, not only the condition — a
-    // skip that says "no site" while the site is up and serving sent one
-    // live run's configured gate silently unrun.
-    $this->assertStringContainsString('CLI surface', $result->skipReason);
-    $this->assertStringContainsString('re-run the phase', $result->skipReason);
+    $this->assertSame('passed', $row['status']);
+    $this->assertTrue($row['labelled']);
   }
 
   /**

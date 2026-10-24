@@ -46,7 +46,6 @@ final class GuardOperatorHelpTest extends WorkflowTestCase {
       'drush droost:workflow:gate-waive --help; drush droost:workflow:gate-waive phpstan "x"',
       'drush droost:workflow:bypass "hotfix" -h',
       'drush droost:workflow:effort max --help',
-      'drush droost:gate allow_entity_write on --help',
       'drush droost:workflow:gate-waive phpstan "x"',
       'drush help droost:workflow:gate-waive phpstan "x"',
       'drush help droost:workflow:gate-waive; drush droost:workflow:gate-waive phpstan "x"',

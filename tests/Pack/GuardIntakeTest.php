@@ -124,18 +124,15 @@ final class GuardIntakeTest extends WorkflowTestCase {
       'droost-workflow intake abandon "changed my mind"',
       'vendor/bin/droost-workflow intake answer "Who edits?" "Me"',
       'drush droost:workflow:intake answer "Who edits?" "Me"',
-      'ddev drush dwfin abandon "no"',
       'vendor/bin/droost-workflow intake answer --via=cockpit "Who edits?" "Me"',
       // Options before the verb are drush's to take, and no way around it.
-      'drush dwfin --via=cockpit answer "Approve this roadmap?" "Approve"',
       'drush droost:workflow:intake --via cockpit answer "Approve this roadmap?" "Approve"',
       'vendor/bin/droost-workflow --project=. intake --via=cockpit answer "Q" "A"',
-      'script -q /dev/null drush dwfin -y abandon "no"',
     ] as $command) {
       [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
       $this->assertSame(2, $exit, $command . ' must be refused');
       $this->assertStringContainsString("OPERATOR's command", $stderr);
-      $this->assertStringContainsString(str_contains($command, 'droost-workflow ') ? '`droost-workflow intake ' : '`drush droost:workflow:intake ', $stderr, $command);
+      $this->assertStringContainsString(str_contains($command, 'droost-workflow ') ? '`droost-workflow intake ' : '`droost workflow:intake ', $stderr, $command);
       $this->assertStringNotContainsString('`! ', $stderr, $command . ': no `!` hand-over (F-256)');
     }
     foreach ([
@@ -143,14 +140,11 @@ final class GuardIntakeTest extends WorkflowTestCase {
       // Approval is the agent's on the human's yes (owner, 2026-10-08).
       'vendor/bin/droost-workflow intake approve',
       'ddev drush droost:workflow:intake approve',
-      'ddev drush dwfin approve',
       'vendor/bin/droost-workflow intake status',
       // Asking is the agent's on a host with no AskUserQuestion: it records
       // questions, never an answer.
       'vendor/bin/droost-workflow intake ask --file=droost/intake/ask.json',
       'drush droost:workflow:intake ask --file=droost/intake/ask.json',
-      'drush dwfin ask --file=droost/intake/ask.json',
-      'drush dwfin --file=droost/intake/ask.json ask',
       'ddev drush droost:workflow:intake audit --url=http://localhost:5173 --files=src',
       'cat droost/droost-workflow/intake-answers.jsonl',
     ] as $command) {
@@ -175,7 +169,7 @@ final class GuardIntakeTest extends WorkflowTestCase {
           continue;
         }
         foreach (is_array($entry['hooks'] ?? NULL) ? $entry['hooks'] : [] as $hook) {
-          if (is_array($hook) && is_string($hook['command'] ?? NULL) && str_ends_with($hook['command'], ' answers')) {
+          if (is_array($hook) && is_string($hook['command'] ?? NULL) && str_ends_with($hook['command'], ' answers --harness=claude')) {
             $found[] = [$event, $entry['matcher'] ?? NULL];
           }
         }

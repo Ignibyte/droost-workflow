@@ -1,5 +1,14 @@
 # Droost Workflow — design sketch (Track F)
 
+> **History note (2026-10-19).** This is the design record as it was written.
+> droost has since left Drupal: the lever file is `droost/droost.yml`, every
+> `drush droost:workflow:<verb>` and `droost-workflow <verb>` is `droost
+> workflow:<verb>`, the four in-process site gates (`rendered_check`,
+> `config_clean`, `grounding_check`, `composition_check`) and the
+> module-contributed gates are gone, and a project's own gates, hooks and
+> walls are files in `droost/` (README, "The project's own gates, hooks and
+> walls"). Where this record and the README disagree, the README is current.
+
 The open-source, **agent-first** work pipeline the Druplit worker (and any droost surface)
 runs to build or change a Drupal site. A **clean-room sibling** of a proprietary enterprise pipeline
 — same structural DNA (phased · gated · EARS-grounded · droost-powered), rebuilt for an
@@ -37,9 +46,10 @@ phase" both hold, and each has a class you can point at:
 
 1. **Config and run state readable without Drupal** — `droost.workflow.yml` at
    the repo root, run state in `.droost-workflow/run.json` beside it.
-2. **The gate set degrades honestly** — `Gate\NullSiteDriver` is the whole
-   answer: a run with no booted site records `skipped, no site` per gate
-   instead of passing.
+2. **The gate set degrades honestly** — a gate that could not run records
+   why (`error-tool-missing`, `error-tool-failed`, which block) instead of
+   passing. (`NullSiteDriver` and its `skipped, no site` left with the
+   Drupal site, 2026-10-21.)
 
 ## Where it sits
 

@@ -43,7 +43,7 @@ final class RunOutcomeOutputTest extends TestCase {
 
     $this->assertIsArray($gates[0]);
     $this->assertSame("endpoint /api/camps: expected 200, got 500\nchecking 3 endpoints", $gates[0]['output_tail'] ?? NULL);
-    $this->assertSame('droost-workflow evidence', $gates[0]['output_in'] ?? NULL);
+    $this->assertSame('droost workflow:evidence', $gates[0]['output_in'] ?? NULL);
     $this->assertIsArray($gates[1]);
     $this->assertArrayNotHasKey('output_tail', $gates[1], 'a gate whose output was parsed has its findings');
     $this->assertIsArray($gates[2]);

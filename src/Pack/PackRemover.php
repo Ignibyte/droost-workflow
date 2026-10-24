@@ -4,14 +4,15 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Pack;
 
+use Droost\Workflow\Config\ConfigLocator;
 use Droost\Workflow\State\RunStateStore;
 
 /**
  * Takes the pack back out — the half `init` never had.
  *
  * There was no uninstall at all until 2026-09-15, and the gap had a shape
- * worse than "a missing convenience". `drush droost:uninstall` removes
- * droost's skills and its MCP entry and leaves the three guard hooks wired in
+ * worse than "a missing convenience". drupal/droost's uninstall removed
+ * droost's skills and its MCP entry and left the three guard hooks wired in
  * `settings.json` — so a project that removed droost kept a PreToolUse hook on
  * every Edit and every Bash call, running a guard that reads a lever file for a
  * module no longer installed. The only way out was to hand-edit JSON, and the
@@ -58,7 +59,15 @@ final class PackRemover {
     // the run records and the evidence store) and stays; the lock does not.
     // Leaving it behind means a project with no pack still carries a file
     // describing the pack it used to have.
-    $files = array_values(PackManifest::FILES);
+    // The skills droost's modules gave it: what the lock says init wrote,
+    // since the module may be gone before droost is.
+    $lockPath = $root . '/' . RunStateStore::resolveStateDir($root) . '/pack.lock';
+    $lock = is_file($lockPath) ? json_decode((string) file_get_contents($lockPath), TRUE) : NULL;
+    $moduleSkills = array_values(array_filter(
+      array_keys(is_array($lock) ? $lock : []),
+      static fn (mixed $path): bool => is_string($path) && PackManifest::isModuleSkillPath($path),
+    ));
+    $files = [...array_values(PackManifest::FILES), ...$moduleSkills];
     $files[] = RunStateStore::resolveStateDir($root) . '/pack.lock';
     foreach ($files as $destination) {
       $path = $root . '/' . $destination;
@@ -75,7 +84,7 @@ final class PackRemover {
 
     // Our own directories, sentinel and all. Deepest first, so a parent is
     // considered only once its children are gone.
-    $ours = PackManifest::ownedDirectories();
+    $ours = array_values(array_unique([...PackManifest::ownedDirectories(), ...array_map('dirname', $moduleSkills)]));
     usort($ours, static fn (string $a, string $b): int => substr_count($b, '/') <=> substr_count($a, '/'));
     foreach ($ours as $relative) {
       $absolute = $root . '/' . $relative;
@@ -216,7 +225,7 @@ final class PackRemover {
     foreach (is_array($entry['hooks'] ?? NULL) ? $entry['hooks'] : [] as $hook) {
       if (is_array($hook)
         && is_string($hook['command'] ?? NULL)
-        && str_contains($hook['command'], 'droost-workflow-guard.php')) {
+        && PackManifest::guardMode($hook['command']) !== NULL) {
         return TRUE;
       }
     }
@@ -269,8 +278,9 @@ final class PackRemover {
    */
   private function leftForTheOperator(string $root): array {
     $left = [];
-    if (PackManifest::hasConfigFile($root)) {
-      $left[] = PackManifest::CONFIG_FILE;
+    $levers = ConfigLocator::found($root);
+    if ($levers !== NULL) {
+      $left[] = $levers;
     }
     foreach (['droost/droost-workflow', '.droost-workflow'] as $relative) {
       if (is_dir($root . '/' . $relative)) {

@@ -1,0 +1,4 @@
+# Written by `claude plugin validate` for an editor: the types of the Claude
+# Code build that ran it, not the plugin.
+.claude-plugin/types/
+tsconfig.json

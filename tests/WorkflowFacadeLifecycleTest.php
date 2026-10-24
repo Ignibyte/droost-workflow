@@ -14,7 +14,6 @@ use Droost\Workflow\Evidence\Fault;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\Spec\SpecError;
@@ -221,7 +220,8 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
     $scaffolded = ['path' => 'm/tests/src/Unit/ATest.php', 'hash' => 'sha256:0'];
     file_put_contents($state . '/scaffolded.jsonl', json_encode($scaffolded) . "\n");
 
-    $archived = $this->facade($executor)->reset($root);
+    $resetter = $this->facade($executor);
+    $archived = $resetter->reset($root);
 
     $this->assertFileDoesNotExist($root . '/droost/droost-workflow/run.json');
     $this->assertFileExists($archived);
@@ -252,6 +252,11 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
     $this->assertFileDoesNotExist($state . '/spec-test-run.md', 'the spec does not outlive the run in the state directory');
     $this->assertFileExists($base . '.spec.md', 'it is archived beside the record, same base name');
     $this->assertStringContainsString('##', (string) file_get_contents($base . '.spec.md'), 'moved whole');
+    // And reset says where it went, so the next run can have it back (F-377).
+    $moved = $resetter->lastResetSpec();
+    $this->assertNotNull($moved);
+    $this->assertStringEndsWith('spec-test-run.md', $moved['from']);
+    $this->assertStringEndsWith('.spec.md', $moved['to']);
 
     // Re-running that same ticket starts from the archived copy, put back and
     // named; a bare run still never adopts a finished ticket's spec in silence.
@@ -447,7 +452,7 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
     $this->facade($executor)->run($root);
 
     // Break the lever file AFTER the run began (its levers are frozen).
-    file_put_contents($root . '/droost.workflow.yml', "presett: custom\n");
+    file_put_contents(Levers::path($root), "presett: custom\n");
 
     try {
       $this->facade($executor)->reset($root);
@@ -592,7 +597,6 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
   private function facade(GateExecutorInterface $executor): WorkflowFacade {
     return new WorkflowFacade(
       $executor,
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       static fn (): string => '2026-08-26T12:00:00+00:00',
       static fn (): string => 'run-lifecycle',

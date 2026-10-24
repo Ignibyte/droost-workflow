@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Gate;
 
+use Droost\Workflow\Knowledge\SiteCalls;
+use Droost\Workflow\Knowledge\ToolCallLog;
+
 /**
  * The site's own rules that a machine can check on the diff.
  *
@@ -64,7 +67,10 @@ final class HouseRulesCheck {
   public static function run(array $house, ?array $added, ?array $changed, string $projectRoot, ?callable $runner = NULL): GateResult {
     $rules = array_values(array_filter($house, static fn (array $rule): bool => ($rule['judge'] ?? NULL) === 'gate'));
     if ($rules === []) {
-      return new GateResult(self::GATE, GateStatus::Off, summary: 'house_rules off — no house rule is judged by a gate (rules.house, judge: gate)');
+      // Through off(), so the reason rides as the skip reason too: built by
+      // hand it had none, and the workchain report printed a bare `off`
+      // (F-330).
+      return GateResult::off(self::GATE, 'no house rule is judged by a gate (rules.house, judge: gate)');
     }
     $files = $added ?? $changed;
     if ($files === NULL) {
@@ -90,6 +96,25 @@ final class HouseRulesCheck {
         continue;
       }
       $live++;
+      // THE RUN'S RAW SITE CALLS (F-366): not files but what the guard saw
+      // the run do. Each raw drush php or SQL call is a break.
+      if (($rule['check'] ?? NULL) === 'site_tools') {
+        $runId = ToolCallLog::openRun($projectRoot)['id'];
+        [$count, $calls] = $runId === NULL ? [0, []] : SiteCalls::raw($projectRoot, $runId);
+        $total += $count;
+        $read[] = sprintf('%s read %d guard record(s) of this run', $id, $count);
+        foreach ($calls as $n => $verb) {
+          $findings[] = [
+            'file' => '',
+            'line' => 0,
+            'rule' => $id,
+            'message' => sprintf('%s: the run called drush %s (its call %d). Site state is read and changed through droost\'s tools (drush droost:tool <tool>), which the run records and the guard holds; raw PHP and SQL are neither. drush droost:tool lists them', $id, $verb, $n),
+            'detail' => $mode === 'block' ? 'error' : 'warning',
+          ];
+          $blocking = $blocking || $mode === 'block';
+        }
+        continue;
+      }
       if (isset($rule['cmd'])) {
         $outcome = self::command($rule, $changed ?? $files, $projectRoot, $runner);
         if ($outcome instanceof GateResult) {
@@ -127,7 +152,15 @@ final class HouseRulesCheck {
       }
       $total += count($files);
       $read[] = sprintf('%s read %d added file(s)', $id, count($files));
-      foreach (self::breaks(self::text($rule['check'] ?? NULL, ''), $files, $projectRoot) as $file => $why) {
+      // Timed, and never under a millisecond when it read a file (F-347): a
+      // built-in check runs in-process in microseconds, and `duration_ms: 0`
+      // is what the record reads as "the tool never spawned".
+      $started = hrtime(TRUE);
+      $breaks = self::breaks(self::text($rule['check'] ?? NULL, ''), $files, $projectRoot);
+      if ($files !== []) {
+        $elapsed += max(1, (int) ceil((hrtime(TRUE) - $started) / 1_000_000));
+      }
+      foreach ($breaks as $file => $why) {
         $findings[] = [
           'file' => $file,
           'line' => 0,
@@ -228,7 +261,7 @@ final class HouseRulesCheck {
       }
       if ($exit === 127) {
         return GateResult::toolMissing(self::GATE, $invocation, sprintf(
-          'The command for house rule %s was not found. Install it, or ask the OPERATOR to change the rule in droost.workflow.yml (rules.house); an agent cannot decide either.',
+          'The command for house rule %s was not found. Install it, or ask the OPERATOR to change the rule in droost/droost.yml (rules.house); an agent cannot decide either.',
           $id,
         ), 127, $ms);
       }

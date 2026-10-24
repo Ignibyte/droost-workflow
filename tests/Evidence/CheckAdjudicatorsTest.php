@@ -87,19 +87,6 @@ final class CheckAdjudicatorsTest extends TestCase {
   }
 
   /**
-   * The doors' adjudicator asks the library's checks first.
-   */
-  public function testTheLibraryChecksComeFirst(): void {
-    $site = $this->returning([new CheckRecord('check', 'plan_grounded', CheckState::Blocked, Fault::Agent, 'site')]);
-
-    // A plan with no spec: the library records nothing, so the site's stands.
-    $records = CheckAdjudicators::withLibraryChecks($site)->adjudicate(sys_get_temp_dir() . '/dwf-none-' . bin2hex(random_bytes(4)), 'plan', 'run-1');
-
-    $this->assertSame(['site'], array_map(static fn (CheckRecord $r): string => $r->summary, $records));
-    $this->assertSame(PlanGroundedCheck::NAME, $records[0]->name);
-  }
-
-  /**
    * An adjudicator returning what it was given.
    *
    * @param list<\Droost\Workflow\Evidence\CheckRecord> $records

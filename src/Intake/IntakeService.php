@@ -14,7 +14,7 @@ use Droost\Workflow\State\RunStateStore;
  * assessed, asked and planned by the agent in `droost/intake/`; checked; and
  * approved on the human's recorded yes to "Approve this roadmap?", whoever
  * runs it. Abandoning and recording an answer are the operator's alone:
- * the CLI and drush refuse them without a terminal, and the guard refuses
+ * the droost command refuses them without a terminal, and the guard refuses
  * them from the agent's shell. The agent asks through AskUserQuestion, or,
  * on a host without it, puts the questions on record with `ask` for the host
  * to show the human. While an intake is open no run opens, so nothing is
@@ -310,6 +310,53 @@ final class IntakeService {
       'answer' => trim($answer),
       'via' => $via,
     ]);
+  }
+
+  /**
+   * The routes built through a rung: its pages and every rung's below it.
+   *
+   * What the parity gate's `routes` lever names between rungs (F-354): read
+   * off the roadmap the human approved, so the routes a rung is judged on are
+   * the client's ladder and never the run's choice. The frame is not a
+   * route, and is judged on every one of them.
+   *
+   * @param string $rung
+   *   The rung, as a number (`5`) or its ticket's name (`R05`).
+   *
+   * @return list<string>
+   *   The routes, in the order the roadmap first lists them.
+   *
+   * @throws \InvalidArgumentException
+   *   When the roadmap has no such rung.
+   */
+  public function routesThrough(string $rung): array {
+    $numbers = IntakeTables::numbers($rung);
+    $through = $numbers === [] ? 0 : $numbers[0];
+    $roadmap = (string) @file_get_contents($this->store->dir() . '/' . IntakeCheck::FILES['roadmap']);
+    $routes = [];
+    $found = FALSE;
+    foreach (IntakeTables::rows($roadmap) as $row) {
+      $number = IntakeTables::numbers($row['rung'] ?? '')[0] ?? 0;
+      if ($number < 1 || $number > $through) {
+        continue;
+      }
+      $found = $found || $number === $through;
+      foreach (IntakeTables::pages($row['pages'] ?? '') as $page) {
+        if ($page !== 'frame' && !in_array($page, $routes, TRUE)) {
+          $routes[] = $page;
+        }
+      }
+    }
+    if (!$found) {
+      throw new \InvalidArgumentException(sprintf(
+        'The roadmap (%s/%s) has no rung "%s": name one by its number or its ticket (5, R05).',
+        IntakeStore::DIR,
+        IntakeCheck::FILES['roadmap'],
+        $rung,
+      ));
+    }
+
+    return $routes;
   }
 
   /**

@@ -74,7 +74,9 @@ final class BaselineStoreTest extends WorkflowTestCase {
     $this->assertSame(['web/themes/custom/t/js/a.js'], $loaded->prettierFiles(), 'comment lines are not files');
     $this->assertSame(34.2, $loaded->metric('coverage'));
     $this->assertNull($loaded->metric('msi'));
-    $this->assertSame(['system.site'], $loaded->configDrift());
+    // A baseline written before config_clean left (2026-10-19) still loads,
+    // its entry intact and consulted by nothing.
+    $this->assertTrue($loaded->has('config_clean'));
     $this->assertNull($loaded->phpstanWrapper(), 'no phpstan baseline was written');
     $this->assertSame(0, $loaded->phpstanInheritedCount());
   }

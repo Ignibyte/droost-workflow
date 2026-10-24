@@ -20,7 +20,7 @@ final class ShippedHouseRulesExampleTest extends TestCase {
    * Uncommented, the example loads, every rule with its judge.
    */
   public function testTheExampleLoads(): void {
-    $lines = file(dirname(__DIR__, 2) . '/pack/droost.workflow.yml', FILE_IGNORE_NEW_LINES) ?: [];
+    $lines = file(dirname(__DIR__, 2) . '/pack/droost.yml', FILE_IGNORE_NEW_LINES) ?: [];
     $start = array_search('# rules:', $lines, TRUE);
     $this->assertIsInt($start, 'the shipped lever file shows a rules example');
     $block = [];

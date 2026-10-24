@@ -1,0 +1,14 @@
+{
+  "name": "droost",
+  "version": "0.5.4",
+  "description": "droost's run panel in Claude Code: a pane with the run's phases and tabs (spec, activity, gates, seeker, and a project's own from droost.yml panel.tabs), and the run's line under the prompt",
+  "author": { "name": "droost" },
+  "userConfig": {
+    "droost_command": {
+      "type": "string",
+      "title": "droost command",
+      "description": "How to run droost when it is not at tools/droost/vendor/bin/droost, e.g. \"ddev droost\". Empty: the project's install.",
+      "default": ""
+    }
+  }
+}

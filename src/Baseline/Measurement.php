@@ -27,8 +27,6 @@ final class Measurement {
    *   The neon phpstan generated for the tree, or NULL when not measured.
    * @param array{coverage: float|null, msi: float|null} $metrics
    *   The measured percentages, NULL where not measured.
-   * @param list<string>|null $configDrift
-   *   The config_clean drift entries, or NULL when no site measured them.
    * @param array<string, string> $skipped
    *   Gate name to why it was not measured.
    */
@@ -37,7 +35,6 @@ final class Measurement {
     public readonly ?array $prettier = NULL,
     public readonly ?string $phpstanBaseline = NULL,
     public readonly array $metrics = ['coverage' => NULL, 'msi' => NULL],
-    public readonly ?array $configDrift = NULL,
     public readonly array $skipped = [],
   ) {}
 
@@ -55,7 +52,7 @@ final class Measurement {
    * The bill: what each measured gate would inherit.
    *
    * @return array<string, int>
-   *   Gate name to count — findings for the linters and drift, files for
+   *   Gate name to count — findings for the linters, files for
    *   prettier, and the floor as a whole percent for the two metrics.
    */
   public function bill(): array {
@@ -74,9 +71,6 @@ final class Measurement {
     }
     if ($this->metrics['msi'] !== NULL) {
       $bill['mutation'] = (int) floor($this->metrics['msi']);
-    }
-    if ($this->configDrift !== NULL) {
-      $bill['config_clean'] = count($this->configDrift);
     }
     return $bill;
   }

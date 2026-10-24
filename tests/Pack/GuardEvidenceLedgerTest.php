@@ -94,7 +94,7 @@ final class GuardEvidenceLedgerTest extends WorkflowTestCase {
       [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
       $this->assertSame(2, $exit, $command);
       $this->assertStringContainsString('reaches the evidence store', $stderr, $command);
-      $this->assertStringContainsString('droost-workflow evidence', $stderr, $command);
+      $this->assertStringContainsString('droost workflow:evidence', $stderr, $command);
       $this->assertStringNotContainsString('forged entry', $stderr, $command);
     }
 
@@ -124,7 +124,7 @@ final class GuardEvidenceLedgerTest extends WorkflowTestCase {
     $this->assertSame(2, $exit);
     $this->assertStringContainsString('`for` loop\'s body can write to every name its list expands to', $stderr);
     $this->assertStringContainsString('the Read tool', $stderr);
-    $this->assertStringContainsString('droost-workflow evidence', $stderr);
+    $this->assertStringContainsString('droost workflow:evidence', $stderr);
 
     foreach ([
       'head -1 droost/droost-workflow/history/*.spec.md',

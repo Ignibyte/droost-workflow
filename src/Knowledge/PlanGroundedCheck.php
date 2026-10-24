@@ -24,25 +24,24 @@ use Droost\Workflow\State\RunStateStore;
  *     claims, and at least one that names something that EXISTS: a `none:`
  *     claim alone resolves on any site, so it cannot be the whole of a
  *     plan's looking (S4-2);
- *   - the tool-call ledger shows this run called one of droost's knowledge
- *     tools during plan (EvaluationReport::KNOWLEDGE_TOOLS, so the record and
- *     this check count the same calls), and one other than `droost_brief`:
- *     reading the site's summary is not looking anything up.
+ *   - the tool-call ledger shows this run called `code:wiki` and `code:tree`
+ *     since it began (owner, 2026-10-19), counted from
+ *     EvaluationReport::KNOWLEDGE_TOOLS so the record and this check count
+ *     the same calls; `brief` alone is not looking anything up.
  *
  * It says nothing about how to build, and nothing it reads can.
  *
- * It lives in the library, not in droost, so both doors ask it: drush and
- * the standalone binary. Held only where Drupal booted, a broken site let
- * `vendor/bin/droost-workflow advance` close plan with the check recorded as
- * skipped (F-276). Nothing here needs Drupal: the ledger and the index are
- * files, and `vendor/bin/droost` answers the code questions with no site.
+ * It lives in the library and needs no Drupal: the ledger and the index are
+ * files, and `droost` answers the code questions with no site. (It once
+ * lived in drupal/droost, where a broken site let the standalone binary
+ * close plan with the check recorded as skipped: F-276.)
  *
- * Where it applies: a run with a spec, on a project where droost is
- * installed (`vendor/bin/droost`, which drupal/droost ships) or has written
- * its code index. drush alone is not droost: a Drupal site that uses this
- * library without drupal/droost has nothing to look with, and a check it
- * could never satisfy would wedge every run (S4-3). There it is recorded as
- * Skipped, with that reason, which no reader can mistake for a pass. A
+ * Where it applies: every run with a spec. droost off Drupal (2026-10-19)
+ * ships the knowledge commands in this package, so wherever this check runs,
+ * `droost code:wiki` and `droost code:tree` exist to be asked: there is no
+ * project with the workflow and nothing to look with, and the old Skipped
+ * verdict for "no droost here" let a plan close unconsulted wherever droost
+ * was installed somewhere other than the two paths it knew (F-303). A
  * project whose droost sits one directory down (a site in `site/`) keeps its
  * ledger there, where this run cannot attribute it: that is said, as the
  * environment's to settle, rather than read as an agent that never looked
@@ -60,6 +59,20 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
    * Who adjudicated it, in the record.
    */
   public const PROVIDER = 'droost/workflow';
+
+  /**
+   * The knowledge commands plan must consult, every run (owner, 2026-10-19).
+   *
+   * The wiki (what the site's code and its contrib are) and the tree (how
+   * the code is laid out): the two looks every plan rests on, forced here
+   * and taught by the skills that ship with them.
+   */
+  public const REQUIRED = ['code:wiki', 'code:tree'];
+
+  /**
+   * The calls that read the site's summary rather than look.
+   */
+  private const SUMMARY = ['brief'];
 
   /**
    * Constructs a PlanGroundedCheck.
@@ -81,16 +94,9 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
     if ($spec === NULL) {
       return [];
     }
-    $where = self::droostAt($root);
-    if ($where === NULL) {
-      return [
-        $this->record(
-          CheckState::Skipped,
-          Fault::None,
-          'not asked: this project has no droost to look with (no vendor/bin/droost, no code index), so a plan cannot be held to having looked. Install drupal/droost to have it asked',
-        ),
-      ];
-    }
+    // NULL (none of the paths droostAt() knows) is droost at the root: this
+    // check runs inside the package that answers code:wiki and code:tree.
+    $where = self::droostAt($root) ?? '';
     if ($where !== '') {
       return [
         $this->record(
@@ -102,19 +108,21 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
     }
 
     $asked = self::knowledgeCalls($root, $runId);
-    $looked = array_values(array_filter($asked, static fn (array $call): bool => $call['tool'] !== 'droost_brief'));
+    $looked = array_values(array_filter($asked, static fn (array $call): bool => !in_array($call['tool'], self::SUMMARY, TRUE)));
+    $missing = array_values(array_diff(self::REQUIRED, array_column($asked, 'tool')));
     $citations = ($this->resolver ?? new CitationResolver())->citations($root, $spec);
 
     // Every reason at once (F-128): a run told one, fixing it and only then
     // meeting the next, spends an attempt per reason.
     $why = [];
     if ($asked !== [] && $looked === []) {
-      $why[] = 'the run read `drush droost:brief` and asked droost nothing else. The brief is the site\'s summary; looking is asking about what this plan touches: `vendor/bin/droost droost_search`, `droost_symbol`, `droost_graph`, `droost_wiki` or `droost_module_docs` for the code, `drush droost:tool droost_entities` or `droost_routes` for the live site';
+      $why[] = 'the run read `droost brief` and asked droost nothing else. The brief is the site\'s summary; looking is asking about what this plan touches';
     }
-    if ($asked === []) {
+    if ($missing !== []) {
       $why[] = sprintf(
-        'the run has not asked droost anything during plan. Read `drush droost:brief` for the site\'s facts, then ask droost about what this plan touches: the code with `vendor/bin/droost <tool> \'<json>\'` (on DDEV, `ddev exec vendor/bin/droost`), which needs no running site, and the live site with `drush droost:tool <tool> \'<json>\'`. Its knowledge tools are %s; `vendor/bin/droost` and `drush droost:tool` each list theirs. Each call is recorded, and that record is what this check reads',
-        implode(', ', array_map(static fn (string $tool): string => '`' . $tool . '`', EvaluationReport::KNOWLEDGE_TOOLS)),
+        'plan has not consulted %s this run. Every plan consults the wiki (`droost code:wiki`, the site\'s code and its contrib modules and themes) and the tree (`droost code:tree [module]`, how the code is laid out) before it is written; `droost search:arch <query>` finds the documentation in between. Each call is recorded by droost itself, and that record is what this check reads%s',
+        implode(' and ', array_map(static fn (string $command): string => '`droost ' . $command . '`', $missing)),
+        self::failedAttempts($root, $runId, $missing),
       );
     }
     if (!$citations['table']) {
@@ -122,6 +130,16 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
         '%s has no `%s` table. Add one row per lookup (Phase | Tier | Asked | Found | Evidence), and in Evidence cite what came back: a class, a docroot-relative file, a wiki page, or `none: <query>` for a lookup that found nothing',
         basename($spec),
         SpecContract::GROUNDING_HEADING,
+      );
+    }
+    elseif ($citations['malformed'] !== []) {
+      // Before any judgment of a citation: a row out of line has its Evidence
+      // in another column, and blaming its tier sent a run after the wrong
+      // cell (F-365).
+      $why[] = sprintf(
+        '%s\'s Grounding table has a row that does not line up with its header: %s. A bare `|` in a cell ends it (one inside backticks does not); write it `\\|`, then each cell sits under its column',
+        basename($spec),
+        implode('; ', $citations['malformed']),
       );
     }
     elseif ($citations['resolved'] === []) {
@@ -168,7 +186,7 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
           count($asked),
           implode(', ', array_map(static fn (string $tool, int $n): string => $tool . ' ×' . $n, array_keys($tools), $tools)),
           count($citations['resolved']),
-          $citations['unresolved'] === [] ? '' : sprintf(' (%d more do not, reported by grounding_check)', count($citations['unresolved'])),
+          $citations['unresolved'] === [] ? '' : sprintf(' (%d more do not)', count($citations['unresolved'])),
           $citations['index'],
         ),
       ),
@@ -195,8 +213,9 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
   /**
    * Where droost is installed, relative to the repository root.
    *
-   * `vendor/bin/droost` is what drupal/droost ships; drush is every Drupal
-   * site's, droost or not, and is no evidence of droost (S4-3).
+   * `vendor/bin/droost` or `tools/droost/vendor/bin/droost` (droost's own
+   * vendor directory), or the code index. NULL is not "no droost" to the
+   * check (F-303): it runs inside the package that ships the commands.
    *
    * @param string $root
    *   The repository root.
@@ -206,7 +225,9 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
    *   that holds it, or NULL when droost is not installed.
    */
   public static function droostAt(string $root): ?string {
-    if (is_file(CodeIndex::path($root)) || is_file($root . '/vendor/bin/droost') || is_dir($root . '/vendor/drupal/droost')) {
+    if (is_file(CodeIndex::path($root))
+      || is_file($root . '/vendor/bin/droost')
+      || is_file($root . '/tools/droost/vendor/bin/droost')) {
       return '';
     }
     foreach (glob($root . '/*/vendor/bin/droost') ?: [] as $found) {
@@ -219,9 +240,11 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
   /**
    * This run's knowledge calls made during plan that answered.
    *
-   * A row with no phase was made before the run opened, which is when a plan
-   * grounds. A call droost refused or failed is no answer, so it is not
-   * looking.
+   * Only rows the run made itself (owner, 2026-10-20): a row made with no run
+   * open cannot say what it was for, and a lookup made between two runs, for
+   * another purpose, read as the next plan's consult (F-331). The plan looks
+   * once its run is open; after that, looking is unlimited at any phase. A
+   * call droost refused or failed is no answer, so it is not looking.
    *
    * @param string $root
    *   The repository root.
@@ -236,8 +259,54 @@ final class PlanGroundedCheck implements CheckAdjudicatorInterface {
       ToolCallLog::read($root, $runId),
       static fn (array $call): bool => in_array($call['tool'], EvaluationReport::KNOWLEDGE_TOOLS, TRUE)
         && $call['outcome'] === 'ok'
-        && ($call['phase'] === NULL || $call['phase'] === 'plan'),
+        && $call['run'] === $runId
+        && $call['phase'] === 'plan',
     ));
+  }
+
+  /**
+   * What the run tried of the missing commands, when it tried and failed.
+   *
+   * A call that failed is no answer, so it does not count; but "has not
+   * consulted" alone would send an agent that did call back to call again
+   * and fail again. Say that it called, how often, and the usual cause.
+   *
+   * @param string $root
+   *   The repository root.
+   * @param string $runId
+   *   The run.
+   * @param list<string> $missing
+   *   The required commands with no answered call.
+   *
+   * @return string
+   *   '' when none was tried, else a sentence starting with '; '.
+   */
+  private static function failedAttempts(string $root, string $runId, array $missing): string {
+    $tried = [];
+    $before = [];
+    foreach (ToolCallLog::read($root) as $call) {
+      if (!in_array($call['tool'], $missing, TRUE)) {
+        continue;
+      }
+      if ($call['run'] === NULL) {
+        $before[$call['tool']] = ($before[$call['tool']] ?? 0) + 1;
+      }
+      elseif ($call['run'] === $runId && $call['outcome'] !== 'ok' && $call['phase'] === 'plan') {
+        $tried[$call['tool']] = ($tried[$call['tool']] ?? 0) + 1;
+      }
+    }
+    $said = [];
+    foreach ($before as $tool => $count) {
+      $said[] = sprintf('`droost %s` was called %d× before this run opened, which is not this run\'s looking: call it again now', $tool, $count);
+    }
+    if ($tried === []) {
+      return $said === [] ? '' : '; ' . implode('; ', $said);
+    }
+    foreach ($tried as $tool => $count) {
+      $said[] = sprintf('`droost %s` was called %d× and failed each time%s', $tool, $count, $tool === 'code:tree' ? ' (it reads the code index: build it with `droost code:index`)' : '');
+    }
+
+    return '; ' . implode('; ', $said) . '. A call that fails is no answer: call it until it answers';
   }
 
   /**

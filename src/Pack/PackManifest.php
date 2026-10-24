@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Pack;
 
+use Droost\Workflow\Config\ConfigLocator;
+use Droost\Workflow\Knowledge\CitationResolver;
+use Droost\Workflow\Knowledge\FilesystemModuleLocator;
+
 /**
  * The sole enumerator of what the pack contains.
  *
@@ -34,9 +38,51 @@ final class PackManifest {
   public const SENTINEL = '.droost-workflow-pack';
 
   /**
-   * The lever file, written to the project root only when absent.
+   * The lever file, written only when the project has none (ConfigLocator).
    */
-  public const string CONFIG_FILE = 'droost.workflow.yml';
+  public const string CONFIG_FILE = ConfigLocator::PATH;
+
+  /**
+   * The guard, under the pack's source directory: shipped, never copied.
+   *
+   * Each harness's hooks call it in the package through GUARD_ENTRY, and the
+   * guard protects the package it runs from (droost off Drupal, 2026-10-19).
+   */
+  public const string GUARD = 'hooks/droost-workflow-guard.php';
+
+  /**
+   * The guard's entry point, relative to the package root.
+   */
+  public const string GUARD_ENTRY = 'bin/droost-guard';
+
+  /**
+   * Where an earlier init copied the guard, relative to the project.
+   */
+  public const string LEGACY_GUARD = '.claude/hooks/droost-workflow-guard.php';
+
+  /**
+   * The guard mode a hook command runs, when it is droost's guard.
+   *
+   * Recognises the entry point and the copied script of earlier installs, so
+   * an install wired by any version is found, upgraded in place and never
+   * doubled.
+   *
+   * @param string $command
+   *   A hook's command line.
+   *
+   * @return string|null
+   *   The mode (pre-tool-use, stop, …), or NULL when it is not our guard.
+   */
+  public static function guardMode(string $command): ?string {
+    return preg_match('#(?:droost-workflow-guard\.php|droost-guard)"?\s+(?:guard\s+)?([a-z][a-z-]*)#', $command, $m) === 1
+      ? $m[1]
+      : NULL;
+  }
+
+  /**
+   * The lever file's template, under the pack's source directory.
+   */
+  public const string CONFIG_TEMPLATE = 'droost.yml';
 
   /**
    * Pack files, as source path => destination path under the project root.
@@ -65,6 +111,14 @@ final class PackManifest {
     // before any run. A skill every host reads, and its Claude Code pointer.
     'skills/intake/SKILL.md'
     => '.claude/skills/intake/SKILL.md',
+    // The knowledge commands plan consults (owner, 2026-10-19): the workflow
+    // forces the consult, and these say how.
+    'skills/droost-code-wiki/SKILL.md'
+    => '.claude/skills/droost-code-wiki/SKILL.md',
+    'skills/droost-code-tree/SKILL.md'
+    => '.claude/skills/droost-code-tree/SKILL.md',
+    'skills/droost-search-arch/SKILL.md'
+    => '.claude/skills/droost-search-arch/SKILL.md',
     'commands/droost/workflow/start.md'
     => '.claude/commands/droost/workflow/start.md',
     'commands/droost/workflow/continue.md'
@@ -74,8 +128,6 @@ final class PackManifest {
     'commands/droost/workflow/intake.md'
     => '.claude/commands/droost/workflow/intake.md',
     'partials/droost-usage.md' => '.claude/partials/droost-usage.md',
-    'hooks/droost-workflow-guard.php'
-    => '.claude/hooks/droost-workflow-guard.php',
     'agents/workflow-researcher.md'
     => '.claude/agents/workflow-researcher.md',
     'agents/workflow-spec-writer.md'
@@ -113,80 +165,6 @@ final class PackManifest {
   ];
 
   /**
-   * Every droost tool a pack file is allowed to name.
-   *
-   * The pack is prose served to a coding agent as authoritative, and nothing
-   * lints prose — so a confidently wrong tool name would be acted on. An
-   * earlier draft of the design cited "droost worker-docs", which does not
-   * exist. This list is checked against the real plugin ids and the pack lint
-   * refuses any name outside it.
-   *
-   * @var list<string>
-   */
-  public const CITABLE_TOOLS = [
-    'droost_architecture',
-    'droost_brief',
-    'droost_capabilities',
-    'droost_config_set',
-    'droost_db_schema',
-    'droost_entities',
-    'droost_entity_create',
-    'droost_entity_update',
-    'droost_graph',
-    'droost_last_error',
-    'droost_logs',
-    'droost_deprecations',
-    'droost_module_docs',
-    'droost_routes',
-    'droost_scaffold',
-    'droost_search',
-    'droost_services',
-    'droost_structure_create',
-    'droost_symbol',
-    'droost_verify',
-    // The Views pair moved into droost core with the 2.0 submodule merge
-    // (D51-D54).
-    'droost_views_compose',
-    'droost_views_alter',
-    // Also a legacy MODULE name below, and deliberately in both lists: droost
-    // 2.x retired droost_wiki_pages/_status/_factsheet in favour of one
-    // kind-dispatched droost_wiki tool, while droost 1.x sites still have a
-    // droost_wiki module. Same string, two kinds of thing, both citable.
-    'droost_wiki',
-    'droost_wiki_write',
-    // The Canvas-first page tools the code skill names (owner, 2026-10-02):
-    // droost_canvas's pair, and droost_ui_kit's display composer.
-    'droost_canvas',
-    'droost_canvas_tree_set',
-    'droost_display_compose',
-  ];
-
-  /**
-   * Every droost MODULE a pack file is allowed to name.
-   *
-   * Kept apart from the tool list because `droost_brain` and `droost_verify`
-   * look identical to a scanner and are different kinds of thing. Several
-   * tools live in submodules that a healthy site may not have installed, so
-   * the pack has to be able to name the module a missing tool comes from —
-   * but naming a module that does not exist would mislead just as badly as
-   * naming a tool that does not.
-   *
-   * @var list<string>
-   */
-  public const CITABLE_MODULES = [
-    // Droost 2.x merged the brain, search and the wiki into droost itself, so
-    // on a current site every tool below comes from this one module. The three
-    // submodule names stay citable because droost 1.x sites still have them
-    // and a pack file written for one is not wrong on the other — but prefer
-    // 'droost' when writing new guidance.
-    'droost',
-    'droost_brain',
-    'droost_search',
-    'droost_wiki',
-    'droost_workflow',
-  ];
-
-  /**
    * The directories under a project root that this package owns.
    *
    * Derived from FILES so the two cannot disagree.
@@ -209,27 +187,67 @@ final class PackManifest {
   }
 
   /**
-   * Whether this project already has a lever file, so init must keep it.
+   * A file name a module's skill may install: visible, one path segment.
+   */
+  private const string SKILL_FILE = '/^[A-Za-z0-9][A-Za-z0-9._-]*$/';
+
+  /**
+   * The skills droost's site modules ship, found where the site keeps them.
    *
-   * `is_link` as well as `file_exists`, because a DANGLING symlink at the
-   * path is still the user's decision about that path: file_exists() follows
-   * the link and reports FALSE, and writing over it would replace whatever
-   * they meant to point at.
-   *
-   * Named here because three places asked the same question in the same two
-   * clauses — this package's installConfig() and, across the repository
-   * boundary, droost's own WorkflowInstaller and its setup command. One of
-   * the three drifting is the shape that has cost this project most.
+   * The droost module and its submodules carry their own skills, each in
+   * `skills/<name>/SKILL.md` (the module's `droost-tools`, its Canvas
+   * submodule's `canvas-build`), so a skill says what the installed
+   * module's tools do rather than what this package last knew of them.
+   * Only a module named `droost` or `droost_*` is read: a skill is an
+   * instruction to the agent, and init takes instructions from droost's own
+   * code alone. A name the pack ships stays the pack's.
    *
    * @param string $root
    *   The project root.
    *
-   * @return bool
-   *   TRUE when a lever file is present and must be left alone.
+   * @return array<string, string>
+   *   Destination under the project => the skill file, absolute, by
+   *   destination.
    */
-  public static function hasConfigFile(string $root): bool {
-    $path = rtrim($root, '/') . '/' . self::CONFIG_FILE;
-    return file_exists($path) || is_link($path);
+  public static function moduleSkills(string $root): array {
+    $docroot = CitationResolver::docroot($root);
+    $skills = [];
+    foreach ((new FilesystemModuleLocator($docroot))->modules() as $name => $module) {
+      if ($name !== 'droost' && !str_starts_with($name, 'droost_')) {
+        continue;
+      }
+      foreach (glob($docroot . '/' . $module['path'] . '/skills/*/SKILL.md') ?: [] as $entry) {
+        $skill = basename(dirname($entry));
+        if (preg_match('/^[a-z0-9][a-z0-9-]*$/', $skill) !== 1 || in_array('.claude/skills/' . $skill . '/SKILL.md', self::FILES, TRUE)) {
+          continue;
+        }
+        // The skill and the files it links (canvas-build's tree contract):
+        // its directory's own files, no deeper, none hidden.
+        foreach (glob(dirname($entry) . '/*') ?: [] as $file) {
+          if (is_file($file) && preg_match(self::SKILL_FILE, basename($file)) === 1) {
+            $skills['.claude/skills/' . $skill . '/' . basename($file)] ??= $file;
+          }
+        }
+      }
+    }
+    ksort($skills);
+    return $skills;
+  }
+
+  /**
+   * Whether a path is where a module's skill would be installed.
+   *
+   * @param string $destination
+   *   A path under the project.
+   *
+   * @return bool
+   *   TRUE for a file of `.claude/skills/<name>/` where the pack itself ships
+   *   no skill of that name.
+   */
+  public static function isModuleSkillPath(string $destination): bool {
+    return preg_match('#^\.claude/skills/([a-z0-9][a-z0-9-]*)/([^/]+)$#', $destination, $match) === 1
+      && preg_match(self::SKILL_FILE, $match[2]) === 1
+      && !in_array('.claude/skills/' . $match[1] . '/SKILL.md', self::FILES, TRUE);
   }
 
 }

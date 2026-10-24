@@ -14,70 +14,47 @@ against.
 
 ## Entry gate
 
-- `droost.workflow.yml` loads. If it does not, stop and report the error —
+- `droost/droost.yml` loads. If it does not, stop and report the error —
   it names the key that is wrong.
 - No run is already in progress, or you are deliberately resuming one. Check
   `droost/droost-workflow/run.json` — and read it: a `current_phase` of `null`
   means the run FINISHED (the file is its record, cleared with
-  `drush droost:workflow:reset`; a run that completes is archived as it
+  `droost workflow:reset`; a run that completes is archived as it
   completes, so this is a failed run or an older one), while a named phase
   means it is live.
 
 ## Work
 
-**Read the brief first.** `drush droost:brief` (on DDEV from the host,
-`ddev drush droost:brief`) prints this site's facts: Drupal and PHP versions,
-the site's case (`none`, `sdc` or `code` — whether Canvas is there and what
-its components are made of), the enabled custom and contrib modules, the
-content model, the themes, and the site's house rules. It is facts, not a way
-to build. How you build is yours to decide; the house rules are what the
-gates and the seeker hold the result to.
-
-**How to call droost.** Through MCP when the project wires droost's server
-(`mcp__droost__<id>`), or by command, with the same tools and the same record.
-By command there are two: `vendor/bin/droost` answers about the code and
-boots no Drupal; `drush droost:tool` answers about the live site. Either
-lists its tools with no argument, shows one with `<id> help`, and runs one
-with `<id> '<json>'`:
+**Consult the wiki and the tree, every plan.** droost answers from this
+project's files and its code index, with no running site:
 
 ```bash
-vendor/bin/droost droost_search '{"query":"rink listing"}'     # lexical: names and wiki text
-vendor/bin/droost droost_symbol '{"name":"NodeType"}'
-drush droost:tool droost_entities '{"entity_type_id":"node"}'  # the live content model
+droost code:wiki                    # how the site is put together, and every contrib module and theme it installs
+droost code:wiki <page>             # one page
+droost code:tree [module|path]      # the code's layout: files, classes, hooks, services, routes
+droost search:arch "<query>"        # the documentation: wiki pages, READMEs, module descriptions
 ```
 
-On DDEV, run both in the container (`ddev exec vendor/bin/droost …`, `ddev
-drush …`). Every call, through either door, is recorded in the run's
-tool-call ledger, and plan does not close until that ledger shows you looked
-(`plan_grounded`).
+`droost brief` prints the site's facts and its house rules; `droost
+code:symbol`, `code:graph`, `code:docs`, `code:deprecations` and `search:code`
+answer the narrower questions. Each is a knowledge call the ledger counts:
+`code:wiki`, `code:tree`, `search:arch`, `code:symbol`, `code:graph`,
+`code:docs`, `code:deprecations`, `search:code` and `brief`. (Installed in
+its own vendor directory, the command is `tools/droost/vendor/bin/droost`.)
+It is knowledge, not a way to
+build: how you build is yours to decide, and the house rules are what the
+gates and the seeker hold the result to.
 
 **Look first, propose second — and RECORD IT.** The most expensive mistake in
 this phase is describing a site that does not exist: a content type already
 there under another name, a route that is taken, a field you were about to
-duplicate. droost's index, its symbol graph and its wiki are built from this
-project's own code, core and contrib included, so asking is faster than
-walking the tree. These are the questions it answers, and each counts as a
-knowledge call:
-
-- `droost_brief` — the site's facts, as above.
-- `droost_wiki` — how this project is put together and how it documents
-  itself, its pages, whether they are still true, and the factsheet that
-  grounds a new one. On a site with no code of its own yet, it says so.
-- `droost_search` — what this codebase says, lexically and (if indexed)
-  semantically.
-- `droost_symbol` and `droost_graph` — a class, its callers and what it calls.
-- `droost_deprecations` — what not to reach for.
-- `droost_module_docs` — what an installed module already gives you.
-- `droost_capabilities` — what this site can actually do right now.
-- `droost_architecture` — how it is put together.
-- `droost_entities` and `droost_routes` — what already exists.
-- `droost_services` and `droost_db_schema` — the services and the tables
-  that exist, with a renamed service's modern name.
+duplicate, a contrib module that already does the job. Every droost call is
+recorded by droost itself in the run's tool-call ledger.
 
 **Plan does not close until it has looked.** The `plan_grounded` check holds
-the plan phase until the spec's `## Grounding` section cites things that
-resolve on this site, and the ledger shows droost's knowledge was asked during
-plan. It forces looking. It never says how to build.
+the plan phase until the ledger shows a `droost code:wiki` and a `droost
+code:tree` call this run, and the spec's `## Grounding` section cites things
+that resolve on this site. It forces looking. It never says how to build.
 
 Write a `## Grounding` section, one row per lookup: it is the record of what
 you asked and what came back.
@@ -93,22 +70,23 @@ you asked and what came back.
 ```
 
 **The `Evidence` column is checked, and it is the point of the table.** It
-is resolved against this site — its stores first, then the site itself — and
-the record says **which one answered**. Three forms, each tried in this
+is resolved against this project — the code index first, then the files —
+and the record says **which one answered**. Three forms, each tried in this
 order:
 
 | Form | Example | Resolves when |
 |---|---|---|
-| a class, interface or trait | `Drupal\node\Entity\NodeType` | the symbol graph or the brain holds it, **or the autoloader can load it** — so any class this site can actually run resolves, core included. A trailing `::method` is fine |
-| a file | `modules/contrib/views/views.module` | the search index carries it, **or it exists on disk**. Paths are **docroot-relative**: `modules/custom/x/x.info.yml`, never `web/modules/…` — the `web/` (or whatever the docroot is called) is stripped either way, but write it the way the index does |
+| a class, interface or trait | `Drupal\node\Entity\NodeType` | the code index holds it, **or its file is where PSR-4 puts it** (an extension's `src/`, core's `lib/`, the project's Composer map) — core included. A trailing `::method` is fine |
+| a file | `modules/contrib/views/views.module` | the code index carries it, **or it exists on disk**. Paths are **docroot-relative**: `modules/custom/x/x.info.yml`, never `web/modules/…` — the `web/` (or whatever the docroot is called) is stripped either way, but write it the way the index does |
 | a negative claim | `none: rink` | re-running the lookup still returns nothing. **A `plan` row that your own `code` phase makes true is recorded as superseded, not failed** — building the thing you said was absent is the job |
 
-At code, `grounding_check` resolves the table again. **A citation that
-resolves nowhere is reported, not fatal**, with one exception: **a tier you
-claim with nothing that resolves** stops the phase — you said you searched
-it, so show one thing the site can confirm. Prose in `Found` is what you say
-about yourself; the citation is what the site can confirm.
-(`strict_citations: true` on the gate makes any unresolvable cell fail.)
+`plan_grounded` resolves the table before plan closes. **A citation that
+resolves nowhere is reported, not fatal**, with two exceptions: **a tier you
+claim with nothing that resolves** holds the phase — you said you searched
+it, so show one thing the project can confirm — and **at least one citation
+must name something that exists**: a `none:` row alone resolves on any
+project. Prose in `Found` is what you say about yourself; the citation is
+what the project can confirm.
 
 **All three tiers, every phase that decides.** They answer different questions
 and are not interchangeable:
@@ -133,11 +111,10 @@ Then produce the spec:
    components, custom code — and **the approach**, including what you are
    deliberately NOT doing. Which tool, generator or hand-written file builds
    each is your call; droost does not prescribe one. Use whatever serves the
-   change: `drush generate`, droost's write tools (`droost_structure_create`,
-   `droost_views_compose`, `droost_config_set`, `droost_scaffold`), or your
-   own code.
+   change: `drush generate`, a recipe, configuration you export, or your own
+   code.
 3. **The house rules this change meets.** Read them in the brief, or with
-   `vendor/bin/droost-workflow rules`. Say how the change meets each one that
+   `droost workflow:rules`. Say how the change meets each one that
    applies. A rule judged by a gate is checked mechanically; a rule judged by
    the seeker is read against your diff, and a break is HIGH. An exception is
    the OPERATOR's to grant: ask, and record their answer in the spec.
@@ -155,7 +132,7 @@ Then produce the spec:
      here checks it, and nothing will block you for it.
 
    ```bash
-   vendor/bin/droost-workflow declare-changes \
+   droost workflow:declare-changes \
      --files=web/themes/custom/mytheme,config/sync/system.site.yml \
      --tests=MyThemeSafeUrlTest \
      --type=theme
@@ -178,11 +155,10 @@ Then produce the spec:
    | `mixed` | honestly several of the above |
 
    Hyphens are fine (`content-model` works). The type decides which gates must
-   have actually MEASURED something before the test phase ends — a
-   content-model run rests on `config_clean` and `rendered_check`, and one of
-   those passing over an empty path set has not checked what the ticket is
-   about. It never turns a gate OFF; the mandatory trio is the operator's dial,
-   not yours.
+   have actually MEASURED something before the test phase ends — a `code` or
+   `mixed` run rests on phpcs, phpstan and phpunit, and one of those passing
+   over an empty path set has not checked what the ticket is about. It never
+   turns a gate OFF; the mandatory trio is the operator's dial, not yours.
 
    **When to run it:** after the PLAN phase has advanced, and before you write
    anything. Not earlier: this verb needs a run to declare against, and the run
@@ -223,13 +199,12 @@ Then produce the spec:
    row a `Check` saying how:
 
    - `rendered`: the default for anything on a page. Fetch the page and
-     read it (`curl -sL <site>/<route>`), and run `drush
-     droost:workflow:render-probe <route>` to see whether it renders
-     cleanly. No browser.
+     read it (`curl -sL <site>/<route>`: `-L`, since a node path redirects to
+     its alias). No browser.
    - `browser`: only where a page must be driven (a click, a form,
      JavaScript): the run's browser and a snapshot.
    - `test`: its own test, written in code and run on its own.
-   - `command`: a drush or shell command, and the output to expect.
+   - `command`: a shell command (drush included), and the output to expect.
    - `manual`: a human looks; say why nothing else can.
 
    Give the table a `Verified By` column NOW, left empty: test fills it with
@@ -239,12 +214,12 @@ Then produce the spec:
    engine counts rows:
 
    ```bash
-   vendor/bin/droost-workflow declare-criterion AC-1 \
+   droost workflow:declare-criterion AC-1 \
      "When a visitor opens /rinks, the site shall list every published rink"
    ```
 
    Code then records what proves each one as it checks it —
-   `verify-criterion AC-1 "RinkListTest::testEveryPublished"`, or
+   `droost workflow:verify-criterion AC-1 "RinkListTest::testEveryPublished"`, or
    `verify-criterion AC-1 "manual — checked at 390px"` where a human looked.
    Verifying a ref nobody declared is refused, and it is the ONLY refusal on
    this surface: declare the promise, then prove it, in that order. A
@@ -256,35 +231,38 @@ Then produce the spec:
    because a test that proved the old wording does not prove the new one.
 
 6. **A `## Routes` section — expected, and its absence is RECORDED.** What
-   the gate actually renders is `declare-route` rows (below); the section is
-   the fallback and the human's copy. The paths this change adds or alters,
-   one per line, as the site serves them (`/camps`, `/camps/summer-skills` —
-   never a node id). `rendered_check` renders every one of them at test and
-   at complete, beside the front page, and the report names which source
-   each route came from. A change that touches no route writes `none —
-   <why>`; that is recorded as "the spec declared none", which is a
-   different fact from "nobody asked".
+   the run records is `declare-route` rows (below); the section is the
+   fallback and the human's copy. The paths this change adds or alters, one
+   per line, as the site serves them (`/camps`, `/camps/summer-skills` —
+   never a node id). The seeker, the browser check and the report read them,
+   and a project's own gate that requests pages can too. A change that
+   touches no route writes `none — <why>`; that is recorded as "the spec
+   declared none", which is a different fact from "nobody asked".
 
    **DECLARE EACH ROUTE, once the run exists.** The section is for a human;
-   the gate renders rows:
+   the run records rows:
 
    ```bash
-   vendor/bin/droost-workflow declare-route /rinks "the new listing"
-   vendor/bin/droost-workflow declare-route /pepsi-ice-midwest
+   droost workflow:declare-route /rinks "the new listing"
+   droost workflow:declare-route /pepsi-ice-midwest
    ```
 
    Repeatable, idempotent, and it must begin with `/`. Once a run has
    declared anything, the document is not read for routes at all — two
    sources for one fact is a disagreement waiting to happen.
 
-   **The gate renders as an anonymous visitor.** A page only some users may
-   see (an admin listing, a members-only page) is declared with the refusal
-   an anonymous visitor must get, and the gate then checks it refuses: a
-   page declared `--status=403` that renders for anyone fails as public.
+   **A route is declared as an anonymous visitor meets it.** A page only some
+   users may see (an admin listing, a members-only page) is declared with the
+   refusal an anonymous visitor must get (`--status=403`), so whoever checks
+   it checks that it refuses.
 
    ```bash
-   vendor/bin/droost-workflow declare-route /admin/content/registrations --status=403 "editors only"
+   droost workflow:declare-route /admin/content/registrations --status=403 "editors only"
    ```
+
+   A page that sends an anonymous visitor elsewhere is declared with its
+   redirect (`--status=303`), and one held back until an editor publishes it
+   with `--status=404` (`410` once it is gone for good).
 
    In the section it is `/admin/content/registrations (403)`. Declaring a
    path again replaces its expectation, so a route declared bare that turns
@@ -317,17 +295,16 @@ Then produce the spec:
    `webform`, `route`, `config_form` or `list_builder`.
 
    ```bash
-   vendor/bin/droost-workflow declare-route / --kind=page --owner=canvas_page "the home page"
-   vendor/bin/droost-workflow declare-route /rinks --kind=collection --owner=view_page "the directory"
-   vendor/bin/droost-workflow declare-route /rinks/pepsi-ice-midwest --kind=detail --owner=entity_view_display
+   droost workflow:declare-route / --kind=page --owner=canvas_page "the home page"
+   droost workflow:declare-route /rinks --kind=collection --owner=view_page "the directory"
+   droost workflow:declare-route /rinks/pepsi-ice-midwest --kind=detail --owner=entity_view_display
    ```
 
-   `composition_check` reads what really builds each declared page, at code.
-   **A declaration that is false fails**: that is the record, and it must be
-   true. Whether the owner you chose is one the site's rules allow is the
-   house rules' question: on a site whose rules are in `block` mode, a page
-   built by an owner they do not allow fails the gate; in `report` mode the
-   break is recorded. An exception is the OPERATOR's to grant.
+   The declaration is the record, and it must be true: the seeker reads it
+   against the diff. Whether the owner you chose is one the site's rules
+   allow is the house rules' question: a rule judged by a gate is checked
+   mechanically, one judged by the seeker is read against your diff. An
+   exception is the OPERATOR's to grant.
 
 The spec's WEIGHT follows the run's preset — read the frozen, canonical name
 from run.json — and the weight is DEPTH, never format. The five-point dial
@@ -342,11 +319,11 @@ presented back in chat at complete.
 
 **Plan only the capture your level makes.** Complete's capture follows the
 same frozen preset. At **`low`** complete writes
-**no wiki pages** (`wiki_fresh` is off), so planning a
-`droost_wiki_write` page is a promise the level forbids you to keep: plan the
-change's documentation in the spec's `## Realized` section and the READMEs.
-From **`medium`** up complete writes a page through `droost_wiki_write` for
-every custom module or theme the change touches, and the plan says so.
+**no wiki pages** (`wiki_fresh` is off), so planning a wiki page is a
+promise the level forbids you to keep: plan the change's documentation in
+the spec's `## Realized` section and the READMEs. From **`medium`** up
+complete writes or refreshes a page in `droost/wiki/` for every custom
+module or theme the change touches, and the plan says so.
 
 One spec format everywhere is what the seeker checkpoint grades against;
 a criterion-free sketch would give the adversarial reviewer nothing to hold
@@ -355,9 +332,9 @@ trims depth, never the discipline. The `workflow-researcher` agent grounds the
 facts and `workflow-spec-writer` drafts the artefact at either weight; review
 what it drafted rather than rubber-stamping it.
 
-## When intake already wrote the spec
+## When a work-item command already wrote the spec
 
-A work-item command (`/droost:work <KEY>`) may have written
+A project's own work-item command (a tracker bridge's, say) may have written
 `droost/droost-workflow/spec-<KEY>.md` before this phase began: the request,
 the agreed acceptance criteria, the testing expectations, the track. That file
 is the run's document — extend it with the grounding, the approach and the
@@ -372,22 +349,22 @@ acceptance criterion is observable. If you cannot say how a criterion would be
 checked, rewrite it until you can.
 
 The engine runs no shell gates at this phase. It runs one check,
-`plan_grounded`: plan waits until the spec's Grounding citations resolve and
-the ledger shows droost's knowledge was asked during plan. Static analysis
+`plan_grounded`: plan waits until the ledger shows `droost code:wiki` and
+`droost code:tree` were consulted and the spec's Grounding citations resolve. Static analysis
 first fires at code, on code that exists.
 
-In pair mode the run pauses here and asks before continuing — even though no
+In interactive mode the run pauses here and asks before continuing — even though no
 gates ran. That is the cheapest moment in the whole pipeline to be told you
 understood the request wrong.
 
 ## Without a site
 
-Every droost tool above reaches a running Drupal site through drush. With no
-site — a plain checkout, or one that is mid-build — none of them answer, and
-`plan_grounded` cannot see a knowledge call.
-
-Say so in the spec. Write what you could not verify as an explicit
-assumption, so the code phase knows which of its foundations are guesses.
+droost reads the project's files and its code index, so it answers with the
+site down. What it cannot tell you is the running site's state: the active
+configuration, the content, what a page renders today. Ask the site for those
+yourself (drush, the browser); when you cannot, say so in the spec. Write
+what you could not verify as an explicit assumption, so the code phase knows
+which of its foundations are guesses.
 Do not substitute a plausible answer for a fact you could not check: a spec
 that quietly invents the site's current state is worse than one that admits
 it is working blind.

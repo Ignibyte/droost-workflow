@@ -47,7 +47,7 @@ final class DeclarationAudit {
    * `.claude/` and the lever file are here because leaving them out made this
    * audit punish the one thing it exists to reward. A reviewer declared its
    * files honestly and was blocked at code over THIRTY-ONE undeclared paths,
-   * every one of them written by `droost-workflow init` itself: the five agent
+   * every one of them written by `droost init` itself: the five agent
    * briefs, four commands, the guard hook, settings.json, six skills and their
    * pack markers, the evaluation template, .gitignore and droost.workflow.yml.
    * Declaring nothing skipped the audit entirely and completed in half the
@@ -105,7 +105,7 @@ final class DeclarationAudit {
   private const array NEVER_CREEP = [
     'droost/droost-workflow/',
     '.droost-workflow/',
-    // Everything `droost-workflow init` writes, plus the lever file the briefs
+    // Everything `droost init` writes, plus the lever file the briefs
     // tell the agent to edit.
     //
     // This exemption is only safe because the GUARD refuses the parts of
@@ -114,6 +114,8 @@ final class DeclarationAudit {
     // held to. The two rules are load-bearing together: loosen either and
     // an agent can rewrite its own brief mid-run with nothing saying so.
     '.claude/',
+    'droost/droost.yml',
+    // The root lever file a project keeps until `droost migrate` moves it.
     'droost.workflow.yml',
     // Init appends its ignore rule here.
     '.gitignore',
@@ -573,7 +575,7 @@ final class DeclarationAudit {
             ),
           $missed === [] ? NULL : sprintf(
             '%s If the declared work type is wrong for this diff, '
-            . '`droost-workflow declare-changes --type=<type>` is the other answer.',
+            . '`droost workflow:declare-changes --type=<type>` is the other answer.',
             GateRemedy::measuredNothing($missed[0]),
           ),
         );
@@ -640,9 +642,9 @@ final class DeclarationAudit {
       $untouched = array_map(self::normalise(...), $this->untouchedScaffolds);
       $anyTests = array_values(array_filter($subject, static fn (string $file): bool => self::isTestFile($file)));
       $generated = array_values(array_filter($anyTests, static fn (string $file): bool => in_array(self::normalise($file), $untouched, TRUE)));
-      // AND A TEST DRUSH GENERATED, which no record names (F-77). The router
-      // sends a unit test to `drush generate test:unit`, whose only test
-      // asserts TRUE, so the placeholder is read off the file itself.
+      // AND A TEST DRUSH GENERATED, which no record names (F-77). A unit test
+      // is made with `drush generate test:unit`, whose only test asserts
+      // TRUE, so the placeholder is read off the file itself.
       $placeholders = array_values(array_filter(
         array_diff($anyTests, $generated),
         fn (string $file): bool => $this->isGeneratorPlaceholder($file),

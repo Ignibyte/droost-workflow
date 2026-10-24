@@ -47,6 +47,14 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   public const EXIT_KILLED = 124;
 
   /**
+   * The exit code a project's gate file gives when it examined nothing.
+   *
+   * Read as a labelled pass (F-340): the file ran, and there was nothing for
+   * it to judge, which the record must not show as a measured pass.
+   */
+  public const EXIT_EXAMINED_NOTHING = 4;
+
+  /**
    * What counts as analysable, per gate that accepts a `paths` lever.
    *
    * Used only to tell "this path holds nothing for the tool" from "the tool
@@ -231,20 +239,6 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   }
 
   /**
-   * Shell gates whose tool being absent means "no site", not "broken setup".
-   *
-   * `GateRunner::SITE_GATES` is about gates that need a booted kernel
-   * IN-PROCESS, and it dispatches them to the site driver. This is the other
-   * kind: an ordinary shell command that happens to ask a site. No drush on a
-   * bare checkout is not a misconfigured environment — it is the same absence
-   * `rendered_check` reports, and it must give the same answer, because
-   * `skipped-no-site` lets a phase advance and `error-tool-missing` does not.
-   *
-   * @var list<string>
-   */
-  private const array SITE_SHELL_GATES = ['wiki_fresh'];
-
-  /**
    * Constructs a ShellGateExecutor.
    *
    * @param callable(list<string>, string, int): array{int, string, string} $runner
@@ -258,11 +252,15 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   compared.
    * @param int $timeout
    *   Seconds before a gate is killed.
+   * @param string|null $droost
+   *   The droost binary the gates that ask droost run; NULL finds it (the
+   *   project's vendor/bin/droost, else this package's own).
    */
   public function __construct(
     private readonly mixed $runner,
     private readonly mixed $clock,
     private readonly int $timeout = self::DEFAULT_TIMEOUT,
+    private readonly ?string $droost = NULL,
   ) {}
 
   /**
@@ -427,7 +425,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         $gate->name,
         1,
         sprintf('gates.%s.scope is %s', $gate->name, var_export($scope, TRUE)),
-        sprintf('gates.%s.scope takes ticket (the files this run changed) or full (the whole configured set). Correct it in droost.workflow.yml; nothing ran.', $gate->name),
+        sprintf('gates.%s.scope takes ticket (the files this run changed) or full (the whole configured set). Correct it in droost/droost.yml; nothing ran.', $gate->name),
         sprintf('gates.%s.scope', $gate->name),
       );
     }
@@ -622,7 +620,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $gate->name,
       sprintf('gates.%s.root is %s, which is not a directory inside the project', $gate->name, var_export($gate->option('root'), TRUE)),
       sprintf(
-        'gates.%s.root names the Composer project the tool runs in, relative to the project root (for example `site`), and it must be a directory inside it. Correct it in droost.workflow.yml; nothing ran.',
+        'gates.%s.root names the Composer project the tool runs in, relative to the project root (for example `site`), and it must be a directory inside it. Correct it in droost/droost.yml; nothing ran.',
         $gate->name,
       ),
     );
@@ -725,8 +723,12 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   when every configured path holds nothing the tool reads.
    */
   private function prepare(GateSettings $gate, string $root): array {
-    $binary = $this->binaryFor($gate->name);
-    $argv = $this->argvFor($gate, $root . '/' . $binary, $root);
+    $binary = match ($gate->name) {
+      'wiki_fresh' => $this->droost ?? self::droostBinary($root),
+      'parity' => self::parityBinary($root),
+      default => $root . '/' . $this->binaryFor($gate->name),
+    };
+    $argv = $this->argvFor($gate, $binary, $root);
     // NULL when the gate carries no paths lever (the tool discovers the
     // repo's own config); a list otherwise — possibly empty, see below.
     $scoped = $this->scopedPaths($gate, $root);
@@ -761,7 +763,103 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       }
       $argv = array_merge($argv, $scoped);
     }
-    return ['binary' => $root . '/' . $binary, 'argv' => $argv, 'scoped' => $scoped];
+    return ['binary' => $binary, 'argv' => $argv, 'scoped' => $scoped];
+  }
+
+  /**
+   * The first non-empty line of a tool's output, trimmed and capped.
+   *
+   * @param string $text
+   *   The output.
+   *
+   * @return string
+   *   The line, or "no output".
+   */
+  private static function firstLine(string $text): string {
+    foreach (preg_split('/\R/', self::withoutAnsi($text)) ?: [] as $line) {
+      if (trim($line) !== '') {
+        return mb_substr(trim($line), 0, 300);
+      }
+    }
+
+    return 'no output';
+  }
+
+  /**
+   * The last non-empty line of a project gate file's stdout, trimmed, capped.
+   *
+   * A gate file's verdict is the line it prints last: the tool it wraps
+   * prints first (gitleaks' log, a Python warning from semgrep), and the
+   * first line put that noise in the summary instead of the verdict
+   * (F-317).
+   *
+   * @param string $text
+   *   The output.
+   *
+   * @return string
+   *   The line, or "no output".
+   */
+  private static function lastLine(string $text): string {
+    $lines = array_reverse(preg_split('/\R/', self::withoutAnsi($text)) ?: []);
+    foreach ($lines as $line) {
+      if (trim($line) !== '') {
+        return mb_substr(trim($line), 0, 300);
+      }
+    }
+
+    return 'no output';
+  }
+
+  /**
+   * The text with terminal colour and cursor codes taken out.
+   *
+   * @param string $text
+   *   The text.
+   *
+   * @return string
+   *   The text, plain.
+   */
+  private static function withoutAnsi(string $text): string {
+    return (string) preg_replace('/\x1B\[[0-9;?]*[ -\/]*[@-~]/', '', $text);
+  }
+
+  /**
+   * The droost binary a gate that asks droost runs.
+   *
+   * The project's `vendor/bin/droost` when it has one; otherwise this
+   * package's own, wherever it is installed (its own `tools/droost/` vendor
+   * directory): the gate asks the droost that is running it.
+   *
+   * @param string $root
+   *   The project root.
+   *
+   * @return string
+   *   The absolute path.
+   */
+  private static function droostBinary(string $root): string {
+    $project = $root . '/vendor/bin/droost';
+
+    return is_file($project) ? $project : dirname(__DIR__, 2) . '/bin/droost';
+  }
+
+  /**
+   * The parity runner: the project's, else this package's own (F-344).
+   *
+   * The droost command installs in its own vendor directory
+   * (`tools/droost/`), so a project has no `vendor/bin/droost-parity` and the
+   * gate read "could not run" on every run. The runner ships in this package,
+   * as droost does.
+   *
+   * @param string $root
+   *   The project root.
+   *
+   * @return string
+   *   The absolute path.
+   */
+  public static function parityBinary(string $root): string {
+    $project = $root . '/vendor/bin/droost-parity';
+
+    return is_file($project) ? $project : dirname(__DIR__, 2) . '/bin/droost-parity';
   }
 
   /**
@@ -796,7 +894,6 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     }
     $gate = $ticketed;
     $prepared = $this->prepare($gate, $root);
-    $binary = substr($prepared['binary'], strlen($root) + 1);
     $argv = $prepared['argv'];
     $scoped = $prepared['scoped'];
     $baseline = $context?->baseline;
@@ -859,31 +956,19 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         0,
         0,
         sprintf(
-          'parity passed — no reference in %s, so no page was compared (capture one with `vendor/bin/droost-parity capture --source <url> --routes /,…`)',
+          'parity passed — no reference in %s, so no page was compared (capture one with `tools/droost/vendor/bin/droost-parity capture --source <url> --routes /,…`)',
           self::parityReference($gate),
         ),
         $invocation,
       );
     }
 
-    if (!is_file($root . '/' . $binary)) {
-      // A gate whose tool IS a site, asked on a checkout that has none.
-      // `wiki_fresh` runs `drush droost:wiki:status`, so no drush here means no
-      // site to ask — which is the same answer `rendered_check` gives, and it
-      // must not be a different one. As `toolMissing` it BLOCKED, at complete,
-      // which is the last phase; levers freeze at begin so turning it off then
-      // does not help; and the only way out was `reset --force` and redoing
-      // three phases. No standalone run could finish at the levers `init`
-      // itself writes.
-      //
-      // The first attempt at this moved the gate into `GateRunner::SITE_GATES`,
-      // which dispatches to the site driver — and `DrupalSiteDriver` names
-      // three gates, so on a real site it became `toolMissing` there instead.
-      // Same wall, worse surface. The question belongs here, where the binary
-      // is looked for.
-      if (in_array($gate->name, self::SITE_SHELL_GATES, TRUE)) {
-        return GateResult::skippedNoSite($gate->name);
-      }
+    if (!is_file($prepared['binary'])) {
+      // wiki_fresh's tool is droost itself, which falls back on its own
+      // binary (droostBinary()), so an absent one is a broken install: it
+      // blocks like any gate whose tool is missing. It used to read
+      // `skipped-no-site` and let the phase advance unmeasured; that status
+      // left with the Drupal site it named (2026-10-21).
       // PLAYWRIGHT IS THE ONE EXCEPTION, and it is a deliberate one. Since
       // the browser check moved from a Playwright MCP call to a committed
       // spec file, this gate is ON at every preset — a run must leave a
@@ -914,6 +999,13 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
           $invocation,
         );
       }
+      if ($gate->name === 'wiki_fresh') {
+        return GateResult::toolMissing(
+          $gate->name,
+          $invocation,
+          'droost is not where this gate looked for it, so the wiki was not read. Reinstall droost (`composer install -d tools/droost`), then the phase again; if that cannot be done now, the OPERATOR can waive the gate from a terminal (`droost workflow:gate-waive wiki_fresh "<reason>"`).',
+        );
+      }
       // A missing tool outranks an empty scope: the environment being broken
       // is true whether or not there is anything to analyse yet.
       return GateResult::toolMissing($gate->name, $invocation);
@@ -926,8 +1018,8 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       // running bare phpunit against a root with neither would let the tool
       // error and the error read as a failing suite. Config-missing is the
       // same honesty class as tool-missing: the environment cannot run the
-      // gate it was told to run. On a Drupal site,
-      // `drush droost:workflow:install` writes the file this looks for.
+      // gate it was told to run. drupal/droost's drush installer once wrote
+      // the file this looks for; nothing in droost does now.
       return GateResult::toolMissing(
         $gate->name,
         $invocation
@@ -936,10 +1028,10 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
           'phpunit IS installed — what is missing is its configuration, so '
           . '`composer require --dev phpunit/phpunit` will change nothing. '
           . 'Write a phpunit.xml (or phpunit.xml.dist) at the project root '
-          . 'naming the bootstrap and the test suites; on a Drupal site '
-          . '`drush droost:workflow:install` writes one for you. If this '
+          . 'naming the bootstrap and the test suites; on a Drupal site, '
+          . 'core\'s `core/phpunit.xml.dist` is the usual starting point. If this '
           . 'project has no suite yet, that is the OPERATOR\'s call: '
-          . '`gates.%s.on: false` in droost.workflow.yml.',
+          . '`gates.%s.on: false` in droost/droost.yml.',
           $gate->name,
         ),
       );
@@ -962,7 +1054,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         . '{"source": {"directories": ["web/modules/custom"]}}; infection runs '
         . 'the suite the phpunit.xml there describes. If this project has '
         . 'nothing to mutate yet, that is the OPERATOR\'s call: '
-        . '`gates.mutation.on: false` in droost.workflow.yml.',
+        . '`gates.mutation.on: false` in droost/droost.yml.',
       );
     }
 
@@ -1001,7 +1093,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         $gate->name,
         $exit,
         sprintf('killed after %ds — the gate\'s timeout', $this->timeoutFor($gate)),
-        sprintf('raise gates.%s.timeout (seconds) in droost.workflow.yml, or narrow what the tool scans; the tool produced no verdict.', $gate->name),
+        sprintf('raise gates.%s.timeout (seconds) in droost/droost.yml, or narrow what the tool scans; the tool produced no verdict.', $gate->name),
         $invocation,
       );
     }
@@ -1059,7 +1151,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         . 'reaches it: ask the OPERATOR to enable pcov (or xdebug with '
         . 'xdebug.mode=coverage) for the PHP that runs the gates; `php -m | '
         . 'grep -iE "xdebug|pcov"` confirms it. If this project does not '
-        . 'mutation-test, `gates.mutation.on: false` in droost.workflow.yml. '
+        . 'mutation-test, `gates.mutation.on: false` in droost/droost.yml. '
         . 'This says nothing about the tests.',
         $exit,
         $elapsed,
@@ -1124,26 +1216,19 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       );
     }
 
-    // A site gate whose tool is PRESENT but has no site to ask. `wiki_fresh`
-    // runs `drush droost:wiki:status`, and a checkout with drush in vendor/ and
-    // no bootable Drupal gives:
-    //
-    //     PHP Fatal error: Uncaught AssertionError:
-    //     assert($this->bootstrap instanceof DrupalBoot8)
-    //
-    // which the gate recorded as `failed` — the last phase, blocking, on a
-    // surface that has no site to give it. The missing-binary branch above only
-    // answers the case where drush is absent entirely, and vendor/bin/drush is
-    // present in most Drupal checkouts whether or not a site is bootable. Same
-    // absence, two spellings, and only one was answered.
-    if (in_array($gate->name, self::SITE_SHELL_GATES, TRUE)
-      && $exit !== 0
-      && preg_match(
-        '/DrupalBoot|bootstrap|Could not find a Drupal settings\.php|'
-        . 'Unable to .{0,20}bootstrap|no Drupal (site|root)|DRUSH_BOOTSTRAP/i',
-        $stdout . $stderr,
-      ) === 1) {
-      return GateResult::skippedNoSite($gate->name);
+    // `droost code:wiki status` exits 3 when it could not run (no project it
+    // can read, an index it cannot open): the gate did not run. That is a
+    // broken environment, and it blocks like any gate that could not measure,
+    // never a pass or a stale wiki. It used to read `skipped-no-site`, which
+    // let the phase advance with the wiki unread (2026-10-21).
+    if ($gate->name === 'wiki_fresh' && $exit === 3) {
+      return GateResult::toolFailed(
+        $gate->name,
+        $exit,
+        'droost code:wiki status: ' . self::firstLine($stderr !== '' ? $stderr : $stdout),
+        'run `droost code:index` (and `droost doctor` to see what droost cannot read), then the phase again; the wiki was not read, so this is not a pass. If the environment cannot be fixed now, the OPERATOR can waive the gate from a terminal (`droost workflow:gate-waive wiki_fresh "<reason>"`).',
+        $invocation,
+      );
     }
 
     // Phpcs handed nothing to check. BEFORE the baseline partition, because
@@ -1347,10 +1432,10 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     if ($summary === NULL && $exit === 127) {
       // The runner is a Node script: no Node, and the shell says 127 before
       // the runner can say anything. The same honesty as a missing browser.
-      return GateResult::ran($gate->name, GateStatus::Reported, $exit, $elapsed, 'parity could not run: no Node to run vendor/bin/droost-parity with, so no page was compared', [], $invocation);
+      return GateResult::ran($gate->name, GateStatus::Reported, $exit, $elapsed, 'parity could not run: no Node to run droost-parity with, so no page was compared', [], $invocation);
     }
     if ($summary === NULL) {
-      return GateResult::toolFailed($gate->name, $exit, 'the runner printed no verdict', 'run `vendor/bin/droost-parity judge` in the project root to see why', $invocation);
+      return GateResult::toolFailed($gate->name, $exit, 'the runner printed no verdict', 'run `droost-parity judge` (tools/droost/vendor/bin/droost-parity) in the project root to see why', $invocation);
     }
     $said = is_string($summary['summary'] ?? NULL) ? $summary['summary'] : '';
     $routes = is_array($summary['routes'] ?? NULL) ? $summary['routes'] : [];
@@ -1388,6 +1473,30 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   private static function parityPages(GateSettings $gate): array {
     $pages = $gate->option('pages');
     return is_string($pages) && trim($pages) !== '' ? ['--pages', trim($pages)] : [];
+  }
+
+  /**
+   * The `--routes` a parity judgement takes, or none.
+   *
+   * The routes built so far (F-354). A roadmap that builds a page a rung
+   * failed parity on every page not built yet, because the runner judged
+   * every route its reference holds; with the lever set, the runner judges
+   * these and names every other route as not judged, never as passed.
+   * `droost workflow:intake routes <rung>` reads them off the approved
+   * roadmap. Unset, every route the reference holds is judged, as before.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate's resolved levers.
+   *
+   * @return list<string>
+   *   `--routes` and the routes, or nothing when the lever names none.
+   */
+  private static function parityRoutes(GateSettings $gate): array {
+    $routes = $gate->option('routes');
+    if (!is_string($routes) || trim($routes) === '') {
+      return [];
+    }
+    return ['--routes', (string) preg_replace('/\s*,\s*/', ',', trim($routes))];
   }
 
   /**
@@ -1535,13 +1644,13 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   /**
    * What the wiki gate looked at, said in its verdict.
    *
-   * The exit code still decides: drush fails on any stale, orphaned or invalid
-   * page. But "wiki_fresh passed" was the entire record. In P6 run 3 it stood
-   * over one page written that same run while three extensions had none, and
-   * the status command put that in a note nothing kept. Without `--strict` an
-   * uncovered extension never fails, so the summary names them. A wiki with no
-   * managed page is fresh only by vacuity and measured nothing, so it is a
-   * labelled pass, as phpunit's NO TESTS RAN is.
+   * The exit code still decides: `droost code:wiki status` fails on any stale,
+   * orphaned or invalid page. But "wiki_fresh passed" was the entire record. In
+   * P6 run 3 it stood over one page written that same run while three
+   * extensions had none, and the status command put that in a note nothing
+   * kept. Without `--strict` an uncovered extension never fails, so the summary
+   * names them. A wiki with no managed page is fresh only by vacuity and
+   * measured nothing, so it is a labelled pass, as phpunit's NO TESTS RAN is.
    *
    * @param int $exit
    *   The exit code.
@@ -1876,6 +1985,140 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   }
 
   /**
+   * Runs a project's gate file, and reads its exit code as the verdict.
+   *
+   * The contract (droost/droost.yml `gates.<id>.run`): the file runs as its
+   * own process from the project root — `php <file>` for a .php file, the
+   * file itself otherwise — with the run's JSON on stdin and
+   * DROOST_PROJECT_ROOT and DROOST_GATE in its environment. Exit 0 passed,
+   * exit 1 failed, and the output is the gate's report. Exit 4 is the file
+   * saying it ran and examined nothing (no file it reads, nothing to check):
+   * a labelled pass, as droost's own gates give an empty scope, never a
+   * plain one (F-340). Anything else is the
+   * gate saying it could not judge (exit 3 is how a gate says so on purpose):
+   * a missing file, one that is not executable, a crash, a timeout or any
+   * other exit is recorded as NOT RUN with its reason, never as passed — a
+   * blocking gate that could not run holds its phase, as a tool that could
+   * not run always has.
+   *
+   * @param \Droost\Workflow\Config\GateSettings $gate
+   *   The gate.
+   * @param string $root
+   *   The project root.
+   * @param string $run
+   *   The gate's file, relative to the root.
+   *
+   * @return \Droost\Workflow\Gate\GateResult
+   *   The verdict.
+   */
+  private function executeRuleFile(GateSettings $gate, string $root, string $run): GateResult {
+    $id = GateSettings::isCustom($gate->name) ? substr($gate->name, strlen(GateSettings::CUSTOM_PREFIX)) : $gate->name;
+    $invocation = 'run ' . $run;
+    $file = rtrim($root, '/') . '/' . $run;
+    $php = str_ends_with($run, '.php');
+    if (!is_file($file)) {
+      return GateResult::toolMissing(
+        $gate->name,
+        $invocation . ' (the file is not there)',
+        sprintf('The %1$s gate runs %2$s, and there is no such file in the project, so nothing was judged. Write it, or ask the OPERATOR to correct `gates.%3$s.run` in droost/droost.yml or turn the gate off with `gates.%3$s.on: false`.', $gate->name, $run, $id),
+      );
+    }
+    if (!$php && !is_executable($file)) {
+      return GateResult::toolMissing(
+        $gate->name,
+        $invocation . ' (the file is not executable)',
+        sprintf('The %1$s gate runs %2$s, which is neither a .php file nor executable, so nothing was judged. `chmod +x %2$s`, or make it a .php file.', $gate->name, $run),
+      );
+    }
+    $context = $gate->option('context');
+    $decoded = is_string($context) ? json_decode($context, TRUE) : NULL;
+    $payload = [
+      'gate' => $id,
+      'project_root' => rtrim($root, '/'),
+      'phases' => array_values(array_filter(explode(',', (string) $gate->option('phase')))),
+    ] + (is_array($decoded) ? $decoded : []);
+    $input = tempnam(sys_get_temp_dir(), 'droost-gate-');
+    if ($input === FALSE || @file_put_contents($input, (string) json_encode($payload, JSON_UNESCAPED_SLASHES)) === FALSE) {
+      return GateResult::toolFailed($gate->name, 1, 'its input could not be written', 'the temporary directory is not writable; the gate was not run.', $invocation);
+    }
+    $argv = $php
+      ? [
+        '/bin/sh',
+        '-c',
+        'DROOST_PROJECT_ROOT="$2" DROOST_GATE="$3" exec "$0" "$4" < "$1"',
+        PHP_BINARY,
+        $input,
+        rtrim($root, '/'),
+        $id,
+        $file,
+      ]
+      : [
+        '/bin/sh',
+        '-c',
+        'DROOST_PROJECT_ROOT="$2" DROOST_GATE="$3" exec "$0" < "$1"',
+        $file,
+        $input,
+        rtrim($root, '/'),
+        $id,
+      ];
+    $started = $this->tick();
+    try {
+      /** @var array{int, string, string} $outcome */
+      $outcome = ($this->runner)($argv, $root, $this->timeoutFor($gate));
+    }
+    finally {
+      @unlink($input);
+    }
+    [$exit, $stdout, $stderr] = $outcome;
+    $this->lastStdout = $stdout;
+    $this->lastStderr = $stderr;
+    $elapsed = $this->tick() - $started;
+
+    if ($exit === 0 || $exit === 1) {
+      $findings = $exit === 0 ? [] : self::customFindings($stdout, $stderr);
+      return GateResult::ran(
+        $gate->name,
+        $exit === 0 ? GateStatus::Passed : GateStatus::Failed,
+        $exit,
+        $elapsed,
+        $exit === 0
+          ? sprintf('%s passed — %s', $gate->name, self::lastLine($stdout !== '' ? $stdout : 'its file exited 0'))
+          : sprintf('%s failed (exit 1): %s', $gate->name, self::lastLine($stdout !== '' ? $stdout : $stderr)),
+        $findings,
+        $invocation,
+      );
+    }
+    if ($exit === self::EXIT_EXAMINED_NOTHING) {
+      return GateResult::labelledPass(
+        $gate->name,
+        $exit,
+        $elapsed,
+        sprintf('%s passed — it ran and examined nothing: %s', $gate->name, self::lastLine($stdout !== '' ? $stdout : 'its file exited 4')),
+        $invocation,
+      );
+    }
+    if ($exit === 127) {
+      return GateResult::toolMissing($gate->name, $invocation, sprintf('The %s gate\'s file could not be started (exit 127): %s', $gate->name, self::firstLine($stderr)), $exit, $elapsed);
+    }
+    if ($exit === self::EXIT_KILLED) {
+      return GateResult::toolFailed(
+        $gate->name,
+        $exit,
+        sprintf('killed after %ds — the gate\'s timeout; it did not run to a verdict', $this->timeoutFor($gate)),
+        sprintf('raise gates.%s.timeout (seconds), or make the file faster; it produced no verdict.', $id),
+        $invocation,
+      );
+    }
+    return GateResult::toolFailed(
+      $gate->name,
+      $exit,
+      sprintf('did not run to a verdict: %s', self::firstLine($stderr !== '' ? $stderr : $stdout)),
+      sprintf('A gate file answers 0 (passed), 1 (failed) or 4 (examined nothing); exit %d is the file saying it could not judge, or a crash. Nothing was judged, and this is not a pass.', $exit),
+      $invocation,
+    );
+  }
+
+  /**
    * Runs a custom gate: the repo's own command, exit zero passes.
    *
    * The command is a single line from the repo's own lever file — the same
@@ -1894,6 +2137,10 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   The verdict.
    */
   private function executeCustom(GateSettings $gate, string $root): GateResult {
+    $run = $gate->option('run');
+    if (is_string($run) && $run !== '') {
+      return $this->executeRuleFile($gate, $root, $run);
+    }
     $cmd = $gate->option('cmd');
     $cmd = is_string($cmd) ? $cmd : '';
     $started = $this->tick();
@@ -2042,11 +2289,9 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   /**
    * What to do when a gate's own command names a program the shell cannot find.
    *
-   * Custom and contributed gates both run a `cmd`, and the lever that chose it
-   * sits in a different place for each — the operator's own file for a custom
-   * gate, the declaring module's code for a contributed one. Sending an
-   * operator to edit a key their lever file does not have is the same failure
-   * as sending them to install a package that does not exist.
+   * A project's own gate runs a `cmd` its lever file chose. Sending an
+   * operator to install a package named after the gate is sending them to
+   * install a package that does not exist.
    *
    * @param \Droost\Workflow\Config\GateSettings $gate
    *   The gate whose command exited 127.
@@ -2055,19 +2300,6 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   The remedy.
    */
   private function ownCommandRemedy(GateSettings $gate): string {
-    if (GateSettings::isContributed($gate->name)) {
-      return sprintf(
-        'The %1$s gate runs a command the module that declares it chose, and '
-        . 'the shell could not find the program that command names (exit '
-        . '127). That command is not in droost.workflow.yml and cannot be '
-        . 'corrected there — install the program the module needs (the '
-        . 'summary above shows the command as it ran), or ask the OPERATOR to '
-        . 'turn the gate off with `gates.contributed.%2$s.on: false`.',
-        $gate->name,
-        substr($gate->name, strlen(GateSettings::MODULE_PREFIX)),
-      );
-    }
-
     $key = GateSettings::isCustom($gate->name)
       ? 'gates.custom.' . substr($gate->name, strlen(GateSettings::CUSTOM_PREFIX))
       : 'gates.' . $gate->name;
@@ -2076,7 +2308,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       'The %1$s gate runs a command this project declared, and the shell '
       . 'could not find the program that command names (exit 127). Nothing '
       . 'called "%1$s" is installable, so `composer require --dev` on it '
-      . 'fetches nothing — read `%2$s.cmd` in droost.workflow.yml, install '
+      . 'fetches nothing — read `%2$s.cmd` in droost/droost.yml, install '
       . 'the program it actually names, or ask the OPERATOR to correct that '
       . 'lever or turn the gate off with `%2$s.on: false`.',
       $gate->name,
@@ -2329,7 +2561,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         . '`opcache.jit=disable` too: a driver turns JIT off with a warning at '
         . 'every startup, which fails every test that runs in its own process. '
         . 'If this project does not measure coverage, `gates.coverage.on: '
-        . 'false` in droost.workflow.yml. The suite itself is fine — re-running '
+        . 'false` in droost/droost.yml. The suite itself is fine — re-running '
         . 'it reports the same thing.',
       );
     }
@@ -2411,11 +2643,11 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       'parity' => 'droost-parity',
       'coverage' => 'phpunit',
       'mutation' => 'infection',
-      // The wiki gate asks the SITE whether its own documentation is current,
-      // so it runs through drush. On a checkout with no drush the executor
-      // reports toolMissing rather than a pass — which is the honest answer:
-      // nothing was checked.
-      'wiki_fresh' => 'drush',
+      // The wiki gate asks droost whether the wiki is current: `droost
+      // code:wiki status`, read from files, no Drupal (droost left Drupal,
+      // 2026-10-19). With no droost binary the gate reads "not run", never a
+      // pass: nothing was checked.
+      'wiki_fresh' => 'droost',
       default => $gate,
     };
   }
@@ -2556,10 +2788,12 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       'eslint' => [$binary, '--format=json', ...$this->frontEndConfigArgs($gate, $root)],
       'stylelint' => [$binary, '--formatter=json', ...$this->frontEndConfigArgs($gate, $root)],
       'prettier' => [$binary, '--check', ...$this->frontEndConfigArgs($gate, $root)],
-      // Drush exits non-zero when any page is stale, orphaned or invalid, so
-      // the exit code IS the verdict. The JSON report is read only to say
-      // what was measured (see wikiResult()).
-      'wiki_fresh' => [$binary, 'droost:wiki:status', '--format=json'],
+      // Exits non-zero when any page is stale, orphaned or invalid, so the
+      // exit code IS the verdict. The JSON report is read only to say what
+      // was measured (see wikiResult()).
+      // `droost code:wiki status --json`: exit 0 fresh, 1 stale, orphaned,
+      // invalid or no wiki, 3 could not run (read as not run, never a pass).
+      'wiki_fresh' => [$binary, 'code:wiki', 'status', '--json'],
       // The empty-suite flag (PHPUnit >= 10; core-dev ships 11.5) turns "no
       // tests yet" into exit zero, which execute() then LABELS rather than
       // reporting as a clean suite — the same honesty shape as the static
@@ -2608,6 +2842,8 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         // The pages a ticket rebuilds whole, held at page scope while the rest
         // keep the lever's scope.
         ...self::parityPages($gate),
+        // The routes built so far; the runner names the rest not judged.
+        ...self::parityRoutes($gate),
         '--json',
       ],
       default => [$binary],
@@ -3257,8 +3493,8 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       // and it is the one every tool finds alike: a prettier config pinned
       // by the lever reaches the prettier gate and neither eslint's nor
       // stylelint's prettier rule, so the gates then disagree about one file.
-      'eslint' => 'eslint walked up to a config it cannot load — on a Drupal site that is core\'s scaffolded .eslintrc.json, which extends core\'s own config and the packages core/package.json lists for it (eslint-config-airbnb-base, eslint-plugin-prettier and the rest). Install those at the project root, or give the project its own config there (`root: true` stops the cascade); either is a project change you may make and declare. Only the OPERATOR can pin one instead, with gates.eslint.config in droost.workflow.yml.',
-      'stylelint' => 'stylelint found no config for the files it was handed. Give the project its own at its root, where every tool finds the same one: a .stylelintrc.json, which on a Drupal site can extend core\'s (core/.stylelintrc.json under the docroot). That is a project change you may make and declare. Only the OPERATOR can pin one instead, with gates.stylelint.config in droost.workflow.yml.',
+      'eslint' => 'eslint walked up to a config it cannot load — on a Drupal site that is core\'s scaffolded .eslintrc.json, which extends core\'s own config and the packages core/package.json lists for it (eslint-config-airbnb-base, eslint-plugin-prettier and the rest). Install those at the project root, or give the project its own config there (`root: true` stops the cascade); either is a project change you may make and declare. Only the OPERATOR can pin one instead, with gates.eslint.config in droost/droost.yml.',
+      'stylelint' => 'stylelint found no config for the files it was handed. Give the project its own at its root, where every tool finds the same one: a .stylelintrc.json, which on a Drupal site can extend core\'s (core/.stylelintrc.json under the docroot). That is a project change you may make and declare. Only the OPERATOR can pin one instead, with gates.stylelint.config in droost/droost.yml.',
       'prettier' => 'prettier could not run; its own message says why. Its config belongs at the project root (.prettierrc.json), where eslint\'s and stylelint\'s prettier rules read the same one. A config pinned with gates.prettier.config reaches this gate and neither of those, so the two can demand opposite formatting of one file.',
       'phpcs' => 'phpcs hit a processing error — check the ruleset gates.phpcs.standard names and that it resolves from the project root.',
       default => 'the tool could not run; fix its configuration before the gate can judge anything.',

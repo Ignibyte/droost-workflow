@@ -52,10 +52,10 @@ final class InitDoesNotFailItsOwnGateTest extends WorkflowTestCase {
     chmod($root . '/vendor/bin/phpcs', 0755);
 
     (new PackMaterializer())->init($root);
-    $this->assertFileExists(
-      $root . '/.claude/hooks/droost-workflow-guard.php',
-      'init really did install the file this is about',
-    );
+    // The guard runs from the package now; a hook a project keeps under
+    // .claude/ is PHP the gates must not be handed either.
+    mkdir($root . '/.claude/hooks', 0755, TRUE);
+    file_put_contents($root . '/.claude/hooks/own.php', "<?php\n");
 
     $seen = [];
     $executor = new ShellGateExecutor(
@@ -99,10 +99,10 @@ final class InitDoesNotFailItsOwnGateTest extends WorkflowTestCase {
     $root = $this->makeRoot();
     mkdir($root . '/app', 0755, TRUE);
     (new PackMaterializer())->init($root . '/app');
-    $this->assertFileExists(
-      $root . '/app/.claude/hooks/droost-workflow-guard.php',
-      'the pack really is the only PHP under app/',
-    );
+    // The only PHP under app/ is under .claude/, as an earlier init's copied
+    // guard was.
+    mkdir($root . '/app/.claude/hooks', 0755, TRUE);
+    file_put_contents($root . '/app/.claude/hooks/droost-workflow-guard.php', "<?php\n");
     mkdir($root . '/vendor/bin', 0755, TRUE);
     file_put_contents($root . '/vendor/bin/phpcs', "#!/bin/sh\nexit 0\n");
     chmod($root . '/vendor/bin/phpcs', 0755);

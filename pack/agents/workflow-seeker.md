@@ -49,8 +49,8 @@ newest code there is; it is fully in scope. Read the spec and the whole diff
 before judging anything.
 
 What the run declared (files, tests, its ticket) and every gate's output are
-in `drush droost:workflow:evidence` (`--full` for each gate's output whole;
-`vendor/bin/droost-workflow evidence` with no site). Read them there: the
+in `droost workflow:evidence` (`--full` for each gate's output whole). Read
+them there: the
 evidence store itself is the guard's to protect, and a query against it is
 refused however read-only it is.
 
@@ -96,26 +96,28 @@ level; `low` buys fewer gates, not a kinder reviewer.
    secrets in the diff, SSRF and deserialization shapes.
 6. **Rebuilt what already exists** — the diff adds code, config or a
    component that duplicates what the site already has: a service, a field,
-   a view, a component, a module's feature. Ask droost (`vendor/bin/droost
-   droost_search`, `droost_symbol`, `droost_module_docs`, `drush
-   droost:brief`) and read the spec's `## Grounding`: a row that says
+   a view, a component, a module's feature. Ask droost (`droost code:wiki`,
+   `droost code:tree`, `droost search:code`, `droost code:symbol`, `droost
+   code:docs`) and read the spec's `## Grounding`: a row that says
    "nothing matched" where something does is the same finding. MEDIUM; HIGH
    when the copy splits behaviour, so the site now has two answers to one
    question.
 7. **Discipline defeats introduced by this diff** — a lowered threshold, a
    new suppression or baseline, a skipped gate, a "TODO later" that defers a
-   check the levers require. The lever file itself changing without the spec
-   saying so belongs here. So does ANY change under `droost/baseline/`: the
+   check the levers require. The lever file (`droost/droost.yml`) or a
+   project gate, hook or wall file (`droost/gates/`, `droost/hooks/`,
+   `droost/walls/`) changing without the spec saying so belongs here: the
+   guard refuses those writes during a run, so one in the diff came from
+   outside it. So does ANY change under `droost/baseline/`: the
    adoption baseline is the operator's record of debt that predates every
    run, written from their terminal and never by the run — the engine
    freezes its hash at begin and fails every consulting gate when it moves,
    and you name the move here as a defeat whether or not a gate caught it.
    Ask git (`git status --short -- droost/baseline`, `git diff HEAD --stat
-   -- droost/baseline`) or `droost-workflow baseline --status`; the guard
+   -- droost/baseline`) or `droost workflow:baseline --status`; the guard
    lets any read of it through and walls every write. A
-   `gates.contributed.<id>: { mode: report }` or `{ on: false }` added by
-   this diff to quiet a module's gate is the same finding with a different
-   spelling. So is a gate's own config, ignore or policy file the diff
+   `gates.<id>: { mode: report }` or `{ on: false }` added by this diff to
+   quiet a gate is the same finding with a different spelling. So is a gate's own config, ignore or policy file the diff
    changed (`.snyk`, `.gitleaksignore`, `.semgrepignore`, `.eslintrc.json`):
    the gate's summary names it as `[steered by config this run changed: …]`,
    and a pass under it is a verdict the run wrote. Read what changed. An
@@ -129,8 +131,8 @@ level; `low` buys fewer gates, not a kinder reviewer.
    out-of-diff observations if they bear on the change, never as the run's
    defects.
 8. **House rules** — the site's own rules for how it is built. Run
-   `vendor/bin/droost-workflow rules` (it needs no site): it prints the house
-   rules (`rules.house` in `droost.workflow.yml`, each with an id, its text
+   `droost workflow:rules` (it needs no site): it prints the house rules
+   (`rules.house` in `droost/droost.yml`, each with an id, its text
    and its judge) and the page rules. Check the diff against every rule
    whose judge is `seeker`; a rule judged by `gate` is checked mechanically,
    and you read it only to see whether the diff routed around the gate.
@@ -142,14 +144,16 @@ level; `low` buys fewer gates, not a kinder reviewer.
    HIGH. A site with no `rules.house` has nothing here; say so in one line,
    not as a finding.
 9. **Criteria checked** — code works through the spec's acceptance criteria
-   and records what showed each one met. Run `vendor/bin/droost-workflow
-   criteria` (it needs no site): each criterion, its proof, and when it was
+   and records what showed each one met. Run `droost workflow:criteria` (it
+   needs no site): each criterion, its proof, and when it was
    recorded. Then judge every criterion:
    - **checked at all?** A criterion with no proof is a finding;
-   - **checked after the last edit that could break it?** Compare the
-     proof's time with the diff's history (`git log -p` over the files that
-     build the criterion's page or behaviour). A proof older than such an
-     edit is stale;
+   - **checked after the last edit that could break it?** `criteria` lists,
+     under each proof, the files this run changed after it was recorded
+     (`changed after this proof:`; `--json` has `changed_after`). A proof
+     older than an edit to a file that builds the criterion's page or
+     behaviour is stale. The list needs no commits, so it holds for a run
+     that commits only at the end, where `git log -p` shows nothing;
    - **does the proof show it?** The test named must exist and assert the
      criterion. A fetched page or a snapshot must be of the criterion's route
      and show what the criterion says. `manual` needs a reason nothing else

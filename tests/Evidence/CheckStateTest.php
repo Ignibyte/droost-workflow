@@ -125,39 +125,4 @@ final class CheckStateTest extends TestCase {
     $this->assertFalse(Fault::None->operatorMayUnblock());
   }
 
-  /**
-   * A gate may declare what its own exit codes mean.
-   *
-   * Snyk exit 2 is "the CLI could not run — not authenticated", which is the
-   * operator's problem; the same crash status from phpstan is not.
-   */
-  public function testGateMayDeclareTheFaultOfItsOwnExitCodes(): void {
-    $this->assertSame(
-      Fault::Environment,
-      Fault::faultFor(GateStatus::ErrorToolFailed, 2, [2 => 'environment']),
-      'snyk says exit 2 is an unauthenticated CLI',
-    );
-    $this->assertSame(
-      Fault::Unknown,
-      Fault::faultFor(GateStatus::ErrorToolFailed, 1, [2 => 'environment']),
-      'an exit code the gate did not name keeps the default',
-    );
-  }
-
-  /**
-   * No declaration can turn a block into a pass, or invent a fault on a pass.
-   */
-  public function testDeclarationCannotEscapeBlockOrInventFault(): void {
-    $this->assertSame(
-      Fault::Agent,
-      Fault::faultFor(GateStatus::Failed, 1, [1 => 'none']),
-      'declaring "none" on a failure would be a gate excusing itself',
-    );
-    $this->assertSame(
-      Fault::None,
-      Fault::faultFor(GateStatus::Passed, 0, [0 => 'environment']),
-      'a passing gate carries no fault whatever it declares',
-    );
-  }
-
 }

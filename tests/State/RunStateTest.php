@@ -212,7 +212,7 @@ class RunStateTest extends TestCase {
    * A run that has ended cannot be restarted by advancing.
    */
   public function testAnEndedRunCannotAdvance(): void {
-    $config = WorkflowConfig::builtIn();
+    $config = WorkflowConfig::fromArray([], '<built-in defaults>', Provenance::BuiltIn);
     $ended = new RunState(
       'r',
       't',
@@ -318,6 +318,7 @@ class RunStateTest extends TestCase {
 
     $record = [
       'status' => 'findings',
+      'open' => 2,
       'critical' => 1,
       'medium' => 2,
       'low' => 0,
@@ -331,6 +332,8 @@ class RunStateTest extends TestCase {
     // an array-union would have hidden the half of it that failed.
     $this->assertSame([
       'status' => 'findings',
+      // How many still stand survives the save (F-327).
+      'open' => 2,
       'critical' => 1,
       'high' => 0,
       'medium' => 2,
@@ -362,7 +365,7 @@ class RunStateTest extends TestCase {
    * — so this asserts both halves at once.
    */
   public function testReInspectionKeepsWhatEarlierOnesCaught(): void {
-    $state = RunState::begin('run-1', 't0', WorkflowConfig::builtIn());
+    $state = RunState::begin('run-1', 't0', WorkflowConfig::fromArray([], '<built-in defaults>', Provenance::BuiltIn));
 
     $caught = $state->withSeekerReport([
       'status' => 'findings',
@@ -451,7 +454,7 @@ class RunStateTest extends TestCase {
    * reported exactly what an independently-cleared run reported.
    */
   public function testSelfReviewIsCarriedIntoTheRecord(): void {
-    $state = RunState::begin('run-1', 't0', WorkflowConfig::builtIn());
+    $state = RunState::begin('run-1', 't0', WorkflowConfig::fromArray([], '<built-in defaults>', Provenance::BuiltIn));
 
     $selfReviewed = $state->withSeekerReport([
       'status' => 'clean',
@@ -516,9 +519,6 @@ class RunStateTest extends TestCase {
         'eslint',
         'stylelint',
         'prettier',
-        'config_clean',
-        'grounding_check',
-        'composition_check',
         'house_rules',
       ],
       array_keys($state->gatesDueFor(Phase::Code)),
@@ -527,8 +527,7 @@ class RunStateTest extends TestCase {
     $this->assertSame(
       [
         'phpcs', 'phpstan', 'eslint', 'prettier', 'phpunit',
-        'mutation', 'playwright', 'parity', 'coverage', 'rendered_check',
-        'config_clean',
+        'mutation', 'playwright', 'parity', 'coverage',
       ],
       array_keys($state->gatesDueFor(Phase::Test)),
     );
@@ -590,7 +589,7 @@ class RunStateTest extends TestCase {
     return RunState::begin(
       'run-1',
       '2026-07-27T09:00:00+00:00',
-      WorkflowConfig::builtIn(),
+      WorkflowConfig::fromArray([], '<built-in defaults>', Provenance::BuiltIn),
     );
   }
 

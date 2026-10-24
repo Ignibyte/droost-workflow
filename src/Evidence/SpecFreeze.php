@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Evidence;
 
+use Droost\Workflow\Spec\TableRow;
+
 /**
  * The spec's contract, as it stood when the plan phase ended.
  *
@@ -77,8 +79,8 @@ final class SpecFreeze {
    * column a later gate judges is one a later phase may legitimately have to
    * correct, because the gate's own refusal tells it to.
    *
-   * `Verified By` the test phase is REQUIRED to fill. `Evidence` is resolved by
-   * grounding_check at code, and its refusal reads "Cite a class this site
+   * `Verified By` the test phase is REQUIRED to fill. `Evidence` was resolved
+   * again at code by a site gate whose refusal read "Cite a class this site
    * actually has ... or `none: <query>`" — an instruction to edit the cell. The
    * plan gate checks only that answers are non-blank and all three tiers
    * appear; it never looks at a citation. So freezing that cell protected
@@ -278,7 +280,7 @@ final class SpecFreeze {
     if ($separator !== NULL && $separator > 0 && $adjudicated !== NULL) {
       $header = array_map(
         static fn (string $cell): string => strtolower(trim($cell)),
-        self::cells($lines[$separator - 1]),
+        TableRow::cells($lines[$separator - 1]),
       );
       $found = array_search($adjudicated, $header, TRUE);
       $verified = $found === FALSE ? NULL : (int) $found;
@@ -293,7 +295,7 @@ final class SpecFreeze {
       if (preg_match('/^[\s\-:|]+$/', $line) === 1) {
         continue;
       }
-      $cells = self::cells($line);
+      $cells = TableRow::cells($line);
       if ($cells === []) {
         continue;
       }
@@ -307,23 +309,6 @@ final class SpecFreeze {
     }
 
     return $rows;
-  }
-
-  /**
-   * One table row's cells.
-   *
-   * @param string $row
-   *   The row.
-   *
-   * @return list<string>
-   *   The cells.
-   */
-  private static function cells(string $row): array {
-    $row = trim($row);
-    $row = preg_replace('/^\|/', '', $row) ?? $row;
-    $row = preg_replace('/\|$/', '', $row) ?? $row;
-
-    return array_map('trim', explode('|', $row));
   }
 
   /**

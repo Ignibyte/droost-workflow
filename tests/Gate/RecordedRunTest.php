@@ -11,7 +11,6 @@ use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\State\RunStateStore;
@@ -261,7 +260,6 @@ class RecordedRunTest extends WorkflowTestCase {
   private function facade(GateExecutorInterface $gates): WorkflowFacade {
     return new WorkflowFacade(
       $gates,
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       static fn (): string => '2026-09-29T12:00:00+00:00',
       static fn (): string => 'run-recorded',

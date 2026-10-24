@@ -14,7 +14,6 @@ use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\ModeEngine;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\PendingQuestion;
@@ -165,7 +164,7 @@ class ModeEngineTest extends WorkflowTestCase {
 
     };
     $engine = new ModeEngine(
-      new GateRunner($this->countingExecutor(), new NullSiteDriver()),
+      new GateRunner($this->countingExecutor()),
       $sink,
       NULL,
       static function (RunState $paused) use (&$order, &$saved): void {
@@ -197,7 +196,7 @@ class ModeEngineTest extends WorkflowTestCase {
     $sink = $this->recordingSink();
     $executor = $this->countingExecutor();
     $engine = new ModeEngine(
-      new GateRunner($executor, new NullSiteDriver()),
+      new GateRunner($executor),
       $sink,
     );
 
@@ -374,7 +373,7 @@ class ModeEngineTest extends WorkflowTestCase {
     };
     $sink = $this->recordingSink();
     $engine = new ModeEngine(
-      new GateRunner($failing, new NullSiteDriver()),
+      new GateRunner($failing),
       $sink,
     );
 
@@ -400,7 +399,7 @@ class ModeEngineTest extends WorkflowTestCase {
    */
   public function testRetryBudgetIsCountedAcrossInvocations(): void {
     $engine = new ModeEngine(
-      new GateRunner($this->failingExecutor(), new NullSiteDriver()),
+      new GateRunner($this->failingExecutor()),
       $this->recordingSink(),
     );
     // Advanced to code first, as the facade always has by the time it calls
@@ -450,7 +449,7 @@ class ModeEngineTest extends WorkflowTestCase {
    */
   public function testZeroBudgetFailsTerminallyOnTheFirstFailure(): void {
     $engine = new ModeEngine(
-      new GateRunner($this->failingExecutor(), new NullSiteDriver()),
+      new GateRunner($this->failingExecutor()),
       $this->recordingSink(),
     );
 
@@ -494,7 +493,7 @@ class ModeEngineTest extends WorkflowTestCase {
 
     };
     $engine = new ModeEngine(
-      new GateRunner($missingPhpcs, new NullSiteDriver()),
+      new GateRunner($missingPhpcs),
       $this->recordingSink(),
     );
 
@@ -538,7 +537,7 @@ class ModeEngineTest extends WorkflowTestCase {
 
     };
     $engine = new ModeEngine(
-      new GateRunner($flaky, new NullSiteDriver()),
+      new GateRunner($flaky),
       $this->recordingSink(),
     );
     $state = $this->begin([
@@ -797,7 +796,7 @@ class ModeEngineTest extends WorkflowTestCase {
    */
   private function engine(QuestionSinkInterface $sink): ModeEngine {
     return new ModeEngine(
-      new GateRunner($this->countingExecutor(), new NullSiteDriver()),
+      new GateRunner($this->countingExecutor()),
       $sink,
     );
   }

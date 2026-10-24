@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Ignibyte/droost-workflow/blob/main/schema/tool-call.v1.json",
+  "title": "droost tool call, version 1",
+  "description": "One line of a project's tool-call ledger, <state dir>/tool-calls.jsonl, where the state dir is droost/droost-workflow (or .droost-workflow on a project that still keeps its run there). Two writers append to it: the droost command's knowledge commands (Droost\\Workflow\\Knowledge\\ToolCallLog) and the droost Drupal module's tools (Drupal\\droost\\Ledger\\ToolCallLog), which links no workflow code and writes these same rows. Each row is one JSON object and a newline, appended under an exclusive lock. run and phase are read from <state dir>/run.json at the time (run_id, current_phase), NULL when no run is open. Arguments are never recorded: they carry content. Additive only within version 1.",
+  "type": "object",
+  "required": ["tool", "outcome", "at", "run", "phase"],
+  "properties": {
+    "tool": { "type": "string", "minLength": 1, "description": "The tool or command id: droost_entity_create, code:wiki, …" },
+    "outcome": { "enum": ["ok", "fail"], "description": "fail includes a refusal: a disarmed gate, a denied permission, an undeclared input." },
+    "at": { "type": "string", "format": "date-time" },
+    "run": { "type": ["string", "null"], "description": "The run open when the call was made, or null." },
+    "phase": { "type": ["string", "null"], "description": "That run's current phase, or null." },
+    "detail": { "type": "object", "description": "What the tool answered beyond the call, never its arguments. Optional; absent on most rows." }
+  },
+  "additionalProperties": true
+}

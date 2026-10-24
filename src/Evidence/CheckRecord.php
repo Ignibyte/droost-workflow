@@ -135,10 +135,6 @@ final class CheckRecord {
    *   The gate's outcome.
    * @param string|null $subjectHash
    *   A fingerprint of the files the gate examined, when it is knowable.
-   * @param array<int|string, string> $declaredFaults
-   *   The gate's own exit-code-to-fault map, from its declaration.
-   * @param string|null $remedy
-   *   The remedy, when the gate's provider names one.
    *
    * @return self
    *   The record.
@@ -146,17 +142,14 @@ final class CheckRecord {
   public static function fromGate(
     GateResult $result,
     ?string $subjectHash = NULL,
-    array $declaredFaults = [],
-    ?string $remedy = NULL,
   ): self {
     $state = CheckState::fromGateStatus($result->status);
     $fault = $state === CheckState::Blocked
-      ? Fault::faultFor($result->status, $result->exitCode, $declaredFaults)
+      ? Fault::fromGateStatus($result->status)
       : Fault::None;
     // The executor's own declaration, where it has one. It overrides only the
     // AMBIGUOUS default — `Unknown` — so a gate cannot talk its way out of an
     // agent fault, which is the shape this whole mechanism exists to refuse.
-    // The project's `faults:` lever, read above, still wins over both.
     if ($fault === Fault::Unknown && $result->declaredFault !== NULL) {
       $fault = Fault::tryFrom($result->declaredFault) ?? $fault;
     }
@@ -167,16 +160,12 @@ final class CheckRecord {
       $state,
       $fault,
       $result->summary !== '' ? $result->summary : ($result->skipReason ?? ''),
-      // THE GATE'S OWN ANSWER FIRST. `$remedy` here is read from the gate's
-      // frozen LEVERS, and only a contributed gate declares that key — so a
-      // built-in gate landing on an environment fault carried no remedy at
-      // all, while `Fault::Environment`'s guidance told the reader to "show
-      // the OPERATOR the remedy below". Below was empty, every time.
-      //
-      // `GateResult` now carries what the executor already knew (the missing
-      // binary, the ruleset that would not load), and the lever's value stays
-      // the override for a project that wants to say something else.
-      $fault === Fault::Environment ? ($remedy ?? $result->remedy) : NULL,
+      // THE GATE'S OWN ANSWER. `Fault::Environment`'s guidance tells the
+      // reader to "show the OPERATOR the remedy below", and `GateResult`
+      // carries what the executor knew (the missing binary, the ruleset that
+      // would not load, the gate file that could not judge). A lever override
+      // for it came from module-contributed gates and left with them.
+      $fault === Fault::Environment ? $result->remedy : NULL,
       $subjectHash,
       $result->exitCode,
       $result->invocation,

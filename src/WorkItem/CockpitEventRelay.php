@@ -203,7 +203,7 @@ final class CockpitEventRelay {
     $this->silenced = TRUE;
     $this->write(self::LAST_ERROR, $why);
     ($this->warn)(sprintf(
-      'droost-workflow: the cockpit relay stopped for this command (%s); %d event(s) wait in events.jsonl and go with the next command, or `droost-workflow relay`.',
+      'droost-workflow: the cockpit relay stopped for this command (%s); %d event(s) wait in events.jsonl and go with the next command, or `droost workflow:relay`.',
       $why,
       $this->pending(),
     ));

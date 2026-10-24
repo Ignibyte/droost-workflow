@@ -26,12 +26,12 @@ was resolved before this phase began. Your job is to run them and report,
 not to re-derive a verdict.
 
 **What runs here depends on the run's flow** (`phase_gates` in
-`droost-workflow status`):
+`droost workflow:status`):
 
 - **fast** (`flow: fast`, the default at `low` and `medium`): this phase checks the build in a browser.
-  Look at the pages by hand (Playwright MCP), write or update the ticket's
+  Look at the pages by hand (your browser), write or update the ticket's
   specs, and run them with the Playwright CLI. The engine runs playwright,
-  parity, the rendered check and config_clean. The analysers and the unit
+  parity, the house rules and the project's own gates placed at `test`. The analysers and the unit
   tests ran at code and do not run again here, and complete runs no gate.
 
   **A failure here sends the run back to code** (`outcome: returned`): fix
@@ -59,7 +59,7 @@ not to re-derive a verdict.
   would say. The row names its scope ("ticket scope: 2 file(s) this run
   changed, not the full suite"), so nobody reads it as a regression pass.
 
-  **At `low`, run your specs with `droost-workflow specs`** (inside the
+  **At `low`, run your specs with `droost workflow:specs`** (inside the
   container on DDEV, where the gate runs). It runs the ticket's specs exactly
   as the playwright gate does and records the result against the tree. When
   `run` follows and nothing has changed since, the gate takes that record
@@ -68,7 +68,7 @@ not to re-derive a verdict.
   code, and the gate runs them itself. A plain `npx playwright test` is
   yours, and is not recorded.
 - **strict** (`flow: strict`, the default from `high` up): the engine runs the functional gates here:
-  phpunit, coverage, mutation, playwright and the rendered check. **The static
+  phpunit, coverage, mutation, playwright and parity. **The static
   pair runs here too, over the tests you write in this phase**, and before
   phpunit: a test method named in lowerCamel, or a fixture phpstan cannot
   follow, fails phpcs or phpstan here rather than surfacing at complete.
@@ -88,30 +88,14 @@ criterion; it does not test the class. A deploy hook or an `.install` file is
 not held to this, and a test the declaration does not cover blocks like any
 other file, so declare it.
 
-**A test droost's scaffold wrote does not count until you change it.** The
-hook blueprint's test checks that the `#[Hook]` attribute is there, and a
-kernel-test skeleton checks nothing yet. Neither tests what your code does,
-so a test file still exactly as the scaffold wrote it is set aside by name.
-Make it exercise the class, or write your own.
+**A test a generator wrote does not count until you change it.** A file
+`drush generate` (or `dcg`) wrote is recorded as generated, and a kernel-test
+skeleton checks nothing yet, so a test file still exactly as the generator
+wrote it is set aside by name. Make it exercise the class, or write your own.
 
-`droost_verify` runs the static and test legs — **but only the ones you ask
-for**, and the default is narrower than people expect:
-
-| Call | Legs that run |
-|---|---|
-| no `module` and no `path` | **none at all** — it returns an inventory of what COULD run. Useful, and never a run: reporting it as one is the failure this table exists to prevent |
-| a target, no `checks` | **phpcs and phpstan only** |
-| `checks: [deprecations]` | deprecations, which is opt-in |
-| `checks: [phpunit], confirm: true` | phpunit, which needs `confirm` because the suite creates and drops databases |
-
-Ask for what the levers say should run, then report what actually ran. A
-plain call reports "passed" having run two static checks; if you assumed
-phpunit was among them you have just reported tests green that never
-executed. None of the legs render a page or fetch a URL — do not describe
-`droost_verify` as having checked that anything works.
-
-`droost_last_error` and `droost_logs` tell you what the site actually said
-when something failed, rather than guessing from an exit code.
+When something fails, read what the site actually said (`drush
+watchdog:show`, the fatal drush prints) rather than guessing from an exit
+code.
 
 ## The browser check is a committed spec, at every level
 
@@ -126,14 +110,13 @@ node_modules/.bin/playwright test tests/e2e/x.spec.ts   # while you iterate
 ```
 
 **Run it where the gate runs it.** The gate runs in the process that runs
-the phase. On a project with a site behind a runner, the phase goes through
-drush in that runner, so on DDEV the gate runs the suite inside the
-container, and so should you: `ddev exec node_modules/.bin/playwright test
-tests/e2e/x.spec.ts`. From the host, every `ddev drush` a spec makes costs
+the phase. On DDEV the phase runs inside the container (`ddev exec
+tools/droost/vendor/bin/droost workflow:run`), so the gate runs the suite there, and so should you: `ddev
+exec node_modules/.bin/playwright test tests/e2e/x.spec.ts`. From the host, every `ddev drush` a spec makes costs
 seconds where it costs a fraction of one inside, and a suite the gate passes
 times out; two runs spent most of a test phase chasing exactly those
 timeouts. The command each gate ran is in the invocations table of the
-evaluation `droost-workflow evidence` prints.
+evaluation `droost workflow:evidence` prints.
 
 **An empty suite is a FAILURE, not a labelled pass** — that is what
 `required: true` means. If playwright is not installed the gate REPORTS
@@ -160,8 +143,8 @@ throws away.
 - `none` — fine. The spec below does not need a browser of yours.
 
 **Code checked each criterion; test is the sign-off.** Code worked through
-the acceptance criteria and recorded what showed each (`vendor/bin/droost-workflow
-criteria` lists them, with when). Here the suite runs once, as the official
+the acceptance criteria and recorded what showed each (`droost workflow:criteria` lists
+them, with when). Here the suite runs once, as the official
 check, and you do not repeat code's checks. A criterion whose test fails here
 goes back to code by name: fix it there, check it again, record it again.
 
@@ -169,11 +152,20 @@ A criterion code never checked is the seeker's HIGH finding. If you prove one
 here, record it the same way:
 
 ```bash
-vendor/bin/droost-workflow verify-criterion AC-2 "manual — checked at 390px"
+droost workflow:verify-criterion AC-2 "manual — checked at 390px"
 ```
 
 `manual` is a legitimate answer and is reported as manual, never as passed —
-a human looked is a different claim from a test proves. What you name is
+a human looked is a different claim from a test proves. A check that did not
+hold is recorded as what it came to, never as a proof:
+
+```bash
+droost workflow:verify-criterion AC-10 "parity: D5 fails on all 7 routes" --outcome=failed
+```
+
+`--outcome=partly` or `--outcome=failed` counts the criterion unverified. So
+does a proof naming a gate whose latest verdict in this run failed: name
+`parity` while parity is failing and the criterion is not proven. What you name is
 recorded, not judged here: the seeker judges whether it shows the criterion
 met. A ref nobody declared at plan is refused, because a criterion written
 after the fact to fit what passed is the one thing this record cannot
@@ -189,11 +181,11 @@ legitimate outcome, and worth more than a success the run cannot support.
 When a gate is failing on something that is not this diff's to fix — a
 pre-existing project condition, a policy the project has deliberately not
 adopted — that is the OPERATOR's call, and there is a scoped mechanism for
-it: `drush droost:workflow:gate-waive <gate> "<reason>"` waives ONE gate
+it: `droost workflow:gate-waive <gate> "<reason>"` waives ONE gate
 for the rest of this run, recorded with its reason and rendered as
 "waived", never as a pass. Ask the operator to run it; it is deliberately
 CLI-only, so you cannot grant it yourself. Do NOT reach for
-`droost:workflow:bypass` here — that drops the whole require_run wall,
+`droost workflow:bypass` here — that drops the whole require_run wall,
 which is a different and much larger decision (two live rounds made
 exactly that mistake).
 
@@ -204,8 +196,8 @@ When a ticket rebuilds a source (a design, or a site being replaced), the
 reference in `droost/parity/` it passes labelled, having compared nothing.
 
 ```bash
-vendor/bin/droost-parity judge                               # every route, as the reference holds it
-vendor/bin/droost-parity judge --scope frame --pages /       # the frame everywhere, / whole
+tools/droost/vendor/bin/droost-parity judge                             # every route, as the reference holds it
+tools/droost/vendor/bin/droost-parity judge --scope frame --pages /       # the frame everywhere, / whole
 ```
 
 Run it with the scope and pages the gate's levers name (`status` shows them
@@ -221,9 +213,13 @@ part of the reference, frozen with it: a text you find set aside wrongly, or
 one that should be, is the operator's to change before a run, never yours
 during one. A capture refuses a source whose declared typeface is
 never drawn; a reference is only ever read in the faces the source shows. A view fails on the first
-of D1 to D7 it misses, and the finding says which elements; run it as the
-gate does, where the phase runs (on DDEV, `ddev exec vendor/bin/droost-parity
-judge`).
+of D1 to D7 it misses, and the finding says which elements. The reference
+says where it was read (`read_on` in its manifest): a page lays out
+differently in another platform's browser, so it is judged only on the
+platform it was read on, and anywhere else the gate reads INVALID with
+nothing judged. Run droost where the reference was read (on DDEV, the host
+when it was read on the host; in the container, `ddev exec`, when it was read
+there); which one is the operator's, never yours to pick by the verdict.
 
 ## Fill `Verified By`
 
@@ -231,21 +227,24 @@ The spec's acceptance-criteria table has a `Verified By` column, empty since
 the plan. For every row, write the test that proves it — the PHPUnit method
 or class, or the Playwright spec — or `manual — <reason>` when no test can,
 saying why. This is the traceability link between what was promised and what
-was checked: `complete` refuses to gate while any cell is empty, and the
-report prints manual as manual, never as passed. A criterion you cannot map
+was checked: `complete` records each empty cell by name
+(`criteria_verified`), and the report prints manual as manual, never as
+passed. A criterion you cannot map
 to a test or to an honest manual reason is a criterion this run has not met;
 say so in the spec rather than leaving the cell blank.
 
 ## Exit gate
 
 Every enabled gate has a result, and the result is one of: passed, failed,
-skipped for lack of a site, or the tool was missing. Every one of those is a
+skipped, or did not run (the tool was missing, the file crashed or timed
+out, the site did not answer a gate that asks it). Every one of those is a
 distinct fact and none of them is "probably fine".
 
 ## Without a site
 
-Some gates cannot run without a booted site — the rendered check most
-obviously, and any functional test suite.
+Some gates cannot run without a booted site — any functional test suite,
+and a project's own gate that asks the site (a config export check, a page
+request).
 
 **Record those as skipped, and say why. Never report them as passed.** This
 is the single most important rule in the pack. A skipped gate and a passed

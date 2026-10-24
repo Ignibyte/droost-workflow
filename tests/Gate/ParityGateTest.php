@@ -161,6 +161,33 @@ final class ParityGateTest extends TestCase {
   }
 
   /**
+   * With droost in its own vendor directory, the gate runs droost's runner.
+   *
+   * The droost command installs in `tools/droost/`, so a project has no
+   * `vendor/bin/droost-parity`: KCH-A's parity gate read "could not run:
+   * vendor/bin/droost-parity" on every run (F-344). The runner is this
+   * package's own, as `wiki_fresh`'s droost is: the project's copy when it has
+   * one, this package's otherwise.
+   */
+  public function testRunnerIsThePackagesWhenTheProjectHasNone(): void {
+    $root = $this->root();
+    mkdir($root . '/droost/parity', 0755, TRUE);
+    file_put_contents($root . '/droost/parity/manifest.json', '{"routes": ["/"]}');
+    $ran = [];
+    $executor = new ShellGateExecutor(
+      static function (array $argv) use (&$ran): array {
+        $ran[] = $argv;
+        return [0, json_encode(['parity' => ['status' => 'pass', 'summary' => '1 route(s)']]) . "\n", ''];
+      },
+      static fn (): int => 0,
+    );
+    $result = $executor->execute(new GateSettings('parity', TRUE, ['required' => TRUE]), $root);
+
+    $this->assertSame(GateStatus::Passed, $result->status, $result->summary);
+    $this->assertSame(realpath(dirname(__DIR__, 2) . '/bin/droost-parity'), realpath($ran[0][0] ?? ''), 'the package\'s own runner');
+  }
+
+  /**
    * The pages a ticket rebuilds whole reach the runner as `--pages` (F-145).
    */
   public function testPagesLeverReachesTheCommand(): void {
@@ -178,6 +205,30 @@ final class ParityGateTest extends TestCase {
         'frame',
         '--pages',
         '/',
+        '--json',
+      ],
+      array_map(fn (string $arg): string => $this->relative($arg), $ran[0] ?? []),
+    );
+  }
+
+  /**
+   * The routes built so far reach the runner as `--routes` (F-354).
+   */
+  public function testRoutesLeverReachesTheCommand(): void {
+    $ran = [];
+    $pass = $this->line(['status' => 'pass', 'summary' => '2 route(s)']);
+    $this->verdict(0, $pass, ['scope' => 'frame', 'routes' => ' /, /about ,/internet.html '], FALSE, $ran);
+
+    $this->assertSame(
+      [
+        'vendor/bin/droost-parity',
+        'judge',
+        '--reference',
+        'droost/parity',
+        '--scope',
+        'frame',
+        '--routes',
+        '/,/about,/internet.html',
         '--json',
       ],
       array_map(fn (string $arg): string => $this->relative($arg), $ran[0] ?? []),

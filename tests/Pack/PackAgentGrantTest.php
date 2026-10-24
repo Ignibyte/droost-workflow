@@ -4,27 +4,23 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Pack;
 
-use Droost\Workflow\Pack\PackManifest;
 use PHPUnit\Framework\TestCase;
 
 /**
- * An agent can reach every droost tool its brief tells it to use.
+ * An agent can run every droost command its brief tells it to use.
  *
  * The researcher's brief once named five droost tools while its `tools:` line
  * granted none of them, so it could call none, and its grounding never reached
- * the run's tool ledger (F-75). droost is reached by command now
- * (`vendor/bin/droost <id> '<json>'` for the code, `drush droost:tool <id>
- * '<json>'` for the live site), so an agent whose brief names a droost tool
- * must hold Bash and say which command. A subagent is never granted a droost
- * MCP tool: droost's server is optional (`--no-mcp`), and a command is there
- * on every host.
+ * the run's tool ledger (F-75). droost is one command, `droost` (2026-10-19),
+ * so an agent whose brief names a droost command must hold Bash. A subagent is
+ * never granted a droost MCP tool: droost ships no MCP server.
  */
 final class PackAgentGrantTest extends TestCase {
 
   /**
-   * Every agent whose brief names a droost tool can run drush.
+   * Every agent whose brief names a droost command can run it.
    */
-  public function testAgentsThatNameDroostToolsCanRunThem(): void {
+  public function testAgentsThatNameDroostCommandsCanRunThem(): void {
     $files = glob(dirname(__DIR__, 2) . '/pack/agents/*.md') ?: [];
     $this->assertNotSame([], $files, 'the pack ships agents');
     $checked = 0;
@@ -33,26 +29,19 @@ final class PackAgentGrantTest extends TestCase {
       $this->assertSame(1, preg_match('/^tools:\s*(.+)$/m', $text, $grant), basename($file) . ' declares a grant');
       $granted = array_map('trim', explode(',', $grant[1]));
       foreach ($granted as $tool) {
-        $this->assertStringStartsNotWith('mcp__droost__', $tool, sprintf('%s is granted %s: the pack\'s subagents reach droost by command, which every host has, never through a server the project may not wire', basename($file), $tool));
+        $this->assertStringStartsNotWith('mcp__droost__', $tool, sprintf('%s is granted %s: droost ships no MCP server, and its command is there on every host', basename($file), $tool));
       }
-      preg_match_all('/`(droost_[a-z_]+)`/', $text, $named);
-      $names = array_values(array_intersect(array_unique($named[1]), PackManifest::CITABLE_TOOLS));
-      if ($names === []) {
+      if (preg_match('/`droost (?:code|search|workflow):[a-z-]+|`droost brief`/', $text) !== 1) {
         continue;
       }
       $checked++;
       $this->assertContains(
         'Bash',
         $granted,
-        sprintf('%s tells the agent to use %s, which runs by command, and does not grant Bash', basename($file), implode(', ', $names)),
-      );
-      $this->assertMatchesRegularExpression(
-        '#vendor/bin/droost\b|droost:tool#',
-        $text,
-        sprintf('%s names droost tools and never says how to call them', basename($file)),
+        sprintf('%s tells the agent to run droost, a command, and does not grant Bash', basename($file)),
       );
     }
-    $this->assertGreaterThan(0, $checked, 'at least one brief names a droost tool, or this test checks nothing');
+    $this->assertGreaterThan(0, $checked, 'at least one brief names a droost command, or this test checks nothing');
   }
 
 }

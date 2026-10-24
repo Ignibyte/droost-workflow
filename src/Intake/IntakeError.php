@@ -19,7 +19,7 @@ final class IntakeError extends \RuntimeException {
    *   The error.
    */
   public static function noneOpen(): self {
-    return new self('no intake is open: `droost-workflow intake start --request="<the human\'s words>" --source=<path or URL>` opens one.');
+    return new self('no intake is open: `droost workflow:intake start --request="<the human\'s words>" --source=<path or URL>` opens one.');
   }
 
   /**
@@ -60,8 +60,8 @@ final class IntakeError extends \RuntimeException {
   public static function buildBeforeApproval(string $id): self {
     return new self(sprintf(
       'intake %s is open and not approved, and nothing builds until the human approves the roadmap: '
-      . 'finish the intake (`droost-workflow intake check` says what is left), ask the human to '
-      . 'approve the roadmap, and on their yes run `droost-workflow intake approve`. To build '
+      . 'finish the intake (`droost workflow:intake check` says what is left), ask the human to '
+      . 'approve the roadmap, and on their yes run `droost workflow:intake approve`. To build '
       . 'without it, the operator abandons it (`intake abandon "<reason>"`).',
       $id,
     ));

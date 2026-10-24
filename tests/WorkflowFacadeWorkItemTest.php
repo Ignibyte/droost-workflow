@@ -10,7 +10,6 @@ use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\State\RunState;
@@ -160,7 +159,7 @@ final class WorkflowFacadeWorkItemTest extends WorkflowTestCase {
    */
   public function testRefusedBindings(): void {
     $root = $this->project();
-    $plain = new WorkflowFacade($this->allGatesPass(), new NullSiteDriver(), new RunStateOnlySink(), static fn (): string => '2026-09-28T12:00:00+00:00', static fn (): string => 'run-tickets');
+    $plain = new WorkflowFacade($this->allGatesPass(), new RunStateOnlySink(), static fn (): string => '2026-09-28T12:00:00+00:00', static fn (): string => 'run-tickets');
     try {
       $plain->run($root, NULL, 'TICKET-169');
       $this->fail('a ticket was bound with no source');
@@ -289,7 +288,6 @@ final class WorkflowFacadeWorkItemTest extends WorkflowTestCase {
   private function facade(string $root, ?WorkItemSourceInterface $source = NULL): WorkflowFacade {
     return new WorkflowFacade(
       $this->allGatesPass(),
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       static fn (): string => '2026-09-28T12:00:00+00:00',
       static fn (): string => 'run-tickets',

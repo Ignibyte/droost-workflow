@@ -10,7 +10,6 @@ use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\RunStateOnlySink;
 use Droost\Workflow\State\RunStateStore;
 use Droost\Workflow\State\StateError;
@@ -40,7 +39,6 @@ class StandaloneGatesTest extends WorkflowTestCase {
     $this->assertTrue($result['passed']);
     $outcomes = array_column($result['gates'], 'outcome', 'gate');
     $this->assertSame('pass', $outcomes['playwright'] ?? NULL);
-    $this->assertSame('skipped', $outcomes['rendered_check'] ?? NULL, 'a site gate with no site is skipped, not failed');
     $this->assertSame(1, $gates->executions['playwright'] ?? 0);
     $this->assertNull((new RunStateStore($root))->load(), 'no run was opened');
     $this->assertFileDoesNotExist($root . '/droost/droost-workflow/evidence.sqlite');
@@ -137,12 +135,32 @@ class StandaloneGatesTest extends WorkflowTestCase {
   }
 
   /**
+   * A pass that examined nothing says so in the check's JSON (F-341).
+   *
+   * The run record carries `labelled` (F-326); the run-less check printed
+   * status, outcome and summary only, so its JSON read a labelled pass as a
+   * measured one.
+   */
+  public function testLabelledPassIsNamed(): void {
+    $root = $this->project("preset: low\n");
+    $empty = GateResult::labelledPass('playwright', 0, 1, 'playwright passed — no spec to run', 'playwright');
+    $result = $this->facade($this->gates(['playwright' => [$empty]]))->gates($root);
+    $rows = array_column($result['gates'], NULL, 'gate');
+    $this->assertTrue($rows['playwright']['labelled'] ?? NULL, 'the labelled pass is named');
+    $this->assertSame('pass', $rows['playwright']['outcome']);
+    foreach ($rows as $gate => $row) {
+      if ($gate !== 'playwright') {
+        $this->assertFalse($row['labelled'] ?? NULL, $gate . ': a measured result is not labelled');
+      }
+    }
+  }
+
+  /**
    * The CLI: --json, the exit codes, and a phase it refuses.
    */
   public function testTheVerb(): void {
     $off = "  phpcs: { on: false }\n  phpstan: { on: false }\n  phpunit: { on: false }\n"
-      . "  playwright: { on: false }\n  parity: { on: false }\n  rendered_check: { on: false }\n"
-      . "  config_clean: { on: false }\n";
+      . "  playwright: { on: false }\n  parity: { on: false }\n";
     $passing = $this->project("preset: custom\ngates:\n" . $off
       . "  custom:\n    ok: { on: true, phase: test, cmd: 'true' }\n");
     [$code, $out] = $this->cli(['gate', '--json'], $passing);
@@ -289,7 +307,6 @@ class StandaloneGatesTest extends WorkflowTestCase {
   private function facade(GateExecutorInterface $gates): WorkflowFacade {
     return new WorkflowFacade(
       $gates,
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       static fn (): string => '2026-10-14T12:00:00+00:00',
       static fn (): string => 'run-gate',

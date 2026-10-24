@@ -1,5 +1,14 @@
 # Design — D71 Adoption baseline: inherited debt vs new findings
 
+> **History note (2026-10-19).** This is the design record as it was written.
+> droost has since left Drupal: the lever file is `droost/droost.yml`, every
+> `drush droost:workflow:<verb>` and `droost-workflow <verb>` is `droost
+> workflow:<verb>`, the four in-process site gates (`rendered_check`,
+> `config_clean`, `grounding_check`, `composition_check`) and the
+> module-contributed gates are gone, and a project's own gates, hooks and
+> walls are files in `droost/` (README, "The project's own gates, hooks and
+> walls"). Where this record and the README disagree, the README is current.
+
 Status: **BUILT P1–P3 2026-09-08** (engine `d6b5884` core, `7c4bd9c` writer and ratchet, `1a099c5` guard; droost `835bc70` live surface) — one deviation from the text below: the directory is **`droost/baseline/`**, beside `droost/wiki`, not `droost/workflow/baseline/`, because the run-state directory is gitignored and a baseline must be committed and reviewed. **P4 DONE 2026-09-08:** T27 rounds 1 and 2 ACCEPTED live on the clean room (`phpstan passed — 0 new, 26 inherited` both times, baseline byte-identical, no ignores; droost `scripts/evals/RESULTS.md` round 31). Decided 2026-09-07 (§11). Owner-directed: *"we will have to
 figure out a baseline effort because so many code bases out there will be this
 exact way."* Source finding: the adopter dogfood ledger (droost `docs/ADOPTER-DOGFOOD-

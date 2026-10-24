@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Droost\Workflow\Evidence;
 
 use Droost\Workflow\Gate\PhaseReport;
+use Droost\Workflow\Knowledge\ToolCallLog;
 use Droost\Workflow\State\RunState;
+use Droost\Workflow\State\RunStateStore;
 
 /**
  * Writes a phase's checklist to the evidence store.
@@ -81,8 +83,6 @@ final class EvidenceRecorder {
               $this->projectRoot,
               SubjectHasher::fromLever($levers['paths'] ?? NULL) ?: $result->subjects,
             ),
-            self::declaredFaults($levers),
-            self::remedy($levers),
           ),
           $now,
         );
@@ -135,8 +135,8 @@ final class EvidenceRecorder {
    * link that corroborates the spec's grounding claims. A link that is always
    * dark corroborates nothing.
    *
-   * The file is written by ToolCallLog, whichever door made the call
-   * (`vendor/bin/droost`, `drush droost:tool`, droost's MCP server). Each row
+   * The file is written by ToolCallLog, from the `droost` command's own
+   * knowledge calls. Each row
    * carries the run it was made under (or `null` for a call made with no run
    * open) and the phase. ONLY THIS RUN'S ROWS ARE TAKEN — the same rule
    * ingestGuardCalls() below has always applied, and the same reason: a
@@ -152,13 +152,10 @@ final class EvidenceRecorder {
    * appends to the file and nowhere else, so counting what the store holds
    * for this run is counting what this reader already moved. A row's own
    * phase is kept when it has one; the phase being recorded fills in the
-   * rest. A row's `run` is NULL when no run was open —
-   * and those rows are THIS run's too. The plan phase grounds, writes the
-   * spec and only then opens the run, so every knowledge call that grounding
-   * makes lands before run.json exists; skipping them would report the run as
-   * having asked the codebase nothing, at the phase where it asked most.
-   * `reset` archives the file, so a NULL row can only belong to the run that
-   * opens next. Rows naming ANOTHER run are the ones excluded.
+   * rest. A row's `run` is NULL when no run was open, and such a row is no
+   * run's: a plan looks once its run is open (owner, 2026-10-20), and a
+   * lookup made between runs for another purpose read as the next run's
+   * (F-331). ToolCallLog::ofRun() says which rows are this run's.
    *
    * @param \Droost\Workflow\Evidence\EvidenceStore $store
    *   The store.
@@ -168,7 +165,7 @@ final class EvidenceRecorder {
    *   The phase these calls are being attributed to.
    */
   private function ingestToolCalls(EvidenceStore $store, string $runId, string $phase): void {
-    foreach (['droost/droost-workflow', '.droost-workflow'] as $dir) {
+    foreach ($this->stateDirs() as $dir) {
       $path = rtrim($this->projectRoot, '/') . '/' . $dir . '/tool-calls.jsonl';
       if (!is_file($path)) {
         continue;
@@ -185,10 +182,10 @@ final class EvidenceRecorder {
         }
         $rows[] = $row;
       }
-      $mine = array_values(array_filter(
-        $rows,
-        static fn (array $row): bool => in_array($row['run'] ?? NULL, [$runId, NULL], TRUE),
-      ));
+      $mine = array_map(
+        static fn (int $i): array => $rows[$i],
+        ToolCallLog::ofRun(array_map(static fn (array $row): ?string => is_string($row['run'] ?? NULL) ? $row['run'] : NULL, $rows), $runId),
+      );
       foreach (array_slice($mine, $store->toolCallCount($runId)) as $row) {
         $store->recordToolCall(
           $runId,
@@ -228,7 +225,7 @@ final class EvidenceRecorder {
    *   The phase to attribute them to; the ledger cannot know it.
    */
   private function ingestGuardCalls(EvidenceStore $store, string $runId, string $phase): void {
-    foreach (['droost/droost-workflow', '.droost-workflow'] as $dir) {
+    foreach ($this->stateDirs() as $dir) {
       $path = rtrim($this->projectRoot, '/') . '/' . $dir . '/guard-calls.jsonl';
       if (!is_file($path)) {
         continue;
@@ -265,6 +262,7 @@ final class EvidenceRecorder {
           is_string($row['rule'] ?? NULL) && $row['rule'] !== '' ? $row['rule'] : NULL,
           is_string($row['at'] ?? NULL) ? $row['at'] : NULL,
           is_string($row['tool'] ?? NULL) && $row['tool'] !== '' ? $row['tool'] : NULL,
+          is_string($row['subagent'] ?? NULL) && $row['subagent'] !== '' ? $row['subagent'] : NULL,
         );
       }
       return;
@@ -272,61 +270,18 @@ final class EvidenceRecorder {
   }
 
   /**
-   * The exit-code-to-fault map a gate declared for itself.
+   * The state directories to read a ledger from, the resolved one first.
    *
-   * A crashed tool is genuinely ambiguous — phpstan dying on PHP the agent just
-   * wrote is the agent's problem, snyk dying unauthenticated is not — and the
-   * module that owns the gate is the only place that knows which. It declares
-   * it once, in its own definition, rather than leaving every run to guess.
+   * As ToolCallLog::read() resolves them, so the reader and this importer
+   * never disagree about where the ledger is (S4-22).
    *
-   * @param array<string, mixed> $levers
-   *   The gate's frozen settings.
-   *
-   * @return array<int|string, string>
-   *   Exit code to fault name.
+   * @return list<string>
+   *   Project-relative directories.
    */
-  private static function declaredFaults(array $levers): array {
-    $faults = $levers['faults'] ?? NULL;
-    if (is_string($faults) && $faults !== '') {
-      // Frozen through YAML and JSON, so it may arrive as a packed
-      // "2:environment,1:agent" string rather than a map.
-      $parsed = [];
-      foreach (explode(',', $faults) as $pair) {
-        $bits = explode(':', $pair, 2);
-        if (count($bits) === 2 && trim($bits[0]) !== '') {
-          $parsed[(int) trim($bits[0])] = trim($bits[1]);
-        }
-      }
+  private function stateDirs(): array {
+    $resolved = RunStateStore::resolveStateDir(rtrim($this->projectRoot, '/'));
 
-      return $parsed;
-    }
-
-    if (!is_array($faults)) {
-      return [];
-    }
-    $map = [];
-    foreach ($faults as $exit => $fault) {
-      if (is_scalar($fault)) {
-        $map[(int) $exit] = (string) $fault;
-      }
-    }
-
-    return $map;
-  }
-
-  /**
-   * The command that clears an environment fault on this gate, if it named one.
-   *
-   * @param array<string, mixed> $levers
-   *   The gate's frozen settings.
-   *
-   * @return string|null
-   *   The remedy.
-   */
-  private static function remedy(array $levers): ?string {
-    $remedy = $levers['remedy'] ?? NULL;
-
-    return is_string($remedy) && trim($remedy) !== '' ? trim($remedy) : NULL;
+    return array_values(array_unique([$resolved, RunStateStore::STATE_DIR, RunStateStore::LEGACY_STATE_DIR]));
   }
 
 }

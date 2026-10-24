@@ -66,6 +66,78 @@ test('a text set aside by decision is left out of the reference, and only that t
   assert.equal(d2(parity.judge(ref, lost, 'page', new Set(['learn more']))).verdict, 'FAIL', 'a text no decision names is still held');
 });
 
+// F-343: a text set aside takes its space with it. KCH-A run 2 met it: the
+// client left the placeholder phone off (Q7), the gate left the phone out of
+// the reference, and the copyright line below it, 40px higher on the site
+// because the phone's row is gone, failed D5 against where it sat beside it.
+test('the texts below a set-aside text are judged without the space it took (D5)', () => {
+  const ref = page('http://localhost:5199/', [['Contact', 'h3', 100], ['info@club.example', 'a', 140], ['(816) 555-0199', 'a', 180], ['© 2026 The Club.', 'p', 300]]);
+  const lifted = page('https://club.ddev.site/', [['Contact', 'h3', 100], ['info@club.example', 'a', 140], ['© 2026 The Club.', 'p', 260]]);
+  const d5 = (rows) => rows.find((r) => r.id === 'D5');
+  const aside = new Set(['(816) 555-0199']);
+  const pass = d5(parity.judge(ref, lifted, 'page', aside));
+  assert.equal(pass.verdict, 'PASS', JSON.stringify(pass));
+  assert.match(pass.said, /1 pair\(s\) judged without the 40px of texts set aside above them/);
+  // The space is the set-aside text's, and no more: 100px higher still fails.
+  const far = page('https://club.ddev.site/', [['Contact', 'h3', 100], ['info@club.example', 'a', 140], ['© 2026 The Club.', 'p', 200]]);
+  assert.equal(d5(parity.judge(ref, far, 'page', aside)).verdict, 'FAIL', 'the allowance is the space set aside, not a blank cheque');
+  // A text above the set-aside one is judged as it always was.
+  const moved = page('https://club.ddev.site/', [['Contact', 'h3', 100], ['info@club.example', 'a', 100], ['© 2026 The Club.', 'p', 260]]);
+  assert.equal(d5(parity.judge(ref, moved, 'page', aside)).verdict, 'FAIL', 'only what sits below the set-aside text is lifted');
+});
+
+// F-348: the site judged was whatever the run's environment named, and the
+// record did not say which. KCH-A run 3's agent set DROOST_PARITY_BASE_URL
+// itself (droost ran on the host, where DDEV sets no URL); pointed at a copy
+// of the design, the judge would have compared the source with itself.
+test('the site judged is the project\'s before the environment\'s, and says where it came from', () => {
+  const fs = require('fs'); const os = require('os');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'parity-base-'));
+  const none = {};
+  assert.deepEqual(parity.siteBase({}, none, root), { base: '', from: '' }, 'nothing names a site');
+  assert.deepEqual(parity.siteBase({}, { DROOST_PARITY_BASE_URL: 'http://localhost:5200' }, root), { base: 'http://localhost:5200', from: 'DROOST_PARITY_BASE_URL' });
+
+  fs.mkdirSync(path.join(root, '.ddev'));
+  fs.writeFileSync(path.join(root, '.ddev', 'config.yaml'), 'name: club\ntype: drupal11\n');
+  const env = { DROOST_PARITY_BASE_URL: 'http://localhost:5200', PLAYWRIGHT_BASE_URL: 'http://localhost:5201' };
+  assert.deepEqual(parity.siteBase({}, env, root), { base: 'https://club.ddev.site', from: '.ddev/config.yaml' }, 'the project\'s own DDEV site wins over an environment variable');
+  fs.writeFileSync(path.join(root, '.ddev', 'config.yaml'), 'name: club\nproject_tld: test\n');
+  assert.equal(parity.siteBase({}, env, root).base, 'https://club.test');
+  assert.deepEqual(parity.siteBase({ base: 'https://other.example' }, env, root), { base: 'https://other.example', from: '--base' }, 'the gate\'s own lever first');
+  fs.writeFileSync(path.join(root, '.ddev', 'config.yaml'), 'type: drupal11\ndocroot: web\n');
+  assert.equal(parity.siteBase({}, env, root).base, `https://${path.basename(root).toLowerCase().replace(/[^a-z0-9-]/g, '-')}.ddev.site`, 'with no name, DDEV names the project after its directory');
+  // F-350: inside the web container the project is /var/www/html, so its
+  // directory names nothing; DDEV's own URL is right there, and comes first.
+  const inside = { ...env, IS_DDEV_PROJECT: 'true', DDEV_PRIMARY_URL: 'https://club.ddev.site' };
+  assert.deepEqual(parity.siteBase({}, inside, root), { base: 'https://club.ddev.site', from: 'DDEV_PRIMARY_URL' }, 'inside the container, DDEV\'s own URL');
+});
+
+// F-349: D5 held an element's box, not its text. A block-level <label> is as
+// wide as its column, so KCH-A's contact form failed D5 on four labels whose
+// text sits exactly where the design's does (width 281 for 45).
+test('D5 holds a text\'s own extent when both readings carry it, its box otherwise', () => {
+  const label = (w, tw) => ({ text: 'Name', tag: 'label', x: 40, y: 200, w, h: 20, tx: 40, tw, font: 'Inter', size: 14, weight: 500, transform: 'none', color: 'rgb(31, 41, 55)', ground: 'rgb(255, 255, 255)', inHeader: false, inFooter: false });
+  const head = { text: 'Contact', tag: 'h2', x: 40, y: 100, w: 300, h: 30, tx: 40, tw: 120, font: 'Oswald', size: 30, weight: 700, transform: 'uppercase', color: 'rgb(31, 41, 55)', ground: 'rgb(255, 255, 255)', inHeader: false, inFooter: false };
+  const ref = { ...reading('http://localhost:5199/contact', []), texts: [head, label(45, 45)] };
+  const site = { ...reading('https://club.ddev.site/contact', []), texts: [head, label(281, 45)] };
+  const d5 = (rows) => rows.find((r) => r.id === 'D5');
+  assert.equal(d5(parity.judge(ref, site, 'page')).verdict, 'PASS', 'the same text in a wider box is the same text');
+  const moved = { ...site, texts: [head, { ...label(281, 45), tx: 120 }] };
+  assert.equal(d5(parity.judge(ref, moved, 'page')).verdict, 'FAIL', 'text that moved 80px still fails');
+  const old = (t) => { const { tx, tw, ...rest } = t; return rest; };
+  const refOld = { ...ref, texts: ref.texts.map(old) };
+  assert.equal(d5(parity.judge(refOld, site, 'page')).verdict, 'FAIL', 'a reference read before has boxes only, and is judged on boxes');
+});
+
+// F-351: KCH-A's home page failed D5 in DDEV's Linux container and passed on
+// the macOS host the reference was read on; the run chose where to judge.
+test('a reference read on one platform is not judged on another', () => {
+  const read = { read_on: { platform: 'darwin', browser: '156.0' } };
+  assert.equal(parity.readOnElsewhere(read, 'darwin'), '', 'where it was read');
+  assert.match(parity.readOnElsewhere(read, 'linux'), /read on darwin \(156\.0\) and this judge runs on linux/);
+  assert.equal(parity.readOnElsewhere({}, 'linux'), '', 'a reference that does not say where is judged as it was');
+});
+
 test('a header link set aside by decision leaves D6 too', () => {
   const ref = reading('http://localhost:4323/', [['Internet', '/internet.html'], ['Spanish', '#']]);
   const site = reading('https://united.ddev.site/', [['Internet', '/internet']]);
@@ -251,4 +323,95 @@ test('a text that changes with the clock is live, and only that text', () => {
   assert.deepEqual(parity.liveTexts(saturday, [saturday]), [], 'a page that does not follow the clock has none');
   assert.deepEqual(parity.liveTexts(saturday, []), [], 'and with no other reading nothing is called live');
   assert.deepEqual(parity.liveTexts(at('Open now  ·  closes 6:00pm'), [at('open now · closes 6:00pm')]), [], 'compared as the judge compares');
+});
+
+// F-354: a roadmap that builds a page a rung failed parity on every page not
+// built yet. The routes lever names the pages built so far, in either
+// spelling; every other reference route is named not judged.
+test('the routes not built yet are named, in either spelling, never judged', () => {
+  const manifest = ['/', '/internet', '/business', '/about', '/support'];
+  assert.deepEqual(parity.notJudged(manifest, ['/index.html', '/about.html', '/internet']), ['/business', '/support']);
+  assert.deepEqual(parity.notJudged(manifest, manifest), []);
+  assert.deepEqual(parity.notJudged(undefined, ['/']), [], 'a reference with no manifest leaves nothing out');
+});
+
+// F-356: a client's decision that adds to the frame had no way into the
+// reference. UNI-A run 6 met it: Q8 linked the new /contact from the footer's
+// Customers column, the footer grew 30px, and every text below the link failed
+// D5 on all 7 routes, against a reference that predates the decision.
+test('the texts below a text added by decision are judged with the space it takes (D5)', () => {
+  const ref = page('http://localhost:5299/', [['Customers', 'h3', 100], ['Pay my bill', 'a', 140], ['© 2026 United', 'p', 300]]);
+  const grown = page('https://united-a.ddev.site/', [['Customers', 'h3', 100], ['Pay my bill', 'a', 140], ['Contact us', 'a', 170], ['© 2026 United', 'p', 330]]);
+  const d5 = (rows) => rows.find((r) => r.id === 'D5');
+  const added = new Set(['contact us']);
+  assert.equal(d5(parity.judge(ref, grown, 'page')).verdict, 'FAIL', 'without the decision the link\'s space fails what sits below it');
+  const pass = d5(parity.judge(ref, grown, 'page', new Set(), added));
+  assert.equal(pass.verdict, 'PASS', JSON.stringify(pass));
+  assert.match(pass.said, /1 pair\(s\) judged with the 30px of texts added above them/);
+  // The space is the added text's, and no more: 100px lower still fails.
+  const far = page('https://united-a.ddev.site/', [['Customers', 'h3', 100], ['Pay my bill', 'a', 140], ['Contact us', 'a', 170], ['© 2026 United', 'p', 400]]);
+  assert.equal(d5(parity.judge(ref, far, 'page', new Set(), added)).verdict, 'FAIL', 'the allowance is the space added, not a blank cheque');
+  // A text above the added one is judged as it always was.
+  const moved = page('https://united-a.ddev.site/', [['Customers', 'h3', 100], ['Pay my bill', 'a', 175], ['Contact us', 'a', 205], ['© 2026 United', 'p', 330]]);
+  assert.equal(d5(parity.judge(ref, moved, 'page', new Set(), added)).verdict, 'FAIL', 'only what sits below the added text drops');
+});
+
+test('an addition is read only as a recorded decision after a text the reference holds', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'parity-added-'));
+  const questions = path.join(dir, 'questions.md');
+  fs.writeFileSync(questions, '| Id | Question |\n|---|---|\n| Q8 | Link the contact page from the footer? |\n');
+  const views = [{ route: '/', texts: ['Pay my bill', 'Home'], links: [] }, { route: '/business', texts: ['Pay my bill', 'Learn More'], links: [] }];
+  const write = (doc) => fs.writeFileSync(path.join(dir, 'decided.json'), JSON.stringify(doc));
+  const read = () => parity.readDecided(dir, views, questions);
+
+  write({ added: [{ route: '*', text: 'Contact us', after: 'Pay my bill', decided: 'Q8', why: 'the footer links /contact' }] });
+  assert.deepEqual(read().entries, [], 'additions alone are a decided file');
+  assert.equal(read().added.length, 1);
+  assert.deepEqual([...parity.addedFor(read().added, '/business')], ['contact us']);
+  write({ added: [{ route: '*', text: 'Contact us', decided: 'Q8' }] });
+  assert.match(read().error, /needs a route, a text, the reference text it follows/);
+  write({ added: [{ route: '*', text: 'Contact us', after: 'Pay my bill', decided: 'Q9' }] });
+  assert.match(read().error, /cites Q9, which is no question of the intake/);
+  write({ added: [{ route: '/', text: 'Contact us', after: 'Nowhere', decided: 'Q8' }] });
+  assert.match(read().error, /which the reference does not hold there/);
+  write({ added: [{ route: '/business', text: 'Learn More', after: 'Pay my bill', decided: 'Q8' }] });
+  assert.match(read().error, /which the reference already holds/, 'what the source shows is held as it is');
+  write({ set_aside: [], added: 'Contact us' });
+  assert.match(read().error, /"added" is not a list/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// An option the command does not read is refused, never ignored: `--help`
+// ran a whole judgement, and a misspelled `--scope` judged at page scope.
+test('an unknown option or scope is a misuse, named', () => {
+  assert.equal(parity.misuse('judge', parity.args(['judge', '--scope', 'frame', '--routes', '/', '--pages', '/', '--json'])), null);
+  assert.equal(parity.misuse('capture', parity.args(['capture', '--source', 'http://a/', '--width', '1280,390'])), null);
+  assert.match(parity.misuse('judge', parity.args(['--help'])), /does not take --help/);
+  assert.match(parity.misuse('judge', parity.args(['judge', '--scop', 'frame'])), /does not take --scop/);
+  assert.match(parity.misuse('judge', parity.args(['judge', '--scope', 'frme'])), /--scope frme is not a scope/);
+  assert.match(parity.misuse('capture', parity.args(['capture', '--pages', '/'])), /capture does not take --pages/);
+});
+
+// F-363: WB-A's reference, read on a Thursday, sampled Monday and Tuesday
+// only, so "Friday · today" missed the reference's plain "Friday" and a
+// correct /location failed four days a week. A page that follows the clock
+// is read on every weekday, and every day's name is live.
+test('a page that marks today is live on every weekday, whatever day it was read', async () => {
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const pageAt = (date) => ({ texts: ['Hours', ...days.map((d, i) => (i === date.getUTCDay() ? `${d} · today` : d))].map((text) => ({ text })) });
+  for (let start = 0; start < 7; start++) {
+    const read = new Date(Date.UTC(2026, 9, 18 + start, 21, 52));
+    const reading = pageAt(read);
+    const others = await parity.clockReadings(reading, async (shift) => pageAt(new Date(read.getTime() + shift)));
+    const live = parity.liveTexts(reading, others);
+    for (const d of days) {
+      assert.ok(live.includes(d) || live.includes(`${d} · today`), `${days[read.getUTCDay()]}'s reading leaves ${d} judged`);
+    }
+    assert.ok(!live.includes('Hours'), 'a text the clock never changes stays judged');
+  }
+  let reads = 0;
+  await parity.clockReadings({ texts: [{ text: 'Hours' }] }, async () => { reads++; return { texts: [{ text: 'Hours' }] }; });
+  assert.equal(reads, 2, 'a page that does not follow the clock is read twice more, no more');
 });

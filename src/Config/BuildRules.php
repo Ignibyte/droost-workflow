@@ -33,7 +33,8 @@ use Droost\Workflow\Support\TypedArray;
  *
  * HOUSE RULES (`house`, 2026-10-15) are the site's own, in its own words,
  * each with an id and a judge: `gate`, checked mechanically on the diff (a
- * known check, `sdc_markup`), or `seeker`, read against the diff by the
+ * known check, `sdc_markup`, or the site's own command, `cmd`), or `seeker`,
+ * read against the diff by the
  * seeker, whose finding cites the id. droost tells the agent no way to
  * build; it holds the work to the rules the site wrote.
  */
@@ -91,7 +92,7 @@ final class BuildRules {
    * component (a Twig template, a theme hook's template) and no Canvas code
    * component.
    */
-  public const HOUSE_CHECKS = ['sdc_markup'];
+  public const HOUSE_CHECKS = ['sdc_markup', 'site_tools'];
 
   /**
    * The mode a rule takes when nothing names one.

@@ -55,6 +55,25 @@ final class EventsVerbTest extends WorkflowTestCase {
     $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\nseekers:\n  on: false\n");
     $dir = (new RunStateStore($root))->directory();
     mkdir($dir . '/' . RunEventLog::FILENAME, 0755, TRUE);
+    // Plan is held until it has consulted the wiki and the tree (F-303), in
+    // the run (owner, 2026-10-20); this test is about the event log, so the
+    // run begins, its plan consults them, as a real one does, and the binary
+    // is asked to go on.
+    mkdir($root . '/modules/custom/x', 0755, TRUE);
+    file_put_contents($root . '/modules/custom/x/x.info.yml', "name: X\ntype: module\n");
+    $spec = $dir . '/spec-test-run.md';
+    // One grounding row, citing a file this root holds: the shared fixture's
+    // table claims three tiers and cites nothing, which plan_grounded holds.
+    file_put_contents($spec, (string) preg_replace(
+      '/## Grounding\n.*?(?=\n## |\z)/s',
+      "## Grounding\n\n| Phase | Tier | Asked | Found | Evidence |\n|---|---|---|---|---|\n| plan | custom | the module | its info file | modules/custom/x/x.info.yml |\n",
+      (string) file_get_contents($spec),
+    ));
+    $this->dispatch(['run'], $root);
+    file_put_contents($dir . '/tool-calls.jsonl', implode("\n", [
+      '{"tool":"code:wiki","outcome":"ok","at":"x","run":"run-events","phase":"plan"}',
+      '{"tool":"code:tree","outcome":"ok","at":"x","run":"run-events","phase":"plan"}',
+    ]) . "\n");
 
     $process = proc_open(
       [PHP_BINARY, dirname(__DIR__, 2) . '/bin/droost-workflow', 'run', '--project=' . $root],
@@ -69,7 +88,7 @@ final class EventsVerbTest extends WorkflowTestCase {
 
     $state = (new RunStateStore($root))->load();
     $this->assertNotNull($state, 'the run began: ' . $stdout . $stderr);
-    $this->assertNotSame('plan', $state->currentPhase?->value, 'and advanced past plan');
+    $this->assertNotSame('plan', $state->currentPhase?->value, 'and advanced past plan: ' . $stdout);
     $this->assertSame(1, substr_count($stderr, 'the run-event log'), 'reported once, though several events went unwritten: ' . $stderr);
   }
 

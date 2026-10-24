@@ -439,7 +439,46 @@ function readFiles(root) {
     else data.push(...openapiData(rel, text));
   }
   if (schemaFiles && !data.some((d) => d.kind === 'table')) notes.push(`${schemaFiles} database schema file(s) and no table: a template's empty schema`);
-  return { data, routes: [...routes], documents, html, notes, files: files.length };
+  return { data: withReferences(data), routes: [...routes], documents, html, notes, files: files.length };
+}
+
+/**
+ * Marks each record field whose every value names a record of another set.
+ *
+ * A mock data file keeps a reference as the name it shows: every camp's
+ * `location` is one of the rinks' `name`s. The audit listed both sets and the
+ * same strings on two pages, and never joined them, so the reference was the
+ * agent's to notice: KCH-A's intake modelled a camp's location as free text
+ * and asked nothing (F-342). A field is a reference to another set when all of
+ * its non-empty values, two distinct at least, equal (normalised) values of
+ * one of that set's fields whose values are unique: one value outside the set
+ * and it is text, and nothing is claimed.
+ */
+function withReferences(data) {
+  const sets = data.filter((d) => d.kind === 'records' && Array.isArray(d.values) && d.values.length);
+  const strings = (d, f) => d.values.map((rec) => (rec && typeof rec[f] === 'string' ? norm(rec[f]) : '')).filter((v) => v !== '');
+  const found = new Map();
+  for (const a of sets) {
+    const refs = [];
+    for (const f of a.fields || []) {
+      const values = strings(a, f.name);
+      if (new Set(values).size < 2) continue;
+      for (const b of sets) {
+        if (b === a) continue;
+        for (const g of b.fields || []) {
+          const keys = strings(b, g.name);
+          if (keys.length < 2 || new Set(keys).size !== keys.length) continue;
+          const known = new Set(keys);
+          if (values.every((v) => known.has(v))) {
+            refs.push({ field: f.name, to: b.id, by: g.name, matched: values.length, of: values.length });
+            break;
+          }
+        }
+      }
+    }
+    if (refs.length) found.set(a, refs);
+  }
+  return data.map((d) => (found.has(d) ? { ...d, refs: found.get(d) } : d));
 }
 
 // ---------------------------------------------------------------------------
@@ -1174,6 +1213,7 @@ function markdown(a) {
   lines.push('', '## Data the files declare', '');
   if (!a.data.length) lines.push('None.');
   for (const d of a.data) lines.push(`- \`${d.id}\` ${d.kind}${d.count !== undefined ? `, ${d.count}` : ''}${d.type ? ` of ${d.type}` : ''}: ${(d.fields || []).map((f) => f.name + (f.type ? `: ${f.type}` : '') + (f.optional ? '?' : '')).join(', ')}${d.paths ? `paths ${d.paths.join(', ') || 'none'}` : ''}${d.note ? ` — ${d.note}` : ''}`);
+  for (const d of a.data) for (const r of d.refs || []) lines.push(`  - ${r.field} names a record of \`${r.to}\` by its ${r.by} (${r.matched} of ${r.of} values): a reference to it, not text`);
   if (a.notes.length) lines.push('', '## Notes', '', ...a.notes.map((n) => `- ${n}`));
   return lines.join('\n') + '\n';
 }
@@ -1233,4 +1273,4 @@ if (require.main === module) {
   main().catch((e) => finish({ status: 'error', summary: String(e && e.message ? e.message : e).split('\n')[0] }, EXIT.nothing));
 }
 
-module.exports = { staticPath, literalValue, objectValues, showsValue, matchRecords, sectionRecords, normalPath, isPattern, matchPattern, routerRoutes, stripComments, scriptData, prismaData, openapiData, jsonData, readFiles, shape, slotsOf, repeatsOf, formsOf, sectionsOf, analyse, frameOf, valuePattern, textOf, markdown };
+module.exports = { withReferences, staticPath, literalValue, objectValues, showsValue, matchRecords, sectionRecords, normalPath, isPattern, matchPattern, routerRoutes, stripComments, scriptData, prismaData, openapiData, jsonData, readFiles, shape, slotsOf, repeatsOf, formsOf, sectionsOf, analyse, frameOf, valuePattern, textOf, markdown };

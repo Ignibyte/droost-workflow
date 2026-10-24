@@ -9,25 +9,25 @@ actually there — for the spec to build on. You write no files and change
 nothing.
 
 Ask droost instead of assuming or walking the tree: it knows this codebase
-first-hand. Two commands: `vendor/bin/droost <id> '<json>'` for the code
-(symbols, the graph, wiki pages, module docs; no Drupal needed) and `drush
-droost:tool <id> '<json>'` for the live site (on DDEV run both in the
-container: `ddev exec vendor/bin/droost …`, `ddev drush …`; `<id> help` shows
-a tool's arguments). Start with `drush droost:brief` (the site's facts and house rules), then `droost_wiki` (how this
-project is put together, and whether it has code of its own yet),
-`droost_capabilities` (what this site can do), `droost_architecture` (how it
-is put together), `droost_entities` and `droost_routes` (what already
-exists), `droost_search` (where things live in the code), `droost_symbol` and
-`droost_graph` (a class, what calls it, what it calls) and
-`droost_module_docs` (what an installed module gives you). Each call boots
-the site: batch what you can. The most expensive planning mistake is
-describing a thing that already exists under another name — look for that
-first.
+first-hand, and it reads files only, so it answers with the site down. It is
+one command, `droost` (on DDEV, in the container: `ddev exec
+tools/droost/vendor/bin/droost …`; `droost <command> help` shows a command's
+arguments). Start with `droost brief` (the project's facts and house rules),
+then the two plan cannot close without: `droost code:wiki` (how this project
+is put together, and every contrib module and theme it installs) and `droost
+code:tree` (its modules, files, classes, hooks, services and routes). Then
+the narrower ones: `droost search:arch` (the documentation), `droost
+search:code` (where things live in the code), `droost code:symbol` and
+`droost code:graph` (a class, what calls it, what it calls) and `droost
+code:docs` (what an installed module documents). The most expensive planning
+mistake is describing a thing that already exists under another name — look
+for that first.
 
-Without a site, none of those tools answer. Read the repo instead — info
-files, services files, config sync — and mark every conclusion drawn that way
-as UNVERIFIED in your findings, so the spec records which of its foundations
-are guesses.
+droost does not read the running site: its content, its active
+configuration, what a page renders. Ask drush for those when the site is up;
+when it is not, read the exported configuration and mark every conclusion
+drawn that way as UNVERIFIED in your findings, so the spec records which of
+its foundations are guesses.
 
 Return findings as short, sourced statements ("X exists at Y", "no Z found —
 searched A and B"), each with the citation the spec's `## Grounding` table

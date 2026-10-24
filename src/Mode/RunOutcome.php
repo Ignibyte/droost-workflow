@@ -55,7 +55,7 @@ final class RunOutcome {
    *
    * A custom gate is a shell command, and droost parses nothing out of it,
    * so a failed one reached the envelope as a summary and no findings: the
-   * reason was only in `droost-workflow evidence`, and nothing said to look
+   * reason was only in `droost workflow:evidence`, and nothing said to look
    * there (F-183, druplit-02). The tail of what it wrote rides on its row
    * here, and the row names where the whole of it is. Only the envelope
    * carries it; the report the run keeps in run.json stays as it was.
@@ -81,7 +81,7 @@ final class RunOutcome {
         $row['output_tail'] = strlen($said) > self::OUTPUT_TAIL
           ? '…' . mb_strcut($said, strlen($said) - self::OUTPUT_TAIL, self::OUTPUT_TAIL, 'UTF-8')
           : $said;
-        $row['output_in'] = 'droost-workflow evidence';
+        $row['output_in'] = 'droost workflow:evidence';
       }
       $gates[] = $row;
     }
@@ -93,9 +93,9 @@ final class RunOutcome {
    * The one run envelope every surface renders.
    *
    * Until this existed the same five fields were assembled three times — in
-   * the bin, the drush command and the MCP tool — which is exactly the
-   * second-implementation drift the facade exists to prevent. The surfaces
-   * differ in how they PRINT this, never in what it says.
+   * the bin, the drush command and the MCP tool, the doors before 2026-10-19
+   * — which is exactly the second-implementation drift the facade exists to
+   * prevent. A surface differs in how it PRINTS this, never in what it says.
    *
    * @return array<string, mixed>
    *   The envelope: outcome, current_phase, preset (the effort level the run

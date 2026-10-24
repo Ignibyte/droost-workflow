@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Pack;
 
+use Droost\Workflow\Tests\Levers;
 use Droost\Workflow\Tests\WorkflowTestCase;
 
 /**
@@ -48,14 +49,15 @@ final class GuardTest extends WorkflowTestCase {
    * The bypass is named on the surface the project has (F-171).
    *
    * A project with no drupal/droost has no drush, and the wall told its
-   * agent to ask the operator for `drush droost:workflow:bypass`.
+   * agent to ask the operator for `drush droost:workflow:bypass`. There is
+   * one command now, whether or not drush is there.
    */
   public function testRequireRunNamesTheSurfaceThatExists(): void {
     $root = $this->makeRoot();
     [, , $stderr] = $this->guard($root, 'pre-tool-use', [
       'tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module'],
     ]);
-    $this->assertStringContainsString('vendor/bin/droost-workflow bypass "<reason>"', $stderr);
+    $this->assertStringContainsString('droost workflow:bypass "<reason>"', $stderr);
     $this->assertStringNotContainsString('drush droost:workflow:bypass', $stderr);
 
     mkdir($root . '/vendor/bin', 0755, TRUE);
@@ -63,7 +65,8 @@ final class GuardTest extends WorkflowTestCase {
     [, , $stderr] = $this->guard($root, 'pre-tool-use', [
       'tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module'],
     ]);
-    $this->assertStringContainsString('drush droost:workflow:bypass "<reason>"', $stderr);
+    $this->assertStringContainsString('droost workflow:bypass "<reason>"', $stderr);
+    $this->assertStringNotContainsString('drush droost:workflow:bypass', $stderr, 'drush being there does not bring the retired verb back');
   }
 
   /**
@@ -119,7 +122,7 @@ final class GuardTest extends WorkflowTestCase {
     ]);
     $this->assertSame(0, $exit, 'without the lever the wall does not know the directory');
 
-    file_put_contents($root . '/droost.workflow.yml', "require_run: hard\ncustom_code: \"modules, recipes/\"\n");
+    file_put_contents(Levers::path($root), "require_run: hard\ncustom_code: \"modules, recipes/\"\n");
     $walled = [
       'modules/droost_cockpit/src/Cockpit.php',
       $root . '/recipes/droost_cockpit/recipe.yml',
@@ -324,7 +327,7 @@ final class GuardTest extends WorkflowTestCase {
     // is the case the resolver's tie-break is actually about. The usual
     // fixture pre-creates the visible one and would hide half of this.
     $root = $this->makeRoot();
-    file_put_contents($root . '/droost.workflow.yml', "require_run: soft\n");
+    file_put_contents(Levers::path($root), "require_run: soft\n");
     [$exit, $stdout] = $this->guard($root, 'pre-tool-use', [
       'tool_input' => ['file_path' => 'web/modules/custom/acme/acme.module'],
     ]);
@@ -358,7 +361,7 @@ final class GuardTest extends WorkflowTestCase {
    */
   public function testAlreadyHiddenProjectsKeepTheirOwnDirectory(): void {
     $root = $this->makeRoot();
-    file_put_contents($root . '/droost.workflow.yml', "require_run: soft\n");
+    file_put_contents(Levers::path($root), "require_run: soft\n");
     mkdir($root . '/.droost-workflow', 0775, TRUE);
 
     [$exit] = $this->guard($root, 'pre-tool-use', [
@@ -553,18 +556,14 @@ final class GuardTest extends WorkflowTestCase {
     foreach ([$this->makeRoot(), $this->rootWithRun('code', 'active', 'soft')] as $root) {
       foreach ([
         'ddev drush droost:workflow:gate-waive config_clean "false positive"',
-        'drush dwfgw phpstan "vendor stub"',
         'vendor/bin/drush droost:workflow:bypass "hotfix"',
-        'ddev drush dwfby "just this once" --project=/x',
         // Moving the effort dial names a level: the operator's act.
         'ddev drush droost:workflow:effort low',
-        'drush dwfe --project=/x high',
         'ddev drush droost:workflow:effort factory',
         // Writing or growing the adoption baseline decides what every later
         // run inherits: a baseline the agent can write is a finding it can
         // hide (D71).
         'ddev drush droost:workflow:baseline',
-        'drush dwfbl --refresh',
         'ddev drush droost:workflow:baseline --refresh --grow --reason="legacy"',
         'vendor/bin/droost-workflow baseline --refresh',
       ] as $command) {
@@ -582,7 +581,7 @@ final class GuardTest extends WorkflowTestCase {
         $this->assertStringContainsString(
           str_contains($command, 'droost-workflow ')
             ? '`droost-workflow '
-            : '`drush droost:workflow:',
+            : '`droost workflow:',
           $stderr,
           $command . ': the refusal hands over a command this surface can run',
         );
@@ -592,48 +591,19 @@ final class GuardTest extends WorkflowTestCase {
       }
     }
 
-    // Arming a droost write gate is the operator's act as well (R25-F2).
-    foreach ([
-      'ddev drush droost:gate allow_entity_write on',
-      'drush dgate allow_scaffold true',
-      'ddev drush config:set droost.settings allow_entity_write true -y',
-      'drush cset -y droost.settings allow_destructive 1',
-      // droost:install arms what --gates names (F-286).
-      'ddev drush droost:install --gates=all -y',
-      'drush droost --gates allow_eval -y',
-      'ddev drush droost:install --scaffold -y',
-    ] as $command) {
-      [$exit, , $stderr] = $this->guard($this->makeRoot(), 'operator-commands', [
-        'tool_input' => ['command' => $command],
-      ]);
-      $this->assertSame(2, $exit, $command . ' must be refused');
-      $this->assertStringContainsString('droost:gate is the OPERATOR', $stderr);
-      $this->assertStringContainsString('Disarming a gate', $stderr);
-    }
-
-    // Re-arming the wall and disarming a gate are tightenings; anything else
-    // is not our business.
+    // Re-arming the wall is a tightening; anything else is not our business.
     $root = $this->makeRoot();
     foreach ([
       'ddev drush droost:workflow:bypass --off',
-      'drush dwfby --off',
       // A bare effort only reports the current level; a preview shows the
       // bill of a level without writing — how an agent grounds a proposal.
       'ddev drush droost:workflow:effort',
-      'drush dwfe --project=/x',
       'ddev drush droost:workflow:effort max --preview',
-      'drush dwfe --preview high',
       // The bill and the record are read-only: exactly how an agent grounds a
       // proposal to baseline.
       'ddev drush droost:workflow:baseline --measure',
-      'drush dwfbl --status',
       'vendor/bin/droost-workflow baseline --status',
-      'ddev drush droost:gate allow_entity_write off',
-      'drush config:set --input-format=yaml droost.settings allow_entity_write false -y',
-      'ddev drush droost:gate allow_scaffold',
       // With no --gates it keeps what is armed; --gates=none arms nothing.
-      'ddev drush droost:install -y',
-      'drush droost:install --gates=none -y',
       'ddev drush droost:workflow:status',
       'ddev drush cr',
       'git log --oneline -3',
@@ -877,7 +847,7 @@ final class GuardTest extends WorkflowTestCase {
     $deep = $root . '/modules/custom/acme';
     mkdir($deep, 0755, TRUE);
     mkdir($root . '/decoy', 0755, TRUE);
-    file_put_contents($root . '/droost.workflow.yml', "require_run: off\n");
+    file_put_contents(Levers::path($root), "require_run: off\n");
 
     $walk = function () use ($deep): int {
       $process = proc_open(
@@ -1542,6 +1512,49 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
+   * Once the roadmap is approved, the reference outlives the run (F-354).
+   *
+   * UNI-A run 2's agent, failing parity on six routes no rung had built yet,
+   * proposed resetting the run (which lifted this wall) and trimming the
+   * reference's manifest: the yardstick edited until the site passed. While
+   * the intake is open the agent writes `decided.json` there, as the intake
+   * skill asks; once the human approved the roadmap, only the operator
+   * changes the reference, run or no run.
+   */
+  public function testParityReferenceOutlivesTheRunOnceTheIntakeIsApproved(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/parity', 0775, TRUE);
+    file_put_contents($root . '/droost/parity/manifest.json', '{"routes":["/","/business"]}');
+    mkdir($root . '/droost/droost-workflow', 0775, TRUE);
+    $intake = static fn (string $status) => file_put_contents(
+      $root . '/droost/droost-workflow/intake.json',
+      json_encode(['schema' => 'droost.intake/1', 'id' => 'intake-1', 'status' => $status]),
+    );
+
+    $intake('open');
+    $this->assertSame(0, $this->writeAttempt($root, 'droost/parity/decided.json'), 'the intake names its set-asides');
+
+    $intake('approved');
+    $this->assertSame(2, $this->writeAttempt($root, 'droost/parity/manifest.json'), 'no run open, and still the yardstick');
+    $this->assertSame(2, $this->writeAttempt($root, 'droost/parity/decided.json'));
+    $this->assertSame(2, $this->shellAttempt($root, 'droost/parity/manifest.json'), 'and through a shell');
+    $this->assertSame(2, $this->shellAttempt($root, 'vendor/bin/droost-parity capture --source http://design.test --routes /'));
+    $this->assertSame(2, $this->shellAttempt($root, 'python3 -c "open(\'droost/parity/manifest.json\',\'w\').write(\'{}\')"'));
+    $this->assertSame(0, $this->shellAttempt($root, 'cat droost/parity/manifest.json'), 'reading stays open');
+    $this->assertSame(0, $this->shellAttempt($root, 'vendor/bin/droost-parity judge --reference droost/parity --routes / --json'));
+    $this->assertSame(0, $this->shellAttempt($root, 'vendor/bin/droost-parity capture --source http://design.test --routes / --out /tmp/scratch-parity'), 'a capture elsewhere is a measurement');
+
+    // The reset UNI-A run 2 proposed: the run is over, the wall stands.
+    file_put_contents($root . '/droost/droost-workflow/run.json', '{"run_id":"r1","current_phase":null}');
+    $this->assertSame(2, $this->writeAttempt($root, 'droost/parity/manifest.json'));
+
+    // A `reference` lever moves the wall with it.
+    mkdir($root . '/refs/united', 0775, TRUE);
+    file_put_contents($root . '/droost/droost.yml', "gates:\n  parity: { on: true, reference: refs/united }\n");
+    $this->assertSame(2, $this->writeAttempt($root, 'refs/united/manifest.json'));
+  }
+
+  /**
    * The exit code of writing to a path through the editing tools.
    *
    * @param string $root
@@ -1825,7 +1838,6 @@ final class GuardTest extends WorkflowTestCase {
       'bypass' => 'drush droost:workflow:bypass "hotfix" # --off',
       'baseline' => 'drush droost:workflow:baseline --refresh # --status',
       'effort' => 'drush droost:workflow:effort low # --preview',
-      'bypass by alias' => 'drush dwfby "hotfix" # --off',
     ];
     foreach ($cases as $label => $command) {
       [$code] = $this->guard($root, 'operator-commands', [
@@ -1866,7 +1878,6 @@ final class GuardTest extends WorkflowTestCase {
       'drush droost:workflow:baseline --measure',
       'drush droost:workflow:effort high --preview',
       'drush droost:workflow:effort',
-      'drush droost:gate allow_entity_write off',
     ] as $command) {
       [$code] = $this->guard($root, 'operator-commands', [
         'tool_name' => 'Bash',
@@ -1874,22 +1885,6 @@ final class GuardTest extends WorkflowTestCase {
       ]);
       $this->assertSame(0, $code, $command . ' reads or tightens, and is the agent\'s');
     }
-  }
-
-  /**
-   * A flag between the verb and the gate name does not arm it unnoticed.
-   *
-   * The pattern required `allow_*` to be the word immediately after the verb,
-   * and `--yes` is the first thing anybody adds to a drush command they expect
-   * to prompt them.
-   */
-  public function testFlagBeforeTheGateNameDoesNotHelp(): void {
-    [$code] = $this->guard($this->makeRoot(), 'operator-commands', [
-      'tool_name' => 'Bash',
-      'tool_input' => ['command' => 'drush droost:gate --yes allow_entity_write on'],
-    ]);
-
-    $this->assertSame(2, $code);
   }
 
   /**
@@ -2139,7 +2134,6 @@ final class GuardTest extends WorkflowTestCase {
     foreach ([
       'ddev exec "drush droost:workflow:bypass hotfix"',
       "bash -c 'drush droost:workflow:gate-waive phpcs'",
-      'ddev exec "drush droost:gate allow_entity_write on"',
       'ddev exec "drush droost:workflow:baseline --refresh"',
     ] as $command) {
       [$code] = $this->guard($root, 'operator-commands', [
@@ -2215,29 +2209,6 @@ final class GuardTest extends WorkflowTestCase {
   }
 
   /**
-   * The quoted value still arms a write gate, and is still refused.
-   *
-   * `drush droost:gate allow_entity_write "on"` armed one. The value was
-   * matched as a raw word and `"on"` is not `on` — the shell hands the command
-   * `[droost:gate] [allow_entity_write] [on]` either way.
-   */
-  public function testQuotedValueHidesNoArming(): void {
-    $root = $this->makeRoot();
-    foreach ([
-      'drush droost:gate allow_entity_write "on"',
-      "drush droost:gate allow_entity_write 'on'",
-      'drush droost:gate allow_entity_write o"n"',
-      'drush config:set droost.settings allow_eval "true"',
-    ] as $command) {
-      [$code] = $this->guard($root, 'operator-commands', [
-        'tool_name' => 'Bash',
-        'tool_input' => ['command' => $command],
-      ]);
-      $this->assertSame(2, $code, $command . ' arms a write gate');
-    }
-  }
-
-  /**
    * The verb split by a quote is the same verb.
    *
    * `drush "droost:workflow:byp"ass` is `droost:workflow:bypass` to the shell
@@ -2251,7 +2222,6 @@ final class GuardTest extends WorkflowTestCase {
       'drush "droost:workflow:byp"ass "reason"',
       'drush droost:workflow:gate-"waive" phpcs',
       'drush droost:workflow:eff"ort" max',
-      "drush 'droost:gate' allow_db_write on",
     ] as $command) {
       [$code] = $this->guard($root, 'operator-commands', [
         'tool_name' => 'Bash',
@@ -2298,11 +2268,8 @@ final class GuardTest extends WorkflowTestCase {
       'drush droost:workflow:baseline --measure',
       'drush droost:workflow:effort high --preview',
       'drush droost:workflow:effort',
-      'drush droost:gate allow_entity_write off',
-      'drush droost:gate allow_entity_write "off"',
       'ddev exec "drush droost:workflow:bypass --off"',
       "bash -c 'drush droost:workflow:baseline --measure'",
-      'drush config:set other.settings allow_eval true',
     ] as $command) {
       [$code] = $this->guard($root, 'operator-commands', [
         'tool_name' => 'Bash',
@@ -2401,7 +2368,6 @@ final class GuardTest extends WorkflowTestCase {
       'git commit -m "ran drush droost:workflow:bypass for the hotfix"',
       'echo "ask the operator to run drush droost:workflow:gate-waive phpcs"',
       'gh pr create --body "we had to droost:workflow:effort max here"',
-      'git commit -m "arm allow_entity_write on the gate"',
       'echo "droost:workflow:baseline --refresh is the operator\'s call"',
     ] as $command) {
       [$code] = $this->guard($root, 'operator-commands', [
@@ -2422,7 +2388,6 @@ final class GuardTest extends WorkflowTestCase {
     $root = $this->makeRoot();
     foreach ([
       'bash -c "drush droost:workflow:gate-waive phpcs"',
-      "sh -c 'drush droost:gate allow_eval on'",
       'ddev exec "drush droost:workflow:bypass hotfix"',
       'ssh web "drush droost:workflow:baseline --refresh"',
     ] as $command) {
@@ -2577,7 +2542,7 @@ final class GuardTest extends WorkflowTestCase {
    */
   public function testAnUnresolvableCdIsFollowedBySpelling(): void {
     $root = $this->rootWithRun('code', 'active', 'hard', 'agentic');
-    file_put_contents($root . '/droost.workflow.yml', "preset: low\n");
+    file_put_contents(Levers::path($root), "preset: low\n");
     foreach ([
       'ddev exec "cd /var/www/html/droost/droost-workflow && rm run.json"',
       'ddev exec "cd /var/www/html/.claude/hooks && echo x > droost-workflow-guard.php"',

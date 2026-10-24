@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Droost\Workflow\Evidence;
 
 use Droost\Workflow\Config\GateSettings;
-use Droost\Workflow\Spec\SpecContract;
+use Droost\Workflow\Spec\CriteriaVerification;
 
 /**
  * Renders a round's evaluation from the store, and stops where it must.
@@ -50,41 +50,33 @@ final class EvaluationReport {
   /**
    * The tools that answer a question about a codebase.
    *
-   * THE canonical list, and the only one. droost's `GroundingResolver` — which
-   * needs Drupal's database to resolve a citation against the symbol graph —
-   * imports this constant; the dependency runs that way and only that way,
-   * because droost requires this package and this package must boot without
-   * Drupal. Never import anything of droost's here.
+   * THE canonical list, and the only one: `PlanGroundedCheck` reads it, and
+   * the guard's nudge keeps the same names.
    *
-   * It was a copy on each side until 2026-09-15, with a docblock asking the
-   * next reader to keep them in step. Two lists nobody could diff from either
-   * side is the shape that has cost this project most: had they drifted, a run
-   * that grounded itself through the new tool would have rendered as a run
-   * that asked the codebase nothing.
+   * It was a copy in the retired module and here until 2026-09-15, with a
+   * docblock asking the next reader to keep them in step. Two lists nobody
+   * could diff from either side is the shape that has cost this project
+   * most: had they drifted, a run that grounded itself through the new tool
+   * would have rendered as a run that asked the codebase nothing.
    *
-   * The last three joined on 2026-09-22 (F-49). The directive droost writes
-   * into AGENTS.md and the MCP handshake tells every agent to ask it
-   * `droost_services`, `droost_db_schema` and `droost_wiki`, and the gate
-   * credited none of them: an agent that grounded exactly as told failed the
-   * ledger half with zero knowledge calls. They are questions put to this
-   * codebase, the same kind as `droost_entities` and `droost_routes`, and
-   * droost now pins every tool its directive names to this list.
+   * Every knowledge command the AGENTS block and the skills name is on this
+   * list (F-49: when the directive named tools this list did not credit, an
+   * agent that grounded exactly as told failed the ledger half with zero
+   * knowledge calls). Since 2026-10-19 the ledger names each call by its
+   * `droost` command.
    */
   public const array KNOWLEDGE_TOOLS = [
-    'droost_search',
-    'droost_symbol',
-    'droost_graph',
-    'droost_module_docs',
-    'droost_deprecations',
-    'droost_entities',
-    'droost_routes',
-    'droost_capabilities',
-    'droost_architecture',
-    'droost_services',
-    'droost_db_schema',
-    'droost_wiki',
-    // The site's facts as the plan reads them first (2026-10-15).
-    'droost_brief',
+    // The droost command's knowledge commands (droost off Drupal,
+    // 2026-10-19): the ledger names each call by its command.
+    'code:wiki',
+    'code:tree',
+    'search:arch',
+    'code:symbol',
+    'code:graph',
+    'code:docs',
+    'code:deprecations',
+    'search:code',
+    'brief',
   ];
 
   /**
@@ -241,7 +233,7 @@ final class EvaluationReport {
       "---\n",
       $this->gateVerdicts($runId, $checks),
       $this->toolLedger($runId),
-      $this->grounding($runId),
+      $this->grounding(),
       // 4c BEFORE 4d. These were assembled the other way round, so a reader
       // scrolling a 700-line document met §4d and then §4a…§4b…§4d…§4c — an
       // evaluation whose own sections are out of order is a small thing that
@@ -605,12 +597,7 @@ final class EvaluationReport {
       [
         self::code('work_item'),
         'see §1',
-        'declared with `--work-item`, and read by any contributed check that asks',
-      ],
-      [
-        'write gates — the seven `allow_*`',
-        self::NOT_RECORDED,
-        'a tool REFUSAL reaches the ledger as `outcome: fail` (§4a); the arming does not',
+        'the ticket the run bound: `--work-item`, or the `work_item.provider` source',
       ],
     ];
 
@@ -1250,7 +1237,7 @@ final class EvaluationReport {
           . "a round has already been observed where five green gates passed over a\n"
           . "display that rendered nothing on an empty optional field, and the\n"
           . "seeker was what caught it.\n\n"
-          . "`seekers: { on: true }` in `droost.workflow.yml` is one line, and\n"
+          . "`seekers: { on: true }` in `droost/droost.yml` is one line, and\n"
           . "`medium` and above turn it on by preset.\n",
         'on' => "`seekers` was **on** and no findings are recorded. That means either\n"
           . "every inspection came back clean, or an inspection ran and its ledger\n"
@@ -1273,11 +1260,20 @@ final class EvaluationReport {
     // counted once, and "open" is the latest round's word about it.
     $table = [];
     $latest = [];
+    // The same, read only from rounds a seeker inspected: the engine releases
+    // a hold on nothing else, and the author marking a finding resolved is
+    // the author's word (F-332).
+    $latestIndependent = [];
     $perRound = [];
     $clean = [];
+    $self = [];
     foreach ($rows as $row) {
       $round = self::number($row, 'round') ?? 0;
       $status = self::text($row, 'status') ?? '';
+      $selfReviewed = self::text($row, 'inspector') === 'self-reviewed';
+      if ($selfReviewed) {
+        $self[$round] = TRUE;
+      }
       if (strtolower($status) === 'clean') {
         $clean[$round] = TRUE;
         $perRound[$round] ??= 0;
@@ -1286,23 +1282,35 @@ final class EvaluationReport {
       $perRound[$round] = ($perRound[$round] ?? 0) + 1;
       // The rows arrive ordered by round, so the last write per finding is
       // the latest round that mentioned it.
-      $latest[(self::text($row, 'phase') ?? '') . "\0" . (self::text($row, 'ref') ?? '')] = $status;
+      $key = (self::text($row, 'phase') ?? '') . "\0" . (self::text($row, 'ref') ?? '');
+      $latest[$key] = $status;
+      if (!$selfReviewed) {
+        $latestIndependent[$key] = $status;
+      }
       $table[] = [
         self::code(self::text($row, 'ref')),
-        self::cell($round),
+        $selfReviewed ? self::cell($round) . ' (self-reviewed)' : self::cell($round),
         self::escape(strtoupper(self::text($row, 'severity') ?? '')),
         self::code(self::text($row, 'location')),
         self::escape(self::text($row, 'finding') ?? ''),
         self::escape($status),
       ];
     }
-    $open = count(array_filter($latest, static fn (string $status): bool => stripos($status, 'open') !== FALSE));
+    $isOpen = static fn (string $status): bool => stripos($status, 'open') !== FALSE;
+    $open = count(array_filter($latest, $isOpen));
+    // A finding only self-reviewed rounds ever mentioned is the author's own
+    // and stands as they left it; one a seeker raised stands as the last
+    // seeker left it.
+    $openIndependent = count(array_filter([...$latest, ...$latestIndependent], $isOpen));
     ksort($perRound);
     $roundLines = [];
     foreach ($perRound as $round => $count) {
-      $roundLines[] = isset($clean[$round])
+      $line = isset($clean[$round])
         ? sprintf('- round %d: clean — the inspection found nothing', $round)
         : sprintf('- round %d: %d finding%s', $round, $count, $count === 1 ? '' : 's');
+      $roundLines[] = isset($self[$round])
+        ? $line . ' — SELF-REVIEWED: the author\'s own status update, not an inspection; it releases no hold'
+        : $line;
     }
 
     return $heading
@@ -1323,7 +1331,13 @@ final class EvaluationReport {
         count($perRound),
         count($perRound) === 1 ? '' : 's',
         $open,
-      );
+      )
+      . ($openIndependent === $open ? '' : sprintf(
+        "\n**%d still open as the last seeker left them.** The difference is the\n"
+        . "author's own word in a self-reviewed round: the engine releases no hold\n"
+        . "on it, and a reader should not either without reading the fix.\n",
+        $openIndependent,
+      ));
   }
 
   /**
@@ -1609,13 +1623,14 @@ final class EvaluationReport {
   private function declaredSpec(string $runId): string {
     $heading = "## 4e. The declared spec — structure written by a tool call\n\n";
     $routes = $this->rows(
-      'SELECT path, phase, reason FROM spec_route r WHERE run_id = ? AND revision = (
-         SELECT MAX(revision) FROM spec_route WHERE run_id = r.run_id AND path = r.path)
-       ORDER BY (SELECT MIN(rowid) FROM spec_route WHERE run_id = r.run_id AND path = r.path)',
+      // One route per path, the newest (F-346), as EvidenceStore::specRoutes().
+      'SELECT path, phase, reason FROM spec_route r WHERE run_id = ? AND rowid = (
+         SELECT MAX(rowid) FROM spec_route WHERE run_id = r.run_id AND CASE WHEN instr(path, \'@\') > 0 THEN substr(path, 1, instr(path, \'@\') - 1) ELSE path END = CASE WHEN instr(r.path, \'@\') > 0 THEN substr(r.path, 1, instr(r.path, \'@\') - 1) ELSE r.path END)
+       ORDER BY (SELECT MIN(rowid) FROM spec_route WHERE run_id = r.run_id AND CASE WHEN instr(path, \'@\') > 0 THEN substr(path, 1, instr(path, \'@\') - 1) ELSE path END = CASE WHEN instr(r.path, \'@\') > 0 THEN substr(r.path, 1, instr(r.path, \'@\') - 1) ELSE r.path END)',
       [$runId],
     );
     $criteria = $this->rows(
-      'SELECT ref, statement, verified_by, phase,
+      'SELECT ref, statement, verified_by, phase, outcome,
               (SELECT COUNT(DISTINCT statement) FROM spec_criterion
                 WHERE run_id = c.run_id AND ref = c.ref) AS statements
          FROM spec_criterion c WHERE run_id = ? AND revision = (
@@ -1635,9 +1650,8 @@ final class EvaluationReport {
     if ($routes === [] && $criteria === [] && $notes === []) {
       return $heading
         . "**This run declared nothing through the tools.** Its structure, if\n"
-        . "it has any, was read out of the spec document — so `rendered_check`\n"
-        . "rendered whatever `## Routes` could be parsed into (§4's row says\n"
-        . "`spec-parsed` where that happened), and the criteria count in §5\n"
+        . "it has any, was read out of the spec document — so its routes are\n"
+        . "whatever `## Routes` could be parsed into, and the criteria count in §5\n"
         . "came from a markdown table. That is the pre-0.9.4 path and it still\n"
         . "works; it is also the path on which every stoppage of the Part 3\n"
         . "series was the shape of a document rather than the state of the\n"
@@ -1671,6 +1685,7 @@ final class EvaluationReport {
       $unverified = 0;
       $revised = 0;
       $body = [];
+      $gates = $this->store->latestGateStates($runId);
       foreach ($criteria as $row) {
         // NULL, not ''. This class's own text() reads an empty column as
         // NULL — deliberately, so no cell renders blank — and the first
@@ -1679,7 +1694,9 @@ final class EvaluationReport {
         // proving them" above a table that showed one. Caught by rendering
         // it, not by the types.
         $by = self::text($row, 'verified_by');
-        if ($by === NULL) {
+        // Counted by what the proof came to, not by its being there (F-357).
+        $standing = CriteriaVerification::standing($by, $by === NULL ? NULL : self::text($row, 'outcome'), $gates);
+        if ($standing['standing'] === 'unverified') {
           $unverified++;
         }
         // STATEMENTS, not revisions. A verification writes a revision too,
@@ -1693,7 +1710,7 @@ final class EvaluationReport {
         $body[] = [
           self::code(self::text($row, 'ref')),
           self::cell(self::text($row, 'statement')),
-          $by === NULL ? '**nothing yet**' : self::cell($by),
+          $by === NULL ? '**nothing yet**' : self::cell($by) . ($standing['why'] === NULL ? '' : sprintf(' — **not proof:** %s', $standing['why'])),
           $statements > 1 ? sprintf('%d wordings', $statements) : '1',
         ];
       }
@@ -1703,7 +1720,9 @@ final class EvaluationReport {
       );
       $out .= sprintf(
         "\n**%d declared, %d with nothing proving them.** A proof is RECORDED,\n"
-        . "never judged: `manual — <reason>` is a legitimate answer and is\n"
+        . "and counted by what it came to: one recorded as partly or failed, or\n"
+        . "naming a gate whose latest verdict failed, proves nothing (F-357).\n"
+        . "It is not otherwise judged: `manual — <reason>` is a legitimate answer and is\n"
         . "reported as manual, and whether a named test is a real test is the\n"
         . "suite's business. What this section can say is whether the promise\n"
         . "was made before the proof, which is the one thing a record cannot\n"
@@ -1770,98 +1789,23 @@ final class EvaluationReport {
   }
 
   /**
-   * Section 4b — whether the spec's grounding citations reached anything.
+   * Section 4b — where the run's grounding is recorded.
    *
-   * @param string $runId
-   *   The run.
+   * It printed a per-tier table from `grounding_row`, which only the retired
+   * module's resolver wrote (2026-10-21): off Drupal the table was always
+   * empty. `plan_grounded` resolves the spec's table and records its verdict
+   * as a check, and §4a is the ledger, so the section points at both.
    *
    * @return string
    *   The section.
    */
-  private function grounding(string $runId): string {
-    $rows = $this->rows(
-      'SELECT * FROM grounding_row WHERE run_id = ? ORDER BY tier, phase',
-      [$runId],
-    );
-    $heading = "## 4b. Grounding — the three tiers, and whether each was reached\n\n";
-    if ($rows === []) {
-      return $heading
-        . "**The store holds no grounding rows for this run.** That is not a\n"
-        . "verdict on the round's grounding — it means either the spec carried\n"
-        . "no grounding table, or `grounding_check` never ran, or it ran and\n"
-        . "recorded nothing. §4's row for `grounding_check` says which, and §4a\n"
-        . "says whether any knowledge tool was reached at all. The two halves\n"
-        . "fail independently, and a pass on one tells you nothing about the\n"
-        . "other.\n";
-    }
-
-    // The three tiers appear whether or not the spec claimed them. A tier
-    // with no rows is a reading in itself — most often the `contrib` one,
-    // which is the tier whose absence means nobody asked whether a module
-    // already does this.
-    $tiers = [];
-    foreach (SpecContract::TIERS as $tier) {
-      $tiers[$tier] = ['rows' => 0, 'cited' => 0, 'resolved' => 0, 'stores' => []];
-    }
-    foreach ($rows as $row) {
-      $tier = (string) (self::text($row, 'tier') ?? '');
-      $tiers[$tier] ??= ['rows' => 0, 'cited' => 0, 'resolved' => 0, 'stores' => []];
-      $tiers[$tier]['rows']++;
-      $tiers[$tier]['cited'] += self::text($row, 'citation') === NULL ? 0 : 1;
-      $tiers[$tier]['resolved'] += (self::number($row, 'resolved') ?? 0) === 1 ? 1 : 0;
-      $store = self::text($row, 'store');
-      if ($store !== NULL) {
-        $tiers[$tier]['stores'][$store] = $store;
-      }
-    }
-
-    $summary = [];
-    foreach ($tiers as $tier => $facts) {
-      $stores = $facts['stores'];
-      $summary[] = [
-        self::code($tier),
-        (string) $facts['rows'],
-        (string) $facts['cited'],
-        (string) $facts['resolved'],
-        $stores === [] ? self::NOT_RECORDED : self::cell(implode(', ', $stores)),
-      ];
-    }
-
-    $detail = [];
-    foreach ($rows as $row) {
-      $detail[] = [
-        self::code(self::text($row, 'tier')),
-        self::code(self::text($row, 'phase')),
-        self::cell(self::text($row, 'asked')),
-        self::cell(self::text($row, 'found')),
-        self::code(self::text($row, 'citation')),
-        (self::number($row, 'resolved') ?? 0) === 1 ? 'yes' : 'no',
-      ];
-    }
-
-    return $heading
-      . self::table(
-        ['Tier', 'Rows', 'Cited', 'Citations that resolved', 'Store that answered'],
-        $summary,
-      )
-      . "\n- **A tier with rows but no resolvable citation is not grounded.**\n"
-      . "  Prose in `Found` is the agent's account of itself; the citation is\n"
-      . "  what the site confirms.\n"
-      . "- **Half two is §4a, not this table.** A citation proves the symbol\n"
-      . "  exists and can be copied out of a file. The ledger is what makes the\n"
-      . "  lookup a fact.\n"
-      . "- **Core is not indexed, and resolves anyway.** Core is a scope nothing\n"
-      . "  indexes by default, so a core citation is answered by the brain, by\n"
-      . "  the autoloader, or off the filesystem — the `Store that answered`\n"
-      . "  column above says which. This paragraph used to read \"the brain, and\n"
-      . "  only the brain\", which the table four lines above it has contradicted\n"
-      . "  since the autoloader fallback landed: it told a reader that a correct\n"
-      . "  observation was a broken probe (F-28).\n"
-      . "\n### Every row\n\n"
-      . self::table(
-        ['Tier', 'Phase', 'Asked', 'Found', 'Citation', 'Resolved'],
-        $detail,
-      );
+  private function grounding(): string {
+    return "## 4b. Grounding — the three tiers, and whether each was reached\n\n"
+      . "`plan_grounded` resolves the spec's `## Grounding` table at plan and\n"
+      . "records its verdict among the checks (§4): each citation, and whether\n"
+      . "it resolved in this project. §4a says whether any knowledge command\n"
+      . "was called at all. The two halves fail independently, and a pass on\n"
+      . "one tells you nothing about the other.\n";
   }
 
   /**
@@ -1994,8 +1938,38 @@ final class EvaluationReport {
         $counts['crash'] > 0 ? sprintf(', %d crash(es)', $counts['crash']) : '',
         self::code($requested),
       )
+      . $this->subagentCalls($runId)
       . self::verdictReading($counts['invoked'])
       . self::untestedWalls($requested, $counts['refuse'], $counts['nudge']);
+  }
+
+  /**
+   * Which of the guard's calls a subagent made, not the run agent (F-336).
+   *
+   * @param string $runId
+   *   The run.
+   *
+   * @return string
+   *   A paragraph, or '' when no subagent call was recorded.
+   */
+  private function subagentCalls(string $runId): string {
+    $by = $this->store->guardCallsBySubagent($runId);
+    if ($by === []) {
+      return '';
+    }
+    $calls = array_sum(array_column($by, 'calls'));
+    $refusals = array_sum(array_column($by, 'refusals'));
+    return sprintf(
+      "\n**%d of these, %d refusal(s) among them, were made inside a subagent**, not by\n"
+      . "the run agent: %s. A refusal there is the guard working on a\n"
+      . "subagent's command; it says nothing about the run agent's.\n",
+      $calls,
+      $refusals,
+      implode(', ', array_map(
+        static fn (array $row): string => sprintf('%s (%d call(s), %d refused)', self::code($row['subagent']), $row['calls'], $row['refusals']),
+        $by,
+      )),
+    );
   }
 
   /**
@@ -2103,6 +2077,17 @@ final class EvaluationReport {
         ORDER BY c.phase, c.name, c.attempt, f.seq',
       [$runId],
     );
+    // The newest attempt of each check, so a finding a later attempt
+    // superseded says so instead of standing as the run's (F-324: spec-shape
+    // observations the agent had since answered read as current).
+    $newest = [];
+    foreach ($this->rows(
+      'SELECT phase, kind, name, MAX(attempt) AS attempt, (SELECT state FROM check_result c2 WHERE c2.run_id = c.run_id AND c2.phase = c.phase AND c2.kind = c.kind AND c2.name = c.name ORDER BY attempt DESC LIMIT 1) AS state
+         FROM check_result c WHERE run_id = ? GROUP BY phase, kind, name',
+      [$runId],
+    ) as $row) {
+      $newest[self::text($row, 'phase') . '|' . self::text($row, 'kind') . '|' . self::text($row, 'name')] = $row;
+    }
 
     $out = "## 8. Findings\n\n"
       . "Two different things share this heading in the template, and only one\n"
@@ -2122,8 +2107,12 @@ final class EvaluationReport {
       }
       foreach ($grouped as $group) {
         $head = $group[0];
+        $latest = $newest[self::text($head, 'phase') . '|' . self::text($head, 'kind') . '|' . self::text($head, 'name')] ?? NULL;
+        $superseded = $latest !== NULL && (self::number($latest, 'attempt') ?? 0) > (self::number($head, 'attempt') ?? 0)
+          ? sprintf(' — **superseded** by attempt %s (%s)', self::cell(self::number($latest, 'attempt')), self::stateLabel(self::text($latest, 'state')))
+          : '';
         $out .= sprintf(
-          "\n#### %s — %s, attempt %s — %s (%s), %d finding%s\n\n",
+          "\n#### %s — %s, attempt %s — %s (%s), %d finding%s%s\n\n",
           self::code(self::text($head, 'name')),
           self::code(self::text($head, 'phase')),
           self::cell(self::number($head, 'attempt')),
@@ -2131,6 +2120,7 @@ final class EvaluationReport {
           self::faultLabel(self::text($head, 'fault')),
           count($group),
           count($group) === 1 ? '' : 's',
+          $superseded,
         );
         $cells = [];
         foreach (array_slice($group, 0, self::MAX_FINDING_ROWS) as $finding) {

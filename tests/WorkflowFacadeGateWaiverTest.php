@@ -9,7 +9,6 @@ use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
-use Droost\Workflow\Gate\NullSiteDriver;
 use Droost\Workflow\Mode\Outcome;
 use Droost\Workflow\Mode\RunOutcome;
 use Droost\Workflow\Mode\RunStateOnlySink;
@@ -122,7 +121,7 @@ final class WorkflowFacadeGateWaiverTest extends WorkflowTestCase {
 
     // No run yet.
     try {
-      $this->facade($this->allPass())->waiveGate($root, 'config_clean', 'why');
+      $this->facade($this->allPass())->waiveGate($root, 'phpcs', 'why');
       $this->fail('Expected a StateError with no active run');
     }
     catch (StateError $e) {
@@ -138,7 +137,7 @@ final class WorkflowFacadeGateWaiverTest extends WorkflowTestCase {
       $this->assertStringContainsString('known:', $e->getMessage());
     }
     try {
-      $this->facade($this->allPass())->waiveGate($root, 'config_clean', '   ');
+      $this->facade($this->allPass())->waiveGate($root, 'phpcs', '   ');
       $this->fail('Expected a refusal for an empty reason');
     }
     catch (\InvalidArgumentException $e) {
@@ -181,7 +180,6 @@ final class WorkflowFacadeGateWaiverTest extends WorkflowTestCase {
   private function facade(GateExecutorInterface $executor): WorkflowFacade {
     return new WorkflowFacade(
       $executor,
-      new NullSiteDriver(),
       new RunStateOnlySink(),
       static fn (): string => '2026-09-01T12:00:00+00:00',
       static fn (): string => 'run-waiver',
@@ -249,6 +247,26 @@ final class WorkflowFacadeGateWaiverTest extends WorkflowTestCase {
       }
 
     };
+  }
+
+  /**
+   * A project's own gate is waived like a built-in one (F-372).
+   */
+  public function testCustomGateIsWaived(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\ngates:\n  gitleaks: { run: droost/gates/gitleaks.php, phase: code }\n");
+    $this->writeSpec($root);
+    $this->facade($this->allPass())->run($root);
+
+    $waived = $this->facade($this->allPass())->waiveGate($root, 'custom:gitleaks', 'tokens that predate the ticket');
+    $this->assertArrayHasKey('custom:gitleaks', $waived->gateWaivers);
+
+    try {
+      $this->facade($this->allPass())->waiveGate($root, 'custom:gitlaeks', 'a typo');
+      $this->fail('Expected a refusal for a gate this run does not have');
+    }
+    catch (\InvalidArgumentException $e) {
+      $this->assertStringContainsString('custom:gitleaks', $e->getMessage(), 'the refusal names the gates there are');
+    }
   }
 
 }

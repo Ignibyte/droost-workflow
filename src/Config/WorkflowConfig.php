@@ -13,7 +13,8 @@ use Symfony\Component\Yaml\Yaml;
 /**
  * The resolved levers for a workflow run.
  *
- * Read from a repo-root droost.workflow.yml with no Drupal in the picture: the
+ * Read from the project's droost/droost.yml (ConfigLocator; the root
+ * droost.workflow.yml for one release) with no Drupal in the picture: the
  * agent must be able to read its own levers while the site is mid-build or
  * broken, and a plain Claude Code or Codex user must get the same answers from
  * the same file with no site at all. Nothing in this class, or anything it
@@ -26,9 +27,9 @@ use Symfony\Component\Yaml\Yaml;
 final class WorkflowConfig {
 
   /**
-   * The lever file's name at the project root.
+   * The lever file, relative to the project root (ConfigLocator::PATH).
    */
-  public const FILENAME = 'droost.workflow.yml';
+  public const FILENAME = ConfigLocator::PATH;
 
   /**
    * The top-level keys the file may contain.
@@ -49,7 +50,17 @@ final class WorkflowConfig {
     'max_loops',
     'follow_ups',
     'rules',
+    'hooks',
+    'walls',
+    'operator_only',
+    'lead',
+    'panel',
   ];
+
+  /**
+   * The run's lifecycle events a project hook may be told about.
+   */
+  public const HOOK_EVENTS = ['run_start', 'phase_begin', 'phase_end', 'run_complete'];
 
   /**
    * Each level's loop budget (owner, 2026-09-29).
@@ -147,10 +158,6 @@ final class WorkflowConfig {
    *   — a baseline exists because an operator wrote it — and `baseline: { on:
    *   false }` is strict mode, a visible refusal in one line. Meaningless when
    *   the project has no baseline.
-   * @param array<string, \Droost\Workflow\Config\ContributedGate> $contributedGates
-   *   The gates enabled modules declared (D72), keyed by resolved name, kept
-   *   for provenance: status and the report say which module a `module:*`
-   *   gate came from and what its verdict means.
    * @param list<string> $customCode
    *   Project-relative directories whose files are the project's own code to
    *   `require_run`, beside every `modules/custom`, `themes/custom` and
@@ -173,6 +180,23 @@ final class WorkflowConfig {
    *   Which open seeker findings hold the run: critical, medium or none.
    * @param bool $seekerAtComplete
    *   Whether complete needs an inspection of its own.
+   * @param array<string, string> $hooks
+   *   The project's hook files, by lifecycle event (HOOK_EVENTS): each told
+   *   about the event, none able to hold the run.
+   * @param array<string, array{tools: string, run: string}> $walls
+   *   The project's walls, by id: a regex over a tool's name, and the file
+   *   asked before a matching call, which may refuse it.
+   * @param list<string> $operatorOnly
+   *   Project scripts only the OPERATOR runs: the guard refuses them from the
+   *   agent's shell, as it refuses bypass and gate-waive.
+   * @param string|null $leadLever
+   *   `lead:` as written, or NULL to follow the mode (lead()).
+   * @param array<string, array{title: string, run: string, timeout: int}> $panelTabs
+   *   The project's own tabs in the run panel, by id: a title, and the file
+   *   that prints the tab (`panel.tabs`).
+   * @param string $panelOpen
+   *   When the droost mod opens the run panel by itself (`panel.open`): auto,
+   *   always or never.
    */
   private function __construct(
     public readonly Mode $mode,
@@ -188,7 +212,6 @@ final class WorkflowConfig {
     public readonly Enforcement $requireRun = Enforcement::Hard,
     public readonly ?WorkItemSettings $workItem = NULL,
     public readonly bool $baseline = TRUE,
-    public readonly array $contributedGates = [],
     public readonly array $customCode = [],
     public readonly string $flow = 'strict',
     public readonly int $maxLoops = 0,
@@ -196,7 +219,26 @@ final class WorkflowConfig {
     private readonly ?BuildRules $rules = NULL,
     public readonly string $seekerHolds = 'none',
     public readonly bool $seekerAtComplete = FALSE,
+    public readonly array $hooks = [],
+    public readonly array $walls = [],
+    public readonly array $operatorOnly = [],
+    public readonly ?string $leadLever = NULL,
+    public readonly array $panelTabs = [],
+    public readonly string $panelOpen = 'auto',
   ) {}
+
+  /**
+   * Who may finish a run begun on these levers.
+   *
+   * `lead:` when the file says, else what the mode implies: an interactive
+   * run is human-led, an agentic one autonomous (owner, 2026-10-20).
+   *
+   * @return string
+   *   `human-led` or `autonomous`.
+   */
+  public function lead(): string {
+    return $this->leadLever ?? ($this->mode->holdsForConversation() ? 'human-led' : 'autonomous');
+  }
 
   /**
    * The owner's rules for what builds a page, as written.
@@ -214,12 +256,6 @@ final class WorkflowConfig {
    *
    * @param string $projectRoot
    *   The repo root to look in.
-   * @param list<\Droost\Workflow\Config\ContributedGate>|null $contributed
-   *   The gates enabled modules declare (D72). A surface that knows them
-   *   passes the list (possibly empty); NULL means the caller has no catalog
-   *   to consult — a `gates.contributed` block is then left unresolved rather
-   *   than refused, because the caller is reading other levers and cannot
-   *   tell a typo from a gate it simply cannot see.
    *
    * @return self
    *   The resolved configuration; built-in factory defaults when no file
@@ -231,15 +267,19 @@ final class WorkflowConfig {
    *   When the project root is empty, is the filesystem root, or is not a
    *   directory.
    */
-  public static function load(string $projectRoot, ?array $contributed = NULL): self {
-    $path = TypedArray::requireProjectRoot($projectRoot)
-      . '/' . self::FILENAME;
+  public static function load(string $projectRoot): self {
+    $root = TypedArray::requireProjectRoot($projectRoot);
+    // Where the levers are: droost/droost.yml, or the root
+    // droost.workflow.yml for one release, with a notice naming the new file.
+    $relative = ConfigLocator::relative($root);
+    $path = $root . '/' . $relative;
+    $notices = ConfigLocator::isLegacy($root) ? [ConfigLocator::legacyNotice()] : [];
 
     // is_link() first: file_exists() FOLLOWS a symlink, so a dangling one
     // reads as "no file" and would hand back the built-in levers — the exact
     // silent substitution the checks below exist to refuse.
     if (!is_link($path) && !file_exists($path)) {
-      return self::fromArray([], '<built-in defaults>', Provenance::BuiltIn, $contributed, $projectRoot);
+      return self::fromArray([], '<built-in defaults>', Provenance::BuiltIn, $projectRoot);
     }
 
     // Everything below is the same principle: something IS there, so silently
@@ -247,17 +287,17 @@ final class WorkflowConfig {
     // different ones and call that normal. Only genuine absence is allowed to
     // fall back.
     if (!is_file($path)) {
-      throw ConfigError::notRegularFile(self::FILENAME);
+      throw ConfigError::notRegularFile($relative);
     }
     if (!is_readable($path)) {
-      throw ConfigError::unreadable(self::FILENAME);
+      throw ConfigError::unreadable($relative);
     }
 
     try {
       $parsed = Yaml::parseFile($path);
     }
     catch (ParseException $e) {
-      throw ConfigError::unparseable(self::FILENAME, $e, $path);
+      throw ConfigError::unparseable($relative, $e, $path);
     }
 
     // An empty file is a legitimate statement: "the defaults, and I have
@@ -266,26 +306,16 @@ final class WorkflowConfig {
       $parsed = [];
     }
     if (!is_array($parsed)) {
-      throw ConfigError::notMapping(self::FILENAME, get_debug_type($parsed));
+      throw ConfigError::notMapping($relative, get_debug_type($parsed));
     }
     // A YAML sequence decodes to a PHP array too, so is_array() alone lets a
     // list through to be reported as an unknown setting called "0" — true, but
     // useless. An empty array is exempt: that is the empty file above.
     if ($parsed !== [] && array_is_list($parsed)) {
-      throw ConfigError::notMapping(self::FILENAME, 'a list');
+      throw ConfigError::notMapping($relative, 'a list');
     }
 
-    return self::fromArray($parsed, self::FILENAME, Provenance::File, $contributed, $projectRoot);
-  }
-
-  /**
-   * The configuration in force when a project ships no lever file.
-   *
-   * @return self
-   *   The factory defaults, marked as built-in.
-   */
-  public static function builtIn(): self {
-    return self::fromArray([], '<built-in defaults>', Provenance::BuiltIn);
+    return self::fromArray($parsed, $relative, Provenance::File, $projectRoot, $notices);
   }
 
   /**
@@ -297,12 +327,12 @@ final class WorkflowConfig {
    *   The document label, for error messages.
    * @param \Droost\Workflow\Config\Provenance $provenance
    *   Where the document came from.
-   * @param list<\Droost\Workflow\Config\ContributedGate>|null $contributed
-   *   The gates enabled modules declare, or NULL when the caller has no
-   *   catalog (see load()).
    * @param string|null $projectRoot
    *   The project the document is for, when there is one — what a level's
    *   phpcs standard is checked against. NULL leaves the standard as asked.
+   * @param list<string> $notices
+   *   Notices the caller already holds about the document (the legacy
+   *   location), carried first in the deprecations every report shows.
    *
    * @return self
    *   The resolved configuration.
@@ -315,19 +345,27 @@ final class WorkflowConfig {
     array $raw,
     string $source,
     Provenance $provenance = Provenance::File,
-    ?array $contributed = NULL,
     ?string $projectRoot = NULL,
+    array $notices = [],
   ): self {
     $root = TypedArray::authored($raw);
 
     foreach ($root->keys() as $key) {
-      if (!in_array($key, self::KNOWN_SETTINGS, TRUE)) {
+      if (!in_array($key, self::KNOWN_SETTINGS, TRUE)
+        && !self::isProjectBlock($key, $raw[$key] ?? NULL)) {
         throw ConfigError::unknownSetting($source, $key, self::KNOWN_SETTINGS);
       }
     }
 
     try {
-      $deprecations = [];
+      $deprecations = array_values($notices);
+      // A setting that is read and not followed says so, rather than being
+      // silently ignored: the evidence store keeps the name the guard walls
+      // (StoragePaths).
+      $evidence = is_array($raw['storage'] ?? NULL) ? ($raw['storage']['evidence'] ?? NULL) : NULL;
+      if ($evidence !== NULL && (!is_string($evidence) || basename(trim($evidence)) !== StoragePaths::EVIDENCE_FILE)) {
+        $deprecations[] = 'storage.evidence is not followed: it must name a file called evidence.sqlite, the name the guard walls from the agent wherever the store is. The store stays in the state directory.';
+      }
       $declared = $root->optionalString(
         'preset',
         PresetResolver::DEFAULT_PRESET,
@@ -364,19 +402,9 @@ final class WorkflowConfig {
         $deprecations[] = ConfigError::phasesDeprecationNotice($source);
       }
 
-      // Module-contributed gates join the base set after the named gates, on
-      // by default: enabling the module was the opt-in. The lever file may
-      // then override on/mode under gates.contributed (readGates).
-      $declared = [];
-      $baseGates = $base->gates;
-      foreach ($contributed ?? [] as $gate) {
-        $declared[$gate->name()] = $gate;
-        $baseGates[$gate->name()] = $gate->toSettings();
-      }
-
       $mode = self::readMode($root, $source, $base->mode);
       $gates = self::scopeTrioLikeThePair(
-        self::readGates($root, $source, $baseGates, $deprecations, $contributed, $base->name === 'custom'),
+        self::readGates($root, $source, $base->gates, $deprecations, $base->name === 'custom'),
       );
       // A STANDARD THE PROJECT CAN RUN. The preset bases ask for Drupal's
       // sniffs, and `init` alone knew to write PSR-12 instead on a project
@@ -453,7 +481,6 @@ final class WorkflowConfig {
         self::readRequireRun($root, $source, Enforcement::Hard),
         self::readWorkItem($root, $source),
         self::readBaseline($root, $source),
-        $declared,
         self::readCustomCode($root, $source),
         self::readFlow($root, $source, $base->name),
         $root->has('max_loops')
@@ -463,11 +490,242 @@ final class WorkflowConfig {
         $root->has('rules') ? BuildRules::read($root->child('rules'), $source) : BuildRules::none(),
         self::readSeekerHolds($root, $source, self::defaultSeekerHolds($base->name)),
         self::readSeekerAtComplete($root),
+        self::readHooks($root, $source),
+        self::readWalls($root, $source),
+        self::readOperatorOnly($root, $source),
+        self::readLead($root, $source),
+        self::readPanelTabs($root, $source),
+        self::readPanelOpen($root, $source),
       );
     }
     catch (DataError $e) {
       throw ConfigError::fromData($source, $e);
     }
+  }
+
+  /**
+   * Whether an unknown top-level key is a project's own settings block.
+   *
+   * Droost.yml is the project's file, and a project's gate, hook and wall
+   * files read their own settings from it (`acme: { webroot }`).
+   * A mapping under a name that is not a near-miss of a lever is that, and is
+   * left to the files that read it. A near-miss (`gate:`, `seeker:`) and a
+   * scalar (`presett: custom`) are still typos, and still refused: a config
+   * loader that shrugs at a misspelt lever hands back a run with that lever
+   * quietly at its default.
+   *
+   * @param string $key
+   *   The top-level key.
+   * @param mixed $value
+   *   Its value.
+   *
+   * @return bool
+   *   TRUE when the key is a project block to leave alone.
+   */
+  private static function isProjectBlock(string $key, mixed $value): bool {
+    if (!is_array($value) || ($value !== [] && array_is_list($value))) {
+      return FALSE;
+    }
+    foreach (self::KNOWN_SETTINGS as $known) {
+      if (levenshtein($key, $known) <= 2 || str_starts_with($known, $key) || str_starts_with($key, $known)) {
+        return FALSE;
+      }
+    }
+
+    return preg_match('/^[a-z][a-z0-9_]*$/', $key) === 1;
+  }
+
+  /**
+   * Reads the project's hook files, by lifecycle event.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   *
+   * @return array<string, string>
+   *   Event => project-relative file.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When an event is unknown or a file is not a project path.
+   */
+  private static function readHooks(TypedArray $root, string $source): array {
+    $node = $root->optionalChild('hooks');
+    if ($node === NULL) {
+      return [];
+    }
+    $hooks = [];
+    foreach ($node->keys() as $event) {
+      if (!in_array($event, self::HOOK_EVENTS, TRUE)) {
+        throw ConfigError::unknownSetting($source, 'hooks.' . $event, self::HOOK_EVENTS);
+      }
+      $hooks[$event] = GateSettings::readRuleFile($node, $event, $source, 'hooks.' . $event);
+    }
+    return $hooks;
+  }
+
+  /**
+   * Reads the project's walls: a tool-name regex and a file each.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   *
+   * @return array<string, array{tools: string, run: string}>
+   *   Wall id => its regex and file.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When a wall is malformed: a bad id, a regex that does not compile, a
+   *   file outside the project, or an option it does not take.
+   */
+  private static function readWalls(TypedArray $root, string $source): array {
+    $node = $root->optionalChild('walls');
+    if ($node === NULL) {
+      return [];
+    }
+    $walls = [];
+    foreach ($node->keys() as $id) {
+      if (preg_match('#^[a-z0-9][a-z0-9_-]*$#', $id) !== 1) {
+        throw ConfigError::invalidCustomGate($source, 'walls.' . $id, 'a wall id is lowercase letters, digits, "_" and "-"');
+      }
+      $wall = $node->child($id);
+      foreach ($wall->keys() as $key) {
+        if (!in_array($key, ['tools', 'run'], TRUE)) {
+          throw ConfigError::invalidCustomGate($source, 'walls.' . $id, sprintf('unknown option "%s" (accepted: tools, run)', $key));
+        }
+      }
+      $tools = $wall->string('tools');
+      // Delimited here, once, the way the guard compiles it: a regex that
+      // does not compile is a wall that never matches, which is no wall.
+      if (trim($tools) === '' || @preg_match('#' . str_replace('#', '\\#', $tools) . '#', '') === FALSE) {
+        throw ConfigError::invalidCustomGate($source, 'walls.' . $id, sprintf('tools must be a regular expression over a tool\'s name; "%s" does not compile', $tools));
+      }
+      $walls[$id] = [
+        'tools' => $tools,
+        'run' => GateSettings::readRuleFile($wall, 'run', $source, 'walls.' . $id),
+      ];
+    }
+    return $walls;
+  }
+
+  /**
+   * Reads the project's own run panel tabs: `panel.tabs.<id>`.
+   *
+   * Each is a title and a file droost runs to print the tab (PanelTabRunner),
+   * with a timeout in seconds (default 5, at most 30): the panel redraws
+   * every few seconds, and a slow tab would hold the whole pane.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   *
+   * @return array<string, array{title: string, run: string, timeout: int}>
+   *   Tab id => its title, file and timeout.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When a tab is malformed: a bad id, one of droost's own, no title, a
+   *   file outside the project, or an option it does not take.
+   */
+  private static function readPanelTabs(TypedArray $root, string $source): array {
+    $panel = $root->optionalChild('panel');
+    if ($panel === NULL) {
+      return [];
+    }
+    foreach ($panel->keys() as $key) {
+      if (!in_array($key, ['tabs', 'open'], TRUE)) {
+        throw ConfigError::unknownSetting($source, 'panel.' . $key, ['tabs', 'open']);
+      }
+    }
+    $node = $panel->optionalChild('tabs');
+    if ($node === NULL) {
+      return [];
+    }
+    $tabs = [];
+    foreach ($node->keys() as $id) {
+      $owner = 'panel.tabs.' . $id;
+      if (preg_match('#^[a-z0-9][a-z0-9_-]*$#', $id) !== 1) {
+        throw ConfigError::invalidCustomGate($source, $owner, 'a tab id is lowercase letters, digits, "_" and "-"');
+      }
+      if (in_array($id, ['spec', 'activity', 'gates', 'seeker'], TRUE)) {
+        throw ConfigError::invalidCustomGate($source, $owner, 'spec, activity, gates and seeker are droost\'s own tabs; give this one another id');
+      }
+      $tab = $node->child($id);
+      foreach ($tab->keys() as $key) {
+        if (!in_array($key, ['title', 'run', 'timeout'], TRUE)) {
+          throw ConfigError::invalidCustomGate($source, $owner, sprintf('unknown option "%s" (accepted: title, run, timeout)', $key));
+        }
+      }
+      $title = trim($tab->string('title'));
+      if ($title === '' || mb_strlen($title) > 24) {
+        throw ConfigError::invalidCustomGate($source, $owner, 'title is the tab\'s label, 1 to 24 characters');
+      }
+      $tabs[$id] = [
+        'title' => $title,
+        'run' => GateSettings::readRuleFile($tab, 'run', $source, $owner),
+        'timeout' => $tab->has('timeout') ? $tab->intInRange('timeout', 1, 30) : 5,
+      ];
+    }
+    return $tabs;
+  }
+
+  /**
+   * When the droost mod opens the run panel by itself: `panel.open`.
+   *
+   * `auto` (the default) when a session starts with a run under way,
+   * `always` at every session in this project, `never` only when asked
+   * (`/droost-panel`).
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   *
+   * @return string
+   *   One of auto, always, never.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When it is anything else.
+   */
+  private static function readPanelOpen(TypedArray $root, string $source): string {
+    $panel = $root->optionalChild('panel');
+    if ($panel === NULL || !$panel->has('open')) {
+      return 'auto';
+    }
+    $open = $panel->string('open');
+    if (!in_array($open, ['auto', 'always', 'never'], TRUE)) {
+      throw ConfigError::invalidCustomGate($source, 'panel.open', sprintf('must be auto, always or never; got "%s"', $open));
+    }
+    return $open;
+  }
+
+  /**
+   * Reads the project scripts only the operator runs.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   *
+   * @return list<string>
+   *   Project-relative script paths.
+   *
+   * @throws \Droost\Workflow\Support\DataError
+   *   When the value is not a list of strings.
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When an entry is not a project path.
+   */
+  private static function readOperatorOnly(TypedArray $root, string $source): array {
+    if (!$root->has('operator_only')) {
+      return [];
+    }
+    $node = $root->child('operator_only');
+    $paths = [];
+    foreach ($node->keys() as $index) {
+      $paths[] = GateSettings::readRuleFile($node, (string) $index, $source, 'operator_only');
+    }
+    return array_values(array_unique($paths));
   }
 
   /**
@@ -955,6 +1213,28 @@ final class WorkflowConfig {
   }
 
   /**
+   * Reads `lead:`, or NULL to follow the mode.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The file, for the error.
+   *
+   * @return string|null
+   *   `human-led`, `autonomous`, or NULL.
+   */
+  private static function readLead(TypedArray $root, string $source): ?string {
+    if (!$root->has('lead')) {
+      return NULL;
+    }
+    $lead = $root->string('lead');
+    if (!in_array($lead, ['human-led', 'autonomous'], TRUE)) {
+      throw ConfigError::unknownLead($source, $lead);
+    }
+    return $lead;
+  }
+
+  /**
    * Reads the phase sequence.
    *
    * @param \Droost\Workflow\Support\TypedArray $root
@@ -1319,9 +1599,6 @@ final class WorkflowConfig {
    *   The preset's gate set.
    * @param list<string> $deprecations
    *   Accumulates supersession notices (mandatory-gate disarm attempts).
-   * @param list<\Droost\Workflow\Config\ContributedGate>|null $contributed
-   *   The declared contributed gates, or NULL when the caller has no catalog
-   *   — a gates.contributed block is then left unresolved, not refused.
    * @param bool $custom
    *   Whether the file names `preset: custom`, where its word on the
    *   mandatory trio stands like its word on any other gate.
@@ -1339,7 +1616,6 @@ final class WorkflowConfig {
     string $source,
     array $base,
     array &$deprecations = [],
-    ?array $contributed = NULL,
     bool $custom = FALSE,
   ): array {
     $node = $root->optionalChild('gates');
@@ -1360,21 +1636,22 @@ final class WorkflowConfig {
         }
         continue;
       }
-      // gates.contributed OVERRIDES gates modules declared: on and mode only.
-      // Without a catalog the block cannot be resolved and is left alone (see
-      // load()); with one, an id no module declares is a typo to surface.
-      if ($name === 'contributed') {
-        if ($contributed === NULL) {
-          continue;
-        }
-        $declaredIds = array_map(static fn (ContributedGate $g): string => $g->id, $contributed);
-        foreach ($node->child('contributed')->keys() as $id) {
-          $resolved = GateSettings::MODULE_PREFIX . $id;
-          if (!isset($gates[$resolved])) {
-            throw ConfigError::unknownContributedGate($source, $id, $declaredIds);
-          }
-          $gates[$resolved] = $gates[$resolved]->overlayContributed($node->child('contributed')->child($id), $source);
-        }
+      // RETIRED WITH DROOST'S DRUPAL MODULE (2026-10-19): gates a Drupal
+      // module contributed, and the four gates a booted site answered. A file
+      // that still names them is told, once, where each went, and loads: a
+      // lever file is version-controlled intent, and refusing it would stop
+      // every run in a project that has not moved yet.
+      // A PROJECT'S OWN GATE, by its own name: an entry that carries `run`
+      // (a file) or `cmd` (one line) is a gate the project declares, the same
+      // as one under `custom:`. A retired name used this way is the project
+      // taking the gate back as its own (`config_clean: { cmd: … }`).
+      $own = $node->child($name);
+      if (!in_array($name, GateSettings::KNOWN_GATES, TRUE) && ($own->has('run') || $own->has('cmd'))) {
+        $gates[GateSettings::CUSTOM_PREFIX . $name] = GateSettings::customFromNode($name, $own, $source);
+        continue;
+      }
+      if (isset(GateSettings::RETIRED_GATES[$name])) {
+        $deprecations[] = ConfigError::retiredGateNotice($source, $name, GateSettings::RETIRED_GATES[$name]);
         continue;
       }
       if (!GateSettings::isKnown($name)) {

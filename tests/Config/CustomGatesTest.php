@@ -102,17 +102,13 @@ final class CustomGatesTest extends TestCase {
    */
   public static function invalidEntries(): array {
     return [
-      'missing on' => [
-        ['phase' => 'code', 'cmd' => 'true'],
-        'custom gate "broken": "on" is required',
-      ],
       'missing phase' => [
         ['on' => TRUE, 'cmd' => 'true'],
         'custom gate "broken": "phase" is required',
       ],
       'missing cmd' => [
         ['on' => TRUE, 'phase' => 'code'],
-        'custom gate "broken": "cmd" is required',
+        'custom gate "broken": exactly one of "cmd" (a one-line command) or "run" (a file the gate runs) is required',
       ],
       'complete is not a placement' => [
         ['on' => TRUE, 'phase' => 'complete', 'cmd' => 'true'],
@@ -223,7 +219,7 @@ final class CustomGatesTest extends TestCase {
       . "| CVE      | CVE-2022-29248    |\n"
       . "| CVE      | CVE-2022-31042    |\n";
     $executor = new ShellGateExecutor(static fn (): array => [1, $plain, ''], static fn (): int => 0);
-    $gate = new GateSettings('module:composer_audit', TRUE, [
+    $gate = new GateSettings('custom:composer_audit', TRUE, [
       'cmd' => 'composer audit',
       'phase' => 'code',
       'verdict' => 'exit 1: advisories.',
@@ -263,7 +259,7 @@ final class CustomGatesTest extends TestCase {
       'abandoned' => [],
     ], JSON_PRETTY_PRINT);
     $executor = new ShellGateExecutor(static fn (): array => [1, $json, ''], static fn (): int => 0);
-    $gate = new GateSettings('module:composer_audit', TRUE, ['cmd' => 'composer audit --format=json', 'phase' => 'code']);
+    $gate = new GateSettings('custom:composer_audit', TRUE, ['cmd' => 'composer audit --format=json', 'phase' => 'code']);
 
     $result = $executor->execute($gate, '/tmp');
 

@@ -99,6 +99,31 @@ final class FollowUps {
   }
 
   /**
+   * Where markdown follow-ups go, as a ticket source.
+   *
+   * The project's markdown directory and prefix when its `work_item` block
+   * names them, `docs/tickets` and `TICKET` otherwise.
+   *
+   * @param \Droost\Workflow\Config\WorkItemSettings|null $settings
+   *   The `work_item` block, when the lever file has one.
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return \Droost\Workflow\WorkItem\MarkdownWorkItemSource
+   *   The source.
+   *
+   * @throws \Droost\Workflow\WorkItem\WorkItemError
+   *   When the configured directory or prefix is refused.
+   */
+  public static function markdown(?WorkItemSettings $settings, string $projectRoot): MarkdownWorkItemSource {
+    return new MarkdownWorkItemSource(
+      $settings?->markdown['dir'] ?? self::DEFAULT_DIR,
+      $settings?->markdown['prefix'] ?? MarkdownWorkItemSource::DEFAULT_PREFIX,
+      $projectRoot,
+    );
+  }
+
+  /**
    * The sources to try, in order: the one asked for, then markdown.
    *
    * @param string $target
@@ -114,11 +139,7 @@ final class FollowUps {
     }
     $markdown = $this->configured !== NULL && $this->settings?->provider === 'markdown'
       ? $this->configured
-      : new MarkdownWorkItemSource(
-        $this->settings?->markdown['dir'] ?? self::DEFAULT_DIR,
-        $this->settings?->markdown['prefix'] ?? MarkdownWorkItemSource::DEFAULT_PREFIX,
-        $this->projectRoot,
-      );
+      : self::markdown($this->settings, $this->projectRoot);
     if ($target !== 'cockpit') {
       return [['markdown', $markdown]];
     }
@@ -183,7 +204,7 @@ final class FollowUps {
       "## Summary\n\n%s failed at %s in run %s, and the run moved on without fixing it: %s.\n\n"
       . "## The failure\n\n```\n%s\n```\n\n"
       . "## Where it came from\n\n- Run: %s (%s, %s flow)\n- Ticket: %s\n- Spec: %s\n- Loops: %d of %d\n\n"
-      . "## Notes\n\nWritten by droost/workflow. `droost-workflow evidence` renders the run's full record.\n",
+      . "## Notes\n\nWritten by droost/workflow. `droost workflow:evidence` renders the run's full record.\n",
       $gate,
       $phase->value,
       $state->runId,

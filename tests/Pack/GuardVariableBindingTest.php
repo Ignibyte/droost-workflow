@@ -92,6 +92,49 @@ final class GuardVariableBindingTest extends WorkflowTestCase {
   }
 
   /**
+   * A wildcard outside the project reaches nothing; one above it reaches it.
+   *
+   * A live run's `ddev exec "rm -f /tmp/export-*.csv"` (the container's /tmp)
+   * was refused as expanding "across the project root": a directory outside
+   * the project resolved to no relative path, which read as the root.
+   */
+  public function testWildcardOutsideTheProjectIsNotTheRoot(): void {
+    $root = $this->liveRoot();
+    $elsewhere = $this->makeRoot();
+
+    [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => 'rm -f ' . $elsewhere . '/export-*.csv']]);
+    $this->assertSame(0, $exit, $stderr);
+    [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => 'ddev exec "rm -f ' . $elsewhere . '/export-*.csv"']]);
+    $this->assertSame(0, $exit, $stderr);
+
+    [$exit] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => 'rm -rf ' . dirname($root) . '/*']]);
+    $this->assertSame(2, $exit, 'a directory above the project still reaches it');
+    [$exit] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => 'rm -rf .claude/hooks/*']]);
+    $this->assertSame(2, $exit);
+  }
+
+  /**
+   * A refusal found in a script the command feeds names the script (F-334).
+   *
+   * A live run's `ddev exec "cat > /tmp/rector.sh" < rector.sh` was refused
+   * as running a variable, quoting the outer command, which holds none: the
+   * script's `env RECTOR_TAG=$tag "$@" vendor/bin/rector` did.
+   */
+  public function testRefusalInFedScriptNamesTheScript(): void {
+    $root = $this->liveRoot();
+    file_put_contents($root . '/rector.sh', "#!/bin/bash\nrun() {\n  tag=\$1; shift\n  env RECTOR_TAG=\$tag \"\$@\" vendor/bin/rector process x\n}\nrun d1\n");
+
+    [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => 'ddev exec "cat > /tmp/rector.sh" < rector.sh']]);
+
+    $this->assertSame(2, $exit, $stderr);
+    $this->assertStringContainsString('in rector.sh, which this command runs or feeds', $stderr);
+    $this->assertStringContainsString('vendor/bin/rector', $stderr, 'the line itself');
+
+    [, , $plain] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => '$RUNNER -c x']]);
+    $this->assertStringNotContainsString('which this command runs or feeds', $plain, 'a variable typed in the command needs no pointer');
+  }
+
+  /**
    * A project with a run under way at `hard` and archived specs in history.
    *
    * @return string
