@@ -45,14 +45,14 @@ final class PackModuleSkillsTest extends WorkflowTestCase {
    * there.
    */
   public function testCodexGetsTheSkillsToo(): void {
-    $root = $this->siteWith(['droost_mcp' => ['droost-mcp' => "# over mcp\n"]]);
+    $root = $this->siteWith(['droost_mcp' => ['droost-tools-mcp' => "# over mcp\n"]]);
     $materializer = new PackMaterializer();
 
     $report = $materializer->init($root);
 
-    $this->assertSame("# over mcp\n", file_get_contents($root . '/.agents/skills/droost-mcp/SKILL.md'));
-    $this->assertContains('.agents/skills/droost-mcp/SKILL.md', $report->written);
-    $this->assertFileExists($root . '/.agents/skills/droost-mcp/.droost-workflow-pack');
+    $this->assertSame("# over mcp\n", file_get_contents($root . '/.agents/skills/droost-tools-mcp/SKILL.md'));
+    $this->assertContains('.agents/skills/droost-tools-mcp/SKILL.md', $report->written);
+    $this->assertFileExists($root . '/.agents/skills/droost-tools-mcp/.droost-workflow-pack');
 
     $this->removeTree($root . '/web/modules/contrib/droost_mcp');
     $materializer->init($root);
