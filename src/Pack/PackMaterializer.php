@@ -82,7 +82,10 @@ final class PackMaterializer {
     // The skills droost's site modules ship join the pack's, read from the
     // module the site has (B3, 2026-10-24).
     $moduleSkills = PackManifest::moduleSkills($root);
-    $owned = [...PackManifest::ownedDirectories(), ...array_map('dirname', array_keys($moduleSkills))];
+    $owned = array_values(array_unique([
+      ...PackManifest::ownedDirectories(),
+      ...array_map('dirname', array_keys($moduleSkills)),
+    ]));
     foreach ($owned as $relative) {
       $this->assertOursOrAbsent($root . '/' . $relative, $relative);
     }
@@ -138,6 +141,7 @@ final class PackMaterializer {
     }
     // A module skill an earlier init wrote and no module ships now goes, as
     // the pack's own files would; one edited since is the user's and stays.
+    $emptied = [];
     foreach ($lock as $destination => $lastShipped) {
       if (isset($newLock[$destination]) || !PackManifest::isModuleSkillPath($destination)) {
         continue;
@@ -146,16 +150,21 @@ final class PackMaterializer {
       if (!is_file($to)) {
         continue;
       }
-      $sentinel = dirname($to) . '/' . PackManifest::SENTINEL;
-      if (!is_file($sentinel) || !hash_equals($lastShipped, (string) hash_file('sha256', $to))) {
+      if (!is_file(dirname($to) . '/' . PackManifest::SENTINEL) || !hash_equals($lastShipped, (string) hash_file('sha256', $to))) {
         $report = $report->withKept($destination);
         $newLock[$destination] = $lastShipped;
         continue;
       }
       @unlink($to);
-      @unlink($sentinel);
-      @rmdir(dirname($to));
+      $emptied[dirname($to)] = TRUE;
       $report = $report->withRemoved($destination);
+    }
+    // A skill's directory goes once nothing but its marker is left in it.
+    foreach (array_keys($emptied) as $dir) {
+      if (array_diff(scandir($dir) ?: [], ['.', '..', PackManifest::SENTINEL]) === []) {
+        @unlink($dir . '/' . PackManifest::SENTINEL);
+        @rmdir($dir);
+      }
     }
     $this->writeLock($root, $newLock);
     foreach ($owned as $relative) {

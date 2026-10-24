@@ -59,6 +59,32 @@ final class PackModuleSkillsTest extends WorkflowTestCase {
   }
 
   /**
+   * A skill's own files come with it, and go with it.
+   *
+   * The canvas-build skill links its tree contract; one installed without
+   * the file it links sends the agent to a page that is not there.
+   */
+  public function testTheSkillsFilesComeAndGoWithIt(): void {
+    $root = $this->siteWith([
+      'droost_canvas' => [
+        'canvas-build' => "# canvas, see [the contract](contract.md)\n",
+      ],
+    ]);
+    file_put_contents($root . '/web/modules/contrib/droost_canvas/skills/canvas-build/contract.md', "# contract\n");
+    file_put_contents($root . '/web/modules/contrib/droost_canvas/skills/canvas-build/.hidden', "x\n");
+    $materializer = new PackMaterializer();
+    $materializer->init($root);
+
+    $this->assertSame("# contract\n", file_get_contents($root . '/.claude/skills/canvas-build/contract.md'));
+    $this->assertFileDoesNotExist($root . '/.claude/skills/canvas-build/.hidden');
+
+    $this->removeTree($root . '/web/modules/contrib/droost_canvas');
+    $report = $materializer->init($root);
+    $this->assertCount(2, $report->removed);
+    $this->assertDirectoryDoesNotExist($root . '/.claude/skills/canvas-build');
+  }
+
+  /**
    * A name the pack ships stays the pack's.
    */
   public function testThePackKeepsItsOwnNames(): void {

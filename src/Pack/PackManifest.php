@@ -187,6 +187,11 @@ final class PackManifest {
   }
 
   /**
+   * A file name a module's skill may install: visible, one path segment.
+   */
+  private const string SKILL_FILE = '/^[A-Za-z0-9][A-Za-z0-9._-]*$/';
+
+  /**
    * The skills droost's site modules ship, found where the site keeps them.
    *
    * The droost module and its submodules carry their own skills, each in
@@ -211,13 +216,18 @@ final class PackManifest {
       if ($name !== 'droost' && !str_starts_with($name, 'droost_')) {
         continue;
       }
-      foreach (glob($docroot . '/' . $module['path'] . '/skills/*/SKILL.md') ?: [] as $file) {
-        $skill = basename(dirname($file));
-        $destination = '.claude/skills/' . $skill . '/SKILL.md';
-        if (preg_match('/^[a-z0-9][a-z0-9-]*$/', $skill) !== 1 || in_array($destination, self::FILES, TRUE)) {
+      foreach (glob($docroot . '/' . $module['path'] . '/skills/*/SKILL.md') ?: [] as $entry) {
+        $skill = basename(dirname($entry));
+        if (preg_match('/^[a-z0-9][a-z0-9-]*$/', $skill) !== 1 || in_array('.claude/skills/' . $skill . '/SKILL.md', self::FILES, TRUE)) {
           continue;
         }
-        $skills[$destination] ??= $file;
+        // The skill and the files it links (canvas-build's tree contract):
+        // its directory's own files, no deeper, none hidden.
+        foreach (glob(dirname($entry) . '/*') ?: [] as $file) {
+          if (is_file($file) && preg_match(self::SKILL_FILE, basename($file)) === 1) {
+            $skills['.claude/skills/' . $skill . '/' . basename($file)] ??= $file;
+          }
+        }
       }
     }
     ksort($skills);
@@ -231,12 +241,13 @@ final class PackManifest {
    *   A path under the project.
    *
    * @return bool
-   *   TRUE for `.claude/skills/<name>/SKILL.md` that the pack itself does not
-   *   ship.
+   *   TRUE for a file of `.claude/skills/<name>/` where the pack itself ships
+   *   no skill of that name.
    */
   public static function isModuleSkillPath(string $destination): bool {
-    return preg_match('#^\.claude/skills/[a-z0-9][a-z0-9-]*/SKILL\.md$#', $destination) === 1
-      && !in_array($destination, self::FILES, TRUE);
+    return preg_match('#^\.claude/skills/([a-z0-9][a-z0-9-]*)/([^/]+)$#', $destination, $match) === 1
+      && preg_match(self::SKILL_FILE, $match[2]) === 1
+      && !in_array('.claude/skills/' . $match[1] . '/SKILL.md', self::FILES, TRUE);
   }
 
 }

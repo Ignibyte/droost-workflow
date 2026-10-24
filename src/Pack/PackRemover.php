@@ -84,7 +84,7 @@ final class PackRemover {
 
     // Our own directories, sentinel and all. Deepest first, so a parent is
     // considered only once its children are gone.
-    $ours = [...PackManifest::ownedDirectories(), ...array_map('dirname', $moduleSkills)];
+    $ours = array_values(array_unique([...PackManifest::ownedDirectories(), ...array_map('dirname', $moduleSkills)]));
     usort($ours, static fn (string $a, string $b): int => substr_count($b, '/') <=> substr_count($a, '/'));
     foreach ($ours as $relative) {
       $absolute = $root . '/' . $relative;

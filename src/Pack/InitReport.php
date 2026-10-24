@@ -138,7 +138,7 @@ final class InitReport {
       $lines[] = sprintf('%d file(s) already current', count($this->current));
     }
     if ($this->removed !== []) {
-      $lines[] = sprintf('removed %d skill(s) no droost module ships now: %s', count($this->removed), implode(', ', $this->removed));
+      $lines[] = sprintf('removed %d skill file(s) no droost module ships now: %s', count($this->removed), implode(', ', $this->removed));
     }
     if ($lines === []) {
       $lines[] = 'nothing to do — the pack is current';
