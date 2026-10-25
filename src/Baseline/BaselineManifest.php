@@ -38,6 +38,9 @@ final class BaselineManifest {
    * @param list<array{at: string, reason: string, added: array<string, int>}> $grown
    *   Every time the baseline was allowed to GROW: when, why, and how many
    *   findings each gate gained. Empty on a baseline that only ever shrank.
+   * @param string|null $generatedBranch
+   *   The branch the tree was on, or NULL when HEAD was detached or the record
+   *   predates F-390.
    */
   public function __construct(
     public readonly string $generatedAt,
@@ -45,6 +48,7 @@ final class BaselineManifest {
     public readonly string $preset,
     public readonly array $gates,
     public readonly array $grown = [],
+    public readonly ?string $generatedBranch = NULL,
   ) {}
 
   /**
@@ -84,6 +88,7 @@ final class BaselineManifest {
       'v' => self::SCHEMA_VERSION,
       'generated_at' => $this->generatedAt,
       'generated_commit' => $this->generatedCommit,
+      'generated_branch' => $this->generatedBranch,
       'preset' => $this->preset,
       'gates' => $this->gates,
       'grown' => $this->grown,
@@ -147,6 +152,7 @@ final class BaselineManifest {
         $node->string('preset'),
         $gates,
         $grown,
+        $node->optionalString('generated_branch'),
       );
     }
     catch (DataError $e) {

@@ -419,11 +419,21 @@ once from a terminal, committed beside the lever file in `droost/baseline/`:
 
 ```bash
 droost workflow:baseline --measure    # the bill: what each gate would inherit (read-only)
-droost workflow:baseline              # write it (operator terminal); commit droost/baseline/
-droost workflow:baseline --refresh    # re-measure: paid-off debt drops, growth is refused
+droost workflow:baseline --commit     # write it (operator terminal) and commit droost/baseline/ alone
+droost workflow:baseline --refresh --commit    # re-measure: paid-off debt drops, growth is refused
 droost workflow:baseline --refresh --grow --reason="legacy import"   # accept more, on record
 droost workflow:baseline --status     # what is recorded (read-only)
 ```
+
+Each write names the branch and commit it measured, and the record keeps
+both. A refresh measures whatever is checked out, so it is refused on a
+branch other than the record's, or on a tree that does not descend from the
+record's commit: a ticket branch that deletes files would otherwise record
+its deletions as debt paid off. Refresh on the branch the baseline belongs to,
+or pass `--from-here` when this tree is the one to measure. `--commit`
+commits `droost/baseline/` and nothing else staged; the agent's shell may not
+stage or commit the record itself, since a commit runs the repository's
+hooks and a hook can rewrite it.
 
 From then on a consulting gate — phpcs, phpstan, eslint, stylelint, prettier,
 coverage, mutation — answers two questions. **Inherited** is a

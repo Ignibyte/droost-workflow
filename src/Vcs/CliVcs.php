@@ -12,7 +12,7 @@ namespace Droost\Workflow\Vcs;
  * this without a repository and the one place this package spawns git is
  * visible.
  */
-final class CliVcs implements VcsInterface, RefResolverInterface, AddedFilesInterface, LineCountsInterface {
+final class CliVcs implements VcsInterface, RefResolverInterface, AddedFilesInterface, LineCountsInterface, AncestryInterface, CommitsInterface {
 
   /**
    * Constructs a CliVcs.
@@ -76,6 +76,52 @@ final class CliVcs implements VcsInterface, RefResolverInterface, AddedFilesInte
     );
     $hash = trim($stdout);
     return $exit === 0 && preg_match('/^[0-9a-f]{40,64}$/', $hash) === 1 ? $hash : NULL;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function branch(string $projectRoot): ?string {
+    [$exit, $stdout] = $this->git($projectRoot, ['rev-parse', '--abbrev-ref', 'HEAD']);
+    $branch = trim($stdout);
+    return $exit === 0 && $branch !== '' && $branch !== 'HEAD' ? $branch : NULL;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function descends(string $projectRoot, string $ancestor): ?bool {
+    if ($ancestor === '' || str_starts_with($ancestor, '-')) {
+      return NULL;
+    }
+    [$exit] = $this->git($projectRoot, ['merge-base', '--is-ancestor', '--end-of-options', $ancestor, 'HEAD']);
+    return match ($exit) {
+      0 => TRUE,
+      1 => FALSE,
+      default => NULL,
+    };
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function commitPaths(string $projectRoot, array $paths, string $message): array {
+    [$added] = $this->git($projectRoot, ['add', '--', ...$paths]);
+    if ($added !== 0) {
+      return [NULL, 'git add failed on ' . implode(', ', $paths)];
+    }
+    [$unchanged] = $this->git($projectRoot, ['diff', '--cached', '--quiet', '--', ...$paths]);
+    if ($unchanged === 0) {
+      return [NULL, 'nothing to commit: ' . implode(', ', $paths) . ' already matches HEAD'];
+    }
+    // `--` with paths commits those paths alone (git's --only), so whatever
+    // else the developer has staged stays staged and out of this commit.
+    [$committed, $stdout] = $this->git($projectRoot, ['commit', '-q', '-m', $message, '--', ...$paths]);
+    if ($committed !== 0) {
+      return [NULL, 'git commit failed (exit ' . $committed . ')' . (trim($stdout) !== '' ? ': ' . trim($stdout) : '')];
+    }
+    $head = $this->head($projectRoot);
+    return $head !== NULL ? [$head, ''] : [NULL, 'committed, but HEAD could not be read'];
   }
 
   /**

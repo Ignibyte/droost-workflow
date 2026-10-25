@@ -4800,7 +4800,9 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
       . 'reader (cat, head, grep, jq): code handed to an interpreter cannot be '
       . 'told from a write, so `python3 -c` and its kind are refused here while '
       . 'those are not. If debt was paid, ask the operator for `baseline '
-      . '--refresh`. (Refused: %s)',
+      . '--refresh --commit`, which records and commits it in one command; '
+      . 'staging or committing it is theirs too, since a commit runs the '
+      . 'repository\'s hooks, and a hook can rewrite it. (Refused: %s)',
       trim($command),
     ));
   }

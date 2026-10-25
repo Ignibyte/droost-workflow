@@ -15,7 +15,9 @@ use Droost\Workflow\Event\ProjectHooks;
 use Droost\Workflow\Pack\PackManifest;
 use Droost\Workflow\State\StateError;
 use Droost\Workflow\Vcs\AddedFilesInterface;
+use Droost\Workflow\Vcs\AncestryInterface;
 use Droost\Workflow\Vcs\CliVcs;
+use Droost\Workflow\Vcs\CommitsInterface;
 use Droost\Workflow\Vcs\LineCountsInterface;
 use Droost\Workflow\Vcs\RefResolverInterface;
 use Droost\Workflow\Vcs\VcsInterface;
@@ -476,19 +478,28 @@ final class WorkflowFacade {
    *   Allow the refresh to record more debt than before.
    * @param string|null $reason
    *   Why growth is accepted; required with $grow.
+   * @param bool $commit
+   *   Commit droost/baseline/ once written, and nothing else staged (F-391).
+   * @param bool $fromHere
+   *   Refresh even though HEAD does not descend from the record's commit.
    *
    * @return array<string, mixed>
-   *   The manifest written, the bill, the skipped gates, and the new hash.
+   *   The manifest written, the bill, the skipped gates, the new hash, the
+   *   branch and commit measured beside the one the record replaced, and the
+   *   commit made when $commit asked for one.
    *
    * @throws \Droost\Workflow\Baseline\BaselineError
    *   When a run is active, a first write finds a baseline, a refresh finds
-   *   none, growth is refused, or --grow lacks its reason.
+   *   none or would measure another line of history, growth is refused, or
+   *   --grow lacks its reason.
    */
   public function baselineWrite(
     string $projectRoot,
     bool $refresh = FALSE,
     bool $grow = FALSE,
     ?string $reason = NULL,
+    bool $commit = FALSE,
+    bool $fromHere = FALSE,
   ): array {
     $store = new RunStateStore($projectRoot);
     $active = $store->load();
@@ -504,16 +515,33 @@ final class WorkflowFacade {
     if ($active !== NULL && $active->currentPhase !== NULL && !$adopting) {
       throw BaselineError::runActive();
     }
+    // WHAT IS MEASURED, SAID FIRST (F-390). A refresh measures whatever is
+    // checked out: an adopter's ran on a ticket branch that deletes files and
+    // recorded its deletions as debt paid off. The record keeps its branch;
+    // a refresh on another branch, or off the record's line of history, is
+    // refused unless the operator says this tree is the one.
+    $head = $this->vcs->head($projectRoot);
+    $branch = $this->vcs instanceof AncestryInterface ? $this->vcs->branch($projectRoot) : NULL;
+    $recorded = $refresh ? BaselineStore::load($projectRoot)?->manifest : NULL;
+    if ($recorded !== NULL && !$fromHere) {
+      $elsewhere = $recorded->generatedBranch !== NULL && $branch !== NULL && $recorded->generatedBranch !== $branch;
+      $offLine = $recorded->generatedCommit !== NULL && $recorded->generatedCommit !== $head
+        && $this->vcs instanceof AncestryInterface && $this->vcs->descends($projectRoot, $recorded->generatedCommit) === FALSE;
+      if ($elsewhere || $offLine) {
+        throw BaselineError::otherHistory($branch, $head, $recorded->generatedBranch, $recorded->generatedCommit);
+      }
+    }
     $config = WorkflowConfig::load($projectRoot);
     $measured = $this->writer()->measure($config, $projectRoot);
     $manifest = $this->writer()->write(
       $projectRoot,
       $measured,
       $config->preset,
-      $this->vcs->head($projectRoot),
+      $head,
       $refresh,
       $grow,
       $reason,
+      $branch,
     );
     $hash = BaselineStore::hash($projectRoot);
     if ($adopting && $active !== NULL && $hash !== NULL && $config->baseline) {
@@ -526,7 +554,51 @@ final class WorkflowFacade {
       'hash' => $hash,
       'dir' => BaselineStore::DIR,
       'frozen_into_run' => $adopting ? $active?->runId : NULL,
-    ];
+      'measured' => [
+        'branch' => $branch,
+        'commit' => $head,
+        'replaces' => $recorded === NULL ? NULL : [
+          'branch' => $recorded->generatedBranch,
+          'commit' => $recorded->generatedCommit,
+        ],
+      ],
+    ] + ($commit ? ['commit' => $this->commitBaseline($projectRoot, $refresh, $branch, $head, $reason)] : []);
+  }
+
+  /**
+   * Commits droost/baseline/ as just written, and nothing else (F-391).
+   *
+   * The guard keeps the agent's shell from the record, staging and
+   * committing included, so a developer typed a git command after every
+   * refresh. The operator's own command commits its own output instead.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param bool $refresh
+   *   Whether the write was a refresh.
+   * @param string|null $branch
+   *   The branch measured.
+   * @param string|null $head
+   *   The commit measured.
+   * @param string|null $reason
+   *   The growth reason, if any.
+   *
+   * @return array{commit: string|null, why: string}
+   *   The commit made, or NULL with why none was.
+   */
+  private function commitBaseline(string $projectRoot, bool $refresh, ?string $branch, ?string $head, ?string $reason): array {
+    if (!$this->vcs instanceof CommitsInterface) {
+      return ['commit' => NULL, 'why' => 'this surface cannot commit; commit droost/baseline/ yourself'];
+    }
+    $message = sprintf(
+      'droost baseline: %s at %s%s%s',
+      $refresh ? 'refreshed' : 'recorded',
+      BaselineStore::short($head),
+      $branch !== NULL ? ' on ' . $branch : '',
+      $reason !== NULL && $reason !== '' ? ' (' . $reason . ')' : '',
+    );
+    [$commit, $why] = $this->vcs->commitPaths($projectRoot, [BaselineStore::DIR], $message);
+    return ['commit' => $commit, 'why' => $why];
   }
 
   /**

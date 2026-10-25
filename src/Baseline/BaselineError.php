@@ -100,6 +100,40 @@ final class BaselineError extends \RuntimeException {
   }
 
   /**
+   * A refresh on another branch, or off the record's line of history.
+   *
+   * An adopter refreshed while a ticket branch that deletes files was checked
+   * out; the record took that branch's deletions as paid-off debt and had to
+   * be thrown away (F-390).
+   *
+   * @param string|null $branch
+   *   The branch checked out, or NULL when HEAD is detached.
+   * @param string|null $head
+   *   The commit checked out.
+   * @param string|null $recordedBranch
+   *   The branch the current record was generated on.
+   * @param string|null $recordedCommit
+   *   The commit it was generated at.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function otherHistory(?string $branch, ?string $head, ?string $recordedBranch, ?string $recordedCommit): self {
+    return new self(sprintf(
+      'refusing to refresh: this tree is %s at %s, and the current baseline '
+      . 'was recorded on %s at %s. A refresh measures what is checked out, so '
+      . 'it would take another line\'s changes as the project\'s (a ticket '
+      . 'branch\'s deletions read as debt paid off). Check out the branch the '
+      . 'baseline belongs to, or pass --from-here if this tree is the one to '
+      . 'measure.',
+      $branch ?? 'a detached HEAD',
+      BaselineStore::short($head),
+      $recordedBranch ?? 'an unrecorded branch',
+      BaselineStore::short($recordedCommit),
+    ));
+  }
+
+  /**
    * Nothing to refresh.
    *
    * @param string $root

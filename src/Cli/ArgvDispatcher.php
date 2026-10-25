@@ -1485,6 +1485,8 @@ final class ArgvDispatcher {
       in_array('--refresh', $flags, TRUE),
       in_array('--grow', $flags, TRUE),
       $reason,
+      in_array('--commit', $flags, TRUE),
+      in_array('--from-here', $flags, TRUE),
     );
     $this->say($this->encode($written));
     return self::EXIT_OK;
@@ -2438,7 +2440,11 @@ final class ArgvDispatcher {
                        --measure shows the bill without writing; --status
                        shows the recorded baseline; --refresh re-measures
                        (paid-off debt drops, growth is refused unless
-                       --grow --reason="…"). Writing is the operator's act.
+                       --grow --reason="…"), and refuses a tree that does not
+                       descend from the record's commit unless --from-here;
+                       --commit commits droost/baseline/ alone once written.
+                       It names the branch and commit it measured. Writing
+                       is the operator's act.
 
     --project=<path> works on every verb and names the repository to act on.
     Without it the working directory is the repository — which

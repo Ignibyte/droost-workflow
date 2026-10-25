@@ -163,6 +163,8 @@ final class BaselineWriter {
    *   TRUE to allow the refresh to record MORE debt than before.
    * @param string|null $reason
    *   Why growth is accepted; required with $grow.
+   * @param string|null $branch
+   *   The branch measured, kept beside the commit (F-390).
    *
    * @return \Droost\Workflow\Baseline\BaselineManifest
    *   The manifest written.
@@ -179,6 +181,7 @@ final class BaselineWriter {
     bool $refresh = FALSE,
     bool $grow = FALSE,
     ?string $reason = NULL,
+    ?string $branch = NULL,
   ): BaselineManifest {
     $root = rtrim($projectRoot, '/');
     $previous = BaselineStore::load($root);
@@ -311,7 +314,7 @@ final class BaselineWriter {
     if ($grow && $added !== []) {
       $grown[] = ['at' => $this->now(), 'reason' => (string) $reason, 'added' => $added];
     }
-    $manifest = new BaselineManifest($this->now(), $commit, $preset, $gates, $grown);
+    $manifest = new BaselineManifest($this->now(), $commit, $preset, $gates, $grown, $branch);
     BaselineStore::write($root, $manifest, $files);
     return $manifest;
   }
