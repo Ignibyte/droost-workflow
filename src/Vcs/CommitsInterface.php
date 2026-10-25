@@ -23,7 +23,8 @@ interface CommitsInterface {
    *   The commit message.
    *
    * @return array{0: string|null, 1: string}
-   *   The new commit, or NULL with why nothing was committed.
+   *   The new commit and who committed it, or NULL with why nothing was
+   *   committed (no identity, a placeholder identity, nothing changed).
    */
   public function commitPaths(string $projectRoot, array $paths, string $message): array;
 

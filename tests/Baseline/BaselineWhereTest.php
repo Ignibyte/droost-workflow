@@ -131,7 +131,31 @@ final class BaselineWhereTest extends WorkflowTestCase {
       $this->assertStringStartsWith(BaselineStore::DIR . '/', $file);
     }
     $this->assertStringContainsString('droost baseline: recorded', $this->git($root, 'log -1 --format=%s'));
+    $this->assertSame('committed as t <t@example.invalid>', $this->at($written, 'commit', 'why'));
     $this->assertSame('staged.txt', $this->git($root, 'diff --cached --name-only'), 'still staged, not committed');
+  }
+
+  /**
+   * DDEV's placeholder identity commits nothing, and says how to fix it.
+   *
+   * Through `ddev droost` git runs in the web container, where it would
+   * commit as "DDEV User <nobody@example.com>" rather than the developer.
+   */
+  public function testThePlaceholderIdentityCommitsNothing(): void {
+    $root = $this->repository();
+    $this->git($root, 'config user.name "DDEV User"');
+    $this->git($root, 'config user.email nobody@example.com');
+    $before = $this->git($root, 'rev-parse HEAD');
+
+    $written = $this->facade()->baselineWrite($root, commit: TRUE);
+
+    $this->assertNull($this->at($written, 'commit', 'commit'));
+    $why = $this->at($written, 'commit', 'why');
+    $this->assertIsString($why);
+    $this->assertStringContainsString('DDEV', $why);
+    $this->assertStringContainsString('git config user.name', $why);
+    $this->assertSame($before, $this->git($root, 'rev-parse HEAD'), 'nothing was committed');
+    $this->assertTrue(BaselineStore::exists($root), 'the baseline itself is written');
   }
 
   /**

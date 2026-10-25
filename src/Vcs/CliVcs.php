@@ -106,6 +106,29 @@ final class CliVcs implements VcsInterface, RefResolverInterface, AddedFilesInte
    * {@inheritdoc}
    */
   public function commitPaths(string $projectRoot, array $paths, string $message): array {
+    // WHO COMMITS. Through `ddev droost` git runs inside the web container,
+    // whose identity is DDEV's placeholder, not the developer's: the record
+    // would be committed by "DDEV User <nobody@example.com>" (checked on a
+    // DDEV 2026-10-25 container). A repository-local identity is read from
+    // .git/config, which the container sees.
+    [$identified, $ident] = $this->git($projectRoot, ['var', 'GIT_AUTHOR_IDENT']);
+    $author = preg_match('/^(.*<[^>]*>)/', trim($ident), $match) === 1 ? $match[1] : '';
+    if ($identified !== 0 || $author === '') {
+      $why = 'git has no author identity here; set one for this repository (git config user.name, user.email) and commit again';
+      return [NULL, $why];
+    }
+    if (str_contains($author, '<nobody@example.com>')) {
+      $why = sprintf(
+        'not committed: git here would commit as %s, DDEV\'s container placeholder, not you. '
+        . 'Set this repository\'s own identity on the host (git config user.name "…" and user.email, '
+        . 'no --global: the container reads .git/config), or pass GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL '
+        . 'and GIT_COMMITTER_NAME/GIT_COMMITTER_EMAIL in, then run the commit again. The baseline is '
+        . 'written; only the commit is missing (git commit -- %s from the host commits it).',
+        $author,
+        implode(' ', $paths),
+      );
+      return [NULL, $why];
+    }
     [$added] = $this->git($projectRoot, ['add', '--', ...$paths]);
     if ($added !== 0) {
       return [NULL, 'git add failed on ' . implode(', ', $paths)];
@@ -121,7 +144,7 @@ final class CliVcs implements VcsInterface, RefResolverInterface, AddedFilesInte
       return [NULL, 'git commit failed (exit ' . $committed . ')' . (trim($stdout) !== '' ? ': ' . trim($stdout) : '')];
     }
     $head = $this->head($projectRoot);
-    return $head !== NULL ? [$head, ''] : [NULL, 'committed, but HEAD could not be read'];
+    return $head !== NULL ? [$head, 'committed as ' . $author] : [NULL, 'committed, but HEAD could not be read'];
   }
 
   /**
