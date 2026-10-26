@@ -12,6 +12,7 @@ use Droost\Workflow\Config\Phase;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Gate\GateExecutorInterface;
 use Droost\Workflow\Gate\GateResult;
+use Droost\Workflow\Evidence\EvidenceStore;
 use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\State\RunState;
@@ -463,6 +464,57 @@ class GateRunnerTest extends WorkflowTestCase {
     (new GateRunner($blind))->run($state, Phase::Test, $this->makeRoot());
     $this->assertTrue($blind->option('playwright', 'ticket_unknown'));
     $this->assertNull($blind->option('playwright', 'ticket_files'));
+  }
+
+  /**
+   * Declared files join the scope, though committed before the run (F-393).
+   *
+   * An adopter re-ran a closed PR under a new layer: the work was committed
+   * before the run's base commit, so the diff held none of it, every
+   * ticket-scoped gate read "the run changed no file", and a code run held on
+   * type_coverage with nothing to fix. The files it declared are read now.
+   * Files only: a declared directory, or a path that does not exist, widens
+   * nothing.
+   */
+  public function testDeclaredFilesJoinTheScope(): void {
+    $config = WorkflowConfig::fromArray(['preset' => 'low'], 'test');
+    $state = RunState::begin('run-1', '2026-09-29T00:00:00+00:00', $config, 'abc123');
+    $vcs = new class() implements VcsInterface {
+
+      /**
+       * {@inheritdoc}
+       */
+      public function head(string $projectRoot): string {
+        return 'abc123';
+      }
+
+      /**
+       * {@inheritdoc}
+       */
+      public function isRepository(string $projectRoot): bool {
+        return TRUE;
+      }
+
+      /**
+       * {@inheritdoc}
+       */
+      public function changedFiles(string $projectRoot, ?string $base): array {
+        return [];
+      }
+
+    };
+    $root = $this->makeRoot();
+    mkdir($root . '/tests/e2e', 0755, TRUE);
+    file_put_contents($root . '/tests/e2e/before.spec.ts', "test('x', () => {});\n");
+    $store = new EvidenceStore($root);
+    foreach (['tests/e2e/before.spec.ts', 'tests/e2e', 'tests/e2e/gone.spec.ts', '../outside.spec.ts'] as $path) {
+      $store->declare('run-1', 'plan', 'file', $path);
+    }
+
+    $recorder = new SettingsRecordingExecutor();
+    (new GateRunner($recorder, $vcs))->run($state, Phase::Test, $root);
+
+    $this->assertSame('tests/e2e/before.spec.ts', $recorder->option('playwright', 'ticket_files'));
   }
 
   /**

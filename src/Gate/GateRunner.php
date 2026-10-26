@@ -111,6 +111,7 @@ final class GateRunner {
     // Read once per phase and only when a gate ran: no gate here writes a
     // file, so the diff does not move between them.
     $changed = NULL;
+    $declared = NULL;
     $killedSuite = FALSE;
 
     foreach ($state->gatesDueFor($phase) as $name => $levers) {
@@ -156,11 +157,13 @@ final class GateRunner {
           if ($this->vcs !== NULL && $state->baseCommit !== NULL) {
             $changed ??= $state->ownChanges($this->vcs->changedFiles($projectRoot, $state->baseCommit), $projectRoot);
           }
+          $declared ??= $this->declaredFiles($state, $projectRoot);
           $levers['context'] = (string) json_encode([
             'run_id' => $state->runId,
             'phase' => $phase->value,
             'base_commit' => $state->baseCommit,
             'changed_files' => $changed,
+            'declared_files' => $declared,
           ], JSON_UNESCAPED_SLASHES);
         }
         // TICKET SCOPE (0.11): the gate is handed what this run changed, which
@@ -176,7 +179,14 @@ final class GateRunner {
             $levers['ticket_unknown'] = TRUE;
           }
           else {
-            $levers['ticket_files'] = implode("\n", $changed);
+            // AND WHAT THE RUN ANSWERS FOR (F-393). The diff starts at the
+            // run's base commit, so work committed before the run opened (a
+            // closed PR re-run under a new layer) was outside every
+            // ticket-scoped gate even when declared, and a code run held on
+            // type_coverage with no fix. A declared file joins the scope: the
+            // gates read more, never less.
+            $declared ??= $this->declaredFiles($state, $projectRoot);
+            $levers['ticket_files'] = implode("\n", array_values(array_unique([...$changed, ...$declared])));
           }
         }
         // A RECORDED RUN, where the level allows one (0.11, `low`): the run
@@ -583,6 +593,35 @@ final class GateRunner {
     }
 
     return array_keys($names);
+  }
+
+  /**
+   * The files the run declared, as they stand in the tree.
+   *
+   * Files only: a declared directory covers what is created under it, and
+   * reading one as scope would widen a gate to the whole directory, or to
+   * the tree for ".".
+   *
+   * @param \Droost\Workflow\State\RunState $state
+   *   The run.
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return list<string>
+   *   Project-relative paths of declared files that exist.
+   */
+  private function declaredFiles(RunState $state, string $projectRoot): array {
+    try {
+      $values = (new EvidenceStore($projectRoot))->declared($state->runId, 'file');
+    }
+    catch (\Throwable) {
+      return [];
+    }
+    $root = rtrim($projectRoot, '/');
+    return array_values(array_filter(
+      $values,
+      static fn (string $path): bool => $path !== '' && !str_contains($path, '..') && is_file($root . '/' . ltrim($path, '/')),
+    ));
   }
 
   /**

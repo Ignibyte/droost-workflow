@@ -466,7 +466,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
           $gate->name,
           0,
           0,
-          sprintf('%s passed — the run changed no file %s reads (ticket scope), so nothing was analysed', $gate->name, $gate->name),
+          sprintf('%s passed — the run changed no file %s reads (ticket scope: its changes since the base commit, and the files it declared), so nothing was analysed. Work committed before the run opened is read once its files are declared by name (declare-changes --files=…)', $gate->name, $gate->name),
           sprintf('%s (ticket scope: no changed file)', $gate->name),
         );
       }

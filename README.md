@@ -721,7 +721,11 @@ gate but `wiki_fresh` on the documentation it writes. A run
 freezes its flow's table as `phase_gates` when it begins. The same two
 levels default `scope: ticket` on phpcs, phpstan, phpunit and playwright: the
 analysers read the files the run changed, and the suites run the test files
-it added or changed, the Playwright CLI handed those specs. `scope: full` runs
+it added or changed, the Playwright CLI handed those specs. The files the run
+declared by name (`declare-changes --files=…`) are read too, so work
+committed before the run opened (a closed PR re-run under a new layer) is
+in scope once declared; a declared directory widens nothing. A project's own
+gate file finds them as `declared_files` beside `changed_files`. `scope: full` runs
 a gate's whole set. A scoped row says so ("ticket scope: 2 file(s) this run
 changed, not the full suite"), and a required suite the ticket gave no test
 to run fails. At `low` the browser gate also takes `reuse: recorded`:

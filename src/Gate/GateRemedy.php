@@ -97,7 +97,11 @@ final class GateRemedy {
         . 'stops working until the key is removed.';
     }
 
-    return $specific . ' This takes effect NOW, not next run: `on` is frozen '
+    return $specific . ' Or, with `scope: ticket`, the run may simply have '
+      . 'changed none of its files since the base commit: work committed '
+      . 'before the run opened (a closed PR re-run) is read once its files are '
+      . 'declared by name with `declare-changes --files=…`, and the paths lever '
+      . 'needs no change. This takes effect NOW, not next run: `on` is frozen '
       . 'at begin, but the tuning levers are re-read from the file at gate '
       . 'time and the gate\'s summary says so when they have moved. No `reset '
       . '--force` is needed — and if nothing changes, check the file still '
