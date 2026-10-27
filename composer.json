@@ -18,7 +18,7 @@
     "require": {
         "php": "^8.3",
         "ext-pdo_sqlite": "*",
-        "droost/engine": "^0.11.1",
+        "droost/engine": "^1.0",
         "symfony/yaml": "^6.4 || ^7.0 || ^8.0"
     },
     "require-dev": {

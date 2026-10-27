@@ -37,7 +37,7 @@ GPL.
 mkdir -p tools/droost
 composer init -d tools/droost -n --name=local/droost-tools   # a Composer project of its own, for config to write to
 composer config -d tools/droost platform.php 8.3.0   # the PHP droost runs under (the site's, e.g. the web container's)
-composer require -d tools/droost droost/workflow
+composer require -d tools/droost 'droost/workflow:^1.0'
 tools/droost/vendor/bin/droost init       # the pack, the guard's hooks, AGENTS.md, droost/droost.yml
 tools/droost/vendor/bin/droost code:index # the code index the knowledge commands read
 ```
@@ -1146,7 +1146,7 @@ and its probe, not a second guard.
 
 PHP 8.3+ with `pdo_sqlite`. Runtime dependencies: `symfony/yaml` and
 `droost/engine` (the code index, the wiki and search cores, the harness
-installers), which brings `nikic/php-parser` and `symfony/process`. No Drupal
+installers), which brings `nikic/php-parser`. No Drupal
 bootstrap is needed for anything: the levers, the run state, the code index
 and the wiki are files.
 
