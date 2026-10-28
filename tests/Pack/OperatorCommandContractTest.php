@@ -53,9 +53,9 @@ final class OperatorCommandContractTest extends TestCase {
    * Every command the guard refuses is named in the README's table.
    */
   public function testTheReadmeNamesEveryRefusal(): void {
-    $readme = (string) file_get_contents(dirname(__DIR__, 2) . '/README.md');
-    $table = strstr($readme, '| Refused from the agent\'s shell |');
-    $this->assertIsString($table, 'the README still carries the table');
+    $doc = (string) file_get_contents(dirname(__DIR__, 2) . '/docs/guard.md');
+    $table = strstr($doc, '| Refused from the agent\'s shell |');
+    $this->assertIsString($table, 'docs/guard.md still carries the table');
     $table = substr($table, 0, (int) strpos($table, "\n\n"));
 
     // The label the guard sets, mapped to the words the README must use. A

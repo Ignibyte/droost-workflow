@@ -17,12 +17,14 @@ use Droost\Workflow\WorkItem\MarkdownWorkItemSource;
 use Droost\Workflow\WorkItem\WorkItemSources;
 
 /**
- * The README is served to people and to agents as authoritative.
+ * The README and its reference are served as authoritative.
  *
- * Nothing lints prose and no test asserts a paragraph, so a confident wrong
- * sentence in a README outlives every other kind of defect. These tests take
- * the examples out of the file at run time and put them through the real
- * loader, so the documentation cannot drift away from the code it describes.
+ * People and agents both read them. Nothing lints prose and no test asserts
+ * a paragraph, so a confident wrong sentence in a README outlives every
+ * other kind of defect. These tests take
+ * the examples out of the files at run time (the README points to them in
+ * docs/) and put them through the real loader, so the documentation cannot
+ * drift away from the code it describes.
  */
 class ReadmeContractTest extends WorkflowTestCase {
 
@@ -30,7 +32,7 @@ class ReadmeContractTest extends WorkflowTestCase {
    * The README's own sample lever file parses, and means what it says.
    */
   public function testTheReadmeSampleParses(): void {
-    $sample = $this->extractBlock('yaml');
+    $sample = $this->extractBlock('yaml', 'docs/configuration.md');
     $root = $this->makeRootWithConfig($sample);
 
     $config = WorkflowConfig::load($root);
@@ -55,7 +57,7 @@ class ReadmeContractTest extends WorkflowTestCase {
    * The error message the README quotes is the one the code produces.
    */
   public function testTheReadmeErrorMessageIsExact(): void {
-    $quoted = $this->extractBlock('unknown gate');
+    $quoted = $this->extractBlock('unknown gate', 'docs/configuration.md');
     // The README wraps the message across lines to stay readable.
     $expected = preg_replace('/\s+/', ' ', trim($quoted));
 
@@ -79,7 +81,7 @@ class ReadmeContractTest extends WorkflowTestCase {
    * quoted here, so editing either side alone fails the build.
    */
   public function testTheReadmePhaseMapMatchesTheEngine(): void {
-    $block = $this->extractBlock('text');
+    $block = $this->extractBlock('text', 'docs/gates.md');
     $this->assertStringStartsWith('plan:', trim($block));
 
     $documented = [];
@@ -98,7 +100,7 @@ class ReadmeContractTest extends WorkflowTestCase {
    * The README's run-state example is a document the store can read.
    */
   public function testTheReadmeStateExampleIsShapedLikeRealState(): void {
-    $sample = $this->extractBlock('json');
+    $sample = $this->extractBlock('json', 'docs/run-state.md');
     /** @var array<string, mixed>|null $decoded */
     $decoded = json_decode($sample, TRUE);
 
@@ -111,14 +113,14 @@ class ReadmeContractTest extends WorkflowTestCase {
    * The README's ticket samples: a lever file and a ticket the source reads.
    */
   public function testTheReadmeTicketSamplesParse(): void {
-    $root = $this->makeRootWithConfig("preset: custom\n" . $this->extractBlock('provider: markdown'));
+    $root = $this->makeRootWithConfig("preset: custom\n" . $this->extractBlock('provider: markdown', 'docs/tickets.md'));
     $settings = WorkflowConfig::load($root)->workItem;
     $this->assertNotNull($settings);
     $this->assertSame('markdown', $settings->provider);
     $this->assertSame(['dir' => MarkdownWorkItemSource::DEFAULT_DIR, 'prefix' => MarkdownWorkItemSource::DEFAULT_PREFIX], $settings->markdown, 'the sample documents the defaults');
 
     mkdir($root . '/droost/tickets/open', 0755, TRUE);
-    file_put_contents($root . '/droost/tickets/open/TICKET-12-camp-news-by-recipe.md', $this->extractBlock('ticket_number:'));
+    file_put_contents($root . '/droost/tickets/open/TICKET-12-camp-news-by-recipe.md', $this->extractBlock('ticket_number:', 'docs/tickets.md'));
     $source = WorkItemSources::fromSettings($settings, $root);
     $this->assertNotNull($source);
     $ticket = $source->get('TICKET-12');
@@ -132,7 +134,7 @@ class ReadmeContractTest extends WorkflowTestCase {
    * The README's cockpit sample: names, never values, and the default path.
    */
   public function testTheReadmeCockpitSampleParses(): void {
-    $root = $this->makeRootWithConfig("preset: custom\n" . $this->extractBlock('provider: droost_cockpit'));
+    $root = $this->makeRootWithConfig("preset: custom\n" . $this->extractBlock('provider: droost_cockpit', 'docs/tickets.md'));
     $settings = WorkflowConfig::load($root)->workItem;
     $this->assertNotNull($settings);
     $this->assertSame(CockpitWorkItemSource::SOURCE, $settings->provider);
@@ -151,7 +153,7 @@ class ReadmeContractTest extends WorkflowTestCase {
    * The README's sample event is an event this build reads, to the schema.
    */
   public function testTheReadmeSampleEventParses(): void {
-    $line = trim($this->extractBlock('"schema":"droost.run-event/1"'));
+    $line = trim($this->extractBlock('"schema":"droost.run-event/1"', 'docs/run-state.md'));
     $event = RunEvent::fromArray(json_decode($line, TRUE));
     $this->assertNotNull($event, 'the sample is a whole event');
     $this->assertSame(RunEvent::SCHEMA, $event->schema);
@@ -180,28 +182,31 @@ class ReadmeContractTest extends WorkflowTestCase {
    *   The table's text.
    */
   private function readmeTable(): string {
-    $readme = (string) file_get_contents(dirname(__DIR__) . '/README.md');
-    $table = strstr($readme, '| Type | When | Payload |');
-    $this->assertIsString($table, 'the README carries the run-event table');
+    $doc = (string) file_get_contents(dirname(__DIR__) . '/docs/run-state.md');
+    $table = strstr($doc, '| Type | When | Payload |');
+    $this->assertIsString($table, 'docs/run-state.md carries the run-event table');
     return substr($table, 0, (int) strpos($table, "\n\n"));
   }
 
   /**
-   * The first fenced block whose content matches a marker.
+   * The first fenced block in a documentation file whose content matches.
    *
    * @param string $marker
    *   Either a fence language ("yaml", "json") or text the block contains.
+   * @param string $file
+   *   The file, relative to the package root: the README points to the
+   *   reference in docs/, where the samples live.
    *
    * @return string
    *   The block's contents.
    */
-  private function extractBlock(string $marker): string {
-    $readme = file_get_contents(dirname(__DIR__) . '/README.md');
-    $this->assertIsString($readme, 'README.md is unreadable.');
+  private function extractBlock(string $marker, string $file): string {
+    $doc = file_get_contents(dirname(__DIR__) . '/' . $file);
+    $this->assertIsString($doc, $file . ' is unreadable.');
 
     $matched = preg_match_all(
       '/^```([a-z]*)\n(.*?)^```/ms',
-      $readme,
+      $doc,
       $blocks,
       PREG_SET_ORDER,
     );
@@ -213,7 +218,7 @@ class ReadmeContractTest extends WorkflowTestCase {
       }
     }
 
-    $this->fail('No fenced block in README.md matches: ' . $marker);
+    $this->fail('No fenced block in ' . $file . ' matches: ' . $marker);
   }
 
 }
