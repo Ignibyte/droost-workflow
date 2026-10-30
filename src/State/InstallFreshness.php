@@ -60,7 +60,10 @@ final class InstallFreshness {
       return NULL;
     }
     $root = rtrim((string) (realpath($projectRoot) ?: $projectRoot), '/');
-    $dir = realpath(dirname($installPath, 3)) ?: dirname($installPath, 3);
+    // Composer reports the path as `<vendor>/composer/../droost/workflow`:
+    // resolved first, or its parents are composer's own directory.
+    $path = realpath($installPath) ?: $installPath;
+    $dir = realpath(dirname($path, 3)) ?: dirname($path, 3);
     if ($dir !== $root && !str_starts_with($dir . '/', $root . '/')) {
       return NULL;
     }

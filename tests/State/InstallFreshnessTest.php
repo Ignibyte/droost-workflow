@@ -23,6 +23,12 @@ final class InstallFreshnessTest extends WorkflowTestCase {
     $this->assertIsString($why);
     $this->assertStringContainsString('droost here is e7ee9c5, but tools/droost/composer.lock pins 1276c2c', $why);
     $this->assertStringContainsString('ddev composer install -d tools/droost', $why);
+
+    // As Composer reports it, through its own directory (EDG, 2026-10-30:
+    // read unresolved, the lock was looked for in vendor/composer).
+    @mkdir($root . '/tools/droost/vendor/composer', 0755, TRUE);
+    $reported = $root . '/tools/droost/vendor/composer/../droost/workflow';
+    $this->assertIsString(InstallFreshness::compare($root, 'e7ee9c5584bb1716ac95685c48232fc0fb7cd934', $reported));
   }
 
   /**
