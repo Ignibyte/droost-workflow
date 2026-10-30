@@ -412,6 +412,38 @@ final class DroostCliTest extends TestCase {
   }
 
   /**
+   * Each gate turned on and each file plugged in answers for itself.
+   *
+   * A built-in gate is ready when its tool is installed; a gate, hook or wall
+   * file is asked with DROOST_CHECK=1 (owner, 2026-10-30). One that does not
+   * answer it is not run, since that would run the real thing.
+   */
+  public function testDoctorAsksWhatIsPluggedIn(): void {
+    $this->put($this->root, 'droost/droost.yml', "preset: custom\ngates:\n  phpcs: { on: false }\n  phpstan: { on: true }\n"
+      . "  phpunit: { on: false }\n  playwright: { on: false }\n  parity: { on: false }\n"
+      . "  ready: { run: droost/gates/ready.php, phase: code }\n  broken: { run: droost/gates/broken.php, phase: code }\n"
+      . "hooks:\n  run_start: droost/hooks/start.php\n"
+      . "walls:\n  w: { tools: '^mcp__x__', run: droost/walls/gone.php }\n");
+    $this->put($this->root, 'droost/gates/ready.php', "<?php\nif (getenv('DROOST_CHECK') === '1') { echo \"tool 1.2 installed\\n\"; exit(0); }\nexit(1);\n");
+    $this->put($this->root, 'droost/gates/broken.php', "<?php\nif (getenv('DROOST_CHECK') === '1') { echo \"tool missing: install it\\n\"; exit(1); }\nexit(0);\n");
+    $this->put($this->root, 'droost/hooks/start.php', "<?php\nfile_put_contents('ran', 'x');\n");
+    $this->droost(['code:index']);
+
+    $this->assertSame(1, $this->droost(['doctor']));
+    $status = array_column($this->arr('data.rows'), 'status', 'check');
+    $detail = array_column($this->arr('data.rows'), 'detail', 'check');
+    $this->assertSame('ok', $status['gate ready']);
+    $this->assertSame('tool 1.2 installed', $detail['gate ready']);
+    $this->assertSame('fail', $status['gate broken']);
+    $this->assertSame('tool missing: install it', $detail['gate broken'], 'the line is the fix');
+    $this->assertSame('warn', $status['hook run_start'], 'no check of its own');
+    $this->assertFileDoesNotExist($this->root . '/ran', 'a file with no check is not run');
+    $this->assertSame('fail', $status['wall w'], 'a wall file that is not there');
+    $this->assertSame('warn', $status['gate phpstan'], 'a gate turned on with its tool not installed');
+    $this->assertArrayNotHasKey('gate phpcs', $status, 'a gate turned off is not asked');
+  }
+
+  /**
    * The project is found from a subdirectory, and the host's word wins.
    */
   public function testTheProjectIsFoundAboveTheWorkingDirectory(): void {
