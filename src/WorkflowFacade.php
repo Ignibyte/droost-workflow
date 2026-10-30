@@ -1706,7 +1706,7 @@ final class WorkflowFacade {
    * @return bool
    *   TRUE when a hook command runs droost's guard in that mode.
    */
-  private static function guardWired(string $projectRoot, string $mode): bool {
+  public static function guardWired(string $projectRoot, string $mode): bool {
     $settings = json_decode((string) @file_get_contents(rtrim($projectRoot, '/') . '/.claude/settings.json'), TRUE);
     $hooks = is_array($settings) && is_array($settings['hooks'] ?? NULL) ? $settings['hooks'] : [];
     foreach ($hooks as $entries) {
@@ -4318,6 +4318,9 @@ final class WorkflowFacade {
    *   The repository.
    * @param string $reason
    *   Why the bypass is granted. Recorded, and required.
+   * @param string $by
+   *   Who granted it: `terminal`, or `dialog` for a human's approval in the
+   *   session (OperatorApproval).
    *
    * @return string
    *   The path written, project-relative.
@@ -4327,7 +4330,7 @@ final class WorkflowFacade {
    * @throws \Droost\Workflow\State\StateError
    *   When the grant cannot be written.
    */
-  public function grantBypass(string $projectRoot, string $reason): string {
+  public function grantBypass(string $projectRoot, string $reason, string $by = 'terminal'): string {
     if (trim($reason) === '') {
       throw new \InvalidArgumentException(
         'a bypass requires a reason — an unexplained bypass is indistinguishable from tampering',
@@ -4341,7 +4344,7 @@ final class WorkflowFacade {
     $encoded = json_encode([
       'reason' => trim($reason),
       'granted_at' => $this->now(),
-      'granted_by' => 'terminal',
+      'granted_by' => $by,
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
     if (@file_put_contents($directory . '/bypass.json', $encoded) !== strlen($encoded)) {
       throw StateError::unwritable($relative . '/bypass.json', 'the write did not complete');

@@ -31,6 +31,7 @@ use Droost\Workflow\Panel\ActivityLog;
 use Droost\Workflow\Panel\PanelTabRunner;
 use Droost\Workflow\Panel\RunPanel;
 use Droost\Workflow\Seeker\SeekerError;
+use Droost\Workflow\State\OperatorApproval;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
 use Droost\Workflow\Spec\SpecError;
@@ -77,6 +78,14 @@ final class ArgvDispatcher {
    * @var array<string, \Droost\Workflow\WorkItem\CockpitEventRelay|null>
    */
   private array $relays = [];
+
+  /**
+   * Who took the last operator step, when it was not a terminal.
+   *
+   * `dialog` when a session approval let it through; NULL for a terminal, or
+   * no operator step.
+   */
+  private ?string $approvedBy = NULL;
 
   /**
    * Constructs an ArgvDispatcher.
@@ -241,6 +250,7 @@ final class ArgvDispatcher {
         'report' => $this->report($projectRoot),
         'run' => $this->run($projectRoot, $argv),
         'answer' => $this->answer($projectRoot, $argv),
+        'approval' => $this->approval($projectRoot, $argv),
         'lead' => $this->lead($projectRoot, $argv),
         'swap' => $this->swap($projectRoot, $argv),
         'seeker-report' => $this->seekerReport($projectRoot, $argv),
@@ -653,8 +663,9 @@ final class ArgvDispatcher {
     // the operator's: an agent that could would finish every run it began.
     if ($lead === 'autonomous' && !$this->operatorTerminal()
       && (new RunStateStore($projectRoot))->load() === NULL
-      && WorkflowConfig::load($projectRoot)->lead() !== 'autonomous') {
-      $this->fail($this->noTerminalRefusal('run --lead=autonomous'));
+      && WorkflowConfig::load($projectRoot)->lead() !== 'autonomous'
+      && !$this->approvedInSession($projectRoot, $argv)) {
+      $this->fail($this->noTerminalRefusal('run --lead=autonomous', $argv));
       return self::EXIT_USAGE;
     }
     $facade = $this->facade($projectRoot);
@@ -723,8 +734,8 @@ final class ArgvDispatcher {
       $this->fail('lead takes human-led or autonomous: droost workflow:lead human-led');
       return self::EXIT_USAGE;
     }
-    if ($lead === RunState::LEAD_AUTONOMOUS && !$this->operatorTerminal()) {
-      $this->fail($this->noTerminalRefusal('lead autonomous'));
+    if ($lead === RunState::LEAD_AUTONOMOUS && !$this->operatorTerminal() && !$this->approvedInSession($projectRoot, $argv)) {
+      $this->fail($this->noTerminalRefusal('lead autonomous', $argv));
       return self::EXIT_USAGE;
     }
     $state = $this->facade($projectRoot)->lead($projectRoot, $lead);
@@ -848,6 +859,37 @@ final class ArgvDispatcher {
       ));
     }
     return self::EXIT_OK;
+  }
+
+  /**
+   * Uses a human's session approval of an operator script's command.
+   *
+   * `approval --consume -- <command>`: a project's operator-only script (its
+   * `operator_only` in droost.yml) calls it to learn whether a human approved
+   * this exact command in the session (OperatorApproval), and spends it.
+   * Exit 0 when one stood, 1 when none did.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The arguments.
+   *
+   * @return int
+   *   The exit code.
+   */
+  private function approval(string $projectRoot, array $argv): int {
+    $at = array_search('--', $argv, TRUE);
+    if (!in_array('--consume', $argv, TRUE) || $at === FALSE || count($argv) <= $at + 1) {
+      $this->fail('Usage: droost workflow:approval --consume -- <the command as approved>');
+      return self::EXIT_USAGE;
+    }
+    $command = implode(' ', array_slice($argv, $at + 1));
+    if (OperatorApproval::spend($projectRoot, $command, 'script', time())) {
+      $this->say('approved in the session: ' . $command);
+      return self::EXIT_OK;
+    }
+    $this->fail('No standing approval for: ' . $command);
+    return self::EXIT_RUN_FAILED;
   }
 
   /**
@@ -1569,11 +1611,11 @@ final class ArgvDispatcher {
       $this->fail('Usage: droost workflow:bypass "<why>" — the reason goes on the record. `--off` re-arms the wall.');
       return self::EXIT_USAGE;
     }
-    if (!$this->operatorTerminal()) {
-      $this->fail($this->noTerminalRefusal('bypass'));
+    if (!$this->operatorTerminal() && !$this->approvedInSession($projectRoot, $argv)) {
+      $this->fail($this->noTerminalRefusal('bypass', $argv));
       return self::EXIT_USAGE;
     }
-    $written = $facade->grantBypass($projectRoot, $reason);
+    $written = $facade->grantBypass($projectRoot, $reason, $this->approvedBy ?? 'terminal');
     $this->say(sprintf(
       'require_run bypass GRANTED (%s): %s. Ungoverned custom-code edits are '
       . 'allowed until you run: droost workflow:bypass --off',
@@ -1613,8 +1655,8 @@ final class ArgvDispatcher {
       $this->fail('Usage: droost workflow:gate-waive <gate> "<reason>" — both are required; the reason goes on the record.');
       return self::EXIT_USAGE;
     }
-    if (!$this->operatorTerminal()) {
-      $this->fail($this->noTerminalRefusal('gate-waive'));
+    if (!$this->operatorTerminal() && !$this->approvedInSession($projectRoot, $argv)) {
+      $this->fail($this->noTerminalRefusal('gate-waive', $argv));
       return self::EXIT_USAGE;
     }
     $state = $this->facade($projectRoot)->waiveGate($projectRoot, $gate, $reason);
@@ -1665,8 +1707,8 @@ final class ArgvDispatcher {
       }
       return self::EXIT_OK;
     }
-    if (!$this->operatorTerminal()) {
-      $this->fail($this->noTerminalRefusal('effort'));
+    if (!$this->operatorTerminal() && !$this->approvedInSession($projectRoot, $argv)) {
+      $this->fail($this->noTerminalRefusal('effort', $argv));
       return self::EXIT_USAGE;
     }
     $change = EffortSwitch::apply($projectRoot, $level);
@@ -1831,8 +1873,8 @@ final class ArgvDispatcher {
           $this->fail('ticket move needs an id and a state: `ticket move TICKET-12 done`.');
           return self::EXIT_USAGE;
         }
-        if (!$this->operatorTerminal()) {
-          $this->fail($this->noTerminalRefusal('ticket move'));
+        if (!$this->operatorTerminal() && !$this->approvedInSession($projectRoot, $argv)) {
+          $this->fail($this->noTerminalRefusal('ticket move', $argv));
           return self::EXIT_USAGE;
         }
         $item = $source->transition($positional[0], $positional[1], 'moved by the operator');
@@ -1878,8 +1920,8 @@ final class ArgvDispatcher {
         return self::EXIT_USAGE;
       }
     }
-    if (in_array($sub, ['abandon', 'answer'], TRUE) && !$this->operatorTerminal()) {
-      $this->fail($this->noTerminalRefusal('intake ' . $sub));
+    if (in_array($sub, ['abandon', 'answer'], TRUE) && !$this->operatorTerminal() && !$this->approvedInSession($projectRoot, $argv)) {
+      $this->fail($this->noTerminalRefusal('intake ' . $sub, $argv));
       return self::EXIT_USAGE;
     }
     switch ($sub) {
@@ -2050,21 +2092,45 @@ final class ArgvDispatcher {
    *
    * @param string $command
    *   The verb.
+   * @param list<string> $argv
+   *   The verb and its arguments, to name the approval; empty for none.
    *
    * @return string
    *   The message.
    */
-  private function noTerminalRefusal(string $command): string {
-    return sprintf(
+  private function noTerminalRefusal(string $command, array $argv = []): string {
+    $message = sprintf(
       'droost workflow:%1$s is the operator\'s command and this shell has no '
       . 'terminal (an agent\'s tool shell, a pipe, a script). It records a '
-      . 'HUMAN\'s decision, so a human types it: run `droost workflow:%1$s …` '
-      . '(`ddev droost workflow:%1$s …` on DDEV) in a terminal window of your '
-      . 'own, outside the agent\'s session. Claude Code\'s `!` runs a command '
-      . 'in the agent\'s shell, with no terminal, so it is refused there too '
-      . '(F-256).',
+      . 'HUMAN\'s decision, and nobody approved this exact command in the session.',
       $command,
     );
+    return $argv === []
+      ? $message . sprintf(' A human runs `droost workflow:%s …` in a terminal of their own (F-256).', $command)
+      : $message . ' ' . OperatorApproval::howToAsk(OperatorApproval::command($argv));
+  }
+
+  /**
+   * Whether a human approved this exact command in the session, used now.
+   *
+   * The session's proof that a human took the operator's step, as a terminal
+   * is (owner, 2026-10-30): an AskUserQuestion answer the guard recorded,
+   * spent once (OperatorApproval).
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param list<string> $argv
+   *   The verb and its arguments.
+   *
+   * @return bool
+   *   TRUE when an approval stood and is now spent.
+   */
+  private function approvedInSession(string $projectRoot, array $argv): bool {
+    $spent = OperatorApproval::spend($projectRoot, OperatorApproval::command($argv), 'cli', time());
+    if ($spent) {
+      $this->approvedBy = 'dialog';
+    }
+    return $spent;
   }
 
   /**
@@ -2306,6 +2372,10 @@ final class ArgvDispatcher {
                        where droost.yml says `tests: { ask: true }`, the
                        operator's terminal may add --unit-tests=yes|no and
                        --save-spec=yes|no (each no unless given)
+      approval --consume -- <command>
+                       for a project's operator-only script: use a human's
+                       session approval of that exact command (exit 0), or
+                       report none stands (exit 1)
       swap agentic     stop holding at phases and finish without stopping
       seeker-report [<file>]
                        record an adversarial inspection (the ledger from the

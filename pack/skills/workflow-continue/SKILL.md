@@ -304,8 +304,8 @@ wrecks the very gates this pipeline runs.
 ## Inherited debt: the adoption baseline
 
 A legacy project carries findings that predate every run. When the operator
-has written a baseline (`droost/baseline/`, from their own terminal with
-`droost workflow:baseline`), the consulting gates — phpcs, phpstan,
+has written a baseline (`droost/baseline/`, with `droost
+workflow:baseline`: approved in the session or typed in their terminal), the consulting gates — phpcs, phpstan,
 eslint, stylelint, prettier, coverage, mutation — judge only
 what the baseline does NOT record. Read their lines as written: `passed — 0
 new, 123 inherited` is the baseline working, and the 123 are not this run's
@@ -318,15 +318,37 @@ Three rules:
   change there fails every consulting gate with "the baseline changed during
   the run", and the seeker names it a defeat. The guard refuses the edit
   anyway.
-- **You cannot write or refresh the baseline — propose it.** When gates fail
+- **The baseline is the human's to write — ask for it.** When gates fail
   on debt the change never touched and the project has no baseline, ground
   the proposal with `droost workflow:baseline --measure` (read-only: the
-  bill per gate) and hand the operator `droost workflow:baseline` with your
-  reason. Paid-off debt is theirs to drop with `--refresh`; growth
-  needs their `--grow --reason`.
+  bill per gate), then run `droost workflow:baseline` (or `--refresh`, with
+  `--grow --reason="…"` for growth) and follow its refusal: it names the
+  approval question (see "Operator steps" below). Paid-off debt drops with
+  `--refresh`; growth needs `--grow --reason`.
 - **Coverage and mutation ratchet.** Under the level's target but at or above
   the inherited floor passes, and the line names the target. Below the floor
   fails: the change lost coverage the project already had.
+
+## Operator steps: asked in the session, run once approved
+
+Some commands carry a human's decision, never yours: `bypass`,
+`gate-waive`, `effort <level>`, a baseline write, `lead autonomous`, `ticket
+move`, `intake answer`/`abandon`, and a project's `operator_only` scripts
+(a script that arms writes to the tracker, say). You run them only when the human
+approved that exact command (owner, 2026-10-30):
+
+1. Run the command. With no approval it is refused, and the refusal names
+   the question: `Approve running this operator command? <the command>`.
+2. Ask it with AskUserQuestion, the question word for word, the options
+   `Approve` / `Don't run it`, and a line on what it does and why. Fill in
+   only `questions`: a question sent with its answers is refused.
+3. When they approve, run the same command again. It runs once; the record
+   says a dialog approved it. Another reason, gate or flag is another
+   command and needs its own yes. An approval lapses after 30 minutes.
+
+A `Don't run it` is their decision: do not ask again without something new.
+They can still type the command in a terminal of their own; Claude Code's
+`!` is not one.
 
 ## The project's own gates, hooks and walls
 

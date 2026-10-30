@@ -632,6 +632,33 @@ if ($mode === 'answers') {
       $GLOBALS['workflow_guard_rule'] = 'hold-answer';
     }
   }
+  // AN OPERATOR COMMAND APPROVED IN THE SESSION (owner, 2026-10-30). The
+  // question names the exact command (guard_approval_question()); the
+  // dialog's RESULT says whether the human approved it. droost and the
+  // guard use it once, within its time (src/State/OperatorApproval.php).
+  $response = $payload['tool_response'] ?? NULL;
+  $asked = is_array($response) && is_array($response['answers'] ?? NULL) ? $response['answers'] : [];
+  foreach ($asked as $question => $answer) {
+    if (!is_string($question) || !str_starts_with(trim($question), guard_approval_question())) {
+      continue;
+    }
+    $answer = is_array($answer) ? implode(', ', array_filter($answer, 'is_string')) : (is_string($answer) ? $answer : '');
+    $line = json_encode([
+      'id' => bin2hex(random_bytes(8)),
+      'command' => guard_approval_normalise(substr(trim($question), strlen(guard_approval_question()))),
+      'approved' => trim($answer) === 'Approve',
+      'answer' => $answer,
+      'at' => time(),
+      'via' => 'AskUserQuestion',
+    ], JSON_UNESCAPED_SLASHES);
+    if ($line !== FALSE) {
+      @mkdir($root . '/' . $stateDir, 0777, TRUE);
+      @file_put_contents($root . '/' . $stateDir . '/operator-approvals.jsonl', $line . "\n", FILE_APPEND | LOCK_EX);
+      $GLOBALS['workflow_guard_quiet'] = FALSE;
+      $GLOBALS['workflow_guard_verdict'] = 'note';
+      $GLOBALS['workflow_guard_rule'] = 'operator-approval';
+    }
+  }
   $intake = json_decode((string) @file_get_contents($root . '/' . $stateDir . '/intake.json'), TRUE);
   if (is_array($intake) && ($intake['status'] ?? NULL) === 'open' && is_string($intake['id'] ?? NULL)) {
     $answers = guard_question_answers($payload);
@@ -1850,18 +1877,24 @@ function operator_commands_guard(string $stdin): void {
     // AND A TERMINAL OF THEIR OWN (F-256). The refusal used to say "in Claude
     // Code: `! …`", and Claude Code's `!` gives a command no terminal: the
     // operator who followed it was refused as the agent is.
+    // APPROVED IN THE SESSION (owner, 2026-10-30): a human said yes to this
+    // exact command in the dialog. droost's CLI spends the approval for the
+    // verbs it gates; a baseline write it does not gate, so the guard spends
+    // that one as it lets it through.
+    $approval = guard_approval_command($tokens);
+    if ($approval !== NULL && guard_approval_open($approval, $which === 'baseline')) {
+      continue;
+    }
     $words = array_map(static fn (string $w): string => preg_quote($w, '/'), explode(' ', $which));
     $cli = preg_match('/droost-workflow\s+' . $options . implode('\s+' . $options, $words) . '\b/', $line) === 1;
     $name = $cli ? 'droost-workflow ' . $which : 'droost workflow:' . $which;
     guard_refuse('operator-command:' . $which, sprintf(
-      '%1$s is the OPERATOR\'s command — an agent may propose it, never run it. '
-      . 'Show the operator the exact command with your reason and ask them to '
-      . 'run it in a terminal of THEIR own, outside this session: `%2$s …`. '
-      . 'Not with Claude Code\'s `!`, which runs a command with no terminal, '
-      . 'so it is refused there as it is here. Continue once they say it is '
-      . 'done. The record must carry a human\'s decision, not yours.',
+      '%1$s is the OPERATOR\'s command: it carries a human\'s decision, never yours, and nobody approved this exact '
+      . 'command in the session. %2$s',
       $name,
-      $name,
+      $approval === NULL
+        ? sprintf('Ask the operator to run `%s …` in a terminal of THEIR own; not with Claude Code\'s `!`, which has no terminal.', $name)
+        : guard_approval_how($approval, $name),
     ));
   }
 }
@@ -5429,6 +5462,15 @@ function enforcement_refusal_for(string $relative, string $root, string $stateDi
     // THE HUMAN'S ANSWER TO A HUMAN-LED RUN'S COMPLETE HOLD (owner,
     // 2026-10-20): what finishes the run, written by the guard from the
     // dialog's result. A line written by hand is an approval nobody gave.
+    // AN OPERATOR STEP APPROVED IN THE SESSION (owner, 2026-10-30): the
+    // human's yes to one exact command, written by the guard from the
+    // dialog's result. A line written by hand is a bypass, waiver or baseline
+    // nobody approved.
+    if ($inState[3] === 'operator-approvals.jsonl') {
+      return 'That file is the human\'s approval of operator commands, which the guard writes from AskUserQuestion\'s '
+        . 'result. A line written by hand is an approval the human never gave, whether the file exists yet or not. '
+        . 'Run the operator command: its refusal names the question to ask. Reading it is not refused.';
+    }
     if ($inState[3] === 'hold-answers.jsonl') {
       return 'That file is the human\'s answer to a human-led run\'s complete hold, '
         . 'which the guard writes from AskUserQuestion\'s result. A line written by '
@@ -8300,6 +8342,137 @@ function guard_run_wall(string $root, string $run, array $call): array {
 }
 
 /**
+ * The question that asks for an operator command's approval, before it.
+ *
+ * A function, not a constant: the guard's top-level code runs before a
+ * constant declared down here would be defined. Mirrors
+ * OperatorApproval::QUESTION (OperatorApprovalTest holds the two together).
+ */
+function guard_approval_question(): string {
+  return 'Approve running this operator command? ';
+}
+
+/**
+ * A command with its spacing normalised, as approvals compare it.
+ *
+ * @param string $command
+ *   The command.
+ *
+ * @return string
+ *   One space between words, none at the ends.
+ */
+function guard_approval_normalise(string $command): string {
+  return trim((string) preg_replace('/\s+/', ' ', $command));
+}
+
+/**
+ * A droost command as approvals name it, from one invocation's tokens.
+ *
+ * `droost workflow:<verb> <arguments>` whatever launched it (`ddev droost`,
+ * `tools/droost/vendor/bin/droost`, `droost-workflow <verb>`, the colon
+ * spelling), `--project=` left out. Mirrors OperatorApproval::command().
+ *
+ * @param list<string> $tokens
+ *   The invocation's tokens.
+ *
+ * @return string|null
+ *   The command, or NULL when no droost verb is in it.
+ */
+function guard_approval_command(array $tokens): ?string {
+  $plain = array_values(array_map(static fn (string $t): string => trim(ltrim($t, "\x01"), '\'"'), $tokens));
+  foreach ($plain as $i => $token) {
+    $base = basename($token);
+    $verb = NULL;
+    $from = $i + 1;
+    if ($base === 'droost' && str_starts_with($plain[$i + 1] ?? '', 'workflow:')) {
+      $verb = $plain[$i + 1];
+      $from = $i + 2;
+    }
+    elseif (preg_match('/^droost:(workflow:.+)$/', $token, $m) === 1) {
+      $verb = $m[1];
+    }
+    elseif ($base === 'droost-workflow' && isset($plain[$i + 1])) {
+      $verb = 'workflow:' . $plain[$i + 1];
+      $from = $i + 2;
+    }
+    if ($verb !== NULL) {
+      $rest = array_filter(array_slice($plain, $from), static fn (string $w): bool => $w !== '' && !str_starts_with($w, '--project='));
+      return guard_approval_normalise('droost ' . $verb . ' ' . implode(' ', $rest));
+    }
+  }
+  return NULL;
+}
+
+/**
+ * Whether a human's approval of a command stands, and spends it if asked.
+ *
+ * Mirrors OperatorApproval::open(): the newest approval of exactly this
+ * command, answered Approve, within 30 minutes, not yet spent.
+ *
+ * @param string $command
+ *   The command, as guard_approval_command() names it.
+ * @param bool $spend
+ *   Whether the guard uses it now (a verb droost's CLI does not gate).
+ *
+ * @return bool
+ *   TRUE when it stands.
+ */
+function guard_approval_open(string $command, bool $spend): bool {
+  $file = ($GLOBALS['root'] ?? '') . '/' . ($GLOBALS['stateDir'] ?? 'droost/droost-workflow') . '/operator-approvals.jsonl';
+  $command = guard_approval_normalise($command);
+  $now = time();
+  $approved = [];
+  $spent = [];
+  foreach (@file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+    $row = json_decode($line, TRUE);
+    if (!is_array($row)) {
+      continue;
+    }
+    if (is_string($row['spent'] ?? NULL)) {
+      $spent[$row['spent']] = TRUE;
+    }
+    elseif (($row['approved'] ?? FALSE) === TRUE && is_string($row['id'] ?? NULL) && is_string($row['command'] ?? NULL)
+      && is_int($row['at'] ?? NULL) && $row['at'] >= $now - 1800 && guard_approval_normalise($row['command']) === $command) {
+      $approved[] = $row['id'];
+    }
+  }
+  foreach (array_reverse($approved) as $id) {
+    if (!isset($spent[$id])) {
+      if ($spend) {
+        @file_put_contents($file, json_encode(['spent' => $id, 'by' => 'guard', 'at' => $now], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
+      }
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * How to ask for an operator command's approval, for a refusal.
+ *
+ * Mirrors OperatorApproval::howToAsk().
+ *
+ * @param string $command
+ *   The command.
+ * @param string|null $name
+ *   The verb as the shell spelled it, for the terminal hand-over.
+ *
+ * @return string
+ *   The sentences.
+ */
+function guard_approval_how(string $command, ?string $name = NULL): string {
+  return sprintf(
+    'Ask the human in this session: AskUserQuestion with the question, word for word, "%s%s" and the options "Approve" / "Don\'t run it", '
+    . 'with a line on what it does and why; then run the command again. droost takes THEIR answer, as the guard recorded '
+    . 'it from the dialog, once, within 30 minutes. Or they run `%s …` in a terminal of THEIR own; not with Claude '
+    . 'Code\'s `!`, which has no terminal.',
+    guard_approval_question(),
+    guard_approval_normalise($command),
+    $name ?? $command,
+  );
+}
+
+/**
  * Refuses a project's operator-only script from the agent's shell.
  *
  * `operator_only` in droost/droost.yml names scripts that are the
@@ -8344,9 +8517,17 @@ function guard_operator_only(string $command, string $root): void {
       }
       $relative = (string) preg_replace('#^(\./)+#', '', $relative);
       if (in_array($relative, $scripts, TRUE)) {
+        // Approved in the session (owner, 2026-10-30): the script itself
+        // spends the approval (`droost workflow:approval --consume -- …`).
+        $at = array_search($word, $plain, TRUE);
+        $approval = guard_approval_normalise($relative . ' ' . implode(' ', array_slice($plain, $at === FALSE ? count($plain) : $at + 1)));
+        if (guard_approval_open($approval, FALSE)) {
+          continue 2;
+        }
         guard_refuse('operator-only', sprintf(
-          '`%s` is one of this project\'s operator-only scripts (operator_only in droost/droost.yml): it is the OPERATOR\'s signature, never the agent\'s, run or no run. Show the operator the exact command and why, and let them run it in their own terminal.',
+          '`%s` is one of this project\'s operator-only scripts (operator_only in droost/droost.yml): it is the OPERATOR\'s signature, never the agent\'s, run or no run, and nobody approved this exact command in the session. %s',
           $relative,
+          guard_approval_how($approval),
         ));
       }
     }
