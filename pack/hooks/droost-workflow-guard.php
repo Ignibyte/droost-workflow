@@ -758,7 +758,7 @@ if ($mode === 'operator-commands') {
   // The project's own walls and operator-only scripts first: they are the
   // project's signature, run or no run.
   guard_walls($root, $guardEvent, $harness);
-  guard_operator_only($guardEvent['command'], $root);
+  guard_operator_only($guardEvent['command'], $root, $stateDir);
   // A shell is a file editor. `baseline_dir_guard()` refuses the store and the
   // baseline for Edit|Write|MultiEdit|NotebookEdit, and Bash is wired to THIS
   // branch — which only ever looked at drush command names and returned. So the
@@ -770,7 +770,7 @@ if ($mode === 'operator-commands') {
   // Run state is irrelevant to the two tiers above: bypass is granted
   // precisely when there is no run, and a waiver during one. The rule is about
   // WHO, not WHEN.
-  operator_commands_guard($stdin);
+  operator_commands_guard($stdin, $root, $stateDir);
   // THE PHASE WALLS APPLY TO A SHELL TOO, and they did not. `.claude/
   // settings.json` routes Bash here, this branch exited without ever reading
   // the run, and so during PLAN — the phase whose whole job is "write the
@@ -1686,8 +1686,12 @@ function guard_question_answers(array $payload): array {
  *
  * @param string $stdin
  *   The hook payload, read once by the caller.
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The state directory, relative to the root.
  */
-function operator_commands_guard(string $stdin): void {
+function operator_commands_guard(string $stdin, string $root, string $stateDir): void {
   $payload = json_decode($stdin, TRUE);
   $input = is_array($payload) && is_array($payload['tool_input'] ?? NULL) ? $payload['tool_input'] : [];
   $command = is_string($input['command'] ?? NULL) ? $input['command'] : '';
@@ -1882,7 +1886,7 @@ function operator_commands_guard(string $stdin): void {
     // verbs it gates; a baseline write it does not gate, so the guard spends
     // that one as it lets it through.
     $approval = guard_approval_command($tokens);
-    if ($approval !== NULL && guard_approval_open($approval, $which === 'baseline')) {
+    if ($approval !== NULL && guard_approval_open($root, $stateDir, $approval, $which === 'baseline')) {
       continue;
     }
     $words = array_map(static fn (string $w): string => preg_quote($w, '/'), explode(' ', $which));
@@ -8409,6 +8413,11 @@ function guard_approval_command(array $tokens): ?string {
  * Mirrors OperatorApproval::open(): the newest approval of exactly this
  * command, answered Approve, within 30 minutes, not yet spent.
  *
+ * @param string $root
+ *   The project root (CLAUDE_PROJECT_DIR or the working directory, never
+ *   the payload).
+ * @param string $stateDir
+ *   The state directory, relative to the root.
  * @param string $command
  *   The command, as guard_approval_command() names it.
  * @param bool $spend
@@ -8417,8 +8426,8 @@ function guard_approval_command(array $tokens): ?string {
  * @return bool
  *   TRUE when it stands.
  */
-function guard_approval_open(string $command, bool $spend): bool {
-  $file = ($GLOBALS['root'] ?? '') . '/' . ($GLOBALS['stateDir'] ?? 'droost/droost-workflow') . '/operator-approvals.jsonl';
+function guard_approval_open(string $root, string $stateDir, string $command, bool $spend): bool {
+  $file = rtrim($root, '/') . '/' . trim($stateDir, '/') . '/operator-approvals.jsonl';
   $command = guard_approval_normalise($command);
   $now = time();
   $approved = [];
@@ -8484,8 +8493,10 @@ function guard_approval_how(string $command, ?string $name = NULL): string {
  *   The command as the agent typed it.
  * @param string $root
  *   The project root.
+ * @param string $stateDir
+ *   The state directory, relative to the root.
  */
-function guard_operator_only(string $command, string $root): void {
+function guard_operator_only(string $command, string $root, string $stateDir): void {
   $scripts = guard_project_rules($root)['operator_only'];
   if ($scripts === [] || trim($command) === '') {
     return;
@@ -8521,7 +8532,7 @@ function guard_operator_only(string $command, string $root): void {
         // spends the approval (`droost workflow:approval --consume -- …`).
         $at = array_search($word, $plain, TRUE);
         $approval = guard_approval_normalise($relative . ' ' . implode(' ', array_slice($plain, $at === FALSE ? count($plain) : $at + 1)));
-        if (guard_approval_open($approval, FALSE)) {
+        if (guard_approval_open($root, $stateDir, $approval, FALSE)) {
           continue 2;
         }
         guard_refuse('operator-only', sprintf(
