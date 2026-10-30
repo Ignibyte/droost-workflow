@@ -237,6 +237,21 @@ final class StateError extends \RuntimeException {
   }
 
   /**
+   * The droost running is not the one the project's lock pins.
+   *
+   * @param string $path
+   *   The state directory, as shown to the operator.
+   * @param string $why
+   *   InstallFreshness's sentence: both versions and the install command.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function staleInstall(string $path, string $why): self {
+    return new self($path, 'no run begins on this install: ' . $why);
+  }
+
+  /**
    * A field had the wrong type.
    *
    * @param string $path

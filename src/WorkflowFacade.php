@@ -60,6 +60,7 @@ use Droost\Workflow\Pack\InitReport;
 use Droost\Workflow\Pack\PackMaterializer;
 use Droost\Workflow\Pack\PackRemover;
 use Droost\Workflow\Pack\RemoveReport;
+use Droost\Workflow\State\InstallFreshness;
 use Droost\Workflow\State\PhaseStatus;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
@@ -801,6 +802,13 @@ final class WorkflowFacade {
       $intake = (new IntakeService($projectRoot))->open();
       if ($intake !== NULL) {
         throw IntakeError::buildBeforeApproval($intake->id);
+      }
+      // Nor on a droost older than the one the project's lock pins: a merged
+      // upgrade is not this machine's until it is installed (owner,
+      // 2026-10-30). Only at begin, so a run already open is never stranded.
+      $stale = InstallFreshness::staleness($projectRoot);
+      if ($stale !== NULL) {
+        throw StateError::staleInstall($store->directory(), $stale);
       }
       $config = WorkflowConfig::load($projectRoot);
       // Frozen with the levers: where the tree is, and which baseline the
