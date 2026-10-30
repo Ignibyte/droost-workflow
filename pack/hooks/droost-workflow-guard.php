@@ -584,19 +584,27 @@ if ($mode === 'answers') {
   // answer to the agent's question is what finishes it, so it is recorded
   // here, from the tool's RESULT only (what the dialog returned, never the
   // input the agent wrote), in a file the agent cannot write. `workflow:answer`
-  // reads it back.
+  // reads it back. And PLAN'S, when it carries the test questions (owner,
+  // 2026-10-30): whether a ticket gets unit tests or a saved spec is theirs.
   $record = json_decode((string) @file_get_contents($root . '/' . $stateDir . '/run.json'), TRUE);
   $awaiting = is_array($record) && is_array($record['awaiting'] ?? NULL) ? $record['awaiting'] : NULL;
-  if ($awaiting !== NULL && ($awaiting['phase'] ?? NULL) === 'complete' && ($record['lead'] ?? NULL) === 'human-led' && is_string($record['run_id'] ?? NULL)) {
+  $holdPhase = $awaiting['phase'] ?? NULL;
+  $also = is_array($awaiting['also'] ?? NULL) ? $awaiting['also'] : [];
+  if ($awaiting !== NULL && ($holdPhase === 'complete' || ($holdPhase === 'plan' && $also !== [])) && ($record['lead'] ?? NULL) === 'human-led' && is_string($record['run_id'] ?? NULL)) {
     $response = $payload['tool_response'] ?? NULL;
     $map = is_array($response) && is_array($response['answers'] ?? NULL) ? $response['answers'] : [];
-    // THE HOLD'S OWN QUESTION, word for word: a "yes" to some other question
+    // THE HOLD'S OWN QUESTIONS, word for word: a "yes" to some other question
     // asked while the run waits ("shall I run lint?") is not an approval to
     // finish it.
-    $holdQuestion = is_string($awaiting['question'] ?? NULL) ? trim($awaiting['question']) : '';
+    $holdQuestions = [];
+    foreach ([$awaiting, ...$also] as $asked) {
+      if (is_array($asked) && is_string($asked['question'] ?? NULL) && trim($asked['question']) !== '') {
+        $holdQuestions[] = trim($asked['question']);
+      }
+    }
     $given = [];
     foreach ($map as $question => $answer) {
-      if (is_string($question) && $holdQuestion !== '' && trim($question) === $holdQuestion && (is_string($answer) || is_array($answer))) {
+      if (is_string($question) && in_array(trim($question), $holdQuestions, TRUE) && (is_string($answer) || is_array($answer))) {
         $given[$question] = is_array($answer) ? implode(', ', array_filter($answer, 'is_string')) : $answer;
       }
     }
@@ -607,7 +615,7 @@ if ($mode === 'answers') {
     if ($given !== [] || $asked !== []) {
       $line = json_encode([
         'run' => $record['run_id'],
-        'phase' => 'complete',
+        'phase' => $holdPhase,
         'asked_at' => is_string($awaiting['asked_at'] ?? NULL) ? $awaiting['asked_at'] : '',
         'answers' => $given,
         'asked' => $asked,

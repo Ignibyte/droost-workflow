@@ -94,7 +94,14 @@ workflow:say`), then work through them, one at a time or a few together:
      snapshot; for clicks, forms and JavaScript.
    - `test`: write the criterion's test now, and run that file alone
      (`node_modules/.bin/playwright test tests/e2e/x.spec.ts`, `phpunit
-     --filter …`).
+     --filter …`). Where plan asked about tests (`status` shows the run's
+     `tests`), write a unit test only if the human chose unit tests, and a
+     spec only if they chose to save one: anything else holds the phase
+     (`unit_tests_chosen`, `spec_chosen`). Deleting one is fine.
+
+   Where plan asked about tests, code also holds until you have checked the
+   work in the browser (`browser_checked`: a browser tool call in this
+   phase, from the guard's diary), whatever the human chose about saving it.
    - `command`: run it and compare what it prints.
 3. **Record what showed it**, the moment it does:
    ```bash

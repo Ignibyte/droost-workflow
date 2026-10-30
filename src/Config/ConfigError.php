@@ -498,6 +498,39 @@ final class ConfigError extends \RuntimeException {
   }
 
   /**
+   * A `tests` block naming anything but `ask`.
+   *
+   * @param string $source
+   *   The document label.
+   * @param list<string> $keys
+   *   The offending keys.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function unknownTestsOption(string $source, array $keys): self {
+    return new self($source, sprintf('unknown tests option(s) %s (known: ask)', implode(', ', $keys)));
+  }
+
+  /**
+   * Asking about tests at a level whose mandatory trio a file cannot disarm.
+   *
+   * @param string $source
+   *   The document label.
+   * @param string $preset
+   *   The resolved level.
+   *
+   * @return self
+   *   The error.
+   */
+  public static function testsAskNeedsCustom(string $source, string $preset): self {
+    return new self($source, sprintf(
+      'tests.ask needs `preset: custom`: a "no unit tests" answer turns phpunit off, and at `%s` phpunit is mandatory',
+      $preset,
+    ));
+  }
+
+  /**
    * A follow_ups value that is none of the four.
    *
    * @param string $source

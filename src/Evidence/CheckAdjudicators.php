@@ -27,7 +27,12 @@ final class CheckAdjudicators implements CheckAdjudicatorInterface {
   /**
    * The names the library's own checks answer, each recorded once.
    */
-  public const LIBRARY_CHECKS = [PlanGroundedCheck::NAME];
+  public const LIBRARY_CHECKS = [
+    PlanGroundedCheck::NAME,
+    TestsChoiceCheck::UNIT,
+    TestsChoiceCheck::SPEC,
+    TestsChoiceCheck::BROWSER,
+  ];
 
   /**
    * The adjudicators, in the order they are asked.
@@ -56,7 +61,7 @@ final class CheckAdjudicators implements CheckAdjudicatorInterface {
    *   The adjudicator.
    */
   public static function withLibraryChecks(): self {
-    return new self(new PlanGroundedCheck());
+    return new self(new PlanGroundedCheck(), new TestsChoiceCheck());
   }
 
   /**

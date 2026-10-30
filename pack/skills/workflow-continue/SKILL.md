@@ -206,7 +206,8 @@ answer, and `options` — the answers worth offering. Present it properly:
 **A human-led run is finished by a human.** `status` shows the run's `lead`.
 In a `human-led` run you may answer the plan, code and test holds when the
 operator has told you to, and the complete hold is theirs: it holds even in
-agentic mode. Ask them with AskUserQuestion, using the hold's `question`
+agentic mode. So is plan's when it carries `also` (`tests: { ask: true }`):
+ask its question and the two test questions in one dialog. Ask them with AskUserQuestion, using the hold's `question`
 word for word (an answer to any other question is not taken) and its
 `options` as the choices; fill in only `questions`, since a question sent
 with its answers already in it is refused. When they have answered, run `answer` again: droost takes

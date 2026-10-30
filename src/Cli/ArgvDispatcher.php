@@ -751,17 +751,33 @@ final class ArgvDispatcher {
     // `answer "stop here" --project=/path` recorded
     // `stop here --project=/private/tmp/…` as what the human said. The record
     // of a human's decision is the one string in a run that has to be theirs.
-    $words = array_values(array_filter(
-      array_slice($argv, 1),
-      static fn (string $word): bool => !str_starts_with($word, '--project='),
-    ));
+    //
+    // Plan's test choices (`tests.ask`) ride as flags, so they never join the
+    // answer either: `--unit-tests=yes|no`, `--save-spec=yes|no`.
+    $tests = NULL;
+    $words = [];
+    foreach (array_slice($argv, 1) as $word) {
+      if (str_starts_with($word, '--project=')) {
+        continue;
+      }
+      if (preg_match('/^--(unit-tests|save-spec)=(yes|no)$/', $word, $m) === 1) {
+        $tests ??= ['unit' => FALSE, 'spec' => FALSE];
+        $tests[$m[1] === 'unit-tests' ? 'unit' : 'spec'] = $m[2] === 'yes';
+        continue;
+      }
+      if (str_starts_with($word, '--unit-tests') || str_starts_with($word, '--save-spec')) {
+        $this->fail(sprintf('%s takes yes or no: --unit-tests=yes|no, --save-spec=yes|no', $word));
+        return self::EXIT_USAGE;
+      }
+      $words[] = $word;
+    }
     $text = trim(implode(' ', $words));
     if ($text === '') {
       $this->fail('answer needs the answer: droost workflow:answer "yes"');
       return self::EXIT_USAGE;
     }
     $facade = $this->facade($projectRoot);
-    $outcome = $facade->answer($projectRoot, $text, $this->operatorTerminal() ? 'terminal' : 'agent');
+    $outcome = $facade->answer($projectRoot, $text, $this->operatorTerminal() ? 'terminal' : 'agent', $tests);
     // An answer that moves the run fires the next phase's hooks: say what they
     // said, as `run` does.
     foreach ($facade->takeHookNotes() as $note) {
@@ -822,6 +838,15 @@ final class ArgvDispatcher {
     $this->say($phase === NULL
       ? 'answered — the run completed'
       : 'answered — now at ' . $phase->value);
+    $tests = $outcome->state->tests;
+    if (isset($tests['unit'], $tests['spec']) && $phase === Phase::Code && ($tests['at'] ?? '') !== '') {
+      $this->say(sprintf(
+        'tests (%s): %s; %s. The work is checked in the browser at code either way.',
+        is_string($tests['by'] ?? NULL) ? $tests['by'] : 'default',
+        $tests['unit'] ? 'unit tests written and run' : 'no unit tests',
+        $tests['spec'] ? 'the browser check saved as a Playwright spec' : 'no saved Playwright spec',
+      ));
+    }
     return self::EXIT_OK;
   }
 
@@ -2277,7 +2302,10 @@ final class ArgvDispatcher {
                        It prints one line, not a JSON envelope: exit 0 when
                        the run moved, non-zero when a check still holds it
                        (the reasons on stderr) or your answer stopped it;
-                       `status` and `report` say where it stands
+                       `status` and `report` say where it stands. At plan,
+                       where droost.yml says `tests: { ask: true }`, the
+                       operator's terminal may add --unit-tests=yes|no and
+                       --save-spec=yes|no (each no unless given)
       swap agentic     stop holding at phases and finish without stopping
       seeker-report [<file>]
                        record an adversarial inspection (the ledger from the

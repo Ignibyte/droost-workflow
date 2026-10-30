@@ -57,6 +57,9 @@ final class PendingQuestion {
    *   and I will look at it", and that was inert. `answer()` recorded the text
    *   and the run advanced; "stop here" and "banana" produced the same result,
    *   which makes the question theatre and the wall it sits behind pointless.
+   * @param list<array{question: string, options: list<string>}> $also
+   *   Questions asked in the same dialog, word for word: plan's test
+   *   questions when the levers ask them (`tests.ask`).
    */
   public function __construct(
     public readonly Phase $phase,
@@ -67,6 +70,7 @@ final class PendingQuestion {
     public readonly array $detail = [],
     public readonly array $options = [],
     public readonly string $kind = self::KIND_CONVERSATION,
+    public readonly array $also = [],
   ) {}
 
   /**
@@ -82,7 +86,7 @@ final class PendingQuestion {
   /**
    * This question as the data stored in run state.
    *
-   * @return array<string, string|list<string>>
+   * @return array<string, string|list<string>|list<array{question: string, options: list<string>}>>
    *   The serialized question.
    */
   public function toArray(): array {
@@ -95,7 +99,7 @@ final class PendingQuestion {
       'detail' => $this->detail,
       'options' => $this->options,
       'kind' => $this->kind,
-    ];
+    ] + ($this->also === [] ? [] : ['also' => $this->also]);
   }
 
   /**
@@ -155,7 +159,30 @@ final class PendingQuestion {
       $node->optionalStringList('detail', []),
       $node->optionalStringList('options', []),
       $node->optionalString('kind', self::KIND_CONVERSATION) ?: self::KIND_CONVERSATION,
+      self::readAlso($raw['also'] ?? NULL),
     );
+  }
+
+  /**
+   * The questions asked beside this one, as stored.
+   *
+   * @param mixed $raw
+   *   The stored `also`.
+   *
+   * @return list<array{question: string, options: list<string>}>
+   *   Each well-formed question; anything else is dropped.
+   */
+  private static function readAlso(mixed $raw): array {
+    $out = [];
+    foreach (is_array($raw) ? $raw : [] as $item) {
+      if (is_array($item) && is_string($item['question'] ?? NULL)) {
+        $out[] = [
+          'question' => $item['question'],
+          'options' => array_values(array_filter((array) ($item['options'] ?? []), 'is_string')),
+        ];
+      }
+    }
+    return $out;
   }
 
 }

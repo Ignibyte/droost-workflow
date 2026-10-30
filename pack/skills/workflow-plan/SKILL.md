@@ -359,6 +359,18 @@ In interactive mode the run pauses here and asks before continuing — even thou
 gates ran. That is the cheapest moment in the whole pipeline to be told you
 understood the request wrong.
 
+**Where `droost.yml` says `tests: { ask: true }`, plan's hold also asks about
+tests.** Its `awaiting` block carries `also`: two more questions, "Should this
+ticket get unit tests (PHPUnit)?" and "Should the Playwright check of this
+work be saved as a test?". In a human-led run all three are the human's: ask
+them in ONE AskUserQuestion, each `question` word for word and its `options`
+as the choices, then run `answer`. droost takes their three answers from the
+dialog; your own words, or a dialog missing a question, are refused. Until
+they say yes, the ticket gets no unit tests and no saved spec, and a test or
+spec the run writes anyway holds the phase. Either way the work is checked in
+the browser at code (`browser_checked`). An autonomous run is asked nothing
+and writes neither.
+
 ## Without a site
 
 droost reads the project's files and its code index, so it answers with the

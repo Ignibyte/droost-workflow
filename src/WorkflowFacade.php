@@ -63,6 +63,7 @@ use Droost\Workflow\Pack\RemoveReport;
 use Droost\Workflow\State\PhaseStatus;
 use Droost\Workflow\State\RunState;
 use Droost\Workflow\State\RunStateStore;
+use Droost\Workflow\State\TestsChoice;
 use Droost\Workflow\WorkItem\CockpitEventRelay;
 use Droost\Workflow\WorkItem\FollowUps;
 use Droost\Workflow\WorkItem\WorkItem;
@@ -334,6 +335,9 @@ final class WorkflowFacade {
       // An archived run's spec went into history/ beside it, when it moved.
       'criteria' => CriteriaVerification::resolve($projectRoot, $state->runId, $archived ? self::archivedSpec($store, $state) : $state->specPath),
       'gate_waivers' => $state->gateWaivers,
+      // Plan's test questions and the human's answer (`tests.ask`): why
+      // phpunit or playwright reads off is the human's choice, said here.
+      'tests' => $state->tests,
       'browser' => $state->browser,
       'tasks' => $state->tasks,
       // Where the run started and which baseline it is held to — frozen at
@@ -1008,6 +1012,19 @@ final class WorkflowFacade {
     // hook name the reason rather than repeat that a phase is open.
     $outcome = $this->auditDeclarations($outcome, $phase, $projectRoot);
     $advanced = $this->advanceIfDue($outcome, $phase, $projectRoot);
+    // Plan passed with no hold to ask the test questions at (an autonomous
+    // run): the rule's default, neither unit tests nor a saved spec.
+    if ($phase === Phase::Plan
+      && $advanced->state->asksTests()
+      && ($advanced->state->phases[Phase::Plan->value] ?? NULL) === PhaseStatus::Passed) {
+      $advanced = new RunOutcome(
+        $advanced->outcome,
+        $advanced->state->withTests(FALSE, FALSE, 'default', $this->now()),
+        $advanced->report,
+        $advanced->question,
+        $advanced->blocked,
+      );
+    }
     // The moment the contract stops being drafted and starts being binding.
     // Frozen on the way OUT of plan, not on the way in, because plan is where
     // the spec is written — and only when plan actually passed, so a refused
@@ -1052,7 +1069,7 @@ final class WorkflowFacade {
   }
 
   /**
-   * The human's answer to the complete hold, as the guard recorded it.
+   * The human's answers to the pending hold, as the guard recorded them.
    *
    * A row in `hold-answers.jsonl` (the state directory, which the agent
    * cannot write) for this run's pending hold, written from an
@@ -1065,29 +1082,27 @@ final class WorkflowFacade {
    * @param \Droost\Workflow\State\RunStateStore $store
    *   The run's store.
    * @param \Droost\Workflow\State\RunState $state
-   *   The run, waiting at complete.
+   *   The run, waiting at a hold a human answers.
    *
-   * @return string|null
-   *   Their answer, or NULL when there is none to take.
+   * @return array<string, string>
+   *   Their answers by question, from the latest row that carries any; empty
+   *   when there is none to take.
    */
-  private function humanHoldAnswer(string $projectRoot, RunStateStore $store, RunState $state): ?string {
+  private function humanHoldAnswers(string $projectRoot, RunStateStore $store, RunState $state): array {
     if (!self::guardWired($projectRoot, 'question') || !self::guardWired($projectRoot, 'answers')) {
-      return NULL;
+      return [];
     }
     $askedAt = is_string($state->awaiting['asked_at'] ?? NULL) ? $state->awaiting['asked_at'] : '';
-    $found = NULL;
+    $found = [];
     foreach (@file($store->directory() . '/hold-answers.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
       $row = json_decode($line, TRUE);
       if (!is_array($row) || ($row['run'] ?? NULL) !== $state->runId || ($row['asked_at'] ?? NULL) !== $askedAt || !is_array($row['answers'] ?? NULL)) {
         continue;
       }
       $answers = array_filter($row['answers'], 'is_string');
-      if ($answers === []) {
-        continue;
+      if ($answers !== []) {
+        $found = array_combine(array_map(static fn (int|string $q): string => trim((string) $q), array_keys($answers)), array_values($answers));
       }
-      $found = count($answers) === 1
-        ? (string) reset($answers)
-        : implode('; ', array_map(static fn (string $q, string $a): string => $q . ' → ' . $a, array_keys($answers), $answers));
     }
 
     return $found;
@@ -1120,10 +1135,16 @@ final class WorkflowFacade {
         $last = array_values(array_filter($row['asked'], 'is_string'));
       }
     }
-    $message = 'This run is human-led: its complete hold is answered by a human. Ask them with AskUserQuestion, '
+    $phase = is_string($state->awaiting['phase'] ?? NULL) ? $state->awaiting['phase'] : 'complete';
+    $message = 'This run is human-led: its ' . $phase . ' hold is answered by a human. Ask them with AskUserQuestion, '
       . 'the hold\'s question word for word as the question: "' . $question . '"'
-      . ($options === [] ? '' : ', and its options as the choices: ' . self::quoted($options))
-      . '. Then run `answer` again: droost takes THEIR answer, as the guard recorded it from the dialog.';
+      . ($options === [] ? '' : ', and its options as the choices: ' . self::quoted($options));
+    foreach (PendingQuestion::fromArray($state->awaiting ?? [])->also ?? [] as $also) {
+      $message .= '; in the same dialog, "' . $also['question'] . '"'
+        . ($also['options'] === [] ? '' : ' with the choices ' . self::quoted($also['options']));
+    }
+    $message .= '. Then run `answer` again: droost takes THEIR answer' . ($phase === 'plan' ? 's' : '') . ', as the guard recorded '
+      . ($phase === 'plan' ? 'them' : 'it') . ' from the dialog.';
     if ($last !== []) {
       $message .= ' The last dialog asked ' . self::quoted($last) . ', which is not the hold\'s question, so its answer was not taken.';
     }
@@ -1182,6 +1203,9 @@ final class WorkflowFacade {
    * @param string|null $via
    *   `terminal` or `agent`: where the answer came from (F-335). NULL when
    *   the caller cannot say.
+   * @param array{unit?: bool, spec?: bool}|null $tests
+   *   Plan's test choices as the operator typed them (`--unit-tests`,
+   *   `--save-spec`), or NULL. Only a terminal may give them.
    *
    * @return \Droost\Workflow\Mode\RunOutcome
    *   What answering did — `Advanced`, `Completed`, `Failed` when the answer
@@ -1191,23 +1215,61 @@ final class WorkflowFacade {
    * @throws \Droost\Workflow\State\StateError
    *   When there is no run to answer.
    */
-  public function answer(string $projectRoot, string $answer, ?string $via = NULL): RunOutcome {
+  public function answer(string $projectRoot, string $answer, ?string $via = NULL, ?array $tests = NULL): RunOutcome {
     $store = new RunStateStore($projectRoot);
     $state = $this->requireRun($store);
+    // PLAN'S TEST QUESTIONS (`tests.ask`, owner 2026-10-30): the operator's
+    // terminal may say them as flags; nobody else may, so an agent's are
+    // refused rather than quietly dropped.
+    if ($tests !== NULL && $via !== 'terminal') {
+      throw new \InvalidArgumentException('--unit-tests and --save-spec are the human\'s to give, from a terminal of their own. In the session, ask the hold\'s questions with AskUserQuestion and run `answer` again: droost takes their choices from the dialog.');
+    }
+    $choice = NULL;
     // A HUMAN-LED RUN IS FINISHED BY A HUMAN (owner, 2026-10-20). The agent
     // may answer plan's, code's and test's holds; complete's is the human's:
     // their answer to the agent's question in the session (AskUserQuestion,
     // recorded by the guard from the dialog's result), or typed from the
     // operator's terminal. The agent's own words are never the answer.
     if ($via === 'agent' && $state->awaitsHuman()) {
-      $human = $this->humanHoldAnswer($projectRoot, $store, $state);
-      if ($human === NULL) {
-        throw new \InvalidArgumentException($this->holdRefusal($store, $state));
+      $given = $this->humanHoldAnswers($projectRoot, $store, $state);
+      if (($state->awaiting['phase'] ?? NULL) === 'plan') {
+        // Plan's hold and its test questions, all three from the one dialog:
+        // a spec approved with the test questions unasked is not the human
+        // choosing no tests.
+        $hold = $given[is_string($state->awaiting['question'] ?? NULL) ? trim($state->awaiting['question']) : ''] ?? NULL;
+        $unit = $given[TestsChoice::UNIT_QUESTION] ?? NULL;
+        $spec = $given[TestsChoice::SPEC_QUESTION] ?? NULL;
+        if ($hold === NULL || $unit === NULL || $spec === NULL) {
+          throw new \InvalidArgumentException($this->holdRefusal($store, $state));
+        }
+        $answer = $hold;
+        $choice = ['unit' => TestsChoice::saysYes($unit), 'spec' => TestsChoice::saysYes($spec), 'by' => 'dialog'];
       }
-      $answer = $human;
+      else {
+        if ($given === []) {
+          throw new \InvalidArgumentException($this->holdRefusal($store, $state));
+        }
+        $answer = count($given) === 1
+          ? (string) reset($given)
+          : implode('; ', array_map(static fn (string $q, string $a): string => $q . ' → ' . $a, array_keys($given), $given));
+      }
       $via = 'question';
     }
+    elseif ($tests !== NULL) {
+      $choice = [
+        'unit' => ($tests['unit'] ?? FALSE) === TRUE,
+        'spec' => ($tests['spec'] ?? FALSE) === TRUE,
+        'by' => 'terminal',
+      ];
+    }
     $answered = $this->engine($projectRoot)->answer($state, $answer, $this->now(), $projectRoot, $via);
+    // Plan answered: the test choice is settled now, before any gate runs. No
+    // human said yes (an autonomous run, or a terminal answer without the
+    // flags), so it is the rule's default: neither.
+    if (($state->awaiting['phase'] ?? NULL) === 'plan' && $answered->asksTests()) {
+      $choice ??= ['unit' => FALSE, 'spec' => FALSE, 'by' => 'default'];
+      $answered = $answered->withTests($choice['unit'], $choice['spec'], $choice['by'], $this->now());
+    }
     $answeredEvent = [
       'question_id' => self::questionId($state, $state->awaiting ?? []),
       'answer' => $answer,

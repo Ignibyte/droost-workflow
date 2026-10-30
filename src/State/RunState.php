@@ -199,6 +199,9 @@ final class RunState {
    *   What the tree held changed when the run began, path to sha256.
    * @param string $lead
    *   Who may finish the run (LEADS).
+   * @param array<string, mixed> $tests
+   *   Plan's test questions and their answer (`tests.ask`); empty when the
+   *   levers do not ask.
    */
   public function __construct(
     public readonly string $runId,
@@ -288,6 +291,16 @@ final class RunState {
      * Absent before then, which is how those runs behaved: autonomous.
      */
     public readonly string $lead = self::LEAD_AUTONOMOUS,
+    /**
+     * Plan's test questions (`tests.ask`) and the human's answer.
+     *
+     * Empty when the levers do not ask. Otherwise `ask` TRUE, and once plan's
+     * hold is answered: `unit` and `spec` (bool), `by` (who answered: the
+     * dialog, the operator's terminal, or `default` when no human could be
+     * asked) and `at`. Recorded so the report can say a gate is off because
+     * the human chose so (owner, 2026-10-30).
+     */
+    public readonly array $tests = [],
   ) {}
 
   /**
@@ -367,6 +380,7 @@ final class RunState {
       seekerHolds: $config->seekerHolds,
       seekerAtComplete: $config->seekerAtComplete,
       lead: $lead ?? $config->lead(),
+      tests: $config->askTests ? ['ask' => TRUE] : [],
     );
   }
 
@@ -836,6 +850,7 @@ final class RunState {
       seekerAtComplete: $this->seekerAtComplete,
       preexisting: $this->preexisting,
       lead: $this->lead,
+      tests: $this->tests,
     );
   }
 
@@ -984,6 +999,7 @@ final class RunState {
       seekerAtComplete: $this->seekerAtComplete,
       preexisting: $this->preexisting,
       lead: $this->lead,
+      tests: $this->tests,
     );
   }
 
@@ -1034,13 +1050,14 @@ final class RunState {
       seekerAtComplete: $this->seekerAtComplete,
       preexisting: $this->preexisting,
       lead: $this->lead,
+      tests: $this->tests,
     );
   }
 
   /**
    * This run paused at a gate, waiting on a question.
    *
-   * @param array<string, string|list<string>> $question
+   * @param array<string, string|list<string>|list<array{question: string, options: list<string>}>> $question
    *   The serialized pending question. The lists are the conversation an
    *   interactive hold carries — its detail lines and the options worth
    *   offering — which is why this is not a flat string map.
@@ -1068,15 +1085,55 @@ final class RunState {
   /**
    * Whether a human must answer the pending hold.
    *
-   * The complete hold of a human-led run (owner, 2026-10-20).
+   * The complete hold of a human-led run (owner, 2026-10-20), and plan's
+   * when it asks about tests (owner, 2026-10-30): whether the ticket gets
+   * unit tests is the human's to say, never the agent's.
    *
    * @return bool
-   *   TRUE when the pending question is complete's and the run is human-led.
+   *   TRUE when the run is human-led and the pending question is complete's,
+   *   or plan's carrying the test questions.
    */
   public function awaitsHuman(): bool {
-    return $this->lead === self::LEAD_HUMAN
-      && is_array($this->awaiting)
-      && ($this->awaiting['phase'] ?? NULL) === 'complete';
+    if ($this->lead !== self::LEAD_HUMAN || !is_array($this->awaiting)) {
+      return FALSE;
+    }
+    $phase = $this->awaiting['phase'] ?? NULL;
+    return $phase === 'complete' || ($phase === 'plan' && $this->asksTests());
+  }
+
+  /**
+   * Whether plan asks about tests and has not been answered yet.
+   *
+   * @return bool
+   *   TRUE while `tests.ask` waits on its answer.
+   */
+  public function asksTests(): bool {
+    return ($this->tests['ask'] ?? FALSE) === TRUE && !array_key_exists('unit', $this->tests);
+  }
+
+  /**
+   * This run with plan's test questions answered.
+   *
+   * The choice rewrites the frozen phpunit and playwright levers
+   * (TestsChoice::applyTo()) before any gate has run: plan runs none.
+   *
+   * @param bool $unit
+   *   Unit tests chosen.
+   * @param bool $spec
+   *   A saved Playwright spec chosen.
+   * @param string $by
+   *   Who answered: `dialog`, `terminal` or `default`.
+   * @param string $at
+   *   When, ISO-8601.
+   *
+   * @return self
+   *   A new instance.
+   */
+  public function withTests(bool $unit, bool $spec, string $by, string $at): self {
+    return $this->with(
+      resolvedGates: TestsChoice::applyTo($this->resolvedGates, $unit, $spec),
+      tests: ['ask' => TRUE, 'unit' => $unit, 'spec' => $spec, 'by' => $by, 'at' => $at],
+    );
   }
 
   /**
@@ -1148,7 +1205,7 @@ final class RunState {
   /**
    * A copy with the pause-related fields replaced.
    *
-   * @param array<string, string|list<string>>|null $awaiting
+   * @param array<string, string|list<string>|list<array{question: string, options: list<string>}>>|null $awaiting
    *   The new pending question.
    * @param bool $clearAwaiting
    *   Whether a NULL $awaiting means "clear it" rather than "leave it".
@@ -1198,6 +1255,7 @@ final class RunState {
       seekerAtComplete: $this->seekerAtComplete,
       preexisting: $this->preexisting,
       lead: $this->lead,
+      tests: $this->tests,
     );
   }
 
@@ -1366,6 +1424,7 @@ final class RunState {
       'seeker_at_complete' => $this->seekerAtComplete,
       'preexisting' => $this->preexisting,
       'lead' => $this->lead,
+      'tests' => $this->tests,
     ];
   }
 
@@ -1489,6 +1548,11 @@ final class RunState {
       lead: in_array($node->optionalString('lead', ''), self::LEADS, TRUE)
         ? (string) $node->optionalString('lead', '')
         : self::LEAD_AUTONOMOUS,
+      tests: array_filter(
+        $node->optionalChild('tests')?->toArray() ?? [],
+        static fn (int|string $key): bool => is_string($key),
+        ARRAY_FILTER_USE_KEY,
+      ),
     );
   }
 
@@ -1632,6 +1696,7 @@ final class RunState {
       seekerAtComplete: $this->seekerAtComplete,
       preexisting: $this->preexisting,
       lead: $this->lead,
+      tests: $this->tests,
     );
   }
 
@@ -2174,6 +2239,10 @@ final class RunState {
    *   The new lead, or NULL to keep it.
    * @param string|null $baselineHash
    *   The baseline to hold the run to, or NULL to keep the run's own.
+   * @param array<string, array<string, int|string|bool>>|null $resolvedGates
+   *   The levers to hold the run to, or NULL to keep the frozen ones.
+   * @param array<string, mixed>|null $tests
+   *   Plan's test choice, or NULL to keep the run's own.
    *
    * @return self
    *   A new instance.
@@ -2197,6 +2266,8 @@ final class RunState {
     ?array $preexisting = NULL,
     ?string $lead = NULL,
     ?string $baselineHash = NULL,
+    ?array $resolvedGates = NULL,
+    ?array $tests = NULL,
   ): self {
     return new self(
       $this->runId,
@@ -2206,7 +2277,7 @@ final class RunState {
       $this->preset,
       $this->maxGateRetries,
       $this->provenance,
-      $this->resolvedGates,
+      $resolvedGates ?? $this->resolvedGates,
       $phases ?? $this->phases,
       $currentPhase ?? $this->currentPhase,
       $this->gateResults,
@@ -2233,6 +2304,7 @@ final class RunState {
       seekerAtComplete: $this->seekerAtComplete,
       preexisting: $preexisting ?? $this->preexisting,
       lead: $lead ?? $this->lead,
+      tests: $tests ?? $this->tests,
     );
   }
 

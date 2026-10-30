@@ -11,6 +11,7 @@ One file, `droost/droost.yml`, is the source of truth:
 ```yaml
 mode: agentic                   # agentic | interactive
 lead: human-led                 # human-led | autonomous — who may finish a run (unset: interactive → human-led)
+tests: { ask: true }            # plan asks the human: unit tests? save the browser check as a spec? (default: neither)
 preset: custom                  # custom | low | medium | high | xhigh | max
 enforcement: soft               # hard | soft | off — the hooks, mid-run only
 require_run: hard               # hard | soft | off — custom-code edits with NO active run
@@ -332,6 +333,28 @@ mandatory trio can never be put in report mode, except at `preset: custom`;
 that would be a disarm by another name, and the attempt is noticed and
 superseded like `on: false`.
 
+
+### Asking about tests at plan
+
+`tests: { ask: true }` (at `preset: custom` only: a "no" turns phpunit off,
+which the other levels hold mandatory) makes plan's hold ask two more questions, word for
+word, in the same dialog: *Should this ticket get unit tests (PHPUnit)?* and
+*Should the Playwright check of this work be saved as a test?* In a human-led
+run the answers are the human's, taken from the dialog the guard recorded or
+typed in the operator's terminal (`droost workflow:answer "…" --unit-tests=yes
+--save-spec=no`); an autonomous run is asked nothing. Until someone says yes,
+the answer is no.
+
+The answer rewrites the run's frozen levers before any gate runs. No unit
+tests: `phpunit` is off. Yes: on, with `in_diff`. No saved spec: `playwright`,
+which runs saved specs, is off. Yes: on and `required`. `status` shows the
+choice and who made it.
+
+Three checks hold the run to it. `unit_tests_chosen` and `spec_chosen` block
+a phase whose diff adds or changes a PHPUnit test or a Playwright spec that
+was declined (deleting one is fine). `browser_checked` holds code until the
+guard's diary shows a browser tool call in that phase, whatever was chosen
+about saving it.
 
 ### Unknown keys are errors
 

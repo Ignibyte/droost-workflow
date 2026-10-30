@@ -55,6 +55,7 @@ final class WorkflowConfig {
     'operator_only',
     'lead',
     'panel',
+    'tests',
   ];
 
   /**
@@ -197,6 +198,10 @@ final class WorkflowConfig {
    * @param string $panelOpen
    *   When the droost mod opens the run panel by itself (`panel.open`): auto,
    *   always or never.
+   * @param bool $askTests
+   *   Whether plan's hold asks the human (`tests.ask`) if this ticket gets
+   *   unit tests and if its browser check is saved as a spec; until they say
+   *   yes, neither is written (owner, 2026-10-30).
    */
   private function __construct(
     public readonly Mode $mode,
@@ -225,6 +230,7 @@ final class WorkflowConfig {
     public readonly ?string $leadLever = NULL,
     public readonly array $panelTabs = [],
     public readonly string $panelOpen = 'auto',
+    public readonly bool $askTests = FALSE,
   ) {}
 
   /**
@@ -496,6 +502,7 @@ final class WorkflowConfig {
         self::readLead($root, $source),
         self::readPanelTabs($root, $source),
         self::readPanelOpen($root, $source),
+        self::readAskTests($root, $source, $base->name),
       );
     }
     catch (DataError $e) {
@@ -698,6 +705,43 @@ final class WorkflowConfig {
       throw ConfigError::invalidCustomGate($source, 'panel.open', sprintf('must be auto, always or never; got "%s"', $open));
     }
     return $open;
+  }
+
+  /**
+   * Whether plan asks the human about tests: `tests.ask`.
+   *
+   * Off by default, which is how every run behaved before it: the gates the
+   * levers name decide what is written and run.
+   *
+   * @param \Droost\Workflow\Support\TypedArray $root
+   *   The document root.
+   * @param string $source
+   *   The document label.
+   * @param string $preset
+   *   The resolved level's name.
+   *
+   * @return bool
+   *   TRUE when plan asks.
+   *
+   * @throws \Droost\Workflow\Config\ConfigError
+   *   When `tests` names anything but `ask`, or asks at a level other than
+   *   custom: a "no" turns phpunit off, and only custom's word stands on the
+   *   mandatory trio.
+   */
+  private static function readAskTests(TypedArray $root, string $source, string $preset): bool {
+    $tests = $root->optionalChild('tests');
+    if ($tests === NULL) {
+      return FALSE;
+    }
+    $unknown = array_values(array_diff(array_map('strval', array_keys($tests->toArray())), ['ask']));
+    if ($unknown !== []) {
+      throw ConfigError::unknownTestsOption($source, $unknown);
+    }
+    $ask = $tests->optionalBool('ask', FALSE);
+    if ($ask && $preset !== 'custom') {
+      throw ConfigError::testsAskNeedsCustom($source, $preset);
+    }
+    return $ask;
   }
 
   /**

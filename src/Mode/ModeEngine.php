@@ -19,6 +19,7 @@ use Droost\Workflow\Gate\GateRunner;
 use Droost\Workflow\Gate\PhaseReport;
 use Droost\Workflow\State\PhaseStatus;
 use Droost\Workflow\State\RunState;
+use Droost\Workflow\State\TestsChoice;
 
 /**
  * How much the human is in the loop, applied at every phase gate.
@@ -365,9 +366,13 @@ final class ModeEngine {
 
     // A human-led run holds at complete whatever the mode: finishing is the
     // human's (owner, 2026-10-20).
+    // And plan's, wherever it asks about tests: unit tests and a saved spec
+    // are the human's choice (owner, 2026-10-30), so a human-led run holds
+    // for it in any mode.
     if ($this->effectiveMode($state)->holdsForConversation()
-      || ($phase === Phase::Complete && $state->lead === RunState::LEAD_HUMAN)) {
-      $question = $this->conversationAt($phase, $report, $now);
+      || ($phase === Phase::Complete && $state->lead === RunState::LEAD_HUMAN)
+      || ($phase === Phase::Plan && $state->lead === RunState::LEAD_HUMAN && $state->asksTests())) {
+      $question = $this->conversationAt($phase, $report, $now, $phase === Phase::Plan && $state->asksTests());
       // State first, sink second. Always.
       $state = $state->awaiting($question->toArray());
       $this->deliver($state, $question);
@@ -870,6 +875,8 @@ final class ModeEngine {
    *   Its gate report.
    * @param string $now
    *   The current time, as a caller-supplied ISO-8601 string.
+   * @param bool $asksTests
+   *   Whether the hold also asks plan's test questions (`tests.ask`).
    *
    * @return \Droost\Workflow\Mode\PendingQuestion
    *   The question, with the options worth offering.
@@ -878,6 +885,7 @@ final class ModeEngine {
     Phase $phase,
     PhaseReport $report,
     string $now,
+    bool $asksTests = FALSE,
   ): PendingQuestion {
     [$headline, $question, $detail, $options] = match ($phase) {
       Phase::Plan => [
@@ -950,8 +958,13 @@ final class ModeEngine {
       $report->summaryLine(),
       $now,
       $headline,
-      $detail,
+      $asksTests ? [
+        ...$detail,
+        'Ask the test questions in the same dialog, word for word: no unit tests and no saved spec '
+        . 'unless the human says yes. The work is checked in the browser at code either way.',
+      ] : $detail,
       $options,
+      also: $asksTests ? TestsChoice::questions() : [],
     );
   }
 
