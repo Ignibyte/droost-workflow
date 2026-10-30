@@ -35,6 +35,9 @@ final class TestsAtPlanTest extends WorkflowTestCase {
   public function testTheLeverIsRead(): void {
     $root = $this->makeRootWithConfig("preset: custom\ntests:\n  ask: true\n");
     $this->assertTrue(WorkflowConfig::load($root)->askTests);
+    $levers = $this->facade()->status($root)['levers'] ?? NULL;
+    $this->assertIsArray($levers);
+    $this->assertSame(['ask' => TRUE], $levers['tests'] ?? NULL, 'status says so before a run');
     $this->assertFalse(WorkflowConfig::load($this->makeRootWithConfig("preset: custom\n"))->askTests);
 
     try {

@@ -257,6 +257,9 @@ final class WorkflowFacade {
         'seeker_rounds' => $config->seekerRounds,
         'seeker_holds' => $config->seekerHolds,
         'seeker_at_complete' => $config->seekerAtComplete,
+        // Whether plan asks the human about unit tests and a saved spec
+        // (`tests.ask`), so it can be read before a run asks it.
+        'tests' => ['ask' => $config->askTests],
         // The work-item integration for status: how a run's ticket is fetched
         // and written back. NULL when the repo declares none.
         'work_item' => $config->workItem?->toArray(),
