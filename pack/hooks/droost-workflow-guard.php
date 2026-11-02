@@ -794,6 +794,14 @@ if ($mode === 'operator-commands') {
     $shellStatus = is_string($shellPhases[$shellPhase] ?? NULL) ? $shellPhases[$shellPhase] : '';
     // A finished or failed phase is not a live plan phase; the pre-tool-use
     // branch makes the same two exceptions and they have to agree.
+    // NO RUN OPEN: the require_run wall, for the shell too (F-398). "Open"
+    // as the edit wall reads it below: a record with a current phase that
+    // has not failed and is not a passed complete.
+    $shellOpen = is_string($shellPhase) && $shellPhase !== '' && $shellStatus !== 'failed'
+      && !($shellPhase === 'complete' && $shellStatus === 'passed');
+    if (!$shellOpen) {
+      require_run_shell_guard(operator_commands_scan_text($shellCommand), $root, $stateDir);
+    }
     if (is_string($shellPhase) && $shellStatus !== 'failed' && $shellStatus !== 'passed') {
       shell_phase_guard(
         operator_commands_scan_text($shellCommand),
@@ -3781,6 +3789,158 @@ function shell_phase_guard(
       ));
     }
   }
+}
+
+/**
+ * Applies the require_run wall to what a shell command writes (F-398).
+ *
+ * With no run open the edit wall refused an Edit to a module README while
+ * `sed -i` over 22 module READMEs and `git rm` of 56 test files under the
+ * same paths went through Bash. What a command writes, moves or deletes is
+ * read from the same tokeniser the other shell tiers use, following `cd`:
+ * a redirect's target, and the operands of the verbs that change files in
+ * place (rm, mv, touch, truncate, tee, shred, `git rm`/`git mv`, `sed -i`,
+ * `perl -i`, `dd of=`) or at a destination (cp, rsync, install, ln). A read
+ * (`sed` without -i, `grep`, `cp` out of custom code) is not judged. Like
+ * every shell tier it is a speed bump: what a script it runs writes is not
+ * predicted.
+ *
+ * @param string $command
+ *   The already-scanned command line.
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The resolved state directory.
+ */
+function require_run_shell_guard(string $command, string $root, string $stateDir): void {
+  [$level, $levers] = require_run_level($root);
+  if ($level === 'off') {
+    return;
+  }
+  $cwd = rtrim($root, '/');
+  foreach (operator_commands_invocations($command) as $tokens) {
+    $unwrapped = operator_commands_unwrapped($tokens);
+    $verb = strtolower(basename(ltrim($unwrapped[0] ?? '', "\x01({")));
+    if ($verb === 'cd' || $verb === 'pushd') {
+      $target = '';
+      foreach (array_slice($unwrapped, 1) as $word) {
+        if ($word === '--' || str_starts_with($word, '-')) {
+          continue;
+        }
+        $target = ltrim($word, "\x01");
+        break;
+      }
+      $cwd = guard_cd_to($cwd, $target, $root);
+      continue;
+    }
+    foreach (require_run_shell_targets($tokens, $unwrapped, $verb) as $target) {
+      if ($target === '' || str_starts_with($target, '/dev/')) {
+        continue;
+      }
+      $absolute = str_starts_with($target, '/') ? $target : $cwd . '/' . $target;
+      // Outside the project is no project's custom code.
+      if (!str_starts_with(normalised_path($absolute) . '/', normalised_path(rtrim($root, '/')) . '/')) {
+        continue;
+      }
+      // A directory operand (`git rm -r …/tests`, `rm -rf …/custom/acme`)
+      // is judged as the files in it.
+      if (require_run_covers($root, rtrim($absolute, '/') . '/', $levers)) {
+        require_run_wall($root, $stateDir, $target, $level);
+        return;
+      }
+    }
+  }
+}
+
+/**
+ * The paths one shell invocation writes, moves or deletes.
+ *
+ * @param list<string> $tokens
+ *   The invocation's tokens (a redirect's target marked with \x01).
+ * @param list<string> $unwrapped
+ *   The same, wrappers (`nice`, `sudo`, `command`) removed.
+ * @param string $verb
+ *   The program, lower-cased, without its directory.
+ *
+ * @return list<string>
+ *   The paths, as written.
+ */
+function require_run_shell_targets(array $tokens, array $unwrapped, string $verb): array {
+  $targets = [];
+  foreach ($tokens as $token) {
+    if (str_starts_with($token, "\x01")) {
+      $targets[] = ltrim($token, "\x01");
+    }
+  }
+  $words = array_values(array_map(
+    static fn (string $w): string => trim($w, '\'"'),
+    array_filter(array_slice($unwrapped, 1), static fn (string $w): bool => !str_starts_with($w, "\x01")),
+  ));
+  // The operands, a flag's own value left out where the flag takes one.
+  $operands = static function (array $words, array $valued): array {
+    $out = [];
+    for ($i = 0; $i < count($words); $i++) {
+      $w = $words[$i];
+      if ($w === '--') {
+        return [...$out, ...array_slice($words, $i + 1)];
+      }
+      if (str_starts_with($w, '-') && $w !== '-') {
+        if (in_array($w, $valued, TRUE)) {
+          $i++;
+        }
+        continue;
+      }
+      $out[] = $w;
+    }
+    return $out;
+  };
+  if ($verb === 'git') {
+    $sub = guard_git_subcommand($unwrapped);
+    $at = array_search($sub, $words, TRUE);
+    if (in_array($sub, ['rm', 'mv'], TRUE) && $at !== FALSE) {
+      array_push($targets, ...$operands(array_slice($words, $at + 1), []));
+    }
+    return $targets;
+  }
+  if (in_array($verb, ['rm', 'unlink', 'rmdir', 'mv', 'touch', 'tee', 'shred'], TRUE)) {
+    array_push($targets, ...$operands($words, ['-t', '-r', '-d']));
+  }
+  elseif ($verb === 'truncate') {
+    array_push($targets, ...$operands($words, ['-s', '--size', '-r', '--reference']));
+  }
+  elseif (in_array($verb, ['cp', 'rsync', 'install', 'ln'], TRUE)) {
+    $at = array_search('-t', $words, TRUE);
+    $at = $at === FALSE ? array_search('--target-directory', $words, TRUE) : $at;
+    $listed = $operands($words, ['-t', '--target-directory', '-m', '--mode', '-o', '--owner', '-g', '--group', '-e']);
+    if ($at !== FALSE && isset($words[$at + 1])) {
+      $targets[] = $words[$at + 1];
+    }
+    elseif ($listed !== []) {
+      $targets[] = end($listed);
+    }
+  }
+  elseif ($verb === 'sed' || $verb === 'gsed') {
+    $inPlace = array_filter($words, static fn (string $w): bool => preg_match('/^(-[a-zA-Z]*i|--in-place)/', $w) === 1) !== [];
+    if ($inPlace) {
+      $listed = $operands($words, ['-e', '--expression', '-f', '--file', '-l']);
+      $scripted = array_intersect($words, ['-e', '--expression', '-f', '--file']) !== [];
+      array_push($targets, ...($scripted ? $listed : array_slice($listed, 1)));
+    }
+  }
+  elseif ($verb === 'perl') {
+    $inPlace = array_filter($words, static fn (string $w): bool => preg_match('/^-[a-zA-Z]*i/', $w) === 1) !== [];
+    if ($inPlace) {
+      array_push($targets, ...$operands($words, ['-e', '-E', '-M', '-I']));
+    }
+  }
+  elseif ($verb === 'dd') {
+    foreach ($words as $w) {
+      if (str_starts_with($w, 'of=')) {
+        $targets[] = substr($w, 3);
+      }
+    }
+  }
+  return $targets;
 }
 
 /**
@@ -7427,41 +7587,18 @@ function guard_lever_file(string $root): string {
 }
 
 /**
- * Refuses ungoverned custom-code edits when no run is ACTIVE (require_run).
+ * The require_run lever and the lever file's text: [hard|soft|off, text].
  *
- * The one gap "no run, no opinion" leaves open: an agent quietly building
- * outside the pipeline. This closes it, and ONLY it — pre-tool-use, and only
- * writes into custom-code territory (modules/custom, themes/custom,
- * profiles/custom, and the directories a project names with `custom_code`).
- * Docs, config outside those trees, non-Drupal files and the spec never trip
- * it, so the wall rarely fires on non-build work.
- *
- * "No active run" includes an ENDED one: a completed or failed run.json is
- * history, not law, and an unreadable one is not a run at all — all of those
- * paths land here, so finishing ticket A never leaves ticket B ungoverned and
- * corrupting run.json is not a self-disarm.
- *
- * The level lives in droost/droost.yml (require_run: hard|soft|off), read
- * here with a dependency-free regex because the hook cannot boot Drupal;
- * absent or unreadable defaults to hard, because building is exactly where the
- * pipeline must engage. hard blocks (exit 2) and names the two ways forward —
- * start a run, or take an OPERATOR-granted bypass; soft nudges once; off is
- * silent. The bypass is the operator's to grant (drush droost:workflow:bypass),
- * never the agent's — that is what keeps "chose not to use it" from returning.
+ * Absent or unreadable is hard, because building is exactly where the
+ * pipeline must engage.
  *
  * @param string $root
- *   The project root (cwd).
- * @param string $mode
- *   The hook mode; only 'pre-tool-use' acts.
- * @param string $stdin
- *   The hook payload, read once by the caller.
- * @param string $stateDir
- *   The resolved state directory.
+ *   The project root.
+ *
+ * @return array{0: string, 1: string}
+ *   The level and the lever file's contents ('' when there is none).
  */
-function require_run_guard(string $root, string $mode, string $stdin, string $stateDir): void {
-  if ($mode !== 'pre-tool-use') {
-    return;
-  }
+function require_run_level(string $root): array {
   $level = 'hard';
   $lever = guard_lever_file($root);
   $levers = $lever !== '' ? (string) file_get_contents($lever) : '';
@@ -7470,21 +7607,23 @@ function require_run_guard(string $root, string $mode, string $stdin, string $st
   if (preg_match('/^require_run:\s*["\']?(hard|soft|off)\b["\']?/m', $levers, $m) === 1) {
     $level = $m[1];
   }
-  if ($level === 'off') {
-    return;
-  }
-  $payload = json_decode($stdin, TRUE);
-  $payload = is_array($payload) ? $payload : [];
-  $input = is_array(($payload['tool_input'] ?? NULL)) ? $payload['tool_input'] : [];
-  $file = $input['file_path'] ?? ($input['notebook_path'] ?? '');
-  $file = is_string($file) ? $file : '';
-  if ($file === '') {
-    return;
-  }
-  // The narrow boundary: only custom-code territory is "build work".
-  // Normalized first — separators, ./ and // collapsed, case folded (APFS
-  // resolves Modules/Custom to the same directory) — so a cosmetic spelling
-  // of the same path cannot slip past the wall.
+  return [$level, $levers];
+}
+
+/**
+ * Whether a path is custom code, the territory require_run walls.
+ *
+ * @param string $root
+ *   The project root.
+ * @param string $file
+ *   The path, absolute or relative to the root.
+ * @param string $levers
+ *   The lever file's contents.
+ *
+ * @return bool
+ *   TRUE when an edit there is build work.
+ */
+function require_run_covers(string $root, string $file, string $levers): bool {
   $path = strtolower(str_replace('\\', '/', $file));
   $path = (string) preg_replace(['#/(?:\./)+#', '#//+#'], '/', $path);
   // PROFILES TOO. The gate executor has always analysed `profiles/custom`
@@ -7498,10 +7637,26 @@ function require_run_guard(string $root, string $mode, string $stdin, string $st
   // `modules/custom/` segment, so an edit to them with no run was never
   // walled. `custom_code: "modules,recipes"` names those directories,
   // relative to the project, as the config loader reads them.
-  if (preg_match('#(^|/)(modules|themes|profiles)/custom/#', $path) !== 1
-    && !require_run_names_path($root, $file, $levers)) {
-    return;
-  }
+  return preg_match('#(^|/)(modules|themes|profiles)/custom/#', $path) === 1
+    || require_run_names_path($root, $file, $levers);
+}
+
+/**
+ * Refuses (hard) or nudges once (soft) build work with no active run.
+ *
+ * The edit wall's and the shell's alike: the operator's bypass stands it
+ * down, and an ended run names the way out.
+ *
+ * @param string $root
+ *   The project root.
+ * @param string $stateDir
+ *   The resolved state directory.
+ * @param string $file
+ *   What the edit or command writes.
+ * @param string $level
+ *   The level: hard or soft.
+ */
+function require_run_wall(string $root, string $stateDir, string $file, string $level): void {
   // An operator-granted bypass stands the wall down; its visibility lives in
   // drush droost:workflow:status, so the hook allows silently rather than
   // narrating every edit. Only the operator's command writes reason and
@@ -7592,6 +7747,64 @@ function require_run_guard(string $root, string $mode, string $stdin, string $st
     @touch($marker);
     echo json_encode(['systemMessage' => $message . ' (require_run is soft: allowing this edit.)']);
   }
+}
+
+/**
+ * Refuses ungoverned custom-code edits when no run is ACTIVE (require_run).
+ *
+ * The one gap "no run, no opinion" leaves open: an agent quietly building
+ * outside the pipeline. This closes it, and ONLY it — pre-tool-use, and only
+ * writes into custom-code territory (modules/custom, themes/custom,
+ * profiles/custom, and the directories a project names with `custom_code`).
+ * Docs, config outside those trees, non-Drupal files and the spec never trip
+ * it, so the wall rarely fires on non-build work.
+ *
+ * "No active run" includes an ENDED one: a completed or failed run.json is
+ * history, not law, and an unreadable one is not a run at all — all of those
+ * paths land here, so finishing ticket A never leaves ticket B ungoverned and
+ * corrupting run.json is not a self-disarm.
+ *
+ * The level lives in droost/droost.yml (require_run: hard|soft|off), read
+ * here with a dependency-free regex because the hook cannot boot Drupal;
+ * absent or unreadable defaults to hard, because building is exactly where the
+ * pipeline must engage. hard blocks (exit 2) and names the two ways forward —
+ * start a run, or take an OPERATOR-granted bypass; soft nudges once; off is
+ * silent. The bypass is the operator's to grant (drush droost:workflow:bypass),
+ * never the agent's — that is what keeps "chose not to use it" from returning.
+ *
+ * @param string $root
+ *   The project root (cwd).
+ * @param string $mode
+ *   The hook mode; only 'pre-tool-use' acts.
+ * @param string $stdin
+ *   The hook payload, read once by the caller.
+ * @param string $stateDir
+ *   The resolved state directory.
+ */
+function require_run_guard(string $root, string $mode, string $stdin, string $stateDir): void {
+  if ($mode !== 'pre-tool-use') {
+    return;
+  }
+  [$level, $levers] = require_run_level($root);
+  if ($level === 'off') {
+    return;
+  }
+  $payload = json_decode($stdin, TRUE);
+  $payload = is_array($payload) ? $payload : [];
+  $input = is_array(($payload['tool_input'] ?? NULL)) ? $payload['tool_input'] : [];
+  $file = $input['file_path'] ?? ($input['notebook_path'] ?? '');
+  $file = is_string($file) ? $file : '';
+  if ($file === '') {
+    return;
+  }
+  // The narrow boundary: only custom-code territory is "build work".
+  // Normalized first — separators, ./ and // collapsed, case folded (APFS
+  // resolves Modules/Custom to the same directory) — so a cosmetic spelling
+  // of the same path cannot slip past the wall.
+  if (!require_run_covers($root, $file, $levers)) {
+    return;
+  }
+  require_run_wall($root, $stateDir, $file, $level);
 }
 
 /**
