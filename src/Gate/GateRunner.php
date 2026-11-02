@@ -31,7 +31,8 @@ use Droost\Workflow\Vcs\VcsInterface;
  * gate off under a half-finished run or make two surfaces disagree about it.
  *
  * HOW a gate runs — its tuning options (standard, level, paths, thresholds,
- * routes) — is re-read from the lever file at gate time, when the file
+ * routes, but never `required` or `in_diff`, which the plan's tests answer
+ * decides: FROZEN_OPTIONS) — is re-read from the lever file at gate time, when the file
  * exists, and any difference from the frozen record is named in the gate's
  * own summary. Round 24 (R24-F4): a subject's phpcs gate walked node_modules,
  * the subject pointed `phpcs.standard` at a ruleset that excluded it — the
@@ -50,6 +51,15 @@ final class GateRunner {
    * @var list<string>
    */
   public const SITE_READERS = ['parity'];
+
+  /**
+   * The gate options a run keeps as frozen at begin and chosen at plan.
+   *
+   * Every other option is tuning and is re-read at gate time (R24-F4).
+   *
+   * @var list<string>
+   */
+  public const FROZEN_OPTIONS = ['required', 'in_diff'];
 
   /**
    * Constructs a GateRunner.
@@ -957,6 +967,15 @@ final class GateRunner {
     $drift = [];
     $levers = $frozen;
     foreach (GateSettings::optionNames($name) as $option) {
+      // WHAT A RUN MUST BRING STAYS FROZEN, LIKE `on` (F-400). `required` and
+      // `in_diff` are not tuning: they say whether a run may pass without the
+      // tests the human chose at plan (TestsChoice::applyTo()). Re-read from
+      // the file they read `required: false` again, so a run that said it
+      // would save a Playwright spec could pass without one, and the plan's
+      // answer was undone at the gate with only a drift note to show for it.
+      if (in_array($option, self::FROZEN_OPTIONS, TRUE)) {
+        continue;
+      }
       $was = $frozen[$option] ?? NULL;
       $now = $current[$option] ?? NULL;
       if ($now === $was || !(is_int($now) || is_string($now) || is_bool($now))) {

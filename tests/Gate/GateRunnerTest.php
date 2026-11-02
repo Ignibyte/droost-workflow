@@ -639,6 +639,36 @@ class GateRunnerTest extends WorkflowTestCase {
   }
 
   /**
+   * The plan's tests answer is not undone by the lever file (F-400).
+   *
+   * Two supervised runs answered "save it as a Playwright spec" at plan, which
+   * makes the playwright gate required for the run; the lever file says
+   * `required: false`, and the gate-time re-read put that back, so the run
+   * could pass without the spec it said it would bring.
+   */
+  public function testThePlansTestsAnswerStaysFrozenAtTheGate(): void {
+    $yaml = "preset: custom\ngates:\n  playwright: { on: true, required: false, scope: ticket }\n  phpunit: { on: false }\n";
+    $root = $this->makeRootWithConfig($yaml);
+    $state = RunState::begin('run-1', '2026-11-02T09:00:00+00:00', WorkflowConfig::load($root))
+      ->withTests(TRUE, TRUE, 'dialog', '2026-11-02T09:05:00+00:00');
+    $executor = new SettingsRecordingExecutor();
+    $runner = new GateRunner($executor);
+    // The file is untouched: it still says what it said before the answer.
+    file_put_contents(Levers::path($root), $yaml);
+
+    $report = $runner->run($state, Phase::Complete, $root);
+
+    $this->assertTrue($executor->option('playwright', 'required'), 'the saved spec stays required');
+    $this->assertTrue($executor->option('phpunit', 'in_diff'), 'chosen unit tests stay held to the diff');
+    foreach ($report->results as $result) {
+      if (in_array($result->gate, ['playwright', 'phpunit'], TRUE)) {
+        $this->assertStringNotContainsString('required', $result->summary, $result->gate . ' names no re-read of required');
+        $this->assertStringNotContainsString('in_diff', $result->summary, $result->gate . ' names no re-read of in_diff');
+      }
+    }
+  }
+
+  /**
    * Tuning is re-read at gate time; on/off stays frozen (R24-F4).
    *
    * Round 24: the subject pointed phpcs.standard at a ruleset excluding
