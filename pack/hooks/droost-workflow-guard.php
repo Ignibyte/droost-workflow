@@ -8570,16 +8570,21 @@ function guard_approval_question(): string {
 }
 
 /**
- * A command with its spacing normalised, as approvals compare it.
+ * A command with its spacing and quoting normalised, as approvals compare it.
+ *
+ * Mirrors OperatorApproval::normalise(): quote marks are dropped, so a
+ * question that quotes an argument matches the command the shell ran
+ * without them (F-399, 2026-11-02).
  *
  * @param string $command
  *   The command.
  *
  * @return string
- *   One space between words, none at the ends.
+ *   No quote marks, one space between words, none at the ends.
  */
 function guard_approval_normalise(string $command): string {
-  return trim((string) preg_replace('/\s+/', ' ', $command));
+  $marks = ['"', "'", "\u{201C}", "\u{201D}", "\u{2018}", "\u{2019}"];
+  return trim((string) preg_replace('/\s+/', ' ', str_replace($marks, '', $command)));
 }
 
 /**

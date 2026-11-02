@@ -222,7 +222,7 @@ final class ModeEngine {
       // a failed phase an operator can see and fix.
       $state = $state->withGateReport($phase->value, $report->toArray());
 
-      return $this->recordFailure($state, $phase, $report);
+      return $this->recordFailure($state, $phase, $report, $projectRoot);
     }
 
     // A FAILURE AT TEST, IN THE FAST FLOW, GOES BACK TO CODE (owner,
@@ -235,7 +235,7 @@ final class ModeEngine {
     if (!$report->advance()) {
       $loop = $this->loopDecision($state, $phase, $report, $projectRoot);
       if ($loop === NULL) {
-        return $this->recordFailure($state, $phase, $report);
+        return $this->recordFailure($state, $phase, $report, $projectRoot);
       }
       if ($loop['then'] === 'return') {
         return $this->returnToCode($state, 'failed', $loop['gates'], $report, $projectRoot, $now);
@@ -658,6 +658,9 @@ final class ModeEngine {
    *   The phase that blocked.
    * @param \Droost\Workflow\Gate\PhaseReport $report
    *   The blocking report.
+   * @param string $projectRoot
+   *   The repository, to tell an attempt that changed nothing from a retry
+   *   (UnchangedAttempt). Empty counts every attempt, as before.
    *
    * @return \Droost\Workflow\Mode\RunOutcome
    *   A Failed outcome — retryable when budget remains, terminal when not.
@@ -666,11 +669,25 @@ final class ModeEngine {
     RunState $state,
     Phase $phase,
     PhaseReport $report,
+    string $projectRoot = '',
   ): RunOutcome {
-    $blocking = array_filter(
+    $blocking = array_values(array_filter(
       $report->results,
       static fn (GateResult $r): bool => $r->status->blocksAdvance(),
-    );
+    ));
+
+    // AN ATTEMPT THAT CHANGED NOTHING IS NOT A RETRY (F-399). It is
+    // answered with the same failure and leaves the budget where it was.
+    $fingerprint = NULL;
+    if ($projectRoot !== '' && $blocking !== []) {
+      $changed = $this->runner->changedFiles($state, $projectRoot);
+      $subject = $changed === NULL ? NULL
+        : RunSubject::of($projectRoot, $changed, RunSubject::CODE) . RunSubject::of($projectRoot, $changed, RunSubject::TEST);
+      $fingerprint = UnchangedAttempt::fingerprint($subject, $blocking);
+      if ($fingerprint !== NULL && UnchangedAttempt::repeats($projectRoot, $state->runId, $phase->value, $fingerprint)) {
+        return new RunOutcome(Outcome::Failed, $state, $report, NULL, [UnchangedAttempt::row()]);
+      }
+    }
 
     foreach ($blocking as $result) {
       if (!$this->runner->mayRetry($state, $result->gate)) {
@@ -681,6 +698,9 @@ final class ModeEngine {
 
     foreach ($blocking as $result) {
       $state = $this->runner->recordAttempt($state, $result->gate);
+    }
+    if ($fingerprint !== NULL) {
+      UnchangedAttempt::remember($projectRoot, $state->runId, $phase->value, $fingerprint);
     }
     return new RunOutcome(Outcome::Failed, $state, $report);
   }
