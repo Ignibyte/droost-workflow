@@ -107,6 +107,31 @@ final class OperatorApprovalTest extends WorkflowTestCase {
   }
 
   /**
+   * A question that quotes an argument approves the command the shell ran.
+   *
+   * F-399 (2026-11-02): an agent asked "Approve running this operator
+   * command? droost workflow:gate-waive prettier "Formatted …"" and the human
+   * approved it, but the shell had removed the quotes from what ran, so the
+   * guard refused the approved command and the human was asked twice.
+   */
+  public function testQuotesInTheQuestionDoNotDecide(): void {
+    $root = $this->wiredRoot();
+    $bash = static fn (string $command): array => ['tool_name' => 'Bash', 'tool_input' => ['command' => $command]];
+    $run = 'ddev droost workflow:bypass "TICKET-3: the module READMEs, didn\'t change"';
+
+    $this->approve($root, 'droost workflow:bypass "TICKET-3: the module READMEs, didn\'t change"');
+    [$exit, , $stderr] = $this->guard($root, 'operator-commands', $bash($run));
+    $this->assertSame(0, $exit, $stderr);
+    [$code, $out] = $this->cli(['bypass', "TICKET-3: the module READMEs, didn't change"], $root);
+    $this->assertSame(ArgvDispatcher::EXIT_OK, $code, $out);
+
+    // Quotes are ignored, words are not: another reason is still another command.
+    $this->approve($root, 'droost workflow:bypass "TICKET-4: one reason"');
+    [$code] = $this->cli(['bypass', 'TICKET-4: another reason'], $root);
+    $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code);
+  }
+
+  /**
    * A project's operator-only script asks the same way and spends it itself.
    */
   public function testOperatorOnlyScriptByApproval(): void {

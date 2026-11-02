@@ -138,7 +138,18 @@ retry budget, `run` refuses and the record says why; recovery used to be
 reopens the phase when it covers every gate that killed it: the phase runs
 again with those gates recorded as **waived**, never passed, and the reason
 rides in the report. A waiver on some other gate changes nothing, and the
-mandatory trio can be waived only on a run at `preset: custom`.
+mandatory trio can be waived only on a run at `preset: custom`. The waiver
+can also be approved in the session: the agent asks "Approve running this
+operator command? droost workflow:gate-waive …" and the human's Approve is
+spent once. Quote marks in that question do not decide the match (F-399).
+
+**An attempt that changed nothing spends no retry (F-399).** A retry is the
+agent fixing the cause between invocations, so `run` with the same changed
+files and the same blocking gates saying the same thing as the phase's last
+failed attempt is answered with that failure and not counted: the envelope's
+`blocked` row says so. A fix to a file, or a fix outside the tree that
+changes what a gate says (a scan run through an MCP tool), is counted as
+before. Without a VCS every attempt counts.
 
 **The phases are not levers.** Since 0.3 every run walks the canonical
 order, minor changes included — `plan → code → test → complete` since 0.4

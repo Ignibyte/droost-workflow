@@ -180,16 +180,28 @@ final class OperatorApproval {
   }
 
   /**
-   * A command with its spacing normalised.
+   * A command with its spacing and quoting normalised.
+   *
+   * QUOTES DO NOT DECIDE AN APPROVAL (F-399, 2026-11-02). The question
+   * carries the command as the agent wrote it, `gate-waive prettier "the
+   * reason"`, and the command as it runs has had its quoting removed by the
+   * shell, so an approval the human gave was refused as a different command
+   * and they were asked twice. Quote marks are dropped from both sides, so
+   * the words decide: the approval still names one exact command.
    *
    * @param string $command
    *   The command.
    *
    * @return string
-   *   One space between words, none at the ends.
+   *   No quote marks, one space between words, none at the ends.
    */
   private static function normalise(string $command): string {
-    return trim((string) preg_replace('/\s+/', ' ', $command));
+    return trim((string) preg_replace('/\s+/', ' ', str_replace(self::QUOTE_MARKS, '', $command)));
   }
+
+  /**
+   * The quote marks normalise() drops: ASCII and typographic.
+   */
+  public const QUOTE_MARKS = ['"', "'", "\u{201C}", "\u{201D}", "\u{2018}", "\u{2019}"];
 
 }
