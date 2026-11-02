@@ -143,6 +143,13 @@ can also be approved in the session: the agent asks "Approve running this
 operator command? droost workflow:gate-waive …" and the human's Approve is
 spent once. Quote marks in that question do not decide the match (F-399).
 
+**The plan's tests answer stays frozen at the gate (F-400).** A gate's
+tuning (standard, level, paths, thresholds) is re-read from the lever file at
+gate time, but `required` and `in_diff` are not tuning: the plan's tests
+answer sets them (a saved Playwright spec makes `playwright.required` true,
+chosen unit tests make `phpunit.in_diff` true), and they stay as the run
+recorded them, like `on`.
+
 **An attempt that changed nothing spends no retry (F-399).** A retry is the
 agent fixing the cause between invocations, so `run` with the same changed
 files and the same blocking gates saying the same thing as the phase's last
