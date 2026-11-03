@@ -59,3 +59,10 @@ discipline the host never had. The guard's rules are written against
 droost's own events (a file write, a shell command, a tool call, a stop, a
 subagent), with a translator per harness, so a second shim is a translator
 and its probe, not a second guard.
+
+**Session transcripts are protected (F-401).** A Claude Code session
+transcript (`~/.claude/projects/**/*.jsonl`, or under `$CLAUDE_CONFIG_DIR`)
+may be read by a project's gate for a result Claude Code recorded, such as a
+background task's notification. The guard refuses writes to one from the
+editor, the shell and interpreter code; reading stays free, and an agent's
+memory notes beside the transcripts stay its own.

@@ -5423,6 +5423,34 @@ function enforcement_refusal(string $file, string $root, string $stateDir): stri
 }
 
 /**
+ * Whether a path is a Claude Code session transcript (F-401).
+ *
+ * A `.jsonl` file under a Claude Code configuration directory's `projects/`:
+ * `~/.claude/projects/<project>/<session>.jsonl`, a subagent's beside it, or
+ * the same under `$CLAUDE_CONFIG_DIR` when that is set.
+ *
+ * @param string $path
+ *   The normalised path, absolute or project-relative.
+ *
+ * @return bool
+ *   TRUE for a transcript.
+ */
+function transcript_path(string $path): bool {
+  if (!str_ends_with(strtolower($path), '.jsonl')) {
+    return FALSE;
+  }
+  if (preg_match('#(^|/)\.claude/projects/.+#', $path) === 1) {
+    return TRUE;
+  }
+  $config = getenv('CLAUDE_CONFIG_DIR');
+  if (is_string($config) && $config !== '') {
+    $prefix = rtrim(normalised_path($config), '/') . '/projects/';
+    return str_starts_with($path, $prefix);
+  }
+  return FALSE;
+}
+
+/**
  * The refusal for one already-resolved project-relative path.
  *
  * Split out so `enforcement_refusal()` can ask it twice — once about the path
@@ -5439,6 +5467,21 @@ function enforcement_refusal(string $file, string $root, string $stateDir): stri
  *   A refusal message, or '' when the path is not protected.
  */
 function enforcement_refusal_for(string $relative, string $root, string $stateDir): string {
+
+  // THE SESSION TRANSCRIPT IS EVIDENCE TOO (F-401). A project's gate may take
+  // a result Claude Code itself recorded, such as a background task's
+  // `<task-notification>`, from the session's transcript under
+  // ~/.claude/projects/ (or $CLAUDE_CONFIG_DIR/projects/), because the hook
+  // that sees the task finish is handed `transcript_path`. Claude Code writes
+  // that file; an agent that appends a "completed, success" line to it forges
+  // the result. Reading it stays free (the tools that review a session read
+  // it); writing it is refused, from the editor and from the shell alike.
+  if (transcript_path($relative)) {
+    return 'That file is a Claude Code session transcript. Claude Code writes it, '
+      . 'and a gate may take a task\'s result from it, so a line an agent adds '
+      . 'there forges that result. Read it as much as you like; leave the '
+      . 'writing to Claude Code.';
+  }
 
   // The run's own record. `baseline_dir_guard()` protected the evidence store
   // beside it and not this, and a single ordinary Write to it takes the whole
@@ -6465,6 +6508,18 @@ function guard_judge_code(string $code, string $command, ?string $root = NULL, ?
       . 'what it writes cannot be checked. Do the work through the pipeline, '
       . 'or if a file genuinely must change, that is the OPERATOR\'s at a '
       . 'terminal. (Refused: %s)',
+      trim($command),
+    ));
+  }
+  // A TRANSCRIPT NAMED IN CODE THAT WRITES (F-401). Outside the project, so
+  // `$outside` does not excuse it; scoped to `.jsonl` under a `projects/`
+  // directory, so an agent's memory notes beside the transcripts (F-376's
+  // `memory/*.md`) stay its own to edit.
+  if (preg_match('#\.claude/projects/[^\s\'"]+\.jsonl#i', $code) === 1 && code_writes($code)) {
+    guard_refuse('protected-path:transcript', sprintf(
+      'This hands an interpreter code that writes a Claude Code session transcript. '
+      . 'Claude Code writes that file, and a gate may take a task\'s result from it, '
+      . 'so a line added there forges the result. Read it freely; do not write it. (Refused: %s)',
       trim($command),
     ));
   }
