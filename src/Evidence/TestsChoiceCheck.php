@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Droost\Workflow\Evidence;
 
 use Droost\Workflow\Cli\CliProcess;
-use Droost\Workflow\Gate\ShellGateExecutor;
+use Droost\Workflow\Gate\BrowserSpecs;
 use Droost\Workflow\State\RunStateStore;
 use Droost\Workflow\Vcs\CliVcs;
 use Droost\Workflow\Vcs\VcsInterface;
@@ -23,7 +23,9 @@ use Droost\Workflow\Vcs\VcsInterface;
  *   - `unit_tests_chosen`: with unit tests declined, a PHPUnit test the run
  *     added or changed blocks. Deleting one is not writing one;
  *   - `spec_chosen`: with no saved spec, a Playwright spec the run added or
- *     changed blocks, deletions again aside;
+ *     changed blocks, deletions again aside. A spec is a file BrowserSpecs
+ *     names, inside the project's Playwright test directory, so a Vitest
+ *     test of the same name is not one (F-402);
  *   - `browser_checked`, at code: the guard's diary shows a browser tool call
  *     in this phase. A diary with no MCP call at all cannot tell "never
  *     looked" from "cannot see" (F-37), so that is the environment's to
@@ -94,17 +96,17 @@ final class TestsChoiceCheck implements CheckAdjudicatorInterface {
         );
     }
     if ($tests['spec'] === FALSE) {
-      $specs = array_values(array_filter(
-        $written,
-        static fn (string $path): bool => preg_match(ShellGateExecutor::SPEC_FILE, $path) === 1,
-      ));
+      // The project's Playwright specs, not every `*.test.jsx`: a Vitest
+      // test is a unit test of the front end, and its own gate's (F-402).
+      $browser = BrowserSpecs::of($root);
+      $specs = $browser->among($written);
       $records[] = $specs === []
         ? $this->record(self::SPEC, CheckState::Satisfied, Fault::None, sprintf('No Playwright spec saved, as chosen at plan (%s).', $by))
         : $this->record(
           self::SPEC,
           CheckState::Blocked,
           Fault::Agent,
-          sprintf('A saved Playwright spec was declined at plan (%s), and this run wrote %d: %s. Remove them (deleting a spec is fine): check the work in the browser with the Playwright MCP, and save it as a spec only when the human says yes at plan.', $by, count($specs), self::some($specs)),
+          sprintf('A saved Playwright spec was declined at plan (%s), and this run wrote %d: %s (Playwright specs, read %s). Remove them (deleting a spec is fine): check the work in the browser with the Playwright MCP, and save it as a spec only when the human says yes at plan.', $by, count($specs), self::some($specs), $browser->describe()),
         );
     }
     if ($phase === 'code') {

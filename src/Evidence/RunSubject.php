@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Evidence;
 
-use Droost\Workflow\Gate\ShellGateExecutor;
+use Droost\Workflow\Gate\BrowserSpecs;
 
 /**
  * The fingerprint of what a run's code and test gates measured (0.11).
@@ -20,7 +20,8 @@ use Droost\Workflow\Gate\ShellGateExecutor;
  * complete writes (the wiki, the evidence); `droost/` is the workflow's own
  * output (the record, parity's captures, the tickets); and the test tools'
  * reports are what a run of them writes, never what one reads. For code's
- * subject the browser specs do not count either: they are test's work.
+ * subject the browser specs do not count either: they are test's work. A
+ * Vitest test is code's (F-402): BrowserSpecs says which files are specs.
  */
 final class RunSubject {
 
@@ -70,7 +71,7 @@ final class RunSubject {
     if ($changed === NULL) {
       return NULL;
     }
-    $paths = self::measured($changed, $which);
+    $paths = self::measured($changed, $which, BrowserSpecs::of($projectRoot));
     sort($paths);
     $existing = array_values(array_filter(
       $paths,
@@ -89,11 +90,14 @@ final class RunSubject {
    *   The files the run changed.
    * @param string $which
    *   self::CODE or self::TEST.
+   * @param \Droost\Workflow\Gate\BrowserSpecs|null $specs
+   *   The project's browser specs, which code's subject leaves out; NULL
+   *   knows them by name alone.
    *
    * @return list<string>
    *   The files, normalised.
    */
-  public static function measured(array $changed, string $which): array {
+  public static function measured(array $changed, string $which, ?BrowserSpecs $specs = NULL): array {
     $out = [];
     foreach ($changed as $path) {
       $path = ltrim(str_replace('\\', '/', trim($path)), '/');
@@ -105,7 +109,7 @@ final class RunSubject {
           continue 2;
         }
       }
-      if ($which === self::CODE && preg_match(ShellGateExecutor::SPEC_FILE, $path) === 1) {
+      if ($which === self::CODE && ($specs?->isSpec($path) ?? preg_match(BrowserSpecs::NAME, $path) === 1)) {
         continue;
       }
       $out[] = $path;

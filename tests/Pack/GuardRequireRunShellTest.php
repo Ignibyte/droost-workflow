@@ -12,8 +12,9 @@ use Droost\Workflow\Tests\WorkflowTestCase;
  *
  * With no run open, an Edit to a module README was refused while `sed -i`
  * over 22 module READMEs and `git rm` of 56 test files under the same paths
- * went through Bash (reported by a project's upgrade agent, 2026-10-30). A command that
- * writes, moves or deletes under custom code is the same act as the edit.
+ * went through Bash (reported by a project's upgrade agent, 2026-10-30). A
+ * command that writes, moves or deletes under custom code is the same act as
+ * the edit.
  */
 final class GuardRequireRunShellTest extends WorkflowTestCase {
 

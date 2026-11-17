@@ -91,6 +91,61 @@ class TicketScopeTest extends WorkflowTestCase {
   }
 
   /**
+   * A Vitest test is never handed to Playwright, nor counted as a spec.
+   *
+   * F-402: `*.test.jsx` is a Playwright name and a Vitest one.
+   * Inside the config's testDir it is a spec; outside it, the project's
+   * Vitest gate's, and the selection and the count agree.
+   */
+  public function testVitestTestIsNotHandedToPlaywright(): void {
+    $root = $this->project();
+    file_put_contents($root . '/playwright.config.ts', "export default defineConfig({ testDir: './tests/e2e' });\n");
+    mkdir($root . '/web/modules/custom/x/js/src', 0755, TRUE);
+    file_put_contents($root . '/web/modules/custom/x/js/src/results.test.jsx', "\n");
+    $calls = [];
+    $gate = new GateSettings('playwright', TRUE, [
+      'required' => TRUE,
+      'scope' => 'ticket',
+      'ticket_files' => "web/modules/custom/x/js/src/results.test.jsx\ntests/e2e/mine.spec.ts",
+    ]);
+
+    $result = $this->recording($calls)->execute($gate, $root);
+
+    $this->assertSame(['test', 'tests/e2e/mine.spec.ts'], array_slice($calls[0], 1));
+    $this->assertStringContainsString('ticket scope: 1 file(s) this run changed, not the full suite', $result->summary);
+
+    $calls = [];
+    $alone = new GateSettings('playwright', TRUE, [
+      'required' => TRUE,
+      'scope' => 'ticket',
+      'ticket_files' => 'web/modules/custom/x/js/src/results.test.jsx',
+    ]);
+    $none = $this->recording($calls)->execute($alone, $root);
+    $this->assertSame([], $calls, 'Playwright was handed nothing');
+    $this->assertStringContainsString('changed no browser spec', $none->summary);
+  }
+
+  /**
+   * The lever names where the specs are when the config's testDir is '.'.
+   */
+  public function testTheLeverNarrowsTheGateToo(): void {
+    $root = $this->project();
+    file_put_contents($root . '/playwright.config.ts', "export default defineConfig({ testDir: '.' });\n");
+    mkdir($root . '/web/modules/custom/x/js/src', 0755, TRUE);
+    file_put_contents($root . '/web/modules/custom/x/js/src/results.test.jsx', "\n");
+    $calls = [];
+    $gate = new GateSettings('playwright', TRUE, [
+      'scope' => 'ticket',
+      'test_dir' => 'tests/e2e',
+      'ticket_files' => "web/modules/custom/x/js/src/results.test.jsx\ntests/e2e/mine.spec.ts",
+    ]);
+
+    $this->recording($calls)->execute($gate, $root);
+
+    $this->assertSame(['test', 'tests/e2e/mine.spec.ts'], array_slice($calls[0], 1));
+  }
+
+  /**
    * When the changed spec's project depends on others, the scope says so.
    *
    * P8 run 7's gate ran one changed spec, and the agent's projects depend on

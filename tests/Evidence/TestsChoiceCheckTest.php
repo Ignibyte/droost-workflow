@@ -59,6 +59,49 @@ final class TestsChoiceCheckTest extends WorkflowTestCase {
   }
 
   /**
+   * A Vitest test is not a declined spec; a Playwright spec still is.
+   *
+   * F-402: the human answered "No — check it in the browser, save
+   * nothing", and `spec_chosen` held code for a Vitest test of the search
+   * app, `*.test.jsx` by name, which the project's own Vitest gate runs.
+   */
+  public function testVitestTestIsNotDeclinedSpec(): void {
+    $root = $this->runAtCode();
+    file_put_contents($root . '/playwright.config.ts', "export default defineConfig({\n  testDir: 'tests/e2e',\n});\n");
+    $vitest = 'docroot/modules/custom/search_ui/js/src/firstResults.test.jsx';
+    @mkdir(dirname($root . '/' . $vitest), 0755, TRUE);
+    file_put_contents($root . '/' . $vitest, 'it()');
+    @mkdir($root . '/tests/e2e', 0755, TRUE);
+    file_put_contents($root . '/tests/e2e/search.spec.ts', 'test()');
+
+    $unit = $this->check($root, [$vitest], 'code');
+    $this->assertSame(CheckState::Satisfied, $unit[TestsChoiceCheck::SPEC]->state, 'a Vitest test outside the Playwright test directory');
+
+    $both = $this->check($root, [$vitest, 'tests/e2e/search.spec.ts'], 'code');
+    $this->assertSame(CheckState::Blocked, $both[TestsChoiceCheck::SPEC]->state, 'a real spec against the answer still holds');
+    $this->assertStringContainsString('wrote 1: tests/e2e/search.spec.ts (Playwright specs, read under tests/e2e (playwright.config.ts testDir))', $both[TestsChoiceCheck::SPEC]->summary);
+    $this->assertStringNotContainsString('firstResults', $both[TestsChoiceCheck::SPEC]->summary);
+  }
+
+  /**
+   * The test_dir lever says where the specs are when the config cannot.
+   */
+  public function testTheLeverNamesTheSpecsWhereTheConfigCannot(): void {
+    $root = $this->runAtCode("gates:\n  playwright: { test_dir: 'docroot/modules/custom/x/tests/Playwright' }\n");
+    file_put_contents($root . '/playwright.config.ts', "export default defineConfig({ testDir: '.' });\n");
+    foreach (['docroot/modules/custom/x/js/src/a.test.jsx', 'docroot/modules/custom/x/tests/Playwright/a.spec.ts'] as $file) {
+      @mkdir(dirname($root . '/' . $file), 0755, TRUE);
+      file_put_contents($root . '/' . $file, 'x');
+    }
+
+    $vitest = $this->check($root, ['docroot/modules/custom/x/js/src/a.test.jsx'], 'code');
+    $this->assertSame(CheckState::Satisfied, $vitest[TestsChoiceCheck::SPEC]->state);
+
+    $spec = $this->check($root, ['docroot/modules/custom/x/tests/Playwright/a.spec.ts'], 'code');
+    $this->assertSame(CheckState::Blocked, $spec[TestsChoiceCheck::SPEC]->state);
+  }
+
+  /**
    * Code holds until the browser was used; a blind diary is no one's fault.
    */
   public function testCodeHoldsUntilTheWorkWasCheckedInTheBrowser(): void {
@@ -92,11 +135,14 @@ final class TestsChoiceCheckTest extends WorkflowTestCase {
   /**
    * A run past plan, autonomous, so it took the default: neither.
    *
+   * @param string $more
+   *   More of the lever file.
+   *
    * @return string
    *   The project.
    */
-  private function runAtCode(): string {
-    $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\ntests:\n  ask: true\n");
+  private function runAtCode(string $more = ''): string {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: agentic\ntests:\n  ask: true\n" . $more);
     $state = $this->facade()->run($root)->state;
     $this->assertSame('code', $state->currentPhase?->value);
     $this->assertFalse($state->tests['unit'] ?? NULL);

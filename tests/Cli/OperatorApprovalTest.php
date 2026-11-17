@@ -125,7 +125,7 @@ final class OperatorApprovalTest extends WorkflowTestCase {
     [$code, $out] = $this->cli(['bypass', "TICKET-3: the module READMEs, didn't change"], $root);
     $this->assertSame(ArgvDispatcher::EXIT_OK, $code, $out);
 
-    // Quotes are ignored, words are not: another reason is still another command.
+    // Quotes are ignored, words are not: another reason is another command.
     $this->approve($root, 'droost workflow:bypass "TICKET-4: one reason"');
     [$code] = $this->cli(['bypass', 'TICKET-4: another reason'], $root);
     $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code);

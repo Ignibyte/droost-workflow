@@ -32,13 +32,14 @@ use Droost\Workflow\Vcs\VcsInterface;
  *
  * HOW a gate runs — its tuning options (standard, level, paths, thresholds,
  * routes, but never `required` or `in_diff`, which the plan's tests answer
- * decides: FROZEN_OPTIONS) — is re-read from the lever file at gate time, when the file
- * exists, and any difference from the frozen record is named in the gate's
- * own summary. Round 24 (R24-F4): a subject's phpcs gate walked node_modules,
- * the subject pointed `phpcs.standard` at a ruleset that excluded it — the
- * feedback loop's intended move — and the gate silently re-ran with the old
- * standard until the retries were spent. Fixing a ruleset IS the loop;
- * refusing to see the fix while counting down the budget was the defect.
+ * decides: FROZEN_OPTIONS) — is re-read from the lever file at gate time,
+ * when the file exists, and any difference from the frozen record is named
+ * in the gate's own summary. Round 24 (R24-F4): a subject's phpcs gate
+ * walked node_modules, the subject pointed `phpcs.standard` at a ruleset that
+ * excluded it — the feedback loop's intended move — and the gate silently
+ * re-ran with the old standard until the retries were spent. Fixing a ruleset
+ * IS the loop; refusing to see the fix while counting down the budget was the
+ * defect.
  */
 final class GateRunner {
 

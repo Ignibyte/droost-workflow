@@ -200,7 +200,15 @@ final class GateSettings {
       'timeout' => 'seconds',
     ],
     'mutation' => ['msi_min' => 'percent', 'root' => 'string', 'timeout' => 'seconds'],
-    'playwright' => ['required' => 'flag', 'scope' => 'string', 'reuse' => 'reuse', 'timeout' => 'seconds'],
+    // `test_dir`: the directories that hold the project's specs, when its
+    // playwright.config's testDir cannot say (BrowserSpecs, F-402).
+    'playwright' => [
+      'required' => 'flag',
+      'scope' => 'string',
+      'reuse' => 'reuse',
+      'timeout' => 'seconds',
+      'test_dir' => 'paths',
+    ],
     'parity' => [
       'required' => 'flag',
       'reference' => 'string',
