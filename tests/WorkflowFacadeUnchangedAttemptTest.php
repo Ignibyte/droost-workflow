@@ -58,7 +58,7 @@ class WorkflowFacadeUnchangedAttemptTest extends WorkflowTestCase {
    * A Snyk scan run through an MCP tool changes no file but changes what the
    * gate says; that attempt is counted like any other.
    */
-  public function testADifferentFailureIsCounted(): void {
+  public function testDifferentFailureIsCounted(): void {
     $root = $this->gitRoot("preset: custom\nmax_gate_retries: 2\n");
     $executor = new PhpcsFailingExecutor('2 errors');
     $this->facade($executor)->run($root);

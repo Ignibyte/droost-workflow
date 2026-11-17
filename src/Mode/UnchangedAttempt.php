@@ -11,13 +11,13 @@ use Droost\Workflow\State\RunStateStore;
  * An attempt that changed nothing spends no retry (F-399, 2026-11-02).
  *
  * A retry is "the agent fixes the cause between invocations" (ModeEngine::
- * recordFailure()). On a supervised run an agent ran the code phase three times in
- * three minutes, each time with the same files and the same two failing
- * gates, and the run ended with a working build behind it: the budget had
- * been spent on attempts that could not have passed. The budget exists to
- * stop a loop that is not converging, and an attempt that repeats the last
- * one exactly is not a step of any loop: so it is answered with the same
- * failure and not counted.
+ * recordFailure()). On a supervised run an agent ran the code phase three
+ * times in three minutes, each time with the same files and the same two
+ * failing gates, and the run ended with a working build behind it: the
+ * budget had been spent on attempts that could not have passed. The budget
+ * exists to stop a loop that is not converging, and an attempt that repeats
+ * the last one exactly is not a step of any loop: so it is answered with the
+ * same failure and not counted.
  *
  * "Exactly" is two things together: the content of every file the run
  * changed (RunSubject, the digest the loop already uses), and what each

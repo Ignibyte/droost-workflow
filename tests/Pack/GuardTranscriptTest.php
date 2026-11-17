@@ -52,7 +52,10 @@ final class GuardTranscriptTest extends WorkflowTestCase {
       "python3 -c \"open('" . self::TRANSCRIPT . "','a').write('x')\"",
     ];
     foreach ($commands as $command) {
-      [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_name' => 'Bash', 'tool_input' => ['command' => $command]]);
+      [$exit, , $stderr] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
       $this->assertSame(2, $exit, $command);
       $this->assertStringContainsString('transcript', $stderr, $command);
     }
@@ -69,7 +72,10 @@ final class GuardTranscriptTest extends WorkflowTestCase {
       "jq -r '.type' " . self::TRANSCRIPT,
       'wc -l ' . self::TRANSCRIPT,
     ] as $command) {
-      [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_name' => 'Bash', 'tool_input' => ['command' => $command]]);
+      [$exit, , $stderr] = $this->guard($root, 'operator-commands', [
+        'tool_name' => 'Bash',
+        'tool_input' => ['command' => $command],
+      ]);
       $this->assertSame(0, $exit, $command . ': ' . $stderr);
     }
   }
@@ -80,7 +86,10 @@ final class GuardTranscriptTest extends WorkflowTestCase {
   public function testTheHomeSpellingIsRefused(): void {
     $root = $this->rootWithRun('code');
     $command = 'echo x >> ~/.claude/projects/-Users-someone-Projects-site/abc.jsonl';
-    [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_name' => 'Bash', 'tool_input' => ['command' => $command]]);
+    [$exit, , $stderr] = $this->guard($root, 'operator-commands', [
+      'tool_name' => 'Bash',
+      'tool_input' => ['command' => $command],
+    ]);
     $this->assertSame(2, $exit, $stderr);
   }
 
@@ -100,9 +109,12 @@ final class GuardTranscriptTest extends WorkflowTestCase {
   /**
    * Other JSONL files, in the project or elsewhere, are not transcripts.
    */
-  public function testOtherJsonlIsNotATranscript(): void {
+  public function testOtherJsonlIsNoTranscript(): void {
     $root = $this->rootWithRun('code');
-    [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_name' => 'Bash', 'tool_input' => ['command' => 'echo x >> /tmp/notes/projects/run.jsonl']]);
+    [$exit, , $stderr] = $this->guard($root, 'operator-commands', [
+      'tool_name' => 'Bash',
+      'tool_input' => ['command' => 'echo x >> /tmp/notes/projects/run.jsonl'],
+    ]);
     $this->assertSame(0, $exit, $stderr);
   }
 
