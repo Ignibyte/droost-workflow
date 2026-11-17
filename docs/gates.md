@@ -50,7 +50,10 @@ gate but `wiki_fresh` on the documentation it writes. A run
 freezes its flow's table as `phase_gates` when it begins. The same two
 levels default `scope: ticket` on phpcs, phpstan, phpunit and playwright: the
 analysers read the files the run changed, and the suites run the test files
-it added or changed, the Playwright CLI handed those specs. The files the run
+it added or changed, the Playwright CLI handed those specs (a spec is a file
+inside the project's Playwright test directory, so a Vitest `*.test.jsx`
+elsewhere is not handed over: [What counts as a Playwright
+spec](configuration.md#asking-about-tests-at-plan)). The files the run
 declared by name (`declare-changes --files=…`) are read too, so work
 committed before the run opened (a closed PR re-run under a new layer) is
 in scope once declared; a declared directory widens nothing. A project's own

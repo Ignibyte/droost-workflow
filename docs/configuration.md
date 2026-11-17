@@ -374,6 +374,26 @@ was declined (deleting one is fine). `browser_checked` holds code until the
 guard's diary shows a browser tool call in that phase, whatever was chosen
 about saving it.
 
+**What counts as a Playwright spec.** A file named like one (`*.spec.ts`,
+`*.test.jsx`, …) inside the project's Playwright test directory. A Vitest
+test carries the same name, so the directory decides: a `*.test.jsx` under a
+module's `js/src/` belongs to the project's own Vitest gate, never to
+`spec_chosen` or the browser gate (F-402). The directory is
+`gates.playwright.test_dir` when set (comma-separated, relative to the
+project), else the `testDir` in the project's `playwright.config.*` (a string,
+or `path.join(__dirname, '…')`). With neither, with `testDir: '.'`, or with a
+`testDir` droost cannot read as text, every file with a spec's name counts, as
+before. Set `test_dir` when the config's `testDir` is the project root and
+`testMatch` picks the specs out:
+
+```yaml
+gates:
+  playwright: { test_dir: 'tests/e2e, docroot/modules/custom/my_module/tests/Playwright' }
+```
+
+`spec_chosen`, the subject code's gates are bound to, and the browser gate's
+ticket scope and its count all read this one definition.
+
 ### Unknown keys are errors
 
 A loader that shrugs at `phpstain:` hands back a run with static analysis

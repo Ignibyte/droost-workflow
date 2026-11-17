@@ -193,9 +193,13 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   public const TICKET_SCOPED = ['phpcs', 'phpstan', 'eslint', 'stylelint', 'prettier', 'phpunit', 'playwright'];
 
   /**
-   * A browser spec file, by the names Playwright discovers.
+   * A browser spec's file name, by the names Playwright discovers.
+   *
+   * The name only: a Vitest test carries the same one. Whether a file IS one
+   * of the project's specs is BrowserSpecs::isSpec(), which also reads where
+   * the project keeps them (F-402).
    */
-  public const SPEC_FILE = '/\.(spec|test)\.[cm]?[jt]sx?$/';
+  public const SPEC_FILE = BrowserSpecs::NAME;
 
   /**
    * Where a Drupal site's own code lives inside its docroot.
@@ -353,7 +357,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     if ($gate->name === 'playwright' && preg_match_all('#›\s+([^\s›]+\.spec\.[cm]?[jt]sx?):\d+#u', $this->lastStdout, $files) > 0) {
       $ran = array_values(array_unique($files[1]));
     }
-    return $this->withScopeNote($gate, $this->withSubjects($gate, $projectRoot, $this->withLastOutput($result)), $ran);
+    return $this->withScopeNote($gate, $projectRoot, $this->withSubjects($gate, $projectRoot, $this->withLastOutput($result)), $ran);
   }
 
   /**
@@ -473,9 +477,11 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $options['paths'] = implode(',', array_map(static fn (string $f): string => self::relativeTo($f, $under), $mine));
     }
     else {
-      $mine = array_values(array_filter($files, $gate->name === 'playwright'
-        ? static fn (string $f): bool => preg_match(self::SPEC_FILE, $f) === 1
-        : static fn (string $f): bool => str_ends_with($f, 'Test.php')));
+      // The project's own specs, never a Vitest test by the same name
+      // (F-402): the count in withScopeNote() reads the same definition.
+      $mine = $gate->name === 'playwright'
+        ? BrowserSpecs::of($project, $gate)->among($files)
+        : array_values(array_filter($files, static fn (string $f): bool => str_ends_with($f, 'Test.php')));
       if ($mine === []) {
         $what = $gate->name === 'playwright' ? 'browser spec' : 'unit test';
         if ($gate->option('required') === TRUE) {
@@ -512,6 +518,8 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *
    * @param \Droost\Workflow\Config\GateSettings $gate
    *   The gate's resolved levers, as the runner handed them.
+   * @param string $projectRoot
+   *   The project root.
    * @param \Droost\Workflow\Gate\GateResult $result
    *   The verdict.
    * @param list<string> $ran
@@ -520,7 +528,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    * @return \Droost\Workflow\Gate\GateResult
    *   The verdict, its summary noted.
    */
-  private function withScopeNote(GateSettings $gate, GateResult $result, array $ran = []): GateResult {
+  private function withScopeNote(GateSettings $gate, string $projectRoot, GateResult $result, array $ran = []): GateResult {
     if (!in_array($gate->name, self::TICKET_SCOPED, TRUE) || $gate->option('scope') !== 'ticket' || $result->invocation === NULL || str_contains($result->summary, '(ticket scope')) {
       return $result;
     }
@@ -528,12 +536,13 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       return $result->withSummary($result->summary . ' — ticket scope could not be read (no repository or no base commit), so the full set ran');
     }
     $listed = array_filter(array_map('trim', explode("\n", (string) $gate->option('ticket_files'))));
-    $pattern = match ($gate->name) {
-      'playwright' => self::SPEC_FILE,
-      'phpunit' => '/Test\.php$/',
-      default => '/\.(' . implode('|', self::ANALYSABLE[$gate->name]) . ')$/i',
-    };
-    $count = count(array_filter($listed, static fn (string $f): bool => preg_match($pattern, $f) === 1));
+    if ($gate->name === 'playwright') {
+      $count = count(BrowserSpecs::of($projectRoot, $gate)->among(array_values($listed)));
+    }
+    else {
+      $pattern = $gate->name === 'phpunit' ? '/Test\.php$/' : '/\.(' . implode('|', self::ANALYSABLE[$gate->name]) . ')$/i';
+      $count = count(array_filter($listed, static fn (string $f): bool => preg_match($pattern, $f) === 1));
+    }
     // MORE RAN THAN WAS ASKED FOR (F-226). Playwright runs every project a
     // project depends on, so a changed spec whose project depends on the
     // others runs the whole suite: P8 run 7's one changed spec ran seven,
