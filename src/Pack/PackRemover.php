@@ -165,7 +165,8 @@ final class PackRemover {
     if (!is_file($path)) {
       return NULL;
     }
-    $settings = json_decode((string) file_get_contents($path), TRUE);
+    $raw = (string) file_get_contents($path);
+    $settings = json_decode($raw, TRUE);
     if (!is_array($settings) || !is_array($settings['hooks'] ?? NULL)) {
       return NULL;
     }
@@ -177,8 +178,15 @@ final class PackRemover {
       }
       $keep = [];
       foreach ($entries as $entry) {
-        if (self::isOurGuard($entry)) {
+        // OUR HOOKS OUT OF THE GROUP, NOT THE GROUP (F-484): a hook a
+        // person added under the same matcher is theirs, and stays with
+        // its matcher. A group left with no hook goes.
+        while (($mine = SettingsJson::guardHookIndex($entry)) !== NULL && is_array($entry) && is_array($entry['hooks'] ?? NULL)) {
+          unset($entry['hooks'][$mine]);
+          $entry['hooks'] = array_values($entry['hooks']);
           $changed = TRUE;
+        }
+        if (is_array($entry) && ($entry['hooks'] ?? NULL) === []) {
           continue;
         }
         $keep[] = $entry;
@@ -204,33 +212,9 @@ final class PackRemover {
     if ($settings === []) {
       return @unlink($path) ? $relative : NULL;
     }
-    $encoded = json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    $encoded = SettingsJson::encode($settings, $raw);
 
     return @file_put_contents($path, $encoded) === strlen($encoded) ? $relative : NULL;
-  }
-
-  /**
-   * Whether a settings.json hook entry is one of ours.
-   *
-   * @param mixed $entry
-   *   The entry, whose shape is whatever the file held.
-   *
-   * @return bool
-   *   TRUE when any of its hooks runs this package's guard.
-   */
-  private static function isOurGuard(mixed $entry): bool {
-    if (!is_array($entry)) {
-      return FALSE;
-    }
-    foreach (is_array($entry['hooks'] ?? NULL) ? $entry['hooks'] : [] as $hook) {
-      if (is_array($hook)
-        && is_string($hook['command'] ?? NULL)
-        && PackManifest::guardMode($hook['command']) !== NULL) {
-        return TRUE;
-      }
-    }
-
-    return FALSE;
   }
 
   /**

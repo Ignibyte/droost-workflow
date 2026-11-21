@@ -356,9 +356,29 @@ final class PackMaterializer {
         $existing[] = $entry;
         $hooks[$event] = $existing;
         $changed = TRUE;
+        continue;
       }
-      elseif (self::commandAt($existing, $at) !== $command) {
-        $existing[$at] = $entry;
+      // OUR HOOK IN THE GROUP, NOT THE GROUP (F-484). The whole group was
+      // replaced with ours, so a hook a person had added under the same
+      // matcher was deleted by the next init. Only the hook that runs the
+      // guard is rewritten, and the matcher, which is ours to keep current.
+      $group = is_array($existing[$at]) ? $existing[$at] : [];
+      $mine = SettingsJson::guardHookIndex($group, $mode);
+      $current = $mine === NULL || !is_array($group['hooks'] ?? NULL) || !is_array($group['hooks'][$mine] ?? NULL)
+        ? NULL
+        : ($group['hooks'][$mine]['command'] ?? NULL);
+      if ($mine === NULL || !is_array($group['hooks'] ?? NULL)) {
+        continue;
+      }
+      if ($current !== $command || ($group['matcher'] ?? NULL) !== ($entry['matcher'] ?? NULL)) {
+        $group['hooks'][$mine] = $entry['hooks'][0];
+        if (isset($entry['matcher'])) {
+          $group['matcher'] = $entry['matcher'];
+        }
+        else {
+          unset($group['matcher']);
+        }
+        $existing[$at] = $group;
         $hooks[$event] = $existing;
         $changed = TRUE;
       }
@@ -370,10 +390,9 @@ final class PackMaterializer {
 
     $settings['hooks'] = $hooks;
     $this->makeDirectory(dirname($path), $relative);
-    $encoded = self::inTheFilesIndent(json_encode(
-      $settings,
-      JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES,
-    ) . "\n", $raw);
+    // Through SettingsJson, so `"env": {}` is not written back as `[]`
+    // (F-483).
+    $encoded = self::inTheFilesIndent(SettingsJson::encode($settings, $raw), $raw);
     if (@file_put_contents($path, $encoded) !== strlen($encoded)) {
       throw PackError::unwritable($relative, 'the write did not complete');
     }
@@ -465,34 +484,6 @@ final class PackMaterializer {
       }
     }
     return NULL;
-  }
-
-  /**
-   * The first hook command at a list index, or NULL when the shape is off.
-   *
-   * @param array<array-key, mixed> $entries
-   *   The event's configured entries.
-   * @param int $index
-   *   The index ::guardIndex() returned.
-   *
-   * @return string|null
-   *   The command string on that entry's first hook, or NULL.
-   */
-  private static function commandAt(array $entries, int $index): ?string {
-    $entry = $entries[$index] ?? NULL;
-    if (!is_array($entry)) {
-      return NULL;
-    }
-    $hooks = $entry['hooks'] ?? NULL;
-    if (!is_array($hooks)) {
-      return NULL;
-    }
-    $first = $hooks[0] ?? NULL;
-    if (!is_array($first)) {
-      return NULL;
-    }
-    $command = $first['command'] ?? NULL;
-    return is_string($command) ? $command : NULL;
   }
 
   /**

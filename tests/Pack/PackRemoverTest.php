@@ -95,6 +95,78 @@ final class PackRemoverTest extends WorkflowTestCase {
   }
 
   /**
+   * The user's empty objects stay objects (F-483).
+   *
+   * Decoded as arrays and written back, `"env": {}` became `"env": []`: a
+   * different type, in a file the harness validates. Both init and
+   * uninstall rewrote it that way.
+   */
+  public function testEmptyObjectsInSettingsStayObjects(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/.claude');
+    $settings = $root . '/.claude/settings.json';
+    file_put_contents($settings, "{\n  \"env\": {},\n  \"permissions\": {\"allow\": [], \"extra\": {}},\n  \"model\": \"x\"\n}\n");
+
+    (new PackMaterializer())->init($root);
+    $after = (string) file_get_contents($settings);
+    $this->assertStringContainsString('droost-guard', $after, 'our hooks went in');
+    $this->assertMatchesRegularExpression('/"env": \{\}/', $after, 'init kept the empty object');
+    $this->assertMatchesRegularExpression('/"extra": \{\}/', $after);
+    $this->assertMatchesRegularExpression('/"allow": \[\]/', $after, 'and an empty list is still a list');
+
+    (new PackRemover())->uninstall($root);
+    $after = (string) file_get_contents($settings);
+    $this->assertStringNotContainsString('droost-guard', $after);
+    $this->assertMatchesRegularExpression('/"env": \{\}/', $after, 'uninstall kept it too');
+    $this->assertMatchesRegularExpression('/"allow": \[\]/', $after);
+  }
+
+  /**
+   * A hook the user put in droost's group is the user's (F-484).
+   *
+   * The group was found by any hook in it being ours, then replaced or
+   * removed whole, so a second hook a person added under the same matcher
+   * went with it on the next init or on uninstall.
+   */
+  public function testUsersHookInOurGroupSurvives(): void {
+    $root = $this->makeRoot();
+    (new PackMaterializer())->init($root);
+    $settings = $root . '/.claude/settings.json';
+    $decoded = json_decode((string) file_get_contents($settings), TRUE);
+    $this->assertIsArray($decoded);
+    $this->assertIsArray($decoded['hooks']);
+    $groups = $decoded['hooks']['PreToolUse'];
+    $this->assertIsArray($groups);
+    $this->assertNotSame([], $groups);
+    $mine = ['type' => 'command', 'command' => 'php my-own-linter.php'];
+    $edited = [];
+    foreach ($groups as $group) {
+      $this->assertIsArray($group);
+      $this->assertIsArray($group['hooks']);
+      $ours = $group['hooks'][0];
+      $this->assertIsArray($ours);
+      $this->assertIsString($ours['command']);
+      // Theirs beside ours, and ours made stale so init has to rewrite it.
+      $ours['command'] = str_replace('php "', 'php  "', $ours['command']);
+      $group['hooks'] = [$ours, $mine];
+      $edited[] = $group;
+    }
+    $decoded['hooks']['PreToolUse'] = $edited;
+    file_put_contents($settings, (string) json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+    (new PackMaterializer())->init($root);
+    $body = (string) file_get_contents($settings);
+    $this->assertStringNotContainsString('php  "', $body, 'ours was brought up to date');
+    $this->assertSame(count($edited), substr_count($body, 'my-own-linter.php'), 'init kept theirs in every group');
+
+    (new PackRemover())->uninstall($root);
+    $this->assertFileExists($settings);
+    $body = (string) file_get_contents($settings);
+    $this->assertStringNotContainsString('droost-guard', $body, 'ours are gone');
+    $this->assertSame(count($edited), substr_count($body, 'my-own-linter.php'), 'uninstall kept theirs too');
+  }
+
+  /**
    * The lever file and the run records are KEPT, and the report names them.
    *
    * An uninstaller that deletes the record of past runs is a data-loss bug
