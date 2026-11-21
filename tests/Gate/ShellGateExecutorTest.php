@@ -1043,6 +1043,33 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * A configured path that is not on disk is named as missing (F-453).
+   *
+   * `web/modules/custm` read "the configured paths contain nothing to
+   * analyse", the words for an empty directory, so a typo meant phpcs never
+   * ran again and nothing said why. It stays a labelled pass: a new site has
+   * no `web/themes/custom` yet, and failing on that would stop every first
+   * run. The label says which paths do not exist.
+   */
+  public function testMissingConfiguredPathIsNamedAsMissing(): void {
+    $root = $this->rootWithBinaries(['phpcs']);
+    mkdir($root . '/web/modules/custom', 0755, TRUE);
+    $executor = new ShellGateExecutor(
+      static fn (): array => [0, '', ''],
+      static fn (): int => 0,
+    );
+
+    $typo = $executor->execute(new GateSettings('phpcs', TRUE, ['paths' => 'web/modules/custm,web/modules/custom']), $root);
+    $this->assertSame(GateStatus::Passed, $typo->status);
+    $this->assertStringContainsString('web/modules/custm does not exist', $typo->summary);
+    $this->assertStringNotContainsString('web/modules/custom does not exist', $typo->summary);
+
+    $empty = $executor->execute(new GateSettings('phpcs', TRUE, ['paths' => 'web/modules/custom']), $root);
+    $this->assertStringContainsString('contain nothing to analyse', $empty->summary);
+    $this->assertStringNotContainsString('does not exist', $empty->summary);
+  }
+
+  /**
    * A project that HAS a browser suite and no binary is tool-missing (F-452).
    *
    * The report above is for a project that never installed playwright. One

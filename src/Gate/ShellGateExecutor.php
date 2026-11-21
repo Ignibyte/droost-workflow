@@ -1113,12 +1113,28 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       // empty. A pass that SAYS it analysed nothing is the honest verdict —
       // and it is labeled, so it can never be mistaken for a clean scan.
       $lever = $gate->option('paths');
+      // A path that is not on disk is said to be missing, by name (F-453):
+      // "nothing to analyse" over a misspelt directory reads as an empty
+      // one, and the tool then never runs again. Still a labelled pass. A
+      // new site has no web/themes/custom, and that must not stop a run.
+      $absent = [];
+      foreach (is_string($lever) ? explode(',', $lever) : [] as $path) {
+        if (trim($path) !== '' && !file_exists($root . '/' . trim($path))) {
+          $absent[] = trim($path) . ' does not exist';
+        }
+      }
+      $missing = $absent === [] ? '' : sprintf(
+        ': %s. If that is a misspelling, %s will not run until gates.%s.paths is corrected',
+        implode(', ', $absent),
+        $gate->name,
+        $gate->name,
+      );
       return GateResult::labelledPass(
         $gate->name,
         0,
         0,
         is_string($lever) && $lever !== ''
-          ? sprintf('%s passed — the configured paths (%s) contain nothing to analyse', $gate->name, $lever)
+          ? sprintf('%s passed — the configured paths (%s) contain nothing to analyse%s', $gate->name, $lever, $missing)
           : sprintf('%s passed — the project\'s own code holds no file %s reads, so nothing was analysed', $gate->name, $gate->name),
         $invocation,
       );
