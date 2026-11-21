@@ -103,6 +103,57 @@ final class WikiHeldToTheRunTest extends WorkflowTestCase {
   }
 
   /**
+   * A page the run made stale is not lost behind fifty others (F-450).
+   *
+   * A result keeps fifty findings. The executor lists extensions with no
+   * page first and failing pages after, so on a site with fifty of either
+   * the run's own stale page was cut, and the gate passed.
+   */
+  public function testTheExecutorKeepsEveryRowTheRunnerReads(): void {
+    $pages = [];
+    for ($i = 0; $i < 60; $i++) {
+      $pages[] = [
+        'file' => 'contrib_' . $i . '.md',
+        'status' => 'stale',
+        'stale_sources' => [['path' => 'web/modules/contrib/m' . $i . '/m.info.yml']],
+        'missing_sources' => [],
+      ];
+    }
+    $pages[] = [
+      'file' => self::OWN['page'],
+      'status' => 'stale',
+      'stale_sources' => [['path' => self::OWN['sources']]],
+      'missing_sources' => [],
+    ];
+    $report = json_encode([
+      'summary' => ['pages' => 61, 'fresh' => 0, 'stale' => 61, 'orphaned' => 0, 'invalid' => 0],
+      'uncovered' => array_map(static fn (int $i): string => 'custom_' . $i, range(1, 55)),
+      'pages' => $pages,
+    ]);
+    $method = new \ReflectionMethod(ShellGateExecutor::class, 'wikiResult');
+    $result = $method->invoke(NULL, 1, 5, (string) $report, 'drush droost:wiki:status --format=json');
+
+    $this->assertInstanceOf(GateResult::class, $result);
+    $this->assertContains(self::OWN['page'], array_column($result->findings, 'page'));
+    $this->assertFalse($result->truncated);
+  }
+
+  /**
+   * A list that was cut cannot say the run made no page stale.
+   */
+  public function testCutListHoldsEveryPage(): void {
+    $stale = [];
+    for ($i = 0; $i < 60; $i++) {
+      $stale[] = ['page' => 'contrib_' . $i . '.md', 'sources' => 'web/modules/contrib/m' . $i . '/m.info.yml'];
+    }
+    $stale[] = self::OWN;
+    $wiki = $this->wikiAfter("preset: high\n", $stale, ['web/modules/custom/example_contact/src/Form/ContactForm.php']);
+
+    $this->assertSame(GateStatus::Failed, $wiki->status);
+    $this->assertStringContainsString('held to every page', $wiki->summary);
+  }
+
+  /**
    * The wiki gate's result at complete.
    *
    * @param string $yaml

@@ -331,6 +331,11 @@ final class GateRunner {
       count($found),
       implode('; ', $found),
     );
+    if ($own === [] && $result->truncated) {
+      // The rows read above are the first fifty. The page this run made
+      // unfresh may be the fifty-first, so nothing here can clear the run.
+      return $result->withSummary(rtrim($result->summary, '. ') . ' — held to every page: the list of failing pages was cut, so whether this run made one of them stale is unknown');
+    }
     if ($own === []) {
       return $result->withVerdict(GateStatus::Passed, sprintf(
         'wiki_fresh passed — no page this run changed the sources of is stale, orphaned or invalid%s',

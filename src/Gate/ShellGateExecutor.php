@@ -1806,6 +1806,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         sprintf('wiki_fresh FAILED — %d stale, %d orphaned, %d invalid of %d page(s)%s', $count('stale'), $count('orphaned'), $count('invalid'), $pages, $gap),
         $findings,
         $invocation,
+        whole: TRUE,
       );
     }
     if ($pages === 0) {
@@ -1827,6 +1828,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       sprintf('wiki_fresh passed — %d of %d page(s) fresh%s', $count('fresh'), $pages, $gap),
       $findings,
       $invocation,
+      whole: TRUE,
     );
   }
 
