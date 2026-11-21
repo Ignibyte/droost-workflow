@@ -1725,17 +1725,36 @@ function operator_commands_guard(string $stdin, string $root, string $stateDir):
   // `droost/droost-workflow/`, and P8 run 17's `ls
   // droost/droost-workflow/history/$(ls … | tail -1)` was refused as a droost
   // command built from a substitution (F-246).
-  if (preg_match(
-    '/(?:^|[;&|(]|\s)(?:\S*\/)?(?:drush|droost-workflow)(?![\w\/-])[^;&|\n]*(?:\$\(|`|\$\{)/',
-    operator_commands_unquoted($command),
-  ) === 1) {
+  //
+  // WHERE THE VERB GOES, AND NOWHERE ELSE (F-466, F-481). The rule read "a
+  // substitution anywhere after drush", so `drush uli --uid=$(…)` was refused
+  // as a droost command built from one, and it never named the `droost`
+  // binary, so `droost workflow:$(echo baseline)` ran. What hides a verb is
+  // the command-name word itself carrying a `$` or a backtick, or a word
+  // before it doing so: unquoted, `--uri=$(…)` can expand to the verb. After
+  // the options that carry neither, the next word is that word. A
+  // substitution after it is an argument, and arguments are ordinary work.
+  //
+  // `droost` is also the directory at every project's root, so the bare word
+  // is the program only where a command starts or a runner hands it on; a
+  // path ending bin/droost is the program anywhere.
+  $verbWord = '(?>(?:[ \t]+-[^\s$`;&|]*(?=\s|$))*)[ \t]+[^\s;&|]*[$`]';
+  $unquoted = operator_commands_unquoted($command);
+  $hidden = preg_match(
+    '/(?:^|[;&|(]|\s)(?:(?:\S*\/)?(?:drush|droost-workflow)(?:\.\w+)?(?![\w\/-])|\S*\/bin\/droost(?![\w\/.-]))' . $verbWord . '/m',
+    $unquoted,
+  ) === 1 || preg_match(
+    '/(?:^|[;&|(]|\b(?:ddev|lando|fin)(?:[ \t]+exec)?[ \t]|\b(?:sudo|env|time|command|exec|nohup)[ \t])[ \t]*droost(?![\w\/.-])' . $verbWord . '/m',
+    $unquoted,
+  ) === 1;
+  if ($hidden) {
     guard_refuse('operator-command:substitution',
-      'This command builds a droost command out of a substitution, so what it '
-      . 'actually runs cannot be read here — and the operator-only verbs '
-      . '(bypass, gate-waive, baseline, effort) are '
-      . 'exactly what that hides. Write the command out in full. If you '
-      . 'genuinely need a computed argument, compute it into a variable on its '
-      . 'own line first; it is the VERB that has to be legible.');
+      'This command puts a substitution where the command name of drush or '
+      . 'droost goes, or in a word before it, so which command runs cannot '
+      . 'be read here — and the operator-only verbs (bypass, gate-waive, '
+      . 'baseline, effort) are exactly what that hides. Write the command '
+      . 'name out in full. A computed ARGUMENT after it is fine; it is the '
+      . 'VERB that has to be legible.');
   }
   // Per INVOCATION, from TOKENS. Asking the raw line three different questions
   // let each answer come from a different command: `bypass "hotfix"; echo
@@ -1760,6 +1779,18 @@ function operator_commands_guard(string $stdin, string $root, string $stateDir):
       $tokens,
       static fn (string $token): bool => preg_match('/\s/', $token) !== 1,
     ));
+    // WHAT echo AND printf ARE HANDED IS TEXT, QUOTED OR NOT (F-481). `echo
+    // "droost workflow:bypass x"` was prose by the rule above and `echo
+    // droost workflow:bypass x` was the operator's command, though the shell
+    // runs neither. ONLY ON A LINE THAT HANDS NOTHING ON: with a pipe, a
+    // substitution or an eval anywhere in the command, printed words can
+    // become a command (`echo droost workflow:bypass x | sh` ran it, measured
+    // while writing this), and unquoted they are not re-read the way a
+    // quoted script is. Such a line is judged as it was before.
+    $head = strtolower(basename(ltrim(operator_commands_unwrapped($tokens)[0] ?? '', "\x01")));
+    if (($head === 'echo' || $head === 'printf') && preg_match('/[|`]|\$\(|<\(|\beval\b/', $command) !== 1) {
+      $line = $head;
+    }
     // THE droost COMMAND SPELLS EVERY VERB `droost workflow:<verb>` (droost
     // off Drupal, 2026-10-19), from wherever it is installed
     // (`tools/droost/vendor/bin/droost workflow:bypass`). The verbs below are
@@ -4221,6 +4252,81 @@ function site_tool_judge(?string $tool, ?string $raw, string $said, string $root
 }
 
 /**
+ * Whether every mention of the evidence store in a command is only a word.
+ *
+ * The store's rule is the name, not the verb, and it has to be blunt (see
+ * below). But three places in a command take text and open nothing: the
+ * pattern of a search, the message of a commit, and what echo or printf
+ * print. `grep -rn evidence.sqlite docs/` and `git commit -m "explain
+ * evidence.sqlite"` were refused as reaching the store (F-481).
+ *
+ * Counted, so it fails closed: the name's occurrences in those places must
+ * be all of its occurrences in the command. A path operand, a redirect, a
+ * second command, or anything the tokeniser did not hand back leaves one
+ * over, and the blunt rule answers as before. A line that hands text on
+ * (a pipe, a substitution, eval) is never excused.
+ *
+ * @param string $command
+ *   The command, scanned.
+ *
+ * @return bool
+ *   TRUE when the store is named and not reached.
+ */
+function evidence_store_only_named(string $command): bool {
+  if (preg_match('/[|`]|\$\(|<\(|\beval\b/', $command) === 1) {
+    return FALSE;
+  }
+  $named = 0;
+  foreach (operator_commands_invocations($command) as $tokens) {
+    $words = array_values(operator_commands_unwrapped($tokens));
+    $head = strtolower(basename(ltrim($words[0] ?? '', "\x01")));
+    $rest = array_slice($words, 1);
+    if ($head === 'git') {
+      $head = 'git ' . strtolower($rest[0] ?? '');
+      $rest = array_slice($rest, 1);
+    }
+    $text = [];
+    if (in_array($head, ['grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'git grep'], TRUE)) {
+      // The pattern: each `-e` value, or else the first operand. A pattern
+      // file (`-f`) is a path, so nothing is excused beside one.
+      $operands = [];
+      $patterns = [];
+      $file = FALSE;
+      foreach ($rest as $i => $word) {
+        if ($word === '-e' || $word === '--regexp') {
+          $patterns[] = $rest[$i + 1] ?? '';
+        }
+        elseif ($word === '-f' || str_starts_with($word, '--file')) {
+          $file = TRUE;
+        }
+        elseif (!str_starts_with($word, '-') && !str_starts_with($word, "\x01") && ($rest[$i - 1] ?? '') !== '-e' && ($rest[$i - 1] ?? '') !== '--regexp') {
+          $operands[] = $word;
+        }
+      }
+      $text = $file ? [] : ($patterns !== [] ? $patterns : array_slice($operands, 0, 1));
+    }
+    elseif (in_array($head, ['git commit', 'git tag', 'git notes'], TRUE)) {
+      foreach ($rest as $i => $word) {
+        if ($word === '-m' || $word === '--message') {
+          $text[] = $rest[$i + 1] ?? '';
+        }
+        elseif (str_starts_with($word, '--message=')) {
+          $text[] = substr($word, strlen('--message='));
+        }
+      }
+    }
+    elseif ($head === 'echo' || $head === 'printf') {
+      $text = array_filter($rest, static fn (string $word): bool => !str_starts_with($word, "\x01"));
+    }
+    foreach ($text as $word) {
+      $named += substr_count($word, 'evidence.sqlite');
+    }
+  }
+
+  return $named > 0 && $named === substr_count($command, 'evidence.sqlite');
+}
+
+/**
  * Refuses a shell command that reaches the evidence store or the baseline.
  *
  * The file-path guard covers the editing tools. This covers the other editor
@@ -5016,7 +5122,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     }
   }
 
-  if (preg_match('#evidence\.sqlite#', $command) === 1) {
+  if (preg_match('#evidence\.sqlite#', $command) === 1 && !evidence_store_only_named($command)) {
     guard_refuse('protected-path:evidence-store:shell', sprintf(
       'A shell command in this run reaches the evidence store. That store is the '
       . 'run\'s own record of what droost measured — gate verdicts, which '

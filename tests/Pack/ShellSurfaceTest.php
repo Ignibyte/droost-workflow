@@ -255,6 +255,79 @@ final class ShellSurfaceTest extends WorkflowTestCase {
   }
 
   /**
+   * The verb has to be legible; an argument does not (F-466, F-481).
+   *
+   * The rule refused a substitution anywhere after `drush`, so `drush uli
+   * --uid=$(…)` was "a droost command built from a substitution", and it did
+   * not name the `droost` binary at all, so `droost workflow:$(echo
+   * baseline)` ran. It is the command name that hides an operator verb: a
+   * substitution there, or in a word before it (unquoted, it can expand to
+   * the verb), is refused; one after the verb is an argument.
+   */
+  public function testSubstitutionIsRefusedOnlyWhereTheVerbGoes(): void {
+    $root = $this->lab();
+    foreach ([
+      'droost workflow:$(echo baseline) --status',
+      'v=baseline; droost workflow:$v --status',
+      "droost workflow:\$'baseline' --status",
+      'tools/droost/vendor/bin/droost $(echo workflow:bypass) "x"',
+      'ddev exec vendor/bin/droost `echo workflow:effort` max',
+      'drush --uri=$(echo "x droost:workflow:bypass r") status',
+      'drush ${VERB}',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' hides its verb');
+      $this->assertStringContainsString('command name', $stderr, $command);
+    }
+
+    foreach ([
+      'drush uli --uid=$(drush sqlq "select 1")',
+      'drush status --format=${FMT}',
+      'vendor/bin/droost-workflow status --run=$(cat id)',
+      'droost workflow:status --run=$(cat id)',
+      'droost code:symbol "$(cat name.txt)"',
+      // The directory at every project's root is not the program.
+      'git add droost $(git ls-files -m)',
+      'ls droost $(echo x)',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' names its verb: ' . $stderr);
+    }
+  }
+
+  /**
+   * What echo and printf are handed is text, quoted or not (F-481).
+   *
+   * `echo "droost workflow:bypass x"` was prose and `echo droost
+   * workflow:bypass x` was the operator's command, though the shell runs
+   * neither. Only on a line that hands nothing on: piped to a shell,
+   * substituted or evaluated, printed words become a command.
+   */
+  public function testPrintedVerbIsTextUnlessItIsHandedOn(): void {
+    $root = $this->lab();
+    foreach ([
+      'echo droost workflow:bypass hotfix',
+      "printf '%s\\n' droost workflow:gate-waive phpcs",
+      'echo droost workflow:bypass hotfix >> notes.md',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' prints words: ' . $stderr);
+    }
+    foreach ([
+      'echo droost workflow:bypass hotfix | sh',
+      'echo droost workflow:bypass hotfix | bash -s',
+      'sh -c "$(echo droost workflow:bypass x)"',
+      'bash <(echo droost workflow:bypass x)',
+      'eval echo droost workflow:bypass hotfix',
+      'echo droost workflow:bypass hotfix > a.sh; sh a.sh',
+      'echo ok; droost workflow:bypass hotfix',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' runs what it prints');
+    }
+  }
+
+  /**
    * A command whose PROGRAM NAME is a variable is refused, not read past.
    *
    * The master key of round five, and it needed no pre-step. `$runs` asked
