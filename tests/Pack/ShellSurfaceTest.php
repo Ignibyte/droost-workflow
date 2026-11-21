@@ -431,6 +431,78 @@ final class ShellSurfaceTest extends WorkflowTestCase {
   }
 
   /**
+   * A heredoc fed to a shell behind `sudo -u me` is still code (F-509).
+   *
+   * The wrapper list knew an option and not an option's value, so `sudo -u
+   * me bash <<EOF` classified its body as a file's text and dropped it,
+   * verb and all. Found on 2026-11-21 while probing F-477; the comment
+   * above the list named this very spelling as handled.
+   */
+  public function testHeredocBehindWrapperWithValuedOptionIsCode(): void {
+    $root = $this->lab();
+    $verb = "\ndroost workflow:bypass x\nEOF";
+    foreach (['sudo -u me bash <<EOF', 'sudo -u www-data -E sh <<EOF', 'env -u HOME bash <<EOF'] as $line) {
+      [$exit] = $this->shell($root, $line . $verb);
+      $this->assertSame(2, $exit, $line . ' feeds a shell');
+    }
+    // A data heredoc behind the same wrapper is still text.
+    [$exit, , $stderr] = $this->shell($root, "sudo -u me tee notes.md <<EOF" . $verb);
+    $this->assertSame(0, $exit, $stderr);
+  }
+
+  /**
+   * A tool call the guard cannot read is not one it lets through (F-477).
+   *
+   * An unpaired surrogate escape is valid to a harness's encoder and not to
+   * PHP's decoder. The payload read as empty, the guard had nothing to
+   * judge, and `echo \ud800; droost workflow:bypass x` ran. Nothing on stdin
+   * is still nothing to judge: that is a hand invocation.
+   */
+  public function testUnreadablePayloadIsRefused(): void {
+    $root = $this->lab();
+    $raw = '{"tool_name":"Bash","tool_input":{"command":"echo \\ud800; droost workflow:bypass x"}}';
+    foreach (['operator-commands', 'pre-tool-use'] as $mode) {
+      [$exit, $stderr] = $this->rawGuard($root, $mode, $raw);
+      $this->assertSame(2, $exit, $mode);
+      $this->assertStringContainsString('could not read this tool call', $stderr, $mode);
+      [$exit] = $this->rawGuard($root, $mode, '');
+      $this->assertSame(0, $exit, $mode . ' with nothing on stdin');
+    }
+  }
+
+  /**
+   * Runs the guard with these exact bytes on stdin.
+   *
+   * @param string $root
+   *   The project root.
+   * @param string $mode
+   *   The guard mode.
+   * @param string $stdin
+   *   The bytes.
+   *
+   * @return array{0: int, 1: string}
+   *   The exit code and stderr.
+   */
+  private function rawGuard(string $root, string $mode, string $stdin): array {
+    $env = getenv();
+    $env['CLAUDE_PROJECT_DIR'] = $root;
+    $process = proc_open(
+      [PHP_BINARY, dirname(__DIR__, 2) . '/pack/hooks/droost-workflow-guard.php', $mode],
+      [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+      $pipes,
+      $root,
+      $env,
+    );
+    $this->assertIsResource($process);
+    fwrite($pipes[0], $stdin);
+    fclose($pipes[0]);
+    stream_get_contents($pipes[1]);
+    $stderr = (string) stream_get_contents($pipes[2]);
+
+    return [proc_close($process), $stderr];
+  }
+
+  /**
    * A command whose PROGRAM NAME is a variable is refused, not read past.
    *
    * The master key of round five, and it needed no pre-step. `$runs` asked

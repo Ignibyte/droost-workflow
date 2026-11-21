@@ -134,6 +134,27 @@ final class GuardContractTest extends WorkflowTestCase {
   }
 
   /**
+   * A wall whose `tools` pattern is not a pattern was never asked (F-477).
+   *
+   * An invalid regular expression matches nothing, so the wall was skipped
+   * for every call and the project believed it had one. It refuses as a
+   * lever file the guard cannot read does, by the wall's name, and lets
+   * through the one write that repairs it.
+   */
+  public function testWallWithBrokenPatternRefuses(): void {
+    $root = $this->project("walls:\n  w: { tools: '^mcp__(x', run: droost/walls/w.php }\n");
+    mkdir($root . '/droost/walls', 0755, TRUE);
+    file_put_contents($root . '/droost/walls/w.php', '<?php exit(0);');
+
+    [$exit, , $stderr] = $this->tool($root, 'mcp__x__do', []);
+    $this->assertSame(2, $exit);
+    $this->assertStringContainsString('wall "w"', $stderr);
+    $this->assertStringContainsString('not a regular expression', $stderr);
+    [$exit] = $this->write($root, 'droost/droost.yml');
+    $this->assertSame(0, $exit, 'the write that repairs it');
+  }
+
+  /**
    * An operator-only script is refused from the agent's shell, however run.
    */
   public function testOperatorOnlyScriptsAreTheOperators(): void {

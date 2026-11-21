@@ -406,6 +406,20 @@ $stdin = (string) stream_get_contents(STDIN);
 // below says so. F-482.) One enforced continuation per stop attempt is the
 // contract, and it is the contract for every branch.
 $payload = json_decode($stdin, TRUE);
+// A CALL THIS CANNOT READ IS NOT ONE IT LETS THROUGH (F-477). An unpaired
+// surrogate escape is valid to a harness's encoder and not to this decoder,
+// so `echo \ud800; droost workflow:bypass x` arrived as a payload that read
+// as empty: nothing to judge, exit 0. Refused in the two modes that stand
+// before a tool call. Nothing on stdin is a hand invocation, and the other
+// modes report after the fact and hold nothing.
+if (!is_array($payload) && trim($stdin) !== '' && in_array($mode, ['pre-tool-use', 'operator-commands'], TRUE)) {
+  guard_refuse('payload:unreadable', sprintf(
+    'droost workflow: the guard could not read this tool call (%s), so it is refused: a call nobody read has not been allowed. '
+    . 'If the command or file holds an unusual character or escape, write it another way. '
+    . 'If every call is refused like this, the harness is not sending the hook JSON; tell the OPERATOR.',
+    json_last_error_msg(),
+  ));
+}
 $payload = is_array($payload) ? $payload : [];
 // TRUTHY, not identical-to-TRUE. Claude Code sends a boolean; this file also
 // documents Codex and a hand-invoked hook as supported callers, and `"true"`,
@@ -1093,8 +1107,13 @@ function operator_commands_scan_text(string $command): string {
   // `sudo -u me bash <<EOF` all classified their bodies as DATA — so the
   // heredoc was dropped and the verb inside it was never seen, while the bare
   // `bash <<EOF` was refused.
+  // AN OPTION MAY TAKE A VALUE (F-509). `sudo -u me bash <<EOF` is the third
+  // spelling named above, and it still read as data: the list knew `-u` and
+  // not the `me` after it, so the body was dropped with a verb in it. One
+  // word after an option is allowed to be its value; when it is the
+  // interpreter instead, the match backs off and takes it as that.
   $interpreter = '/(?:^|[|;&(`]|\$\()\s*'
-    . '(?:(?:' . operator_commands_wrapper_words() . ')\s+(?:-\S+\s+|\S+=\S*\s+|\d+(?:\.\d+)?[smhd]?\s+)*)*'
+    . '(?:(?:' . operator_commands_wrapper_words() . ')\s+(?:-\S+\s+(?:[A-Za-z][\w.-]*\s+)?|\S+=\S*\s+|\d+(?:\.\d+)?[smhd]?\s+)*)*'
     . '(?:' . operator_commands_interpreter_words() . '|tmux|ssh|docker'
     . '|ddev\s+(?:exec|ssh)|lando\s+(?:ssh|exec)|fin\s+(?:exec|ssh)|drush\s+(?:php:?\S*|ev|scr))(?:\s|$)/';
   $lines = preg_split('/\R/', $command) ?: [];
@@ -1141,8 +1160,12 @@ function operator_commands_scan_text(string $command): string {
     // `ddev exec 'ls | head'; cat > p.js <<'EOF'` kept p.js's body as code,
     // because `ddev exec` opened the line, and a JavaScript template string
     // in it read as a backtick substitution around drush.
+    // `!== 0`, NOT `=== 1` (F-477). preg_match() answers FALSE when it
+    // gives up (a backtrack limit, a line too long for it), and FALSE read
+    // as "feeds no interpreter", which drops the body as a file's text. A
+    // question the pattern could not answer keeps the body in the scan.
     if (preg_match('/<<-?\s*([\'"]?)([A-Za-z_][A-Za-z0-9_]*)\1/', $line, $m) !== 1
-      || (preg_match($interpreter, operator_commands_heredoc_pipeline($line)) === 1 && !operator_commands_feeds_code($line))) {
+      || (preg_match($interpreter, operator_commands_heredoc_pipeline($line)) !== 0 && !operator_commands_feeds_code($line))) {
       continue;
     }
     // A data heredoc, or one fed to php, python, perl, node or ruby: skip to
@@ -8817,7 +8840,25 @@ function guard_walls(string $root, array $event, string $harness): void {
     }
   }
   foreach ($rules['walls'] as $id => $wall) {
-    if ($event['tool'] === '' || @preg_match('#' . str_replace('#', '\#', $wall['tools']) . '#', $event['tool']) !== 1) {
+    $named = $event['tool'] === '' ? 0 : @preg_match('#' . str_replace('#', '\#', $wall['tools']) . '#', $event['tool']);
+    if ($named === FALSE) {
+      // A pattern that is not one matches nothing, so this wall was skipped
+      // for every call and the project believed it had one (F-477). As for
+      // a lever file that will not parse: refused, except the write that
+      // repairs it.
+      $target = is_string($event['input']['file_path'] ?? NULL) ? $event['input']['file_path'] : '';
+      if (preg_match('#(^|/)droost/droost\.yml$#', $target) === 1) {
+        continue;
+      }
+      guard_refuse('wall:unreadable', sprintf(
+        'The project\'s wall "%s" names its tools with `%s`, which is not a regular expression, so the wall was never asked and this %s call is refused: a wall that was never asked has not said yes. Fix walls.%s.tools in droost/droost.yml, or tell the OPERATOR.',
+        $id,
+        $wall['tools'],
+        $event['tool'],
+        $id,
+      ));
+    }
+    if ($named !== 1) {
       continue;
     }
     [$exit, $reason] = guard_run_wall($root, $wall['run'], [
