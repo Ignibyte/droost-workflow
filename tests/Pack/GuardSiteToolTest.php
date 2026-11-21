@@ -58,6 +58,59 @@ final class GuardSiteToolTest extends WorkflowTestCase {
   }
 
   /**
+   * Asking a write tool what it takes is reading (F-480).
+   *
+   * The module's skill says to read `help` before a tool's first call, and
+   * plan is when an agent works out what to call. The id alone made it
+   * "changes the site". The three spellings are the module's own
+   * (ToolCommands: help, --help, -h); `--help` on any drush runs nothing.
+   */
+  public function testHelpOfWriteToolIsFreeInPlan(): void {
+    $root = $this->rootWithRun('plan');
+    $asks = [
+      'drush droost:tool droost_entity_create help',
+      'ddev drush droost:tool droost_entity_create help',
+      'drush dtool droost_config_set HELP',
+      'drush droost:tool droost_entity_create --help',
+      'drush droost:tool droost_entity_create -h',
+      'drush tool:run droost_views_compose --help',
+    ];
+    foreach ($asks as $command) {
+      [$exit, , $stderr] = $this->bash($root, $command);
+      $this->assertSame(0, $exit, $command . ': ' . $stderr);
+    }
+    // The word is help only where the arguments go, and alone.
+    $writes = [
+      "drush droost:tool droost_entity_create '{\"title\":\"help\"}'",
+      "drush droost:tool droost_entity_create '{}' help",
+      'drush tool:run droost_views_compose help',
+    ];
+    foreach ($writes as $command) {
+      [$exit] = $this->bash($root, $command);
+      $this->assertSame(2, $exit, $command);
+    }
+  }
+
+  /**
+   * The plan wall for site tools stands at the level the shell's does (F-480).
+   *
+   * `enforcement: off` is the operator saying stay out of the way, and soft
+   * holds nothing; the shell's plan wall refuses at hard only. This one
+   * refused at all three.
+   */
+  public function testPlanWallHonoursTheEnforcementLevel(): void {
+    foreach (['off' => 0, 'soft' => 0, 'hard' => 2] as $level => $expected) {
+      $root = $this->rootWithRun('plan');
+      $record = $root . '/droost/droost-workflow/run.json';
+      $run = json_decode((string) file_get_contents($record), TRUE);
+      $this->assertIsArray($run);
+      file_put_contents($record, (string) json_encode(['enforcement' => $level] + $run));
+      [$exit] = $this->bash($root, "drush droost:tool droost_entity_create '{}'");
+      $this->assertSame($expected, $exit, $level);
+    }
+  }
+
+  /**
    * In code, a write tool runs.
    */
   public function testWriteToolsRunInCode(): void {

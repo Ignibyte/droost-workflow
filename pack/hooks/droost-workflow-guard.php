@@ -3999,6 +3999,42 @@ function site_tool_named(array $tokens): ?string {
 }
 
 /**
+ * Whether one drush invocation only asks what a tool does.
+ *
+ * `drush droost:tool <id> help` prints the tool's description and arguments
+ * and calls nothing (the module's ToolCommands), and `--help` or `-h` on any
+ * drush command prints drush's own help in place of running it. The module's
+ * skill says to read a tool's help before its first call, and plan is when
+ * that happens, so a write tool's id is not a write here (F-480).
+ *
+ * The word counts only where the arguments go, and alone: `help` after the
+ * arguments, or inside them, is not asking.
+ *
+ * @param list<string> $tokens
+ *   One invocation's tokens.
+ *
+ * @return bool
+ *   TRUE when nothing is called.
+ */
+function site_tool_asks_help(array $tokens): bool {
+  $words = array_values(array_map(static fn (string $token): string => ltrim($token, "\x01"), operator_commands_unwrapped($tokens)));
+  foreach ($words as $i => $word) {
+    if (basename($word) !== 'drush') {
+      continue;
+    }
+    $after = array_slice($words, $i + 1);
+    if (in_array('--help', $after, TRUE) || in_array('-h', $after, TRUE)) {
+      return TRUE;
+    }
+    $rest = array_values(array_filter($after, static fn (string $w): bool => !str_starts_with($w, '-')));
+    return in_array($rest[0] ?? '', ['droost:tool', 'dtool'], TRUE)
+      && count($rest) === 3
+      && strtolower($rest[2]) === 'help';
+  }
+  return FALSE;
+}
+
+/**
  * The raw drush php or SQL verb a command runs, or NULL.
  *
  * What the site_tools house rule counts: PHP evaluated in the site, a PHP
@@ -4075,7 +4111,7 @@ function site_raw_verb(array $tokens): ?string {
 function site_tool_guard(string $command, string $root, string $stateDir, array $document): void {
   foreach (operator_commands_invocations($command) as $tokens) {
     $said = implode(' ', array_map(static fn (string $token): string => ltrim($token, "\x01"), $tokens));
-    site_tool_judge(site_tool_named($tokens), site_raw_verb($tokens), $said, $root, $stateDir, $document);
+    site_tool_judge(site_tool_named($tokens), site_raw_verb($tokens), $said, $root, $stateDir, $document, site_tool_asks_help($tokens));
   }
 }
 
@@ -4098,8 +4134,10 @@ function site_tool_guard(string $command, string $root, string $stateDir, array 
  *   The state directory, project-relative.
  * @param array<string, mixed> $document
  *   The run record, or [] when there is none.
+ * @param bool $help
+ *   TRUE when the call only asks what the tool does (site_tool_asks_help()).
  */
-function site_tool_judge(?string $tool, ?string $raw, string $said, string $root, string $stateDir, array $document): void {
+function site_tool_judge(?string $tool, ?string $raw, string $said, string $root, string $stateDir, array $document, bool $help = FALSE): void {
   if ($tool === NULL && $raw === NULL) {
     return;
   }
@@ -4131,14 +4169,17 @@ function site_tool_judge(?string $tool, ?string $raw, string $said, string $root
       }
     }
   }
-  if ($tool === NULL || !in_array($tool, site_tool_write_ids(), TRUE)) {
+  if ($tool === NULL || $help || !in_array($tool, site_tool_write_ids(), TRUE)) {
     return;
   }
   $phase = is_string($document['current_phase'] ?? NULL) ? $document['current_phase'] : NULL;
   $phases = is_array($document['phases'] ?? NULL) ? $document['phases'] : [];
   $status = $phase !== NULL && is_string($phases[$phase] ?? NULL) ? $phases[$phase] : '';
   $live = $phase !== NULL && $status !== 'failed' && $status !== 'passed';
-  if ($live && $phase === 'plan') {
+  // At the level the shell's plan wall stands at (shell_phase_guard()):
+  // hard. Soft holds nothing, and off is the operator saying stay out of
+  // the way; this wall refused at all three (F-480).
+  if ($live && $phase === 'plan' && ($document['enforcement'] ?? 'off') === 'hard') {
     guard_refuse('site-tool:plan', sprintf(
       'droost:workflow:continue: the active run is still in PLAN, and %s '
       . 'changes the site. Write the spec under %s/ and advance the run '
