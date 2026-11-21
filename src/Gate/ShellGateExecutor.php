@@ -1951,12 +1951,16 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       $new = [];
       $inherited = 0;
       $warnings = 0;
+      // Spent down, not asked as a set: a second copy of a recorded finding
+      // has the first one's key, and is debt this run added (F-454).
+      $recorded = $baseline->keyCounts($name);
       foreach ($findings as $finding) {
         if (!$finding['error']) {
           $warnings++;
           continue;
         }
-        if ($baseline->inherits($name, $finding['key'])) {
+        if (($recorded[$finding['key']] ?? 0) > 0) {
+          $recorded[$finding['key']]--;
           $inherited++;
           continue;
         }

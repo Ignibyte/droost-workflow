@@ -23,6 +23,11 @@ final class BaselineWriterTest extends WorkflowTestCase {
   private int $phpcsErrors = 2;
 
   /**
+   * How many times phpcs reports its first error (same rule, same line).
+   */
+  private int $phpcsCopies = 1;
+
+  /**
    * How many findings the fake phpstan generates into its baseline.
    */
   private int $phpstanCount = 2;
@@ -48,6 +53,11 @@ final class BaselineWriterTest extends WorkflowTestCase {
    * Whether the fake infection prints 0.35's summary, which has no MSI line.
    */
   private bool $infectionThreeFive = FALSE;
+
+  /**
+   * Whether infection found nothing to mutate.
+   */
+  private bool $noMutants = FALSE;
 
   /**
    * The root the fake stylelint reports against, when it runs.
@@ -133,6 +143,38 @@ final class BaselineWriterTest extends WorkflowTestCase {
 
     $this->assertArrayNotHasKey('mutation', $measured->skipped);
     $this->assertSame(66, $measured->bill()['mutation'] ?? NULL);
+  }
+
+  /**
+   * An MSI over no mutants is not a floor (F-454).
+   *
+   * Infection prints "MSI: 0%" when it generated no mutants. Recorded, that
+   * is a floor of 0, which every later run meets whatever it kills.
+   */
+  public function testMsiOverNoMutantsIsNotRecorded(): void {
+    $this->noMutants = TRUE;
+    $measured = $this->writer()->measure(WorkflowConfig::load($this->legacyRoot()), $this->legacyRoot());
+
+    $this->assertArrayNotHasKey('mutation', $measured->bill());
+    $this->assertStringContainsString('no mutants', $measured->skipped['mutation'] ?? '');
+  }
+
+  /**
+   * A refresh counts a second copy of a recorded finding as growth (F-454).
+   */
+  public function testRefreshCountsSecondCopyAsGrowth(): void {
+    $root = $this->legacyRoot();
+    $writer = $this->writer();
+    $writer->write($root, $writer->measure(WorkflowConfig::load($root), $root), 'max', 'a');
+
+    $this->phpcsCopies = 2;
+    try {
+      $writer->write($root, $writer->measure(WorkflowConfig::load($root), $root), 'max', 'b', refresh: TRUE);
+      $this->fail('a second copy of a recorded finding was taken as inherited');
+    }
+    catch (BaselineError $e) {
+      $this->assertStringContainsString('phpcs +1', $e->getMessage());
+    }
   }
 
   /**
@@ -389,6 +431,9 @@ final class BaselineWriterTest extends WorkflowTestCase {
                 'column' => 1,
               ];
             }
+            for ($copy = 1; $copy < $this->phpcsCopies; $copy++) {
+              $messages[] = ['column' => 1 + $copy] + $messages[0];
+            }
             $report = json_encode([
               'totals' => ['errors' => count($messages), 'warnings' => 0, 'fixable' => 0],
               'files' => [
@@ -459,6 +504,9 @@ final class BaselineWriterTest extends WorkflowTestCase {
             return [0, sprintf("OK\n  Lines:   %.2f%% (34/100)\n", $this->coverage), ''];
 
           case 'infection':
+            if ($this->noMutants) {
+              return [0, "0 mutations were generated:\n\nMetrics:\n         Mutation Score Indicator (MSI): 0%\n", ''];
+            }
             if ($this->infectionThreeFive) {
               $summary = "3 mutations were generated:\n\nMetrics:\n"
                 . "         Mutation Code Coverage: 100%%\n         Covered Code MSI: %d%%\n";

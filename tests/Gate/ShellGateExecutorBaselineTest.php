@@ -63,6 +63,42 @@ final class ShellGateExecutorBaselineTest extends WorkflowTestCase {
   }
 
   /**
+   * A second copy of an inherited finding is new (F-454).
+   *
+   * The key is the file, the rule, the message and the line's text, so a
+   * line pasted again in the same file has the key of the one the baseline
+   * recorded. The baseline was read as a set, and the copy was inherited:
+   * debt the run added, under a pass that said "0 new".
+   */
+  public function testSecondCopyOfInheritedFindingIsNew(): void {
+    $root = $this->rootWithTools(['vendor/bin/phpcs']);
+    mkdir($root . '/web', 0775, TRUE);
+    file_put_contents($root . '/web/a.php', "<?php\n\$old = 1;\n\$other = 2;\n\$old = 1;\n");
+    $oldKey = FindingKey::of($root, 'web/a.php', 'Drupal.X', 'Old debt', 2);
+    $this->writeBaseline($root, ['phpcs' => ['file' => 'phpcs.json', 'count' => 1]], [
+      'phpcs.json' => json_encode([
+        'v' => 1,
+        'gate' => 'phpcs',
+        'findings' => [
+        ['key' => $oldKey, 'file' => 'web/a.php', 'rule' => 'Drupal.X', 'message' => 'Old debt', 'line' => 2],
+        ],
+      ], JSON_THROW_ON_ERROR),
+    ]);
+    $context = new BaselineContext($this->load($root));
+    $gate = new GateSettings('phpcs', TRUE, ['standard' => 'Drupal']);
+
+    $result = $this->executor([2, $this->phpcsJson($root, [
+      ['Old debt', 'Drupal.X', 2, 'ERROR'],
+      ['Old debt', 'Drupal.X', 4, 'ERROR'],
+    ]), '',
+    ])->executeWithBaseline($gate, $root, $context);
+
+    $this->assertSame(GateStatus::Failed, $result->status);
+    $this->assertSame(1, $result->inherited);
+    $this->assertSame(1, $result->new);
+  }
+
+  /**
    * Phpcs: an inherited error passes with both counts; a new one fails by name.
    */
   public function testPhpcsPartitionsErrorsByKey(): void {

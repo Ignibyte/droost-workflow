@@ -100,6 +100,28 @@ final class Baseline {
   }
 
   /**
+   * How many times each finding key is recorded for a gate.
+   *
+   * A key is the file, the rule, the message and the line's text, so two
+   * identical lines in one file share one. The baseline records each, and a
+   * reader that asks only "is this key recorded" inherits a third copy the
+   * run pasted in (F-454). Callers spend this count down instead.
+   *
+   * @param string $gate
+   *   The gate.
+   *
+   * @return array<string, int>
+   *   Key => how many findings the baseline recorded under it.
+   */
+  public function keyCounts(string $gate): array {
+    $counts = [];
+    foreach ($this->findings($gate) as $finding) {
+      $counts[$finding['key']] = ($counts[$finding['key']] ?? 0) + 1;
+    }
+    return $counts;
+  }
+
+  /**
    * The finding keys recorded for a gate.
    *
    * @param string $gate
