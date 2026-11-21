@@ -3869,6 +3869,7 @@ function shell_phase_guard(
   // tracks it — `getcwd()` is the HOOK's directory, which is not the
   // command's, and a bare filename means something different in each.
   $cwd = rtrim($root, '/');
+  $levers = NULL;
   foreach (operator_commands_invocations($command) as $tokens) {
     $unwrapped = operator_commands_unwrapped($tokens);
     $verb = strtolower(ltrim($unwrapped[0] ?? '', "\x01({"));
@@ -3902,6 +3903,34 @@ function shell_phase_guard(
         . '(/droost:workflow:continue) before building. A shell redirect is '
         . 'the same act as an edit; the wall does not stop at the tool you '
         . 'chose.',
+        $target,
+        $stateDir,
+      ));
+    }
+    // THE VERBS THAT WRITE, WHERE THEY WRITE CUSTOM CODE (F-469). A redirect
+    // was the only write this wall read, so `cp`, `tee`, `sed -i`, `mv`,
+    // `rm` and `git rm` built and unbuilt custom code during plan. The
+    // operands are the ones the no-run wall reads, and the territory is
+    // that wall's too: custom code, inside the project. A redirect is held
+    // everywhere above because it creates a file; these verbs are also how
+    // a scratch file is moved or a cache cleared, and plan may do that.
+    $program = strtolower(basename($verb));
+    foreach (require_run_shell_targets($tokens, $unwrapped, $program) as $target) {
+      if ($target === '' || str_starts_with($target, '/dev/')) {
+        continue;
+      }
+      $absolute = str_starts_with($target, '/') ? $target : $cwd . '/' . $target;
+      if (!guard_inside_project($absolute, $root)
+        || !require_run_covers($root, rtrim($absolute, '/') . '/', $levers ??= require_run_level($root)[1])
+        || plan_exempts($absolute, $root, $stateDir, $document)) {
+        continue;
+      }
+      guard_refuse('plan-wall:shell', sprintf(
+        'droost:workflow:continue: the active run is still in PLAN, and this '
+        . 'command writes, moves or deletes %s, which is custom code. Write '
+        . 'the spec under %s/ and advance the run (/droost:workflow:continue) '
+        . 'before building. A shell command that changes a file is the same '
+        . 'act as an edit; the wall does not stop at the tool you chose.',
         $target,
         $stateDir,
       ));
@@ -3957,7 +3986,7 @@ function require_run_shell_guard(string $command, string $root, string $stateDir
       }
       $absolute = str_starts_with($target, '/') ? $target : $cwd . '/' . $target;
       // Outside the project is no project's custom code.
-      if (!str_starts_with(normalised_path($absolute) . '/', normalised_path(rtrim($root, '/')) . '/')) {
+      if (!guard_inside_project($absolute, $root)) {
         continue;
       }
       // A directory operand (`git rm -r …/tests`, `rm -rf …/custom/acme`)
@@ -3968,6 +3997,32 @@ function require_run_shell_guard(string $command, string $root, string $stateDir
       }
     }
   }
+}
+
+/**
+ * Whether a path a shell command names lies inside the project.
+ *
+ * By the root as it was given and as it resolves: a `cd` is followed with
+ * realpath(), so after one the path is spelled through any link in the
+ * root (`/var` for `/private/var`) and read as outside a root spelled the
+ * other way, which no wall then judged.
+ *
+ * @param string $absolute
+ *   The path, absolute.
+ * @param string $root
+ *   The project root.
+ *
+ * @return bool
+ *   TRUE when it is under the root.
+ */
+function guard_inside_project(string $absolute, string $root): bool {
+  $path = normalised_path($absolute) . '/';
+  foreach (array_unique([rtrim($root, '/'), realpath($root) ?: rtrim($root, '/')]) as $spelling) {
+    if (str_starts_with($path, normalised_path($spelling) . '/')) {
+      return TRUE;
+    }
+  }
+  return FALSE;
 }
 
 /**
