@@ -111,6 +111,36 @@ final class GuardSiteToolTest extends WorkflowTestCase {
   }
 
   /**
+   * A site alias or an option before the command does not hide it (F-470).
+   *
+   * The tool was looked for in the first word after drush, so `drush @self
+   * droost:tool …` and `drush -l https://x droost:tool …` built in plan, and
+   * `vendor/bin/drush.php` was not drush at all.
+   */
+  public function testToolBehindAliasOrOptionIsSeen(): void {
+    $root = $this->rootWithRun('plan');
+    foreach ([
+      "drush @self droost:tool droost_entity_create '{}'",
+      "drush -l https://example.test droost:tool droost_entity_create '{}'",
+      "drush --uri https://example.test dtool droost_config_set '{}'",
+      "drush @prod -y droost:tool droost_entity_delete '{}'",
+      "vendor/bin/drush.php droost:tool droost_entity_create '{}'",
+    ] as $command) {
+      [$exit, , $stderr] = $this->bash($root, $command);
+      $this->assertSame(2, $exit, $command);
+      $this->assertStringContainsString('still in PLAN', $stderr, $command);
+    }
+    foreach ([
+      'drush @self droost:tool droost_entities',
+      'drush @self status',
+      'drush -l https://example.test droost:tool droost_entity_create help',
+    ] as $command) {
+      [$exit, , $stderr] = $this->bash($root, $command);
+      $this->assertSame(0, $exit, $command . ': ' . $stderr);
+    }
+  }
+
+  /**
    * In code, a write tool runs.
    */
   public function testWriteToolsRunInCode(): void {

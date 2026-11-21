@@ -349,6 +349,88 @@ final class ShellSurfaceTest extends WorkflowTestCase {
   }
 
   /**
+   * The guard is not the agent's to call (F-464).
+   *
+   * `droost guard answers` is the mode the harness calls with the human's
+   * answers to a dialog, and it writes the approvals an operator verb is let
+   * through on. Called from a shell it takes what it is handed: `echo
+   * '{…}' | vendor/bin/droost guard answers` wrote an approval nobody gave,
+   * and `workflow:bypass` then ran. Only the installed hook file was named;
+   * the verb and the package's own entry were not.
+   */
+  public function testGuardIsNotCalledByHand(): void {
+    $root = $this->lab();
+    foreach ([
+      "echo '{}' | vendor/bin/droost guard answers",
+      'tools/droost/vendor/bin/droost guard answers < a.json',
+      'ddev exec vendor/bin/droost guard record < a.json',
+      'php vendor/droost/workflow/bin/droost-guard answers --harness=claude < a.json',
+      'vendor/droost/workflow/bin/droost-guard answers < a.json',
+      'php vendor/droost/workflow/pack/hooks/droost-workflow-guard.php answers < a.json',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' calls the guard');
+      $this->assertStringContainsString('runs the guard itself', $stderr, $command);
+    }
+    foreach ([
+      'php -l vendor/droost/workflow/pack/hooks/droost-workflow-guard.php',
+      'grep -n guard vendor/droost/workflow/bin/droost',
+      'vendor/bin/droost code:symbol guard',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' only names it: ' . $stderr);
+    }
+  }
+
+  /**
+   * A line continuation does not hide a verb (F-465).
+   *
+   * The shell deletes a backslash and the newline after it, and the verb
+   * arrived here as a word beginning with a newline, which matched nothing.
+   */
+  public function testLineContinuationDoesNotHideVerb(): void {
+    $root = $this->lab();
+    foreach ([
+      "droost \\\nworkflow:baseline --refresh",
+      "vendor/bin/droost workflow:by\\\npass 'x'",
+      "drush \\\n  droost:workflow:gate-waive phpcs 'x'",
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, json_encode($command) . ' is one line to the shell');
+    }
+    // A heredoc's lines are a file's text, continuation or not.
+    [$exit, , $stderr] = $this->shell($root, "cat > notes.md <<'EOF'\nask for droost \\\nworkflow:bypass\nEOF");
+    $this->assertSame(0, $exit, $stderr);
+  }
+
+  /**
+   * A verb handed to something that runs it later is still the verb (F-467).
+   *
+   * The one pattern every tier asks did not hold the spelling the pack
+   * teaches, `droost workflow:<verb>`, so code, scripts, a git alias and a
+   * trap carried it through.
+   */
+  public function testVerbRunLaterIsStillTheVerb(): void {
+    $root = $this->lab();
+    foreach ([
+      "php -r 'system(\"vendor/bin/droost workflow:baseline --refresh\");'",
+      "python3 -c 'import os; os.system(\"droost workflow:bypass x\")'",
+      "git -c alias.z='!vendor/bin/droost workflow:baseline --refresh' z",
+      "trap 'vendor/bin/droost workflow:bypass x' EXIT",
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' runs the verb');
+    }
+    foreach ([
+      "git -c alias.st='!git status -sb' st",
+      "trap 'rm -f /tmp/x.lock' EXIT",
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' is ordinary: ' . $stderr);
+    }
+  }
+
+  /**
    * A command whose PROGRAM NAME is a variable is refused, not read past.
    *
    * The master key of round five, and it needed no pre-step. `$runs` asked
