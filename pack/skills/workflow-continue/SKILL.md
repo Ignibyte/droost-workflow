@@ -200,8 +200,11 @@ answer, and `options` — the answers worth offering. Present it properly:
   took, or what you would recommend. Say those, and say which option you
   recommend and why. A hold where you relay the question and nothing else
   wastes the operator's turn.
-- Then record the answer — `answer "<what they said>"` — which releases the
-  pause and advances the run. Do not advance a paused run any other way.
+- Then record the answer — `answer "<what they said>"`. A yes releases the
+  pause and advances the run. A no (any option after the first, or "not
+  yet", "keep working", "change the spec") is recorded and the run stays
+  where it is, with a non-zero exit: do what they asked for, then `run`, and
+  the hold is asked again. Do not advance a paused run any other way.
 
 **A human-led run is finished by a human.** `status` shows the run's `lead`.
 In a `human-led` run you may answer the plan, code and test holds when the

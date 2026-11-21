@@ -820,6 +820,18 @@ final class ArgvDispatcher {
     // agent cannot tell "advanced" from "still here" from that, and one ran
     // forty-three identical cycles trying. A held phase is a non-zero exit
     // with the reason on stderr, which is this surface's whole contract.
+    if ($outcome->outcome === Outcome::Blocked && $phase !== NULL && ($outcome->blocked[0]['check'] ?? '') === 'answer_declined') {
+      // The person said no. The run stays, and the surface says whose word
+      // holds it: an advance and a refusal must not print the same line.
+      $this->fail(sprintf(
+        'answered — still at %s, on your word: %s. Nothing advanced. Do what it asks, then '
+        . '`droost workflow:run`: the hold is asked again.',
+        $phase->value,
+        $outcome->blocked[0]['why'],
+      ));
+
+      return self::EXIT_RUN_FAILED;
+    }
     if ($outcome->outcome === Outcome::Blocked && $phase !== NULL) {
       $held = count($outcome->blocked);
       $this->fail(sprintf(
