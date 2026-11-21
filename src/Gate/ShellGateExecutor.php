@@ -1383,6 +1383,38 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       // use, and in the summary so a reader who never opens the findings
       // still sees the size of what passed.
       $counts = $this->phpunitTotals($stdout);
+      $unrun = $counts === NULL ? 0 : $this->phpunitUnrun($stdout);
+      if ($counts !== NULL && $exit === 0 && ($counts['assertions'] === 0 || $unrun >= $counts['tests'])) {
+        // PHPUnit exits 0 when every test was skipped, marked incomplete or
+        // asserted nothing (measured 2026-11-21 against 12.5: "Tests: 2,
+        // Assertions: 0, Skipped: 1, Incomplete: 1." and "… Risky: 2.").
+        // The suite exists and verified nothing, which is what NO TESTS RAN
+        // above means, so it gets the same two verdicts.
+        $what = sprintf(
+          '%d test(s), %d assertion(s), %d skipped or incomplete',
+          $counts['tests'],
+          $counts['assertions'],
+          $unrun,
+        );
+        if ($gate->option('required') === TRUE) {
+          return GateResult::ran(
+            $gate->name,
+            GateStatus::Failed,
+            $exit,
+            $elapsed,
+            'phpunit FAILED — NOTHING WAS VERIFIED (' . $what . '), and this preset requires tests that run (required: true). Make the tests run and assert; a skipped test verifies what a missing one does.',
+            [['key' => 'totals', 'detail' => $counts]],
+            $invocation,
+          );
+        }
+        return GateResult::labelledPass(
+          $gate->name,
+          0,
+          $elapsed,
+          'phpunit passed — NOTHING WAS VERIFIED (' . $what . '). Every test was skipped, incomplete or asserted nothing, so read this as unverified rather than as a pass.',
+          $invocation,
+        );
+      }
       if ($counts !== NULL) {
         return GateResult::ran(
           $gate->name,
@@ -1390,10 +1422,11 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
           $exit,
           $elapsed,
           sprintf(
-            'phpunit %s — %d test(s), %d assertion(s)',
+            'phpunit %s — %d test(s), %d assertion(s)%s',
             $exit === 0 ? 'passed' : 'FAILED',
             $counts['tests'],
             $counts['assertions'],
+            $unrun > 0 ? sprintf(', %d skipped or incomplete', $unrun) : '',
           ),
           [['key' => 'totals', 'detail' => $counts]],
           $invocation,
@@ -2007,6 +2040,32 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     }
 
     return NULL;
+  }
+
+  /**
+   * How many tests the phpunit tail says did not run to a verdict.
+   *
+   * Skipped and incomplete tests are counted; a risky test ran, and is caught
+   * by its assertion count instead.
+   *
+   * @param string $stdout
+   *   Standard output.
+   *
+   * @return int
+   *   Skipped plus incomplete, 0 when the tail names neither.
+   */
+  private function phpunitUnrun(string $stdout): int {
+    if (preg_match('/^Tests: \d+, Assertions: \d+.*$/m', $stdout, $line) !== 1) {
+      return 0;
+    }
+    $unrun = 0;
+    foreach (['Skipped', 'Incomplete'] as $word) {
+      if (preg_match('/\b' . $word . ': (\d+)/', $line[0], $m) === 1) {
+        $unrun += (int) $m[1];
+      }
+    }
+
+    return $unrun;
   }
 
   /**

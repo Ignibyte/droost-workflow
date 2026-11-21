@@ -1043,6 +1043,69 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * A suite that ran nothing is not a suite that passed (F-449).
+   *
+   * Both tails are PHPUnit 12.5's own, captured from a class whose tests are
+   * all skipped or incomplete and from one whose tests assert nothing. Each
+   * exits 0. With `required` neither is a pass: the preset asks for tests
+   * that exist, and a test that was skipped verified what a missing one did.
+   *
+   * @param string $tail
+   *   The runner's output.
+   */
+  #[\PHPUnit\Framework\Attributes\DataProvider('tailsThatVerifiedNothing')]
+  public function testPhpunitThatVerifiedNothingFailsWhenRequired(string $tail): void {
+    $root = $this->rootWithBinaries(['phpunit']);
+    $executor = new ShellGateExecutor(
+      static fn (): array => [0, $tail, ''],
+      static fn (): int => 0,
+    );
+
+    $required = $executor->execute(new GateSettings('phpunit', TRUE, ['required' => TRUE]), $root);
+    $this->assertSame(GateStatus::Failed, $required->status);
+    $this->assertStringContainsString('required', $required->summary);
+
+    // Without the lever it is the labelled pass an empty suite already is.
+    $optional = $executor->execute(new GateSettings('phpunit', TRUE), $root);
+    $this->assertSame(GateStatus::Passed, $optional->status);
+    $this->assertStringContainsString('unverified', $optional->summary);
+  }
+
+  /**
+   * The tails of runs in which no test verified anything.
+   *
+   * @return array<string, array{string}>
+   *   Label => [stdout].
+   */
+  public static function tailsThatVerifiedNothing(): array {
+    return [
+      'every test skipped or incomplete' => [
+        "OK, but there were issues!\nTests: 2, Assertions: 0, Skipped: 1, Incomplete: 1.\n",
+      ],
+      'every test asserted nothing' => [
+        "OK, but there were issues!\nTests: 2, Assertions: 0, Risky: 2.\n",
+      ],
+    ];
+  }
+
+  /**
+   * A suite with some tests skipped still passes on the ones that ran.
+   */
+  public function testPhpunitWithSomeSkippedStillPasses(): void {
+    $root = $this->rootWithBinaries(['phpunit']);
+    $executor = new ShellGateExecutor(
+      static fn (): array => [0, "OK, but there were issues!\nTests: 9, Assertions: 14, Skipped: 3.\n", ''],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('phpunit', TRUE, ['required' => TRUE]), $root);
+
+    $this->assertSame(GateStatus::Passed, $result->status);
+    $this->assertStringContainsString('9 test(s), 14 assertion(s)', $result->summary);
+    $this->assertStringContainsString('3 skipped or incomplete', $result->summary);
+  }
+
+  /**
    * A project root with stub binaries in place.
    *
    * @param list<string> $tools
