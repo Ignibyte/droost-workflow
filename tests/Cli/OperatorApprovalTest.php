@@ -96,6 +96,9 @@ final class OperatorApprovalTest extends WorkflowTestCase {
     $this->approve($root, 'droost workflow:bypass TICKET-2: the READMEs');
     [$exit] = $this->guard($root, 'operator-commands', $bash($run));
     $this->assertSame(0, $exit, 'approved: the guard lets it through, and the CLI spends it');
+    // The diary says WHY it was let through: an operator's verb the agent
+    // ran read `allow, rule: null`, as `ls` does (F-482).
+    $this->assertSame('operator-approved', $this->lastGuardRule($root));
 
     // A baseline write is not gated by the CLI, so the guard spends it.
     $baseline = 'ddev droost workflow:baseline --refresh --grow --reason="phpstan 2.3"';
@@ -147,6 +150,7 @@ final class OperatorApprovalTest extends WorkflowTestCase {
     $this->approve($root, 'droost/bin/arm on');
     [$exit] = $this->guard($root, 'operator-commands', $bash);
     $this->assertSame(0, $exit, 'approved: the script runs');
+    $this->assertSame('operator-approved', $this->lastGuardRule($root));
     [$code] = $this->cli(['approval', '--consume', '--', 'droost/bin/arm', 'on'], $root);
     $this->assertSame(ArgvDispatcher::EXIT_OK, $code, 'and the script spends it');
     [$code] = $this->cli(['approval', '--consume', '--', 'droost/bin/arm', 'on'], $root);
@@ -184,6 +188,22 @@ final class OperatorApprovalTest extends WorkflowTestCase {
     $guard = (string) file_get_contents(dirname(__DIR__, 2) . '/pack/hooks/droost-workflow-guard.php');
     $this->assertStringContainsString("return '" . OperatorApproval::QUESTION . "';", $guard);
     $this->assertStringContainsString('$row[\'at\'] >= $now - ' . OperatorApproval::TTL, $guard);
+  }
+
+  /**
+   * The rule on the guard's latest diary row.
+   *
+   * @param string $root
+   *   The project root.
+   *
+   * @return string|null
+   *   The rule, or NULL when the row names none or there is no row.
+   */
+  private function lastGuardRule(string $root): ?string {
+    $rows = @file($this->stateDir($root) . '/guard-calls.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    $last = json_decode((string) end($rows), TRUE);
+
+    return is_array($last) && is_string($last['rule'] ?? NULL) ? $last['rule'] : NULL;
   }
 
   /**

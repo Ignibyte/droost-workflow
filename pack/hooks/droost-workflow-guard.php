@@ -399,10 +399,12 @@ $stdin = (string) stream_get_contents(STDIN);
 // honour `stop_hook_active` fires a hundred lines earlier: an unparsable
 // run.json. It did not honour it, and that made the refusal terminal — Claude
 // was made to continue once, tried to stop again, and got the same exit 2, for
-// ever. A hook that can never be satisfied is not enforcement, it is a hang,
-// and the remedy it prints (`reset --force`) is an OPERATOR command the stuck
-// agent is not allowed to run. One enforced continuation per stop attempt is
-// the contract, and it is the contract for every branch.
+// ever. A hook that can never be satisfied is not enforcement, it is a hang.
+// (This comment used to add that the remedy it prints, `reset --force`, is
+// an operator command the stuck agent may not run. It is not one: the guard
+// lets `droost workflow:reset --force` through, and the require-run message
+// below says so. F-482.) One enforced continuation per stop attempt is the
+// contract, and it is the contract for every branch.
 $payload = json_decode($stdin, TRUE);
 $payload = is_array($payload) ? $payload : [];
 // TRUTHY, not identical-to-TRUE. Claude Code sends a boolean; this file also
@@ -1559,7 +1561,16 @@ function operator_commands_writes_script_inner(string $command, string $path): s
   // and a copy the files they read, and an in-place edit leaves the file as
   // it is plus whatever its expression puts in, which is judged whole.
   // Anything else (a download, a program's output) is not known here.
-  foreach (operator_commands_invocations(operator_commands_scan_text($command)) as $tokens) {
+  // TOKENISED ONCE PER COMMAND (F-478). This is asked once for every word a
+  // runner might be running as a script, and it tokenised the whole command
+  // each time: `ddev exec` with 1,000 words took the guard 56 seconds, long
+  // past any hook's timeout. The answer depends on the path; the tokens do
+  // not. Every call here runs under operator_commands_writes_script()'s
+  // re-entry flag, so the tokens are the same ones each time.
+  static $tokenised = [];
+  $key = hash('xxh128', $command);
+  $tokenised[$key] ??= operator_commands_invocations(operator_commands_scan_text($command));
+  foreach ($tokenised[$key] as $tokens) {
     [$bare] = operator_commands_strip_wrappers($tokens);
     $words = array_values(array_filter($bare, static fn (string $t): bool => !str_starts_with($t, "\x01")));
     $head = strtolower(basename($words[0] ?? ''));
@@ -1926,6 +1937,9 @@ function operator_commands_guard(string $stdin, string $root, string $stateDir):
     // that one as it lets it through.
     $approval = guard_approval_command($tokens);
     if ($approval !== NULL && guard_approval_open($root, $stateDir, $approval, $which === 'baseline')) {
+      // Said in the diary (F-482): an operator's verb the agent ran, by a
+      // yes in the dialog, read `allow, rule: null`, as `ls` does.
+      $GLOBALS['workflow_guard_rule'] = 'operator-approved';
       continue;
     }
     $words = array_map(static fn (string $w): string => preg_quote($w, '/'), explode(' ', $which));
@@ -8953,6 +8967,7 @@ function guard_operator_only(string $command, string $root, string $stateDir): v
         $at = array_search($word, $plain, TRUE);
         $approval = guard_approval_normalise($relative . ' ' . implode(' ', array_slice($plain, $at === FALSE ? count($plain) : $at + 1)));
         if (guard_approval_open($root, $stateDir, $approval, FALSE)) {
+          $GLOBALS['workflow_guard_rule'] = 'operator-approved';
           continue 2;
         }
         guard_refuse('operator-only', sprintf(

@@ -328,6 +328,27 @@ final class ShellSurfaceTest extends WorkflowTestCase {
   }
 
   /**
+   * A long command is answered before a hook times out (F-478).
+   *
+   * Each word a runner is handed may be a script it runs, and the check for
+   * "does this command write that script first" tokenised the whole command
+   * for every word. `ddev exec` with 1,000 words took 56 seconds; it takes
+   * under half a second. The bound here is loose on purpose: it tells
+   * quadratic from linear on a slow machine, not one build from another.
+   */
+  public function testLongCommandIsAnsweredInTime(): void {
+    $root = $this->lab();
+    $command = 'ddev exec ' . implode(' ', array_fill(0, 1000, 'a'));
+
+    $started = microtime(TRUE);
+    [$exit, , $stderr] = $this->shell($root, $command);
+    $took = microtime(TRUE) - $started;
+
+    $this->assertSame(0, $exit, $stderr);
+    $this->assertLessThan(10.0, $took, sprintf('1,000 words took %.1fs', $took));
+  }
+
+  /**
    * A command whose PROGRAM NAME is a variable is refused, not read past.
    *
    * The master key of round five, and it needed no pre-step. `$runs` asked
