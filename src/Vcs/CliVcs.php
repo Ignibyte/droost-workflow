@@ -177,7 +177,11 @@ final class CliVcs implements VcsInterface, RefResolverInterface, AddedFilesInte
       // tree stops being exempt and an honest diff is reported as scope creep.
       // A committed path containing a newline is worse: splitting on `\R`
       // invents two paths out of one, neither of which exists.
-      [$exit, $stdout] = $this->git($projectRoot, ['diff', '--name-only', '-z', $base]);
+      // `--relative` (F-492): the project's own files, by its own paths. A
+      // project in `site/` was answered `site/web/a.php` and a sibling
+      // project's `other/b.txt`, relative to the repository's top (measured
+      // against git 2.50). At the top it changes nothing.
+      [$exit, $stdout] = $this->git($projectRoot, ['diff', '--name-only', '-z', '--relative', $base]);
       // A failed diff (an unreachable base) is unknown: returning only the
       // working tree read as "no committed changes", and every ticket-scoped
       // gate lost them without a word (S4-13).
@@ -203,27 +207,48 @@ final class CliVcs implements VcsInterface, RefResolverInterface, AddedFilesInte
     // Under `-z` the records are NUL-separated and never quoted, and a RENAME
     // emits the new path then the old one as a second field — so the old path
     // is consumed rather than parsed as a record of its own.
+    // `-- .` keeps the answer to the project, and the paths still come back
+    // from the repository's top (`--porcelain` has no relative form), so the
+    // project's prefix is asked for and taken off (F-492).
     [$exit, $stdout] = $this->git(
       $projectRoot,
-      ['status', '--porcelain', '-z', '--untracked-files=all'],
+      ['status', '--porcelain', '-z', '--untracked-files=all', '--', '.'],
     );
-    if ($exit === 0) {
-      $records = explode("\0", $stdout);
-      $count = count($records);
-      for ($i = 0; $i < $count; $i++) {
-        $line = $records[$i];
-        if (strlen($line) < 4) {
-          continue;
-        }
-        $status = substr($line, 0, 2);
-        $path = substr($line, 3);
-        // R and C carry their source as the NEXT field; the path above is the
-        // one that exists now, which is the one a diff is about.
-        if (str_contains($status, 'R') || str_contains($status, 'C')) {
-          $i++;
-        }
-        if ($path !== '') {
+    // A status that fails is unknown, as a failed diff is. It was skipped,
+    // and every uncommitted and untracked file dropped out of the answer.
+    if ($exit !== 0) {
+      return NULL;
+    }
+    $working = [];
+    $records = explode("\0", $stdout);
+    $count = count($records);
+    for ($i = 0; $i < $count; $i++) {
+      $line = $records[$i];
+      if (strlen($line) < 4) {
+        continue;
+      }
+      $status = substr($line, 0, 2);
+      $path = substr($line, 3);
+      // R and C carry their source as the NEXT field; the path above is the
+      // one that exists now, which is the one a diff is about.
+      if (str_contains($status, 'R') || str_contains($status, 'C')) {
+        $i++;
+      }
+      if ($path !== '') {
+        $working[] = $path;
+      }
+    }
+    if ($working !== []) {
+      [$exit, $stdout] = $this->git($projectRoot, ['rev-parse', '--show-prefix']);
+      $prefix = trim($stdout);
+      // One line ending in a slash, or the project is the repository's top.
+      $prefix = $exit === 0 && preg_match('#^[^\0\n]+/$#', $prefix) === 1 ? $prefix : '';
+      foreach ($working as $path) {
+        if ($prefix === '') {
           $files[] = $path;
+        }
+        elseif (str_starts_with($path, $prefix)) {
+          $files[] = substr($path, strlen($prefix));
         }
       }
     }

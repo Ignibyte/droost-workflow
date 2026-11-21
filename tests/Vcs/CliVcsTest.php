@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Droost\Workflow\Tests\Vcs;
 
 use Droost\Workflow\Tests\WorkflowTestCase;
+use Droost\Workflow\Cli\CliProcess;
 use Droost\Workflow\Vcs\CliVcs;
 
 /**
@@ -89,17 +90,72 @@ final class CliVcsTest extends WorkflowTestCase {
       'web/themes/custom/t/t.css',
     ], $files, 'sorted, deduplicated, renames by their new name');
     $this->assertSame(
-      ['git', '-C', '/repo', 'diff', '--name-only', '-z', 'abc123'],
+      ['git', '-C', '/repo', 'diff', '--name-only', '-z', '--relative', 'abc123'],
       $seen[0],
       '-z here too: --name-only quotes any path git considers unusual, and the
       leading quote then breaks every prefix match downstream',
     );
     $this->assertSame(
-      ['git', '-C', '/repo', 'status', '--porcelain', '-z', '--untracked-files=all'],
+      ['git', '-C', '/repo', 'status', '--porcelain', '-z', '--untracked-files=all', '--', '.'],
       $seen[1],
       '-z, because --porcelain quotes any path containing a space and nothing '
       . 'downstream strips the quotes',
     );
+  }
+
+  /**
+   * A project inside a repository gets its own files, by its own paths (F-492).
+   *
+   * Run against real git: for a project in `site/`, the diff answered
+   * `site/web/a.php` and the sibling project's `other/b.txt`, relative to
+   * the repository's top. Every path the gates were handed was one that
+   * does not exist under the project, and another project's change was
+   * this run's.
+   */
+  public function testNestedProjectGetsItsOwnFilesByItsOwnPaths(): void {
+    $top = sys_get_temp_dir() . '/dwf-nested-' . bin2hex(random_bytes(6));
+    mkdir($top . '/site/web', 0755, TRUE);
+    mkdir($top . '/other', 0755, TRUE);
+    $git = static function (string $command) use ($top): string {
+      exec('cd ' . escapeshellarg($top) . ' && git -c user.email=t@example.test -c user.name=t ' . $command . ' 2>&1', $out, $exit);
+      self::assertSame(0, $exit, $command . ': ' . implode("\n", $out));
+      return trim(implode("\n", $out));
+    };
+    $git('init -q .');
+    file_put_contents($top . '/site/web/a.php', "1\n");
+    file_put_contents($top . '/other/b.txt', "1\n");
+    $git('add -A');
+    $git('commit -qm base');
+    $base = $git('rev-parse HEAD');
+    file_put_contents($top . '/site/web/a.php', "2\n");
+    file_put_contents($top . '/other/b.txt', "2\n");
+    $git('commit -qam change');
+    file_put_contents($top . '/site/web/new.php', "x\n");
+    file_put_contents($top . '/other/new.txt', "y\n");
+
+    $vcs = new CliVcs(CliProcess::run(...));
+    $this->assertSame(['web/a.php', 'web/new.php'], $vcs->changedFiles($top . '/site', $base));
+    $this->assertSame(['web/new.php'], $vcs->changedFiles($top . '/site', NULL));
+    // At the top of the repository nothing changes: every path, as it was.
+    $this->assertSame(
+      ['other/b.txt', 'other/new.txt', 'site/web/a.php', 'site/web/new.php'],
+      $vcs->changedFiles($top, $base),
+    );
+    exec('rm -rf ' . escapeshellarg($top));
+  }
+
+  /**
+   * A status that fails is unknown, as a diff that fails is (F-492).
+   *
+   * It was skipped, so the answer was the committed diff alone and every
+   * uncommitted and untracked file dropped out of the run's changes.
+   */
+  public function testFailedStatusIsUnknown(): void {
+    $vcs = new CliVcs(static function (array $argv): array {
+      return in_array('status', $argv, TRUE) ? [128, '', 'fatal: index file corrupt'] : [0, "a.php\0", ''];
+    });
+
+    $this->assertNull($vcs->changedFiles('/repo', 'abc123'));
   }
 
   /**
@@ -126,7 +182,7 @@ final class CliVcsTest extends WorkflowTestCase {
       return [0, "?? x.php\0", ''];
     });
     $this->assertSame(['x.php'], $vcs->changedFiles('/repo', NULL));
-    $this->assertSame(1, $calls, 'no diff call without a base');
+    $this->assertSame(2, $calls, 'no diff call without a base: the status, and where the project sits (F-492)');
   }
 
   /**
