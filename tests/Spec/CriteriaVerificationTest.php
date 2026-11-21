@@ -129,6 +129,10 @@ final class CriteriaVerificationTest extends WorkflowTestCase {
       ['standing' => 'unverified', 'why' => 'its proof names parity, whose latest verdict in this run is blocked'],
       CriteriaVerification::standing('Parity: FAILS D5', NULL, $store->latestGateStates('r1')),
     );
+    // A placeholder is an unfilled cell, however it reached this far (F-457).
+    foreach (['tbd', 'TODO', 'n/a', '—', 'pending'] as $unfilled) {
+      $this->assertSame('unverified', CriteriaVerification::standing($unfilled, NULL, [])['standing'], $unfilled);
+    }
     $this->assertSame('verified', CriteriaVerification::standing('the non-parity layout', NULL, ['parity' => 'blocked'])['standing'], 'a word, not a substring');
     $this->assertSame('unverified', CriteriaVerification::standing('component_lint: 45 pass', NULL, ['custom:component_lint' => 'unblocked'])['standing'], 'a custom gate by its own name');
     // F-375: prose about the product is not the gate.

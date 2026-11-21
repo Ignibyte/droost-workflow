@@ -233,6 +233,17 @@ class RunStateStoreTest extends WorkflowTestCase {
         $valid(['mode_override' => 'banana']),
         'unknown mode_override "banana"',
       ],
+      // Read as Off, the guard stood down on a word nobody chose (F-457).
+      'unknown enforcement word' => [
+        $valid(['enforcement' => 'strict']),
+        'unknown enforcement "strict"',
+      ],
+      // A run with no current phase is a finished one: with a phase still
+      // active the record lost the field, and the run is not over (F-457).
+      'no current phase while one is active' => [
+        $valid(['phases' => ['plan' => 'passed', 'code' => 'active'], 'current_phase' => NULL]),
+        'current_phase is missing while code is active',
+      ],
       'unknown current phase' => [
         $valid(['current_phase' => 'nope']),
         'unknown current_phase "nope"',

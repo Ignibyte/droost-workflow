@@ -135,7 +135,9 @@ final class CriteriaVerification {
    */
   public static function standing(?string $verifiedBy, ?string $outcome, array $gateStates): array {
     $by = trim((string) $verifiedBy);
-    if ($by === '') {
+    // One list of what an unfilled cell looks like, the spec's own: "tbd"
+    // is no more a proof here than it is in the criteria table (F-457).
+    if (SpecContract::isPlaceholder($by)) {
       return ['standing' => 'unverified', 'why' => NULL];
     }
     if ($outcome !== NULL && $outcome !== 'proven') {
