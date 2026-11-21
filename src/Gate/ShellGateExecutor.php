@@ -1824,9 +1824,19 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         'eslint' => FindingParsers::eslint($stdout, $root),
         default => FindingParsers::stylelint($report, $root),
       };
-      if ($findings === [] && $exit !== 0 && $this->phpcsTotals($stdout) === NULL && trim($report) !== '' && !str_starts_with(trim($report), '[') && !str_starts_with(trim($report), '{')) {
-        // Non-zero with no machine output: the tool did not run to a report.
-        return NULL;
+      // A TOOL THAT DID NOT REACH A REPORT HAS NOTHING TO PARTITION (F-447).
+      // This asked for SOME output that was not JSON before it gave up, so a
+      // tool that printed nothing at all (out of memory, a fatal on stderr),
+      // or half a report, had no findings and was recorded "passed — 0 new,
+      // 0 inherited". Non-zero with a report that does not decode is the
+      // exit code's verdict, whatever was or was not printed.
+      if ($findings === [] && $exit !== 0) {
+        $decoded = $name === 'phpcs'
+          ? $this->phpcsTotals($stdout) !== NULL
+          : is_array(json_decode(trim($name === 'stylelint' ? $report : $stdout), TRUE));
+        if (!$decoded) {
+          return NULL;
+        }
       }
       $new = [];
       $inherited = 0;

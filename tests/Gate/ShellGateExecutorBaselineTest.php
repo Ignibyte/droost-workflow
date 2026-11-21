@@ -27,6 +27,42 @@ final class ShellGateExecutorBaselineTest extends WorkflowTestCase {
   private array $argv = [];
 
   /**
+   * A tool that died is not "0 new" (F-447).
+   *
+   * With a baseline, a non-zero exit was partitioned against whatever the
+   * tool printed. A tool that printed nothing (out of memory, a fatal on
+   * stderr) or half a report had no findings to partition, and the gate
+   * recorded "passed — 0 new, 0 inherited".
+   */
+  public function testCrashedToolIsNotCleanAgainstBaseline(): void {
+    $root = $this->rootWithTools(['vendor/bin/phpcs']);
+    mkdir($root . '/web', 0775, TRUE);
+    file_put_contents($root . '/web/a.php', "<?php\n\$old = 1;\n");
+    $oldKey = FindingKey::of($root, 'web/a.php', 'Drupal.X', 'Old debt', 2);
+    $this->writeBaseline($root, ['phpcs' => ['file' => 'phpcs.json', 'count' => 1]], [
+      'phpcs.json' => json_encode([
+        'v' => 1,
+        'gate' => 'phpcs',
+        'findings' => [
+        ['key' => $oldKey, 'file' => 'web/a.php', 'rule' => 'Drupal.X', 'message' => 'Old debt', 'line' => 2],
+        ],
+      ], JSON_THROW_ON_ERROR),
+    ]);
+    $context = new BaselineContext($this->load($root));
+    $gate = new GateSettings('phpcs', TRUE, ['standard' => 'Drupal']);
+
+    $died = [
+      'nothing printed' => [255, '', 'PHP Fatal error: Allowed memory size exhausted'],
+      'half a report' => [2, '{"totals":{"errors":3,"warn', ''],
+    ];
+    foreach ($died as $how => $outcome) {
+      $result = $this->executor($outcome)->executeWithBaseline($gate, $root, $context);
+      $this->assertNotSame(GateStatus::Passed, $result->status, $how);
+      $this->assertStringNotContainsString('0 new', $result->summary, $how);
+    }
+  }
+
+  /**
    * Phpcs: an inherited error passes with both counts; a new one fails by name.
    */
   public function testPhpcsPartitionsErrorsByKey(): void {
