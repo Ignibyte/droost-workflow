@@ -78,6 +78,39 @@ final class OperatorApprovalTest extends WorkflowTestCase {
   }
 
   /**
+   * An option a verb does not take stops it; it is not ignored (F-488).
+   *
+   * `baseline --staus` wrote a baseline, and `uninstall --dry-run`, `reset
+   * --force --dry-run` and `effort low --dry-run` each did for real what the
+   * person asked to rehearse. On a verb that changes state an unknown
+   * option is a misuse, named, and nothing is done.
+   */
+  public function testUnknownOptionOnVerbThatChangesStateIsRefused(): void {
+    $root = $this->wiredRoot();
+    $cases = [
+      [['baseline', '--staus'], '--staus'],
+      [['uninstall', '--dry-run'], '--dry-run'],
+      [['reset', '--force', '--dry-run'], '--dry-run'],
+      [['effort', 'low', '--dry-run'], '--dry-run'],
+      [['bypass', 'a reason', '--dry-run'], '--dry-run'],
+    ];
+    foreach ($cases as [$argv, $option]) {
+      [$code, $out] = $this->cli($argv, $root);
+      $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code, implode(' ', $argv));
+      $this->assertStringContainsString('does not take ' . $option, $out, implode(' ', $argv));
+      $this->assertStringContainsString('nothing was done', $out, implode(' ', $argv));
+    }
+    $this->assertFileExists($root . '/.claude/settings.json');
+    $this->assertDirectoryDoesNotExist($root . '/droost/baseline');
+
+    // The options each does take are still taken.
+    foreach ([['baseline', '--status'], ['effort', 'low', '--preview'], ['bypass', '--off']] as $argv) {
+      [, $out] = $this->cli($argv, $root);
+      $this->assertStringNotContainsString('does not take', $out, implode(' ', $argv));
+    }
+  }
+
+  /**
    * Another command, a decline, a stale approval or unwired hooks take nothing.
    */
   public function testOnlyThatCommandFreshAndApproved(): void {

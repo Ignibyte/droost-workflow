@@ -1516,6 +1516,9 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function reset(string $projectRoot, array $argv): int {
+    if ($this->unknownOption('reset', $argv, ['--force'])) {
+      return self::EXIT_USAGE;
+    }
     $force = in_array('--force', $argv, TRUE);
     $facade = $this->facade($projectRoot);
     $archived = $facade->reset($projectRoot, $force);
@@ -1539,9 +1542,8 @@ final class ArgvDispatcher {
    *
    * `--status` and `--measure` are read-only and anyone's to ask. A write
    * (first, or `--refresh`, or `--refresh --grow --reason=…`) is the
-   * operator's act; this surface has no terminal check of its own because it
-   * IS the operator's terminal — the pack guard is what refuses the agent's
-   * shell.
+   * operator's act, and takes a terminal or the dialog's approval as bypass
+   * does (F-460). It used to have no check of its own.
    *
    * @param string $projectRoot
    *   The repository.
@@ -1552,6 +1554,10 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function baseline(string $projectRoot, array $argv): int {
+    $takes = ['--status', '--measure', '--refresh', '--grow', '--reason', '--commit', '--from-here'];
+    if ($this->unknownOption('baseline', $argv, $takes)) {
+      return self::EXIT_USAGE;
+    }
     $flags = array_slice($argv, 1);
     if (in_array('--status', $flags, TRUE)) {
       $this->say($this->encode($this->facade($projectRoot)->baselineStatus($projectRoot)));
@@ -1605,6 +1611,9 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function uninstall(string $projectRoot, array $argv): int {
+    if ($this->unknownOption('uninstall', $argv, [])) {
+      return self::EXIT_USAGE;
+    }
     if (!$this->operatorTerminal() && !$this->approvedInSession($projectRoot, $argv)) {
       $this->fail($this->noTerminalRefusal('uninstall', $argv));
       return self::EXIT_USAGE;
@@ -1625,6 +1634,9 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function bypass(string $projectRoot, array $argv): int {
+    if ($this->unknownOption('bypass', $argv, ['--off'])) {
+      return self::EXIT_USAGE;
+    }
     $flags = array_slice($argv, 1);
     $facade = $this->facade($projectRoot);
     // Clearing re-arms the wall. A tightening needs no operator terminal,
@@ -1722,6 +1734,9 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function effort(string $projectRoot, array $argv): int {
+    if ($this->unknownOption('effort', $argv, ['--preview'])) {
+      return self::EXIT_USAGE;
+    }
     $flags = array_slice($argv, 1);
     $level = '';
     foreach ($flags as $flag) {
@@ -2108,6 +2123,45 @@ final class ArgvDispatcher {
     $result = $relay->flush();
     $this->say($this->encode($result));
     return $result['pending'] === 0 ? self::EXIT_OK : self::EXIT_RUN_FAILED;
+  }
+
+  /**
+   * Refuses an option a state-changing verb does not take (F-488).
+   *
+   * Options were read by asking "is --x among the arguments", so one the
+   * verb did not know was never looked at: `baseline --staus` wrote a
+   * baseline, and `uninstall --dry-run` uninstalled. On a verb that changes
+   * state, an option nobody reads is a misuse, and nothing is done.
+   *
+   * @param string $verb
+   *   The verb.
+   * @param list<string> $argv
+   *   The verb and its arguments.
+   * @param list<string> $known
+   *   The options it takes, without a value (`--reason`, not `--reason=`).
+   *
+   * @return bool
+   *   TRUE when one was unknown and the refusal was printed.
+   */
+  private function unknownOption(string $verb, array $argv, array $known): bool {
+    foreach (array_slice($argv, 1) as $word) {
+      if (!str_starts_with($word, '--') || $word === '--') {
+        continue;
+      }
+      $name = explode('=', $word, 2)[0];
+      if (in_array($name, $known, TRUE)) {
+        continue;
+      }
+      $this->fail(sprintf(
+        'droost workflow:%s does not take %s, so nothing was done. It takes: %s.',
+        $verb,
+        $name,
+        $known === [] ? 'no options' : implode(', ', $known),
+      ));
+      return TRUE;
+    }
+
+    return FALSE;
   }
 
   /**
