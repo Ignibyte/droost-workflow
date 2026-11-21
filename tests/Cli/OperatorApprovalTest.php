@@ -44,6 +44,40 @@ final class OperatorApprovalTest extends WorkflowTestCase {
   }
 
   /**
+   * Three more verbs carry a human's decision (F-459, F-460, F-461).
+   *
+   * Taking the guard out, rewriting the baseline of inherited debt, and
+   * moving a run to agentic each loosen what holds the agent, and each ran
+   * from a shell with no terminal and no yes: the usage and docs/guard.md
+   * said every operator command refuses there. They take the same two
+   * proofs bypass takes, a terminal or the dialog's approval, so the person
+   * can say yes without leaving the session. What only reads, or tightens,
+   * asks for nothing.
+   */
+  public function testVerbsThatLoosenNeedTheSameProof(): void {
+    $root = $this->wiredRoot();
+    foreach ([['uninstall'], ['baseline', '--refresh'], ['baseline'], ['swap', 'agentic']] as $argv) {
+      $command = OperatorApproval::command($argv);
+      [$code, $out] = $this->cli($argv, $root);
+      $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code, $command . ': no terminal, no approval');
+      $this->assertStringContainsString(OperatorApproval::question($command), $out, $command);
+    }
+    $this->assertFileExists($root . '/.claude/settings.json', 'the refused uninstall removed nothing');
+
+    foreach ([['baseline', '--status'], ['baseline', '--measure'], ['swap', 'interactive']] as $argv) {
+      [, $out] = $this->cli($argv, $root);
+      $this->assertStringNotContainsString("operator's command", $out, implode(' ', $argv) . ' asks for nothing');
+    }
+
+    foreach ([['swap', 'agentic'], ['baseline', '--refresh'], ['uninstall']] as $argv) {
+      $command = OperatorApproval::command($argv);
+      $this->approve($root, $command);
+      [, $out] = $this->cli($argv, $root);
+      $this->assertStringNotContainsString("operator's command", $out, $command . ': approved, it is let past the check');
+    }
+  }
+
+  /**
    * Another command, a decline, a stale approval or unwired hooks take nothing.
    */
   public function testOnlyThatCommandFreshAndApproved(): void {
@@ -100,13 +134,21 @@ final class OperatorApprovalTest extends WorkflowTestCase {
     // ran read `allow, rule: null`, as `ls` does (F-482).
     $this->assertSame('operator-approved', $this->lastGuardRule($root));
 
-    // A baseline write is not gated by the CLI, so the guard spends it.
+    // A baseline write is gated by the CLI as bypass is (F-460), so the CLI
+    // spends the approval and the guard only reads it. The guard used to
+    // spend it, when nothing behind it asked.
     $baseline = 'ddev droost workflow:baseline --refresh --grow --reason="phpstan 2.3"';
+    $argv = ['baseline', '--refresh', '--grow', '--reason=phpstan 2.3'];
+    $this->assertSame('droost workflow:baseline --refresh --grow --reason=phpstan 2.3', OperatorApproval::command($argv));
     $this->approve($root, 'droost workflow:baseline --refresh --grow --reason=phpstan 2.3');
     [$exit] = $this->guard($root, 'operator-commands', $bash($baseline));
     $this->assertSame(0, $exit, 'approved baseline write');
+    [, $out] = $this->cli($argv, $root);
+    $this->assertStringNotContainsString("operator's command", $out, 'the CLI takes the approval the guard left');
+    [$code] = $this->cli($argv, $root);
+    $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code, 'and spent it: a second write needs a second yes');
     [$exit] = $this->guard($root, 'operator-commands', $bash($baseline));
-    $this->assertSame(2, $exit, 'the guard spent it: a second write needs a second yes');
+    $this->assertSame(2, $exit, 'which the guard sees too');
   }
 
   /**

@@ -264,7 +264,7 @@ final class ArgvDispatcher {
         'declare-note' => $this->declareNote($projectRoot, $argv),
         'reset' => $this->reset($projectRoot, $argv),
         'baseline' => $this->baseline($projectRoot, $argv),
-        'uninstall' => $this->uninstall($projectRoot),
+        'uninstall' => $this->uninstall($projectRoot, $argv),
         'bypass' => $this->bypass($projectRoot, $argv),
         'gate-waive' => $this->gateWaive($projectRoot, $argv),
         'effort' => $this->effort($projectRoot, $argv),
@@ -926,6 +926,14 @@ final class ArgvDispatcher {
       ));
       return self::EXIT_USAGE;
     }
+    // TO AGENTIC IS A LOOSENING (F-461): it clears the question the run is
+    // waiting on and runs the rest without stopping, and starting a run that
+    // way already needs the operator's proof. To interactive is a tightening
+    // and needs nobody's.
+    if ($mode === Mode::Agentic && !$this->operatorTerminal() && !$this->approvedInSession($projectRoot, $argv)) {
+      $this->fail($this->noTerminalRefusal('swap', $argv));
+      return self::EXIT_USAGE;
+    }
     $this->facade($projectRoot)->swap($projectRoot, $mode);
     $this->say('swapped to ' . $mode->value);
     return self::EXIT_OK;
@@ -1553,6 +1561,16 @@ final class ArgvDispatcher {
       $this->say($this->encode($this->facade($projectRoot)->baselineMeasure($projectRoot)));
       return self::EXIT_OK;
     }
+    // A WRITE IS THE OPERATOR'S (F-460). The usage and docs/guard.md said
+    // every operator command refuses without a terminal, and this one did
+    // not: only the guard stood before it, so on a host with no hook an
+    // agent rewrote the inherited debt it is measured against. The guard
+    // used to spend the approval because nothing here asked; it reads it
+    // now and this spends it, as for bypass.
+    if (!$this->operatorTerminal() && !$this->approvedInSession($projectRoot, $argv)) {
+      $this->fail($this->noTerminalRefusal('baseline', $argv));
+      return self::EXIT_USAGE;
+    }
     $reason = NULL;
     foreach ($flags as $flag) {
       if (str_starts_with($flag, '--reason=')) {
@@ -1574,13 +1592,23 @@ final class ArgvDispatcher {
   /**
    * Takes the pack back out.
    *
+   * The operator's (F-459): it takes the guard's hooks out of the harness,
+   * and it ran from an agent's shell with no terminal and no yes. The same
+   * two proofs bypass takes.
+   *
    * @param string $projectRoot
    *   The repository.
+   * @param list<string> $argv
+   *   The verb and its arguments, for the approval.
    *
    * @return int
    *   The exit code.
    */
-  private function uninstall(string $projectRoot): int {
+  private function uninstall(string $projectRoot, array $argv): int {
+    if (!$this->operatorTerminal() && !$this->approvedInSession($projectRoot, $argv)) {
+      $this->fail($this->noTerminalRefusal('uninstall', $argv));
+      return self::EXIT_USAGE;
+    }
     $this->say($this->facade($projectRoot)->uninstall($projectRoot)->summary());
     return self::EXIT_OK;
   }

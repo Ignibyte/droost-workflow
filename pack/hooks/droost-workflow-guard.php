@@ -2006,10 +2006,11 @@ function operator_commands_guard(string $stdin, string $root, string $stateDir):
     // operator who followed it was refused as the agent is.
     // APPROVED IN THE SESSION (owner, 2026-10-30): a human said yes to this
     // exact command in the dialog. droost's CLI spends the approval for the
-    // verbs it gates; a baseline write it does not gate, so the guard spends
-    // that one as it lets it through.
+    // verbs it gates, and since F-460 a baseline write is one of them: the
+    // guard used to spend that one as it let it through, which would now
+    // leave the CLI nothing to take.
     $approval = guard_approval_command($tokens);
-    if ($approval !== NULL && guard_approval_open($root, $stateDir, $approval, $which === 'baseline')) {
+    if ($approval !== NULL && guard_approval_open($root, $stateDir, $approval, FALSE)) {
       // Said in the diary (F-482): an operator's verb the agent ran, by a
       // yes in the dialog, read `allow, rule: null`, as `ls` does.
       $GLOBALS['workflow_guard_rule'] = 'operator-approved';
