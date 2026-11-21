@@ -1139,8 +1139,10 @@ final class EvidenceStore {
    */
   public function stillGreen(string $runId, string $phase, string $name, string $subjectHash): bool {
     $statement = $this->connection()->prepare(
+      // The gate's rows only: a recorded run shares the gate's name, counts
+      // its attempts on its own, and is fingerprinted another way (F-458).
       'SELECT state, subject_hash FROM check_result
-        WHERE run_id = ? AND phase = ? AND name = ?
+        WHERE run_id = ? AND phase = ? AND name = ? AND kind = \'gate\'
         ORDER BY attempt DESC LIMIT 1'
     );
     $statement->execute([$runId, $phase, $name]);

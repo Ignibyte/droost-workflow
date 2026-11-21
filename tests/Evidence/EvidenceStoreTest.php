@@ -93,6 +93,29 @@ final class EvidenceStoreTest extends TestCase {
   }
 
   /**
+   * A green is the GATE's latest verdict, not a recorded run's (F-458).
+   *
+   * `droost workflow:specs` keeps each run of a suite as a `recorded_run`
+   * row under the gate's name, numbered on its own and fingerprinted
+   * another way. Asked without the kind, the newest attempt was the
+   * recorded run's, and the report printed EXPIRED over code that had not
+   * moved since the gate passed it.
+   */
+  public function testGreenIsNotReadFromRecordedRun(): void {
+    $store = new EvidenceStore($this->root);
+    $store->record('r1', 'test', new CheckRecord(
+      'gate', 'playwright', CheckState::Satisfied, Fault::None, 'passed', NULL, 'the-gates-fingerprint',
+    ));
+    foreach (['first', 'second'] as $run) {
+      $store->record('r1', 'test', new CheckRecord(
+        'recorded_run', 'playwright', CheckState::Recorded, Fault::None, $run, NULL, 'the-specs-fingerprint',
+      ));
+    }
+
+    $this->assertTrue($store->stillGreen('r1', 'test', 'playwright', 'the-gates-fingerprint'));
+  }
+
+  /**
    * A green expires by itself when the code it was green about moves.
    *
    * This is the difference between droost determining something is green and
