@@ -241,7 +241,8 @@ gates:
   # hash is frozen when a run begins, and the guard refuses an edit to it
   # while a run is under way. Uncomment to use:
   # gitleaks:     { phase: code, run: droost/gates/gitleaks.php, mode: report }
-  # config_clean: { phase: test, cmd: "drush config:status --format=json" }
+  # (drush exits 0 with drift, so the grep is what fails this one)
+  # config_clean: { phase: test, cmd: "drush config:status 2>&1 | tee /dev/stderr | grep -q 'No differences'" }
   # The older spelling under `custom:` still loads:
   # custom:
   #   semgrep: { on: true, phase: code, cmd: "semgrep scan --error --quiet" }
