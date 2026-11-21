@@ -39,11 +39,68 @@ handing back a command the operator can run:
 | a script `operator_only` names | — |
 
 The pattern is the same in each row: the reading and the tightening are the
-agent's, the loosening is not. An agent that needs one proposes it — the
-refusal prints the exact command to hand over, and the operator runs it in a
-terminal of their own, outside the agent's session. Not with Claude Code's
-`!`: it runs a command with no terminal, so the command refuses it as it
-refuses the agent (F-256).
+agent's, the loosening is not. An agent that needs one asks for it, and the
+person says yes **where they are**: the refusal gives the agent a question
+to put through AskUserQuestion, word for word, the guard records the answer
+the dialog returned, and that one command then runs once (the approval lasts
+30 minutes and is spent on use). A terminal of the operator's own is the
+other proof, for a host with no dialog. Not Claude Code's `!`: it runs a
+command with no terminal, so the command refuses it as it refuses the agent
+(F-256).
+
+**Three more verbs take the same two proofs, in the command itself.**
+`droost workflow:uninstall` (it takes the guard's hooks out), a baseline
+write, and `droost workflow:swap agentic` (it clears the question a run is
+waiting on) refuse from a shell with no terminal and no approval, and say
+what to ask. `swap interactive` tightens and asks for nothing.
+
+**The guard is not for typing.** `droost guard <verb>`, the package's
+`bin/droost-guard` and the script itself are what a harness calls, with its
+own record of the session. Run from the agent's shell they are refused:
+handed a payload, the guard writes the approvals and the tool-call record a
+run is judged on. `php -l` on it is a syntax check and stays open.
+
+**What a tool call has to be, to be read.** A substitution is refused only
+in the command-name word of `drush`, `droost` or `droost-workflow`, or in a
+word before it; after the verb it is an argument (`drush uli --uid=$(…)`).
+What `echo` and `printf` are handed is text, unless the line pipes,
+substitutes or evaluates it. Naming `evidence.sqlite` in a search pattern, a
+commit message or printed text is not reaching it. A tool's `help` (`drush
+droost:tool <id> help`) is reading in every phase. A call the guard cannot
+parse is refused, not let through.
+
+## Known limits
+
+The guard reads a command before it runs, and no reading of a shell string
+decides what it will do. It stops the ordinary route and makes the
+deliberate one visible; the evidence store's digest chain and the seeker
+are what catch the rest. These are known, and left, because each remedy
+either refuses commands people type every day or makes the guard parse
+more, which is where its false refusals have come from. One seen in a real
+run is reopened.
+
+- **The rule files are ordinary files while no run is open** (F-471). That
+  is when a person asks their agent to change them.
+- **The state directory can be removed wholesale** by `git clean -fdx`,
+  `git stash -a` or an archive extracted over it (F-473). Refusing those
+  would stop ordinary work.
+- **Scripts the guard does not open** (F-468): three levels of one script
+  calling another, a script under `vendor/`, one holding a NUL byte.
+- **Writes the plan wall does not read** (F-469, the half left): `git
+  checkout <rev> -- path`, `patch`, `curl -o`, `find -delete`, and code
+  that builds a path in pieces.
+- **A project gate file changed during a run keeps its verdict**, with a
+  note on it (F-451). The guard refuses the agent's edit; the change that
+  is left is a person correcting their own file.
+- **An unknown `droost_*` site tool is read as a reading tool** (F-482).
+  The list of writing tools is kept by id and was checked against the
+  module's 54 tools on 2026-11-21.
+- **The terminal check is `stream_isatty`**, which a pseudo-terminal
+  satisfies (F-462), and **`guardWired()` reads the settings file**, not
+  whether the guard ran this session (F-463). Both take an agent going out
+  of its way, which the seeker's discipline lens is there to see.
+- F-472, F-474, F-475 and F-476 in the 2026-11-21 audit are of the same
+  kind and are recorded there.
 
 **Which harnesses are forced.** A harness is forced only when its hooks can
 refuse a tool call before it runs, and only Claude Code has a shim today.
