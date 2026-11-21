@@ -396,6 +396,35 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   }
 
   /**
+   * Whether a changed file is somebody else's code: core, contrib, a vendor.
+   *
+   * It went by the name of any directory on the path, so `packages/core/`
+   * and a module's own `src/contrib/` were left out with Drupal's (F-448),
+   * and a run that changed only such a file was told it had changed none.
+   * `vendor/` and `node_modules/` are third-party wherever they are. Contrib
+   * is `modules|themes|profiles/contrib`. Core is a `core/` directory that
+   * holds Drupal: one with `lib/Drupal.php` in it.
+   *
+   * @param string $project
+   *   The project root.
+   * @param string $file
+   *   The file, relative to it.
+   *
+   * @return bool
+   *   TRUE when an analyser should not be handed it.
+   */
+  private static function isThirdParty(string $project, string $file): bool {
+    if (preg_match('#(^|/)(vendor|node_modules)/#', $file) === 1
+      || preg_match('#(^|/)(modules|themes|profiles)/contrib/#', $file) === 1) {
+      return TRUE;
+    }
+    if (preg_match('#^((?:.*/)?core)/#U', $file, $match) === 1) {
+      return is_file($project . '/' . $match[1] . '/lib/Drupal.php');
+    }
+    return FALSE;
+  }
+
+  /**
    * A gate narrowed to what this run changed, or the verdict that ends it.
    *
    * `scope: ticket` (0.11), with the files the runner read from the
@@ -443,7 +472,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     $files = [];
     foreach (explode("\n", $listed) as $file) {
       $file = trim($file);
-      if ($file === '' || !is_file($project . '/' . $file) || preg_match('#(^|/)(vendor|node_modules|core|contrib)/#', $file) === 1) {
+      if ($file === '' || !is_file($project . '/' . $file) || self::isThirdParty($project, $file)) {
         continue;
       }
       $files[] = $file;

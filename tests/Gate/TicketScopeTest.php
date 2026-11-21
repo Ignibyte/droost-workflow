@@ -244,6 +244,44 @@ class TicketScopeTest extends WorkflowTestCase {
   }
 
   /**
+   * A directory that is only NAMED core or contrib is the project's (F-448).
+   *
+   * Any path with a segment called core, contrib, vendor or node_modules
+   * was left out of the scope, wherever it sat: a changed file under
+   * packages/core/ or in a module's own src/contrib/ was never handed to an
+   * analyser, and alone it read "the run changed no file".
+   */
+  public function testOnlyTheRealCoreAndContribAreLeftOut(): void {
+    $root = $this->project();
+    $files = [
+      'packages/core/src/Foo.php',
+      'web/modules/custom/x/src/contrib/Helper.php',
+      'web/core/lib/Drupal.php',
+      'web/core/modules/node/src/N.php',
+      'web/modules/contrib/y/src/Y.php',
+      'vendor/acme/lib/src/Z.php',
+    ];
+    foreach ($files as $file) {
+      if (!is_dir(dirname($root . '/' . $file))) {
+        mkdir(dirname($root . '/' . $file), 0755, TRUE);
+      }
+      file_put_contents($root . '/' . $file, "<?php\n");
+    }
+    $calls = [];
+    $levers = ['level' => 1, 'scope' => 'ticket', 'ticket_files' => implode("\n", $files)];
+    $gate = new GateSettings('phpstan', TRUE, $levers);
+
+    $this->recording($calls)->execute($gate, $root);
+
+    $this->assertNotSame([], $calls, 'the analyser was handed something');
+    $this->assertContains('packages/core/src/Foo.php', $calls[0]);
+    $this->assertContains('web/modules/custom/x/src/contrib/Helper.php', $calls[0]);
+    foreach (array_slice($files, 2) as $theirs) {
+      $this->assertNotContains($theirs, $calls[0], 'Drupal core, contrib and vendor are never the run\'s');
+    }
+  }
+
+  /**
    * The front-end trio read the changed files they own, and nothing else.
    *
    * Before 0.14.14 the trio ignored `scope`, so from xhigh up eslint,
