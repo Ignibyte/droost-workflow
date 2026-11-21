@@ -1043,6 +1043,29 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * A project that HAS a browser suite and no binary is tool-missing (F-452).
+   *
+   * The report above is for a project that never installed playwright. One
+   * with a committed `playwright.config.*` has a suite; with the binary gone
+   * (a clone before `npm ci`, a deleted `node_modules`) "not installed" let
+   * every phase advance with that suite unrun. It blocks as any other gate
+   * whose tool is missing does, and the remedy is one command.
+   */
+  public function testPlaywrightConfiguredButMissingBlocks(): void {
+    $root = $this->makeRoot();
+    file_put_contents($root . '/playwright.config.ts', "export default {};\n");
+    $executor = new ShellGateExecutor(
+      static fn (): array => [0, '', ''],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('playwright', TRUE, ['required' => TRUE]), $root);
+
+    $this->assertSame(GateStatus::ErrorToolMissing, $result->status);
+    $this->assertStringContainsString('npm ci', (string) $result->remedy);
+  }
+
+  /**
    * A suite that ran nothing is not a suite that passed (F-449).
    *
    * Both tails are PHPUnit 12.5's own, captured from a class whose tests are

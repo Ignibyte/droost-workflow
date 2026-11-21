@@ -1020,6 +1020,16 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       // installed the gate becomes a real wall with `required: true` behind
       // it. A project that never installs it gets an honest line in every
       // record rather than a silent pass or a dead run.
+      if ($gate->name === 'playwright' && self::hasBrowserSuite($root)) {
+        // The exception is for a project that never installed playwright.
+        // One with a committed config has a suite, and it did not run: that
+        // is the environment being broken, as for every other gate (F-452).
+        return GateResult::toolMissing(
+          $gate->name,
+          $invocation,
+          'This project has a Playwright config and no node_modules/.bin/playwright, so its browser suite could not run. Install what the project declares (`npm ci`, then `npx playwright install chromium`), then the phase again.',
+        );
+      }
       if ($gate->name === 'playwright') {
         return GateResult::ran(
           $gate->name,
@@ -1702,14 +1712,34 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   The counts, every key present, or NULL when no epilogue line was found.
    */
   private static function playwrightTotals(string $stdout): ?array {
-    if (preg_match_all('/^\s+(\d+) (passed|failed|flaky|skipped|interrupted|did not run)\b/m', $stdout, $m, PREG_SET_ORDER) === 0) {
-      return NULL;
-    }
     $counts = ['passed' => 0, 'failed' => 0, 'flaky' => 0, 'skipped' => 0, 'interrupted' => 0, 'did not run' => 0];
-    foreach ($m as $line) {
-      $counts[$line[2]] = (int) $line[1];
+    if (preg_match_all('/^\s+(\d+) (passed|failed|flaky|skipped|interrupted|did not run)\b/m', $stdout, $m, PREG_SET_ORDER) > 0) {
+      foreach ($m as $line) {
+        $counts[$line[2]] = (int) $line[1];
+      }
+      return $counts;
     }
-    return $counts;
+    // The json and junit reporters print a document and no epilogue: the
+    // only two built-in ones that do (measured 2026-11-21 against 1.63).
+    // Their totals are read where they keep them, so a project reporting to
+    // either is held to the same all-skipped guard (F-452).
+    $number = static fn (string $in, string $key): ?int => preg_match('/"?\b' . $key . '"?\s*[:=]\s*"?(\d+)/', $in, $n) === 1 ? (int) $n[1] : NULL;
+    $expected = preg_match('/"stats"\s*:\s*\{[^{}]*\}/', $stdout, $stats) === 1 ? $number($stats[0], 'expected') : NULL;
+    if ($expected !== NULL) {
+      $counts['passed'] = $expected;
+      $counts['failed'] = $number($stats[0], 'unexpected') ?? 0;
+      $counts['flaky'] = $number($stats[0], 'flaky') ?? 0;
+      $counts['skipped'] = $number($stats[0], 'skipped') ?? 0;
+      return $counts;
+    }
+    $tests = preg_match('/<testsuites\b[^>]*>/', $stdout, $suites) === 1 ? $number($suites[0], 'tests') : NULL;
+    if ($tests !== NULL) {
+      $counts['failed'] = ($number($suites[0], 'failures') ?? 0) + ($number($suites[0], 'errors') ?? 0);
+      $counts['skipped'] = $number($suites[0], 'skipped') ?? 0;
+      $counts['passed'] = max(0, $tests - $counts['failed'] - $counts['skipped']);
+      return $counts;
+    }
+    return NULL;
   }
 
   /**
@@ -2042,6 +2072,25 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     }
 
     return NULL;
+  }
+
+  /**
+   * Whether the project has committed to a browser suite.
+   *
+   * @param string $root
+   *   The project root.
+   *
+   * @return bool
+   *   TRUE when a Playwright config file is there.
+   */
+  private static function hasBrowserSuite(string $root): bool {
+    foreach (['ts', 'js', 'mts', 'mjs', 'cts', 'cjs'] as $extension) {
+      if (is_file($root . '/playwright.config.' . $extension)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
   /**
