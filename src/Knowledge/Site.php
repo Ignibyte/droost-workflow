@@ -93,7 +93,11 @@ final class Site {
       StoragePaths::index($root),
       $settings->wikiDir(),
       $version === '' ? '' : CoreVersion::major($version),
-      new ModuleDocReader($docroot, new FilesystemModuleLocator($docroot), ScopeClassifier::forAppRoot($docroot)),
+      // The SITE's composer record (F-501). forAppRoot() asks the composer
+      // that loaded this code, and droost lives in a vendor directory of
+      // its own: every module the site installed outside a `contrib`
+      // folder read as custom.
+      new ModuleDocReader($docroot, new FilesystemModuleLocator($docroot), ScopeClassifier::forSite($docroot, $root)),
       $settings,
       $version,
     );
@@ -128,7 +132,7 @@ final class Site {
   }
 
   /**
-   * The code graph, or NULL when there is no index to read.
+   * The code graph, or NULL when there is no finished index to read.
    *
    * @return \Droost\Engine\Search\Graph\CodeGraphStorageInterface|null
    *   The graph; check isReady() before trusting an empty answer.
@@ -138,7 +142,15 @@ final class Site {
       return $this->opened;
     }
     $pdo = $this->pdo();
-    return $pdo === NULL ? NULL : $this->opened = new SqliteCodeGraphStorage($pdo);
+    // BUILT, NOT BEGUN (F-497). The engine's "ready" is "the table exists",
+    // and the tables are made before the first file is read: while
+    // `code:index` ran, or after it was killed, a lookup answered "0
+    // matches" from an index that held nothing yet. The indexer stamps
+    // `indexed_at` as its last act, so no stamp is no index.
+    if ($pdo === NULL || (KnowledgeIndexer::meta($pdo)['indexed_at'] ?? '') === '') {
+      return NULL;
+    }
+    return $this->opened = new SqliteCodeGraphStorage($pdo);
   }
 
   /**

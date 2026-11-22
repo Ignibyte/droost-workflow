@@ -167,6 +167,44 @@ final class PackRemoverTest extends WorkflowTestCase {
   }
 
   /**
+   * A project's own templates and partials are not droost's (F-489).
+   *
+   * `.claude/templates` and `.claude/partials` were claimed whole: a
+   * project that already had either could not run init ("not ours"), and
+   * one that added a file later had a marker saying the directory was
+   * droost's. They are shared, as commands, hooks and agents are.
+   */
+  public function testTemplatesAndPartialsAreShared(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/.claude/templates', 0755, TRUE);
+    mkdir($root . '/.claude/partials', 0755, TRUE);
+    file_put_contents($root . '/.claude/templates/mine.md', "mine\n");
+    file_put_contents($root . '/.claude/partials/mine.md', "mine\n");
+
+    (new PackMaterializer())->init($root);
+    $this->assertFileExists($root . '/.claude/templates/evaluation.md');
+    $this->assertFileDoesNotExist($root . '/.claude/templates/' . PackManifest::SENTINEL);
+
+    (new PackRemover())->uninstall($root);
+    $this->assertFileExists($root . '/.claude/templates/mine.md');
+    $this->assertFileExists($root . '/.claude/partials/mine.md');
+    $this->assertFileDoesNotExist($root . '/.claude/templates/evaluation.md');
+  }
+
+  /**
+   * A marker an earlier droost planted in a shared directory goes with it.
+   */
+  public function testStaleMarkerInSharedDirectoryIsRemoved(): void {
+    $root = $this->makeRoot();
+    (new PackMaterializer())->init($root);
+    file_put_contents($root . '/.claude/templates/' . PackManifest::SENTINEL, "from an earlier droost\n");
+
+    (new PackRemover())->uninstall($root);
+
+    $this->assertDirectoryDoesNotExist($root . '/.claude/templates');
+  }
+
+  /**
    * The lever file and the run records are KEPT, and the report names them.
    *
    * An uninstaller that deletes the record of past runs is a data-loss bug
@@ -202,13 +240,14 @@ final class PackRemoverTest extends WorkflowTestCase {
   public function testTheDirectoryWeDoNotOwnIsKept(): void {
     $root = $this->makeRoot();
     (new PackMaterializer())->init($root);
-    // Strip the sentinel: now it looks like a directory a human made.
-    unlink($root . '/.claude/templates/' . PackManifest::SENTINEL);
+    // Strip the sentinel: now it looks like a directory a human made. (A
+    // skill's directory: templates and partials are shared since F-489.)
+    unlink($root . '/.claude/skills/workflow-plan/' . PackManifest::SENTINEL);
 
     $report = (new PackRemover())->uninstall($root);
 
-    $this->assertDirectoryExists($root . '/.claude/templates');
-    $this->assertContains('.claude/templates', $report->kept);
+    $this->assertDirectoryExists($root . '/.claude/skills/workflow-plan');
+    $this->assertContains('.claude/skills/workflow-plan', $report->kept);
     $this->assertStringContainsString('not this package\'s to remove', $report->summary());
   }
 

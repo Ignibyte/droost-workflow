@@ -21,6 +21,15 @@ final class CockpitHttp {
   public const TIMEOUT = 5;
 
   /**
+   * The most of an answer that is read, in bytes.
+   *
+   * A ticket is a few kilobytes. The body was read to its end whatever its
+   * size, and the timeout above bounds each read, not the answer: a server
+   * that keeps sending held the command for as long as it liked (F-490).
+   */
+  public const MAX_BODY = 2097152;
+
+  /**
    * How a body is encoded: as the run-event log writes a line.
    *
    * So an event goes byte for byte as it was logged.
@@ -87,10 +96,26 @@ final class CockpitHttp {
     // 8.5 and http_get_last_response_headers() exists only from 8.4.
     $raw = FALSE;
     $received = [];
+    $tooMuch = NULL;
     try {
       $stream = @fopen($url, 'r', FALSE, $context);
       if (is_resource($stream)) {
-        $raw = stream_get_contents($stream);
+        // Up to the bound, and by a deadline for the whole answer.
+        $deadline = microtime(TRUE) + 4 * self::TIMEOUT;
+        $raw = '';
+        while (!feof($stream)) {
+          $chunk = fread($stream, 65536);
+          if ($chunk === FALSE) {
+            break;
+          }
+          $raw .= $chunk;
+          if (strlen($raw) > self::MAX_BODY || microtime(TRUE) > $deadline) {
+            $tooMuch = strlen($raw) > self::MAX_BODY
+              ? sprintf('more than %d bytes', self::MAX_BODY)
+              : sprintf('an answer that had not ended after %d s', 4 * self::TIMEOUT);
+            break;
+          }
+        }
         $received = stream_get_meta_data($stream)['wrapper_data'];
         fclose($stream);
       }
@@ -105,6 +130,13 @@ final class CockpitHttp {
       if (is_string($line) && preg_match('#^HTTP/\S+\s+(\d{3})#', $line, $m) === 1) {
         $status = (int) $m[1];
       }
+    }
+    if ($tooMuch !== NULL) {
+      return [
+        'status' => $status,
+        'body' => NULL,
+        'error' => sprintf('%s sent %s, which is not read', self::origin($url), $tooMuch),
+      ];
     }
     if ($raw === FALSE || $status === 0) {
       return ['status' => 0, 'body' => NULL, 'error' => sprintf('nothing answered at %s', self::origin($url))];

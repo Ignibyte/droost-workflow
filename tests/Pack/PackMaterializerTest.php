@@ -85,6 +85,61 @@ class PackMaterializerTest extends WorkflowTestCase {
   }
 
   /**
+   * Init refuses before it writes anything (F-485).
+   *
+   * A settings.json that will not parse was refused where it is merged,
+   * which is after the skills, the lever file and the AGENTS.md block that
+   * says the pipeline is enforced: exit 2, the claim on disk, and no guard
+   * wired. What init cannot finish it does not start.
+   */
+  public function testInitRefusesBeforeItWrites(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/.claude');
+    file_put_contents($root . '/.claude/settings.json', '{ "hooks": ');
+
+    try {
+      (new PackMaterializer())->init($root);
+      $this->fail('a settings file that does not parse was not refused');
+    }
+    catch (PackError $e) {
+      $this->assertStringContainsString('settings.json', $e->getMessage());
+    }
+    $this->assertFileDoesNotExist($root . '/AGENTS.md');
+    $this->assertFileDoesNotExist($root . '/droost/droost.yml');
+    $this->assertDirectoryDoesNotExist($root . '/.claude/skills');
+  }
+
+  /**
+   * An init that died part way is finished by the next one (F-485).
+   *
+   * The marker that says a directory is droost's was planted after every
+   * file was written. An init killed in between left its directories with
+   * no marker, and the next one refused them as somebody else's.
+   */
+  public function testInitFinishesWhatAnInterruptedOneBegan(): void {
+    $root = $this->makeRoot();
+    // Something that stops init after its files are written: the lock's
+    // place taken by a directory.
+    $lock = $root . '/' . RunStateStore::resolveStateDir($root) . '/pack.lock';
+    mkdir($lock, 0755, TRUE);
+    try {
+      (new PackMaterializer())->init($root);
+      $this->fail('init was meant to stop at the lock');
+    }
+    catch (PackError $e) {
+      $this->assertStringContainsString('pack.lock', $e->getMessage());
+    }
+    rmdir($lock);
+
+    (new PackMaterializer())->init($root);
+
+    foreach (PackManifest::ownedDirectories() as $relative) {
+      $this->assertFileExists($root . '/' . $relative . '/' . PackManifest::SENTINEL, $relative);
+    }
+    $this->assertFileExists($root . '/.claude/settings.json', 'and the guard is wired');
+  }
+
+  /**
    * REQ-002: an existing lever file is never overwritten.
    *
    * Version-controlled intent somebody wrote. Re-running init must not
@@ -207,6 +262,37 @@ class PackMaterializerTest extends WorkflowTestCase {
       '.claude/skills/workflow-plan/SKILL.md',
       $report->written,
     );
+  }
+
+  /**
+   * A fresh clone keeps the skills a project customised (F-486).
+   *
+   * What tells a file droost wrote from one a person edited is the lock,
+   * and the lock is in the state directory, which git ignores. On a clone
+   * there is none, and with none nothing counted as changed: init wrote
+   * the shipped file over every customised one. A file that is there,
+   * differs, and that droost cannot show it wrote is kept and named;
+   * `--take-upstream` is how it is replaced.
+   */
+  public function testFreshCloneKeepsCustomisedSkills(): void {
+    $root = $this->makeRoot();
+    $materializer = new PackMaterializer();
+    $materializer->init($root);
+    $skill = '.claude/skills/workflow-plan/SKILL.md';
+    file_put_contents($root . '/' . $skill, "OUR OWN PLAN SKILL\n");
+    // What a clone has: the committed files, and nothing git ignores.
+    exec('rm -rf ' . escapeshellarg($root . '/' . RunStateStore::resolveStateDir($root)));
+
+    $report = $materializer->init($root);
+
+    $this->assertSame("OUR OWN PLAN SKILL\n", file_get_contents($root . '/' . $skill));
+    $this->assertContains($skill, $report->drifted);
+    $this->assertNotContains('.claude/skills/workflow-code/SKILL.md', $report->drifted, 'an untouched file is not drift');
+
+    // Asked for, the shipped file is taken.
+    $taken = $materializer->init($root, [$skill]);
+    $this->assertStringNotContainsString('OUR OWN PLAN SKILL', (string) file_get_contents($root . '/' . $skill));
+    $this->assertContains($skill, $taken->written);
   }
 
   /**

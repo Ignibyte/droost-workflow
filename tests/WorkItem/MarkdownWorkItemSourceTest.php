@@ -97,6 +97,29 @@ final class MarkdownWorkItemSourceTest extends WorkflowTestCase {
   }
 
   /**
+   * A ticket saved with CRLF line endings moves as any other does (F-490).
+   *
+   * It listed, and a run bound it, and its status could never be changed:
+   * the frontmatter's closing fence was looked for at a line's end, and a
+   * line that ends CRLF does not end where that pattern looks. The run
+   * began and the ticket stayed "ready". The line endings are kept.
+   */
+  public function testCrlfTicketMoves(): void {
+    [$dir, $source] = $this->project();
+    $file = $dir . '/open/TICKET-8-windows.md';
+    file_put_contents($file, "---\r\ntitle: W\r\nstatus: ready\r\nticket_number: 8\r\n---\r\n\r\nBody.\r\n");
+
+    $this->assertSame('ready', $source->get('TICKET-8')?->status);
+    $moved = $source->transition('TICKET-8', 'in_progress', 'run started');
+
+    $this->assertSame('in_progress', $moved->status);
+    $this->assertSame(
+      "---\r\ntitle: W\r\nstatus: in_progress\r\nticket_number: 8\r\n---\r\n\r\nBody.\r\n",
+      file_get_contents($file),
+    );
+  }
+
+  /**
    * A write keeps the target's mode, in place and across a move.
    */
   public function testMoveKeepsTheFileMode(): void {

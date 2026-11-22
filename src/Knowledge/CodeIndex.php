@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Knowledge;
 
+use Droost\Engine\Search\Graph\SqliteCodeGraphStorage;
+use Droost\Engine\Search\Storage\SqliteFileManifest;
 use Droost\Workflow\Config\StoragePaths;
 
 /**
@@ -33,12 +35,12 @@ final class CodeIndex {
   /**
    * The symbols table.
    */
-  private const SYMBOLS = 'droost_search_symbol';
+  private const SYMBOLS = SqliteCodeGraphStorage::SYMBOLS;
 
   /**
    * The file manifest table.
    */
-  private const FILES = 'droost_search_file';
+  private const FILES = SqliteFileManifest::TABLE;
 
   /**
    * Constructs a CodeIndex.
@@ -105,6 +107,13 @@ final class CodeIndex {
       if (!in_array(self::SYMBOLS, $names, TRUE)) {
         return new self(NULL, 'unreadable: it holds no symbol table');
       }
+      // FINISHED, NOT BEGUN (F-493, with F-497). The tables are made before
+      // the first file is read, and `none: X` is proven by asking and
+      // getting nothing: an index whose build never completed proved any
+      // name absent. The indexer's stamp is its last act.
+      if ((KnowledgeIndexer::meta($pdo)['indexed_at'] ?? '') === '') {
+        return new self(NULL, 'unfinished: its build never completed; run `droost code:index`');
+      }
     }
     catch (\Throwable $e) {
       return new self(NULL, 'unreadable: ' . $e->getMessage());
@@ -134,7 +143,8 @@ final class CodeIndex {
    *   The name.
    *
    * @return int
-   *   The match count; 0 when there is no index.
+   *   The match count; 0 when there is no index, and -1 when the index was
+   *   asked and could not answer.
    */
   public function symbolMatches(string $needle): int {
     if ($needle === '' || $this->pdo === NULL) {
@@ -165,7 +175,10 @@ final class CodeIndex {
       return is_numeric($n) ? (int) $n : 0;
     }
     catch (\Throwable) {
-      return 0;
+      // NOT ZERO. "The question failed" read as "nothing matched" is what
+      // lets a `none:` claim resolve over an index that could not answer
+      // (F-493). Minus one is neither absent nor found.
+      return -1;
     }
   }
 

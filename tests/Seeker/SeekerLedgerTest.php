@@ -95,6 +95,34 @@ class SeekerLedgerTest extends TestCase {
   }
 
   /**
+   * A finding with a bare pipe in it is refused, whatever its id (F-495).
+   *
+   * An unescaped `|` gives a row a sixth cell. A row whose id reads `F1` was
+   * refused for that; one with any other id (`SEC-1`, `A1`) was dropped
+   * without a word, and a CRITICAL went with it: the ledger read clean. A
+   * row that carries a severity was meant as a finding.
+   */
+  public function testFindingWithBarePipeIsRefusedWhateverItsId(): void {
+    try {
+      SeekerLedger::parse(<<<'MD'
+      ## Seeker Inspection
+
+      Inspector: independent
+
+      | ID | Severity | Location | Finding | Status |
+      |----|----------|----------|---------|--------|
+      | F1 | LOW | src/B.php:2 | A typo in a comment | resolved |
+      | SEC-1 | CRITICAL | src/A.php:1 | It accepts (script|style) unescaped | open |
+      MD);
+      $this->fail('a finding with a bare pipe vanished');
+    }
+    catch (SeekerError $e) {
+      $this->assertStringContainsString('SEC-1', $e->getMessage());
+      $this->assertStringContainsString('escaped', $e->getMessage());
+    }
+  }
+
+  /**
    * A status that is none of the three is refused, not read as settled.
    */
   public function testUnknownStatusIsRefused(): void {

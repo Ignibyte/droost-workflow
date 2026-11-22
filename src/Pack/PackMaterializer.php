@@ -89,6 +89,19 @@ final class PackMaterializer {
     foreach ($owned as $relative) {
       $this->assertOursOrAbsent($root . '/' . $relative, $relative);
     }
+    // EVERY REFUSAL BEFORE THE FIRST WRITE (F-485). A settings.json that
+    // will not parse was refused where it is merged, after the skills, the
+    // lever file and the AGENTS.md block that says the pipeline is
+    // enforced: exit 2, that claim on disk, and no guard wired.
+    $this->assertSettingsCanBeMerged($root);
+    // AND EACH DIRECTORY MARKED AS IT IS MADE. The marker that says a
+    // directory is droost's was planted after every file was written, so
+    // an init killed in between left its directories unmarked and the next
+    // one refused them as somebody else's.
+    foreach ($owned as $relative) {
+      $this->makeDirectory($root . '/' . $relative, $relative);
+      $this->plantSentinel($root . '/' . $relative, $relative);
+    }
 
     // Drift-aware materialisation. pack.lock records the hash of what droost
     // last shipped for each file; a file whose on-disk hash still matches is
@@ -116,15 +129,26 @@ final class PackMaterializer {
         ? $lock[$destination]
         : NULL;
       $to = $root . '/' . $destination;
-      $drifted = $lastShipped !== NULL && is_file($to)
-        && !hash_equals($lastShipped, hash('sha256', (string) file_get_contents($to)));
+      // WITH NO RECORD OF HAVING WRITTEN IT, A FILE THAT DIFFERS IS KEPT
+      // (F-486). The lock is in the state directory, which git ignores, so
+      // a clone has none; with none nothing counted as changed, and init
+      // wrote the shipped file over every skill a project had customised.
+      // Without the lock droost cannot show it wrote the file, so it does
+      // not overwrite it: it is named as drifted, and `--take-upstream`
+      // replaces it.
+      $drifted = is_file($to) && !hash_equals(
+        $lastShipped ?? hash('sha256', $shipped),
+        hash('sha256', (string) file_get_contents($to)),
+      );
       $take = $takeAll || in_array($destination, $takeUpstream, TRUE);
       if ($drifted && !$take) {
         // Edited since droost shipped it, and not named in --take-upstream:
         // keep it, hold the lock at what we last wrote so the next init still
         // sees the edit.
         $report = $report->withDrifted($destination);
-        $newLock[$destination] = $lastShipped;
+        if ($lastShipped !== NULL) {
+          $newLock[$destination] = $lastShipped;
+        }
         continue;
       }
       // Not drifted (refresh), or drifted but --take-upstream said take it.
@@ -173,9 +197,6 @@ final class PackMaterializer {
       @rmdir($root . '/.agents');
     }
     $this->writeLock($root, $newLock);
-    foreach ($owned as $relative) {
-      $this->plantSentinel($root . '/' . $relative, $relative);
-    }
 
     $report = $this->installConfig($root, $report);
     // The one thing a host that is not Claude Code actually receives, and the
@@ -229,19 +250,8 @@ final class PackMaterializer {
   ): InitReport {
     $relative = '.claude/settings.json';
     $path = $root . '/' . $relative;
-    $settings = [];
-    $raw = '';
-    if (is_file($path)) {
-      $raw = (string) file_get_contents($path);
-      $decoded = json_decode($raw, TRUE);
-      if (!is_array($decoded)) {
-        throw PackError::unwritable(
-          $relative,
-          'it exists but is not a JSON object; fix it before init can merge hooks',
-        );
-      }
-      $settings = $decoded;
-    }
+    $settings = $this->assertSettingsCanBeMerged($root);
+    $raw = is_file($path) ? (string) file_get_contents($path) : '';
 
     // Anchor the script to $CLAUDE_PROJECT_DIR, not a bare relative path.
     // Claude Code runs a hook from the invoking tool's cwd, and the agent's
@@ -397,6 +407,35 @@ final class PackMaterializer {
       throw PackError::unwritable($relative, 'the write did not complete');
     }
     return $report->withWritten($relative);
+  }
+
+  /**
+   * The harness settings, decoded, or a refusal when they cannot be merged.
+   *
+   * @param string $root
+   *   The project root.
+   *
+   * @return array<array-key, mixed>
+   *   The settings; [] when the file is not there.
+   *
+   * @throws \Droost\Workflow\Pack\PackError
+   *   When the file exists and is not a JSON object.
+   */
+  private function assertSettingsCanBeMerged(string $root): array {
+    $relative = '.claude/settings.json';
+    $path = $root . '/' . $relative;
+    if (!is_file($path)) {
+      return [];
+    }
+    $decoded = json_decode((string) file_get_contents($path), TRUE);
+    if (!is_array($decoded)) {
+      throw PackError::unwritable(
+        $relative,
+        'it exists but is not a JSON object; fix it before init can merge hooks (nothing was written)',
+      );
+    }
+
+    return $decoded;
   }
 
   /**
@@ -722,9 +761,10 @@ final class PackMaterializer {
   /**
    * Reads the per-file shipped-hash lock, or [] when absent or unreadable.
    *
-   * An unreadable or malformed lock degrades to "no lock" — the next init then
-   * refreshes every file once (the pre-drift-awareness behaviour) and rewrites
-   * a clean lock, rather than refusing.
+   * An unreadable or malformed lock degrades to "no lock", which is also
+   * what a fresh clone has: a file already there that differs from the pack
+   * is then kept and named as drifted, since nothing shows droost wrote it
+   * (F-486). It used to be overwritten.
    *
    * @param string $root
    *   The project root.

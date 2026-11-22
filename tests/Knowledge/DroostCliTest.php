@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Knowledge;
 
+use Droost\Engine\Search\Graph\SqliteCodeGraphStorage;
 use Droost\Workflow\Config\StoragePaths;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Evidence\EvidenceStore;
@@ -12,6 +13,7 @@ use Droost\Workflow\Knowledge\DroostCli;
 use Droost\Workflow\Knowledge\HarnessSetup;
 use Droost\Workflow\Knowledge\KnowledgeSettings;
 use Droost\Workflow\Knowledge\ProjectLocator;
+use Droost\Workflow\Knowledge\Site;
 use Droost\Workflow\Knowledge\ToolCallLog;
 use PHPUnit\Framework\TestCase;
 
@@ -360,6 +362,106 @@ final class DroostCliTest extends TestCase {
   }
 
   /**
+   * A site's scope comes from the site's composer, not droost's (F-501).
+   *
+   * The command is installed in a vendor directory of its own, and the
+   * engine was asked for the composer record of the code that was running:
+   * the tool's. A module the site installed outside a `contrib` folder then
+   * read as custom, and the project's own bar was held to it.
+   */
+  public function testScopeIsReadFromTheSitesComposerRecord(): void {
+    $docroot = Site::fromProjectRoot($this->root)->docroot;
+    $relative = ltrim(substr($docroot, strlen($this->root)), '/');
+    $this->put($docroot, 'modules/webform/webform.info.yml', "name: Webform\ntype: module\ndescription: Forms.\n");
+    $this->put($docroot, 'modules/webform/README.md', "# Webform\n");
+    $this->put($this->root, 'vendor/composer/installed.json', (string) json_encode([
+      'packages' => [
+        [
+          'name' => 'drupal/webform',
+          'type' => 'drupal-module',
+          'install-path' => '../../' . ($relative === '' ? '' : $relative . '/') . 'modules/webform',
+        ],
+      ],
+    ]));
+
+    $scopes = array_column(Site::fromProjectRoot($this->root)->docs->index(), 'scope', 'module');
+
+    $this->assertSame('contrib', $scopes['webform'] ?? NULL);
+  }
+
+  /**
+   * An index whose build never finished is not an index (F-497).
+   *
+   * "Built" meant "the table exists", and the tables are made before the
+   * first file is read: while `code:index` ran, or after it was killed,
+   * every lookup answered from an empty or partial index as if it were
+   * whole. The build stamps the index when it finishes, and that is asked.
+   */
+  public function testHalfBuiltIndexIsNotAnswered(): void {
+    $path = StoragePaths::index($this->root);
+    if (!is_dir(dirname($path))) {
+      mkdir(dirname($path), 0755, TRUE);
+    }
+    (new SqliteCodeGraphStorage(new \PDO('sqlite:' . $path)))->ensureSchema();
+
+    $this->droost(['code:symbol', 'Greeter']);
+
+    $said = implode("\n", $this->out);
+    $this->assertStringContainsString('droost code:index', $said);
+    $this->assertStringNotContainsString('0 symbol', $said);
+  }
+
+  /**
+   * An index that cannot be read says so, and what to run (F-497).
+   */
+  public function testUnreadableIndexSaysWhatToRun(): void {
+    $path = StoragePaths::index($this->root);
+    if (!is_dir(dirname($path))) {
+      mkdir(dirname($path), 0755, TRUE);
+    }
+    file_put_contents($path, str_repeat('not a database ', 400));
+
+    foreach ([['code:symbol', 'Greeter'], ['search:code', 'greeter'], ['code:tree']] as $argv) {
+      $this->out = [];
+      $this->droost($argv);
+      $said = implode("\n", $this->out);
+      $this->assertStringNotContainsString('SQLSTATE', $said, implode(' ', $argv));
+      $this->assertStringContainsString('droost code:index', $said, implode(' ', $argv));
+    }
+  }
+
+  /**
+   * Init and uninstall agree about where, and what (F-489).
+   *
+   * `init --project=X` put the pack in X and the harness blocks in the
+   * project it found from the working directory: two projects, half an
+   * install each. And uninstall took the pack out and left every harness
+   * block, AGENTS.md's and each editor's pointer to it, behind.
+   */
+  public function testInitAndUninstallAgreeAboutWhereAndWhat(): void {
+    $other = sys_get_temp_dir() . '/droost-cli-other-' . bin2hex(random_bytes(4));
+    mkdir($other, 0755, TRUE);
+    $this->put($other, 'AGENTS.md', "Their own notes.\n");
+
+    $this->assertSame(0, $this->droost(['init', '--project=' . $other]));
+    $this->assertStringContainsString('## Use droost first', (string) file_get_contents($other . '/AGENTS.md'));
+    $this->assertFileDoesNotExist($this->root . '/AGENTS.md', 'nothing lands in the project the command was run from');
+    $this->assertFileExists($other . '/CLAUDE.md');
+
+    $this->assertSame(0, $this->droost(['workflow:uninstall', '--project=' . $other]));
+    $agents = (string) file_get_contents($other . '/AGENTS.md');
+    $this->assertStringNotContainsString('## Use droost first', $agents, 'the block went with the pack');
+    $this->assertStringContainsString('Their own notes.', $agents);
+    $this->assertFileDoesNotExist($other . '/CLAUDE.md', 'and the pointer to it');
+
+    // A refused uninstall takes nothing out.
+    $this->assertSame(0, $this->droost(['init']));
+    $this->assertSame(2, $this->droost(['workflow:uninstall'], 2));
+    $this->assertStringContainsString('## Use droost first', (string) file_get_contents($this->root . '/AGENTS.md'));
+    self::remove($other);
+  }
+
+  /**
    * Init retires the module's documenting-changes skill unless edited (F-311).
    */
   public function testInitRetiresTheModulesSkillUnlessEdited(): void {
@@ -428,6 +530,38 @@ final class DroostCliTest extends TestCase {
     $this->assertSame('warn', $rows['baseline'], 'no baseline is said before any run (F-378)');
     $this->droost(['code:index']);
     $this->assertSame(0, $this->droost(['doctor']));
+  }
+
+  /**
+   * The doctor says when a module's skill here is not the module's now (F-507).
+   *
+   * A skill the droost module ships is copied into the project by init. A
+   * module update changes the tools' arguments and the copy keeps teaching
+   * the old ones, with nothing to say so until init is run again.
+   */
+  public function testDoctorNamesStaleModuleSkills(): void {
+    $docroot = Site::fromProjectRoot($this->root)->docroot;
+    $this->put($docroot, 'modules/contrib/droost/droost.info.yml', "name: Droost\ntype: module\n");
+    $this->put($docroot, 'modules/contrib/droost/skills/droost-tools/SKILL.md', "---\nname: droost-tools\n---\nThe arguments, as of now.\n");
+    $this->droost(['code:index']);
+
+    $this->droost(['doctor']);
+    $this->assertSame('warn', array_column($this->arr('data.rows'), 'status', 'check')['module skills'], 'not installed here yet');
+    $detail = array_column($this->arr('data.rows'), 'detail', 'check')['module skills'] ?? NULL;
+    $this->assertIsString($detail);
+    $this->assertStringContainsString('droost init', $detail);
+
+    $this->put($this->root, '.claude/skills/droost-tools/SKILL.md', "---\nname: droost-tools\n---\nThe arguments, as of now.\n");
+    $this->put($this->root, '.agents/skills/droost-tools/SKILL.md', "---\nname: droost-tools\n---\nThe arguments, as of now.\n");
+    $this->droost(['doctor']);
+    $this->assertSame('ok', array_column($this->arr('data.rows'), 'status', 'check')['module skills']);
+
+    $this->put($this->root, '.claude/skills/droost-tools/SKILL.md', "---\nname: droost-tools\n---\nThe arguments of a release ago.\n");
+    $this->droost(['doctor']);
+    $this->assertSame('warn', array_column($this->arr('data.rows'), 'status', 'check')['module skills']);
+    $detail = array_column($this->arr('data.rows'), 'detail', 'check')['module skills'] ?? NULL;
+    $this->assertIsString($detail);
+    $this->assertStringContainsString('.claude/skills/droost-tools/SKILL.md', $detail);
   }
 
   /**

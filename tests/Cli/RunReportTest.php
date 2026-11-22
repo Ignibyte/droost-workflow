@@ -160,6 +160,17 @@ final class RunReportTest extends TestCase {
 
     $this->assertStringContainsString('site tools: 4 call(s), 1 failed or refused — droost_config_set 1, droost_entity_create 3', $lines);
     $this->assertStringContainsString('raw site calls: 3 — drush php:eval ×2, drush sql:query ×1', $lines);
+    $this->assertStringNotContainsString('over MCP', $lines, 'no MCP call, no line');
+
+    // Calls over MCP have a line of their own, never added to the count
+    // above: a stdio server's calls are in both (F-507).
+    $mcp = implode("\n", RunReport::lines($run, ['active' => FALSE], [
+      'tools' => ['droost_entity_create' => ['calls' => 3, 'failed' => 0]],
+      'raw' => [],
+      'mcp' => ['droost_entity_create' => 2, 'droost_views_get' => 1],
+    ]));
+    $this->assertStringContainsString('site tools: 3 call(s) — droost_entity_create 3', $mcp);
+    $this->assertStringContainsString('site tools over MCP: 3 call(s) the guard let through — droost_entity_create 2, droost_views_get 1', $mcp);
   }
 
   /**

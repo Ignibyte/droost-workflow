@@ -64,6 +64,12 @@ final class CockpitWorkItemSource implements WorkItemSourceInterface {
       $this->cache($item);
       return $item;
     }
+    // REFUSED IS NOT DOWN (F-490). The cache stands in for a cockpit that
+    // cannot be reached. A 401 or a 403 is the cockpit answering and saying
+    // no; read as "down", a revoked token still bound the ticket.
+    if (in_array($response['status'], [401, 403], TRUE)) {
+      throw WorkItemError::cockpitUnreachable($id, sprintf('it refused this project\'s token (%d), so the ticket is not bound from the cache', $response['status']));
+    }
     // The cockpit did not answer as it should: bind from the cache, or not
     // at all. A ticket this project has never seen is never bound.
     $cached = $this->cached($id);

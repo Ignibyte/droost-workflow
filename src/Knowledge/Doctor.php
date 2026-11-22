@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Knowledge;
 
+use Droost\Workflow\Pack\PackManifest;
 use Droost\Workflow\Baseline\BaselineStore;
 use Droost\Workflow\Config\ConfigLocator;
 use Droost\Workflow\Config\GateSettings;
@@ -56,6 +57,30 @@ final class Doctor {
 
     $sqlite = in_array('sqlite', \PDO::getAvailableDrivers(), TRUE);
     $rows[] = $sqlite ? self::row('sqlite', 'ok', 'pdo_sqlite is available') : self::row('sqlite', 'fail', 'PHP has no pdo_sqlite: the code index cannot be read or built.');
+
+    // THE MODULE'S SKILLS, AS INSTALLED HERE (F-507). Init copies them into
+    // the project. A module update changes the tools' arguments and the copy
+    // keeps teaching the old ones, with nothing to say so until init runs
+    // again. No droost module, no row: the module is optional.
+    $shipped = PackManifest::moduleSkills($root);
+    if ($shipped !== []) {
+      $stale = [];
+      foreach ($shipped as $destination => $source) {
+        $installed = $root . '/' . $destination;
+        if (!is_file($installed) || !hash_equals((string) hash_file('sha256', $source), (string) hash_file('sha256', $installed))) {
+          $stale[] = $destination;
+        }
+      }
+      $rows[] = $stale === []
+        ? self::row('module skills', 'ok', sprintf('%d file(s) of the droost module\'s skills, as the module ships them', count($shipped)))
+        : self::row('module skills', 'warn', sprintf(
+          '%d of %d file(s) of the droost module\'s skills are missing here or are not what the module ships now (%s%s): `droost init` installs them, and keeps a file you edited.',
+          count($stale),
+          count($shipped),
+          implode(', ', array_slice($stale, 0, 3)),
+          count($stale) > 3 ? ', …' : '',
+        ));
+    }
 
     $pdo = $this->site->pdo();
     if ($pdo === NULL) {

@@ -163,7 +163,7 @@ final class SemanticIndexer {
         $chunks[] = $chunk;
       }
     }
-    ['rows' => $rows, 'skipped' => $skipped, 'failed' => $failed] = $this->embed($chunks, $dimension);
+    ['rows' => $rows, 'skipped' => $skipped, 'failed' => $failed, 'partial' => $partial] = $this->embed($chunks, $dimension);
     $result['skipped'] = $skipped;
     $total = count($chunks);
     $error = $this->backend->lastError() !== '' ? ' (' . $this->backend->lastError() . ')' : '';
@@ -200,6 +200,13 @@ final class SemanticIndexer {
     }
     $insert = $this->pdo->prepare('INSERT OR REPLACE INTO ' . self::MANIFEST . ' (file, hash) VALUES (?, ?)');
     foreach ($toEmbed as $path) {
+      // A FILE WITH A CHUNK THAT GOT NO VECTOR IS NOT DONE (F-496). Its hash
+      // was recorded whatever became of its chunks, so under the failure
+      // ratio it was never asked about again: part of it absent from
+      // search for good. Left out of the manifest, it is embedded again.
+      if (isset($partial[$path])) {
+        continue;
+      }
       $insert->execute([$path, $hashes[$path]]);
     }
 
@@ -232,25 +239,29 @@ final class SemanticIndexer {
    * @param int $dimension
    *   The width every vector must have.
    *
-   * @return array{rows: list<array{corpus: string, ref: string, vector: list<float>, meta: array<string, mixed>, file: string}>, skipped: int, failed: int}
-   *   The storable rows, and how many chunks were skipped and how many of
-   *   those the backend gave nothing for.
+   * @return array{rows: list<array{corpus: string, ref: string, vector: list<float>, meta: array<string, mixed>, file: string}>, skipped: int, failed: int, partial: array<string, true>}
+   *   The storable rows, how many chunks were skipped and how many of those
+   *   the backend gave nothing for, and the files that had one skipped.
    */
   private function embed(array $chunks, int $dimension): array {
     $rows = [];
     $skipped = 0;
     $failed = 0;
+    $partial = [];
     foreach (array_chunk($chunks, self::BATCH) as $batch) {
       $vectors = $this->backend->embed(array_map(static fn (Chunk $c): string => $c->text, $batch));
       foreach ($batch as $i => $chunk) {
         $vector = $vectors[$i] ?? [];
+        $file = is_string($chunk->meta['file'] ?? NULL) ? $chunk->meta['file'] : '';
         if ($vector === []) {
           $failed++;
           $skipped++;
+          $partial[$file] = TRUE;
           continue;
         }
         if (count($vector) !== $dimension) {
           $skipped++;
+          $partial[$file] = TRUE;
           continue;
         }
         $rows[] = [
@@ -262,7 +273,7 @@ final class SemanticIndexer {
         ];
       }
     }
-    return ['rows' => $rows, 'skipped' => $skipped, 'failed' => $failed];
+    return ['rows' => $rows, 'skipped' => $skipped, 'failed' => $failed, 'partial' => $partial];
   }
 
 }

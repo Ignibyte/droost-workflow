@@ -620,6 +620,7 @@ final class ArgvDispatcher {
     $site = $runId === NULL ? [] : [
       'tools' => SiteCalls::tools($projectRoot, $runId),
       'raw' => SiteCalls::raw($projectRoot, $runId)[1],
+      'mcp' => SiteCalls::overMcp($projectRoot, $runId),
     ];
     foreach (RunReport::lines($status, $facade->bypassState($projectRoot), $site) as $line) {
       $this->say($line);
@@ -1666,7 +1667,14 @@ final class ArgvDispatcher {
     // for the same reason disarming a write gate does not: nobody has to be
     // protected from more enforcement.
     if (in_array('--off', $flags, TRUE)) {
-      $this->say($facade->clearBypass($projectRoot)
+      $cleared = $facade->clearBypass($projectRoot);
+      // A grant that is there and could not be removed is a wall still
+      // down. It was reported as "already armed" (F-491).
+      if (!$cleared && is_file(rtrim($projectRoot, '/') . '/' . RunStateStore::resolveStateDir($projectRoot) . '/bypass.json')) {
+        $this->fail('the bypass could not be removed, so it still stands and the wall is NOT armed: check the permissions on the state directory and its bypass.json, then run `droost workflow:bypass --off` again.');
+        return self::EXIT_RUN_FAILED;
+      }
+      $this->say($cleared
         ? 'require_run bypass cleared — the wall is armed again.'
         : 'no bypass was granted — the wall was already armed.');
       return self::EXIT_OK;
@@ -1997,6 +2005,17 @@ final class ArgvDispatcher {
         $this->fail(sprintf('intake answer takes only --via=terminal|cockpit, with its "=": "%s" is not one.', $arg));
         return self::EXIT_USAGE;
       }
+    }
+    // A QUESTION AND AN ANSWER, EACH ONE ARGUMENT (F-491). The first two
+    // words were taken and the rest dropped, so an answer that arrived
+    // unquoted was recorded as one word of itself.
+    if ($sub === 'answer' && count($positional) > 2) {
+      $this->fail(sprintf(
+        'intake answer takes a question and an answer and got %d words: "%s". A sentence arrived split into words, so nothing was recorded. Quote each (intake answer "the question" "the answer"); on DDEV use `ddev exec --raw -- php tools/droost/vendor/bin/droost …`, which keeps the quoting.',
+        count($positional),
+        implode(' ', $positional),
+      ));
+      return self::EXIT_USAGE;
     }
     if (in_array($sub, ['abandon', 'answer'], TRUE) && !$this->operatorTerminal() && !$this->approvedInSession($projectRoot, $argv)) {
       $this->fail($this->noTerminalRefusal('intake ' . $sub, $argv));

@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Knowledge;
 
+use Droost\Engine\Search\Graph\CodeGraphStorageInterface;
 use Droost\Engine\Wiki\FileHasher;
 use Droost\Workflow\Gate\GateResult;
 use Droost\Workflow\Gate\GateStatus;
 use Droost\Workflow\Gate\ShellGateExecutor;
 use Droost\Workflow\Knowledge\DroostCli;
+use Droost\Workflow\Knowledge\Wiki\WikiStatus;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -314,6 +316,31 @@ final class WikiStatusTest extends TestCase {
       }
     }
     $this->fail('No row for ' . $file);
+  }
+
+  /**
+   * A fan summary that was cut is asked again, whole (F-505).
+   *
+   * The engine caps the summary and says when it did. The reach of a custom
+   * module was read from the cut list, so a contrib module past the cap was
+   * out of scope and never asked for a page.
+   */
+  public function testCutFanSummaryIsAskedAgainWhole(): void {
+    $graph = $this->createStub(CodeGraphStorageInterface::class);
+    $graph->method('isReady')->willReturn(TRUE);
+    $graph->method('fanSummary')->willReturnCallback(static fn (string $module, int $cap = 2000): array => [
+      'ready' => TRUE,
+      'inbound' => [],
+      'outbound' => $cap > 2000 ? [['module' => 'webform', 'edges' => 1, 'symbols' => 1]] : [],
+      'edges' => 1,
+      'truncated' => $cap <= 2000,
+    ]);
+    $status = (new \ReflectionClass(WikiStatus::class))->newInstanceWithoutConstructor();
+    (new \ReflectionProperty(WikiStatus::class, 'graph'))->setValue($status, $graph);
+
+    $reached = (new \ReflectionMethod(WikiStatus::class, 'contribReached'))->invoke($status, ['mine'], ['webform' => TRUE]);
+
+    $this->assertSame(['webform'], $reached);
   }
 
 }

@@ -275,14 +275,20 @@ final class SubjectHasher {
    *   it. Empty means "do not follow any link" — the fingerprint then records
    *   every link by shape, which is the honest answer when there is no root to
    *   measure against.
+   * @param array<string, true> $seen
+   *   The directories this walk is already inside, by their real paths.
    *
    * @return array<string, string|null>
    *   Relative path to absolute path; NULL for a descriptor whose whole value
    *   is encoded in its key.
    */
-  private static function walk(string $directory, string $root = ''): array {
+  private static function walk(string $directory, string $root = '', array $seen = []): array {
     $found = [];
     $links = [];
+    $here = realpath($directory);
+    if ($here !== FALSE) {
+      $seen[$here] = TRUE;
+    }
     $iterator = new \RecursiveIteratorIterator(
       new \RecursiveCallbackFilterIterator(
         new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS),
@@ -329,8 +335,16 @@ final class SubjectHasher {
         // `insideRoot()` refuses `paths: ../outside`: a fingerprint that
         // depends on bytes nobody here can change never expires, which defeats
         // the mechanism rather than extending it.
+        // ONCE. A link to a directory already being walked (its own
+        // ancestor, most simply) was followed again from inside itself,
+        // without end, until memory ran out (F-496). Its shape is recorded
+        // and the walk goes on.
+        if ($real !== FALSE && isset($seen[$real])) {
+          $links[] = sprintf('link:%s->%s|loop', $relative, $target);
+          continue;
+        }
         if ($real !== FALSE && $root !== '' && self::insideRoot($root, $real) && is_dir($real)) {
-          foreach (self::walk($real, $root) as $inner => $path) {
+          foreach (self::walk($real, $root, $seen) as $inner => $path) {
             $found[$relative . '/' . $inner] = $path;
           }
           $links[] = sprintf('link:%s->%s|followed', $relative, $target);

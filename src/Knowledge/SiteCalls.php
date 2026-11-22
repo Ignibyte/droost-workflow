@@ -48,6 +48,49 @@ final class SiteCalls {
   }
 
   /**
+   * The module's tools a run called over MCP, as the guard let them through.
+   *
+   * The module writes a call to the ledger only when it ran from the command
+   * line. Called through a web MCP server the tool runs in a web request, so
+   * the call went to the module's own audit table and the run's record
+   * showed a site built by nothing (F-507). The guard is asked before every
+   * MCP call, so its rows are the count: one per call it did not refuse.
+   *
+   * Kept apart from tools(): a stdio MCP server runs the tool on the command
+   * line, so its calls are in the ledger as well, and one sum would count
+   * them twice.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   * @param string $runId
+   *   The run.
+   *
+   * @return array<string, int>
+   *   Tool id => how many calls, by id.
+   */
+  public static function overMcp(string $projectRoot, string $runId): array {
+    $root = rtrim($projectRoot, '/');
+    $path = $root . '/' . RunStateStore::resolveStateDir($root) . '/guard-calls.jsonl';
+    $tally = [];
+    foreach (@file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+      $row = json_decode($line, TRUE);
+      if (!is_array($row) || ($row['run'] ?? NULL) !== $runId || !is_string($row['tool'] ?? NULL)) {
+        continue;
+      }
+      // Before the call, and let through: a row written after one (a note)
+      // is the same call again, and a refused one did not run.
+      if (!in_array($row['verdict'] ?? 'allow', ['allow', 'nudge'], TRUE) || ($row['mode'] ?? 'pre-tool-use') !== 'pre-tool-use') {
+        continue;
+      }
+      if (preg_match('/^mcp__.+__tool_api__(droost_[a-z0-9_]+)$/', $row['tool'], $m) === 1) {
+        $tally[$m[1]] = ($tally[$m[1]] ?? 0) + 1;
+      }
+    }
+    ksort($tally);
+    return $tally;
+  }
+
+  /**
    * The raw drush php and SQL calls a run made, as the guard marked them.
    *
    * @param string $projectRoot
