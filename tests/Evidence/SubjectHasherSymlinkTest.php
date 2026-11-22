@@ -151,4 +151,26 @@ final class SubjectHasherSymlinkTest extends TestCase {
     );
   }
 
+  /**
+   * A link to a directory the walk is already inside is followed once (F-496).
+   *
+   * A link inside the project is followed, so the bytes behind it are in
+   * the fingerprint. One that points at its own ancestor was followed from
+   * inside itself without end: the gate that fingerprints its subject ran
+   * until memory was gone. Reproduced at a 256 MB limit before this.
+   */
+  public function testLinkToAnAncestorIsFollowedOnce(): void {
+    $root = sys_get_temp_dir() . '/droost-loop-' . bin2hex(random_bytes(6));
+    mkdir($root . '/src/deep', 0777, TRUE);
+    file_put_contents($root . '/src/a.php', '<?php // one');
+    symlink('../..', $root . '/src/deep/up');
+
+    $before = SubjectHasher::hash($root, ['src']);
+    $this->assertIsString($before);
+
+    file_put_contents($root . '/src/a.php', '<?php // two');
+    $this->assertNotSame($before, SubjectHasher::hash($root, ['src']), 'and it still follows content');
+    exec('rm -rf ' . escapeshellarg($root));
+  }
+
 }

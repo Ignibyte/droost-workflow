@@ -47,6 +47,11 @@ final class SemanticSearchTest extends TestCase {
   private bool $down = FALSE;
 
   /**
+   * A word the fake server gives no vector for, or '' for none.
+   */
+  private string $unembeddable = '';
+
+  /**
    * {@inheritdoc}
    */
   protected function setUp(): void {
@@ -166,6 +171,28 @@ final class SemanticSearchTest extends TestCase {
   }
 
   /**
+   * A file some of whose chunks got no vector is embedded again (F-496).
+   *
+   * Its hash was recorded as done whatever became of its chunks. Under the
+   * failure ratio the run is "built", so a file the backend dropped a chunk
+   * of was never asked about again: part of it absent from search for good.
+   */
+  public function testFileWithChunkThatGotNoVectorIsRetried(): void {
+    $this->unembeddable = 'unembeddableword';
+    $this->put($this->root, 'web/modules/custom/camps/src/Lost.php', "<?php\n\nnamespace Drupal\\camps;\n\n/**\n * Holds the unembeddableword nothing gives a vector for.\n */\nclass Lost {\n}\n");
+    $first = $this->index();
+    $this->assertSame('built', $first['semantic'], (string) $first['semantic_reason']);
+    $this->assertStringContainsString('skipped', (string) $first['semantic_reason']);
+
+    // The backend answers for it now; nothing in the file changed.
+    $this->unembeddable = '';
+    $second = $this->index();
+
+    $this->assertSame(1, $second['embedded_files'], 'the file with the lost chunk, and only it');
+    $this->assertSame(0, $this->index()['embedded_files'], 'and once whole it is done');
+  }
+
+  /**
    * Vectors from another model are never scored against.
    */
   public function testAnotherModelsVectorsAreNotUsed(): void {
@@ -253,12 +280,15 @@ final class SemanticSearchTest extends TestCase {
           $data = [];
           // Answered in reverse, as the API allows: realigned by index.
           foreach (array_reverse($input, TRUE) as $i => $text) {
-            $data[] = ['index' => $i, 'embedding' => self::embed(is_string($text) ? $text : '')];
+            $text = is_string($text) ? $text : '';
+            $lost = $this->unembeddable !== '' && str_contains($text, $this->unembeddable);
+            $data[] = ['index' => $i, 'embedding' => $lost ? [] : self::embed($text)];
           }
           return (string) json_encode(['data' => $data]);
         }
-        $prompt = $decoded['prompt'] ?? '';
-        return (string) json_encode(['embedding' => self::embed(is_string($prompt) ? $prompt : '')]);
+        $prompt = is_string($decoded['prompt'] ?? NULL) ? $decoded['prompt'] : '';
+        $lost = $this->unembeddable !== '' && str_contains($prompt, $this->unembeddable);
+        return (string) json_encode(['embedding' => $lost ? [] : self::embed($prompt)]);
       },
       static fn (string $name): string|false => $env[$name] ?? FALSE,
     );
