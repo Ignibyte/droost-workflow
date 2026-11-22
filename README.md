@@ -18,7 +18,7 @@ and it never boots Drupal.
 | **droost/workflow** (this repository) | The `droost` command: the brain and the workflow. | [GitHub](https://github.com/Ignibyte/droost-workflow) · [Packagist](https://packagist.org/packages/droost/workflow) |
 | **droost/engine** | The engine under the command: the code index, the wiki and search cores, the agent harness installers. | [GitHub](https://github.com/Ignibyte/droost-engine) · [Packagist](https://packagist.org/packages/droost/engine) |
 | **Droost** (`drupal/droost`) | The Drupal module: the agent asks the live site about itself, and changes it through tools a person switches on. | [drupal.org](https://www.drupal.org/project/droost) |
-| **Droost CMS** | A Drupal CMS recipe for a site an agent builds: the module's content tools, Droost Theme, UI Patterns. | [drupal.org](https://www.drupal.org/project/droost_cms) |
+| **Droost CMS** | A Drupal CMS recipe for a site an agent builds: the module with its Canvas tools, Droost Theme, UI Patterns. | [drupal.org](https://www.drupal.org/project/droost_cms) |
 | **Droost Theme** | A base theme for agents: Tailwind v4 and daisyUI, design tokens in one file, Canvas-ready components. | [drupal.org](https://www.drupal.org/project/droost_theme) |
 | **Droost UI Kit** | Manage Display built from Single Directory Components, on UI Patterns 2. | [drupal.org](https://www.drupal.org/project/droost_ui_kit) |
 | **Droost Framework** | The map of all of these on drupal.org. | [drupal.org](https://www.drupal.org/project/droost_framework) |
