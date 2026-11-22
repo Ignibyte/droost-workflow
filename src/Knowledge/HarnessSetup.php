@@ -128,13 +128,17 @@ final class HarnessSetup {
    *
    * Init runs on the host or in the container, and stamped whichever PHP ran
    * it: a host's 8.4 over a site that runs 8.3 (F-312). In order: Composer's
-   * platform pin, DDEV's php_version, Composer's php requirement.
+   * platform pin, DDEV's php_version, Composer's php requirement, and last
+   * the lowest PHP the installed packages accept, which Composer writes to
+   * vendor/composer/platform_check.php. A project made with `ddev config`
+   * and `composer create-project` has none of the first three, and was
+   * headed "PHP unknown" (F-554).
    *
    * @param string $root
    *   The project root.
    *
    * @return string
-   *   The version, a constraint, or 'unknown'.
+   *   The version, a constraint such as "^8.3" or ">=8.4.1", or 'unknown'.
    */
   public static function sitePhp(string $root): string {
     $composer = json_decode((string) @file_get_contents($root . '/composer.json'), TRUE);
@@ -151,6 +155,14 @@ final class HarnessSetup {
     $required = is_array($composer['require'] ?? NULL) ? ($composer['require']['php'] ?? NULL) : NULL;
     if (is_string($required) && trim($required) !== '') {
       return trim($required);
+    }
+    $vendor = is_string($config['vendor-dir'] ?? NULL) && trim($config['vendor-dir']) !== ''
+      ? trim($config['vendor-dir'], '/')
+      : 'vendor';
+    $check = (string) @file_get_contents($root . '/' . $vendor . '/composer/platform_check.php');
+    if (preg_match('/PHP_VERSION_ID\s*>=\s*(\d{5,6})\b/', $check, $m) === 1) {
+      $id = (int) $m[1];
+      return sprintf('>=%d.%d.%d', intdiv($id, 10000), intdiv($id % 10000, 100), $id % 100);
     }
 
     return 'unknown';
