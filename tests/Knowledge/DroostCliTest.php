@@ -453,6 +453,29 @@ final class DroostCliTest extends TestCase {
   }
 
   /**
+   * A stray state directory does not move the project (F-506).
+   *
+   * With the site in `site/web` and the lever file at the top, the droost
+   * module wrote its ledger to `site/droost/droost-workflow/`, and that
+   * directory, nearer than the lever file, was the knowledge commands'
+   * project while `droost workflow:*` stayed at the top: one command line,
+   * two projects. The knowledge commands now take the workflow's rule, a
+   * run's record first and then the nearest lever file, and fall back to a
+   * state directory only where that rule finds nothing.
+   */
+  public function testStrayStateDirectoryDoesNotMoveTheProject(): void {
+    if (!is_dir($this->root . '/droost')) {
+      mkdir($this->root . '/droost', 0755, TRUE);
+    }
+    file_put_contents($this->root . '/droost/droost.yml', "preset: low\n");
+    mkdir($this->root . '/site/droost/droost-workflow', 0755, TRUE);
+    mkdir($this->root . '/site/web', 0755, TRUE);
+
+    $this->assertSame(realpath($this->root), ProjectLocator::locate($this->root . '/site/web'));
+    $this->assertSame(realpath($this->root), ProjectLocator::locate($this->root . '/site'));
+  }
+
+  /**
    * Runs droost in the project.
    *
    * @param list<string> $argv

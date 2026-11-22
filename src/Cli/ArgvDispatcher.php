@@ -342,7 +342,7 @@ final class ArgvDispatcher {
    * @return string
    *   The project root.
    */
-  private static function projectAbove(string $from): string {
+  public static function projectAbove(string $from): string {
     $here = rtrim($from, '/');
     $levers = NULL;
     $boundary = NULL;
