@@ -431,6 +431,37 @@ final class DroostCliTest extends TestCase {
   }
 
   /**
+   * Init and uninstall agree about where, and what (F-489).
+   *
+   * `init --project=X` put the pack in X and the harness blocks in the
+   * project it found from the working directory: two projects, half an
+   * install each. And uninstall took the pack out and left every harness
+   * block, AGENTS.md's and each editor's pointer to it, behind.
+   */
+  public function testInitAndUninstallAgreeAboutWhereAndWhat(): void {
+    $other = sys_get_temp_dir() . '/droost-cli-other-' . bin2hex(random_bytes(4));
+    mkdir($other, 0755, TRUE);
+    $this->put($other, 'AGENTS.md', "Their own notes.\n");
+
+    $this->assertSame(0, $this->droost(['init', '--project=' . $other]));
+    $this->assertStringContainsString('## Use droost first', (string) file_get_contents($other . '/AGENTS.md'));
+    $this->assertFileDoesNotExist($this->root . '/AGENTS.md', 'nothing lands in the project the command was run from');
+    $this->assertFileExists($other . '/CLAUDE.md');
+
+    $this->assertSame(0, $this->droost(['workflow:uninstall', '--project=' . $other]));
+    $agents = (string) file_get_contents($other . '/AGENTS.md');
+    $this->assertStringNotContainsString('## Use droost first', $agents, 'the block went with the pack');
+    $this->assertStringContainsString('Their own notes.', $agents);
+    $this->assertFileDoesNotExist($other . '/CLAUDE.md', 'and the pointer to it');
+
+    // A refused uninstall takes nothing out.
+    $this->assertSame(0, $this->droost(['init']));
+    $this->assertSame(2, $this->droost(['workflow:uninstall'], 2));
+    $this->assertStringContainsString('## Use droost first', (string) file_get_contents($this->root . '/AGENTS.md'));
+    self::remove($other);
+  }
+
+  /**
    * Init retires the module's documenting-changes skill unless edited (F-311).
    */
   public function testInitRetiresTheModulesSkillUnlessEdited(): void {

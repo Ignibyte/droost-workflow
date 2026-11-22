@@ -112,6 +112,10 @@ final class PackRemover {
     foreach (PackManifest::SHARED_DIRS as $relative) {
       $absolute = $root . '/' . $relative;
       if (is_dir($absolute)) {
+        // A marker an earlier droost planted when it claimed the directory
+        // (templates and partials, until F-489) is ours, and would keep an
+        // otherwise empty directory behind.
+        @unlink($absolute . '/' . PackManifest::SENTINEL);
         self::removeIfEmpty($absolute);
       }
     }

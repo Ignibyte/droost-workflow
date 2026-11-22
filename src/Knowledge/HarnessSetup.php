@@ -96,6 +96,34 @@ final class HarnessSetup {
   }
 
   /**
+   * Takes droost's block and every editor's pointer to it back out.
+   *
+   * What install() wrote, by every installer, whichever were chosen then:
+   * each removes only its own, and nothing where it wrote nothing. Uninstall
+   * took the pack out and never called this, so AGENTS.md's block and the
+   * pointers in CLAUDE.md, GEMINI.md, QWEN.md and opencode.json stayed in a
+   * project that no longer had droost (F-489).
+   *
+   * @param string $root
+   *   The project root.
+   *
+   * @return \Droost\Engine\Harness\InstallResult
+   *   What was removed and warned about.
+   */
+  public function uninstall(string $root): InstallResult {
+    $result = new InstallResult();
+    $installers = $this->installers('');
+    // The editors first, AGENTS.md last: a pointer is judged by what the
+    // file it points at still holds.
+    $agents = $installers['agents'];
+    unset($installers['agents']);
+    foreach ([...array_values($installers), $agents] as $installer) {
+      $installer->uninstall($root, $result);
+    }
+    return $result;
+  }
+
+  /**
    * The site's PHP, as its files declare it; never the PHP running init.
    *
    * Init runs on the host or in the container, and stamped whichever PHP ran

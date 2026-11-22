@@ -162,6 +162,10 @@ final class PackManifest {
     '.claude/commands',
     '.claude/hooks',
     '.claude/agents',
+    // A project's own templates and partials live in these too. Claimed
+    // whole, a project that had either could not run init at all (F-489).
+    '.claude/templates',
+    '.claude/partials',
   ];
 
   /**

@@ -225,7 +225,19 @@ final class DroostCli {
         ($this->err)('Name the verb: droost workflow:status, droost workflow:run, … (droost workflow:help lists them).');
         return self::EXIT_USAGE;
       }
-      return ($this->workflow)([$verb === 'help' ? '--help' : $verb, ...$rest]);
+      $code = ($this->workflow)([$verb === 'help' ? '--help' : $verb, ...$rest]);
+      // The other half of what init wrote (F-489): the pack is the
+      // workflow's to remove, and the harness blocks are written here.
+      if ($verb === 'uninstall' && $code === self::EXIT_OK) {
+        $result = (new HarnessSetup($this->packageRoot))->uninstall($this->projectNamed($rest) ?? $this->root());
+        foreach ($result->removed as $path) {
+          ($this->out)('removed ' . $path);
+        }
+        foreach ($result->warnings as $warning) {
+          ($this->err)('warning: ' . $warning);
+        }
+      }
+      return $code;
     }
     if ($command === 'code:wiki' && in_array($rest[0] ?? '', ['status', 'stamp'], TRUE)) {
       return $rest[0] === 'status'
@@ -555,6 +567,25 @@ final class DroostCli {
   }
 
   /**
+   * The project a `--project=<path>` among the arguments names, if any.
+   *
+   * @param list<string> $arguments
+   *   The command's arguments.
+   *
+   * @return string|null
+   *   The directory, resolved; NULL when none is named or it is not one.
+   */
+  private function projectNamed(array $arguments): ?string {
+    foreach ($arguments as $word) {
+      if (str_starts_with($word, '--project=')) {
+        $named = realpath(substr($word, strlen('--project=')));
+        return $named !== FALSE && is_dir($named) ? $named : NULL;
+      }
+    }
+    return NULL;
+  }
+
+  /**
    * Installs the pack and the harness block.
    *
    * @param list<string> $rest
@@ -577,7 +608,10 @@ final class DroostCli {
     if ($code !== self::EXIT_OK) {
       return $code;
     }
-    $root = $this->root();
+    // ONE ROOT FOR BOTH HALVES (F-489). `init --project=X` put the pack in
+    // X and the harness blocks in the project found from the working
+    // directory: two projects, half an install each.
+    $root = $this->projectNamed($forward) ?? $this->root();
     // Before the harness installers run: with a retired skill still on disk
     // they warn that droost-authored skills were "left in place", which read
     // as if init had written nothing (F-311).
