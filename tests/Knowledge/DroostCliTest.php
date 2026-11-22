@@ -341,6 +341,25 @@ final class DroostCliTest extends TestCase {
   }
 
   /**
+   * A CLAUDE.md linked to AGENTS.md keeps the block after init (F-500).
+   *
+   * The engine's pointer writer put its import into the same file, over the
+   * block just written, until droost/engine 1.0.1, which this package now
+   * requires. Run through the command, so the requirement is what is tested.
+   */
+  public function testInitLeavesAgentsBlockWhenClaudeFileIsLinkedToIt(): void {
+    $this->put($this->root, 'AGENTS.md', "My own notes.\n");
+    symlink('AGENTS.md', $this->root . '/CLAUDE.md');
+
+    $this->assertSame(0, $this->droost(['init']));
+
+    $agents = (string) file_get_contents($this->root . '/AGENTS.md');
+    $this->assertStringContainsString('## Use droost first', $agents);
+    $this->assertStringNotContainsString('@AGENTS.md', $agents, 'the block is not an import of itself');
+    $this->assertTrue(is_link($this->root . '/CLAUDE.md'));
+  }
+
+  /**
    * Init retires the module's documenting-changes skill unless edited (F-311).
    */
   public function testInitRetiresTheModulesSkillUnlessEdited(): void {
