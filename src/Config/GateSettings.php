@@ -63,7 +63,11 @@ final class GateSettings {
   public const RETIRED_GATES = [
     'contributed' => 'a gate a Drupal module contributed is now a file the project runs: declare it under gates.<id> with run: <file> (or cmd:)',
     'rendered_check' => 'it asked a booted Drupal site to render routes; declare a gate that requests them (gates.<id> with run: or cmd:, e.g. curl), or check the pages through playwright',
-    'config_clean' => 'it asked a booted Drupal site for config drift; declare it as a gate: `gates.config_clean: { cmd: "drush config:status", phase: test }`',
+    // `drush config:status` alone exits 0 with drift (drush 13.8 returns
+    // the rows and no error), and a `cmd` gate passes on exit 0: the gate
+    // this used to suggest never failed (F-455). Drush's own help gives the
+    // grep as its CI check.
+    'config_clean' => 'it asked a booted Drupal site for config drift; declare it as a gate: `gates.config_clean: { cmd: "drush config:status 2>&1 | tee /dev/stderr | grep -q \'No differences\'", phase: test }` (drush exits 0 with drift, so the grep is the verdict)',
     'grounding_check' => 'plan_grounded holds the plan to the code index and the knowledge calls; there is no site gate to arm',
     'composition_check' => 'it read what a booted Drupal site serves; a project that needs it declares its own gate file',
   ];

@@ -86,8 +86,9 @@ project's included: it is the last wall before the run is recorded complete.
 16 KB kept) where the report otherwise cuts it at 2,000 characters.
 
 A check that needs the running site is a project gate that asks it:
-`config_clean: { phase: test, cmd: "drush config:status --format=json" }`.
-droost itself never does.
+`config_clean: { phase: test, cmd: "drush config:status 2>&1 | tee /dev/stderr | grep -q 'No differences'" }`.
+droost itself never does. The grep is the verdict: `drush config:status`
+exits 0 whether or not config has drifted, and a `cmd` gate passes on 0.
 
 ## House rules — the site's own, held by a gate or the seeker
 

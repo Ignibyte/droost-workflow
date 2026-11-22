@@ -88,6 +88,27 @@ final class ArgvDispatcher {
   private ?string $approvedBy = NULL;
 
   /**
+   * The verbs that read or set a lever, report, or free a stuck run.
+   *
+   * None works a ticket, so none stops for a ticket directory that cannot
+   * be read (workItemSourceFor(), F-487).
+   */
+  private const array WITHOUT_TICKETS = [
+    'init', 'status', 'report', 'approval', 'lead', 'swap', 'criteria', 'reset', 'baseline', 'uninstall',
+    'bypass', 'gate-waive', 'effort', 'evidence', 'events', 'rules', 'gate', 'panel', 'say',
+  ];
+
+  /**
+   * The verb being run.
+   */
+  private string $verb = '';
+
+  /**
+   * Whether the arguments name a ticket.
+   */
+  private bool $namesTicket = FALSE;
+
+  /**
    * Constructs an ArgvDispatcher.
    *
    * @param callable(string): void $out
@@ -147,6 +168,8 @@ final class ArgvDispatcher {
     }));
 
     $verb = $argv[0] ?? '';
+    $this->verb = $verb;
+    $this->namesTicket = array_filter($argv, static fn (mixed $word): bool => is_string($word) && str_starts_with($word, '--ticket')) !== [];
     if ($verb === '' || $verb === 'help' || $verb === '--help') {
       $this->usage();
       return $verb === '' ? self::EXIT_USAGE : self::EXIT_OK;
@@ -264,7 +287,7 @@ final class ArgvDispatcher {
         'declare-note' => $this->declareNote($projectRoot, $argv),
         'reset' => $this->reset($projectRoot, $argv),
         'baseline' => $this->baseline($projectRoot, $argv),
-        'uninstall' => $this->uninstall($projectRoot),
+        'uninstall' => $this->uninstall($projectRoot, $argv),
         'bypass' => $this->bypass($projectRoot, $argv),
         'gate-waive' => $this->gateWaive($projectRoot, $argv),
         'effort' => $this->effort($projectRoot, $argv),
@@ -342,7 +365,7 @@ final class ArgvDispatcher {
    * @return string
    *   The project root.
    */
-  private static function projectAbove(string $from): string {
+  public static function projectAbove(string $from): string {
     $here = rtrim($from, '/');
     $levers = NULL;
     $boundary = NULL;
@@ -820,6 +843,18 @@ final class ArgvDispatcher {
     // agent cannot tell "advanced" from "still here" from that, and one ran
     // forty-three identical cycles trying. A held phase is a non-zero exit
     // with the reason on stderr, which is this surface's whole contract.
+    if ($outcome->outcome === Outcome::Blocked && $phase !== NULL && ($outcome->blocked[0]['check'] ?? '') === 'answer_declined') {
+      // The person said no. The run stays, and the surface says whose word
+      // holds it: an advance and a refusal must not print the same line.
+      $this->fail(sprintf(
+        'answered — still at %s, on your word: %s. Nothing advanced. Do what it asks, then '
+        . '`droost workflow:run`: the hold is asked again.',
+        $phase->value,
+        $outcome->blocked[0]['why'],
+      ));
+
+      return self::EXIT_RUN_FAILED;
+    }
     if ($outcome->outcome === Outcome::Blocked && $phase !== NULL) {
       $held = count($outcome->blocked);
       $this->fail(sprintf(
@@ -912,6 +947,14 @@ final class ArgvDispatcher {
         implode(' or ', Mode::names()),
         $name,
       ));
+      return self::EXIT_USAGE;
+    }
+    // TO AGENTIC IS A LOOSENING (F-461): it clears the question the run is
+    // waiting on and runs the rest without stopping, and starting a run that
+    // way already needs the operator's proof. To interactive is a tightening
+    // and needs nobody's.
+    if ($mode === Mode::Agentic && !$this->operatorTerminal() && !$this->approvedInSession($projectRoot, $argv)) {
+      $this->fail($this->noTerminalRefusal('swap', $argv));
       return self::EXIT_USAGE;
     }
     $this->facade($projectRoot)->swap($projectRoot, $mode);
@@ -1496,6 +1539,9 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function reset(string $projectRoot, array $argv): int {
+    if ($this->unknownOption('reset', $argv, ['--force'])) {
+      return self::EXIT_USAGE;
+    }
     $force = in_array('--force', $argv, TRUE);
     $facade = $this->facade($projectRoot);
     $archived = $facade->reset($projectRoot, $force);
@@ -1519,9 +1565,8 @@ final class ArgvDispatcher {
    *
    * `--status` and `--measure` are read-only and anyone's to ask. A write
    * (first, or `--refresh`, or `--refresh --grow --reason=…`) is the
-   * operator's act; this surface has no terminal check of its own because it
-   * IS the operator's terminal — the pack guard is what refuses the agent's
-   * shell.
+   * operator's act, and takes a terminal or the dialog's approval as bypass
+   * does (F-460). It used to have no check of its own.
    *
    * @param string $projectRoot
    *   The repository.
@@ -1532,6 +1577,10 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function baseline(string $projectRoot, array $argv): int {
+    $takes = ['--status', '--measure', '--refresh', '--grow', '--reason', '--commit', '--from-here'];
+    if ($this->unknownOption('baseline', $argv, $takes)) {
+      return self::EXIT_USAGE;
+    }
     $flags = array_slice($argv, 1);
     if (in_array('--status', $flags, TRUE)) {
       $this->say($this->encode($this->facade($projectRoot)->baselineStatus($projectRoot)));
@@ -1540,6 +1589,16 @@ final class ArgvDispatcher {
     if (in_array('--measure', $flags, TRUE)) {
       $this->say($this->encode($this->facade($projectRoot)->baselineMeasure($projectRoot)));
       return self::EXIT_OK;
+    }
+    // A WRITE IS THE OPERATOR'S (F-460). The usage and docs/guard.md said
+    // every operator command refuses without a terminal, and this one did
+    // not: only the guard stood before it, so on a host with no hook an
+    // agent rewrote the inherited debt it is measured against. The guard
+    // used to spend the approval because nothing here asked; it reads it
+    // now and this spends it, as for bypass.
+    if (!$this->operatorTerminal() && !$this->approvedInSession($projectRoot, $argv)) {
+      $this->fail($this->noTerminalRefusal('baseline', $argv));
+      return self::EXIT_USAGE;
     }
     $reason = NULL;
     foreach ($flags as $flag) {
@@ -1562,13 +1621,26 @@ final class ArgvDispatcher {
   /**
    * Takes the pack back out.
    *
+   * The operator's (F-459): it takes the guard's hooks out of the harness,
+   * and it ran from an agent's shell with no terminal and no yes. The same
+   * two proofs bypass takes.
+   *
    * @param string $projectRoot
    *   The repository.
+   * @param list<string> $argv
+   *   The verb and its arguments, for the approval.
    *
    * @return int
    *   The exit code.
    */
-  private function uninstall(string $projectRoot): int {
+  private function uninstall(string $projectRoot, array $argv): int {
+    if ($this->unknownOption('uninstall', $argv, [])) {
+      return self::EXIT_USAGE;
+    }
+    if (!$this->operatorTerminal() && !$this->approvedInSession($projectRoot, $argv)) {
+      $this->fail($this->noTerminalRefusal('uninstall', $argv));
+      return self::EXIT_USAGE;
+    }
     $this->say($this->facade($projectRoot)->uninstall($projectRoot)->summary());
     return self::EXIT_OK;
   }
@@ -1585,6 +1657,9 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function bypass(string $projectRoot, array $argv): int {
+    if ($this->unknownOption('bypass', $argv, ['--off'])) {
+      return self::EXIT_USAGE;
+    }
     $flags = array_slice($argv, 1);
     $facade = $this->facade($projectRoot);
     // Clearing re-arms the wall. A tightening needs no operator terminal,
@@ -1682,6 +1757,9 @@ final class ArgvDispatcher {
    *   The exit code.
    */
   private function effort(string $projectRoot, array $argv): int {
+    if ($this->unknownOption('effort', $argv, ['--preview'])) {
+      return self::EXIT_USAGE;
+    }
     $flags = array_slice($argv, 1);
     $level = '';
     foreach ($flags as $flag) {
@@ -2068,6 +2146,45 @@ final class ArgvDispatcher {
     $result = $relay->flush();
     $this->say($this->encode($result));
     return $result['pending'] === 0 ? self::EXIT_OK : self::EXIT_RUN_FAILED;
+  }
+
+  /**
+   * Refuses an option a state-changing verb does not take (F-488).
+   *
+   * Options were read by asking "is --x among the arguments", so one the
+   * verb did not know was never looked at: `baseline --staus` wrote a
+   * baseline, and `uninstall --dry-run` uninstalled. On a verb that changes
+   * state, an option nobody reads is a misuse, and nothing is done.
+   *
+   * @param string $verb
+   *   The verb.
+   * @param list<string> $argv
+   *   The verb and its arguments.
+   * @param list<string> $known
+   *   The options it takes, without a value (`--reason`, not `--reason=`).
+   *
+   * @return bool
+   *   TRUE when one was unknown and the refusal was printed.
+   */
+  private function unknownOption(string $verb, array $argv, array $known): bool {
+    foreach (array_slice($argv, 1) as $word) {
+      if (!str_starts_with($word, '--') || $word === '--') {
+        continue;
+      }
+      $name = explode('=', $word, 2)[0];
+      if (in_array($name, $known, TRUE)) {
+        continue;
+      }
+      $this->fail(sprintf(
+        'droost workflow:%s does not take %s, so nothing was done. It takes: %s.',
+        $verb,
+        $name,
+        $known === [] ? 'no options' : implode(', ', $known),
+      ));
+      return TRUE;
+    }
+
+    return FALSE;
   }
 
   /**
@@ -2576,9 +2693,42 @@ final class ArgvDispatcher {
       NULL,
       // The library's own checks (plan_grounded) are the checks there are.
       CheckAdjudicators::withLibraryChecks(),
-      $this->workItemSource($projectRoot),
+      $this->workItemSourceFor($projectRoot),
       $this->relayFor($projectRoot),
     );
+  }
+
+  /**
+   * The ticket source for the facade, where the verb can do without one.
+   *
+   * Every verb builds a facade, and the facade was handed the project's
+   * tickets, so a ticket directory that cannot be read (reached through a
+   * symlink, a prefix refused) made `status`, `effort` and `reset` exit 2
+   * over tickets none of them reads (F-487). For a verb that reads or sets a
+   * lever, or is the way out of a stuck run, the fault is said in a line
+   * and the command goes on with no tickets. A verb that works a ticket
+   * still stops, with the fault as its answer.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return \Droost\Workflow\WorkItem\WorkItemSourceInterface|null
+   *   The source, or NULL when there is none or it was done without.
+   *
+   * @throws \Droost\Workflow\WorkItem\WorkItemError
+   *   When the tickets cannot be read and the verb needs them.
+   */
+  private function workItemSourceFor(string $projectRoot): ?WorkItemSourceInterface {
+    try {
+      return $this->workItemSource($projectRoot);
+    }
+    catch (WorkItemError $e) {
+      if (!in_array($this->verb, self::WITHOUT_TICKETS, TRUE) || $this->namesTicket) {
+        throw $e;
+      }
+      $this->fail(sprintf('note: this project\'s tickets could not be read (%s); %s does not need them and goes on.', rtrim($e->getMessage(), '.'), $this->verb));
+      return NULL;
+    }
   }
 
   /**

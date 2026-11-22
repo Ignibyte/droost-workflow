@@ -130,6 +130,58 @@ TXT;
   }
 
   /**
+   * The json and junit reporters print no epilogue, and still count (F-452).
+   *
+   * Measured 2026-11-21 against `@playwright/test` 1.63: of the built-in
+   * reporters only these two print no "N skipped" line (html, blob, github
+   * and null all do), so a project reporting to either had no all-skipped
+   * guard. Both tails are the tool's own, from a suite of two `test.skip()`.
+   *
+   * @param string $tail
+   *   The reporter's output.
+   */
+  #[\PHPUnit\Framework\Attributes\DataProvider('machineReports')]
+  public function testEverySkippedFailsUnderMachineReporter(string $tail): void {
+    $result = $this->verdict(0, $tail, TRUE);
+
+    $this->assertSame(GateStatus::Failed, $result->status);
+    $this->assertStringContainsString('no test ran to a pass (2 skipped)', $result->summary);
+  }
+
+  /**
+   * The tails of the two reporters that print a document, not an epilogue.
+   *
+   * @return array<string, array{string}>
+   *   Label => [stdout].
+   */
+  public static function machineReports(): array {
+    return [
+      'json' => [
+        "{\n  \"suites\": [],\n  \"errors\": [],\n  \"stats\": {\n    \"startTime\": \"2026-11-21T20:47:48.186Z\",\n"
+        . "    \"duration\": 15.49,\n    \"expected\": 0,\n    \"skipped\": 2,\n    \"unexpected\": 0,\n    \"flaky\": 0\n  }\n}\n",
+      ],
+      'junit' => [
+        "<testsuites id=\"\" name=\"\" tests=\"2\" failures=\"0\" skipped=\"2\" errors=\"0\" time=\"0.012\">\n"
+        . "<testsuite name=\"a.spec.js\" tests=\"2\" failures=\"0\" skipped=\"2\" time=\"0\" errors=\"0\">\n</testsuite>\n</testsuites>\n",
+      ],
+    ];
+  }
+
+  /**
+   * A machine report of a suite that passed is counted as one.
+   */
+  public function testMachineReportOfGreenSuiteCounts(): void {
+    $json = (string) json_encode([
+      'suites' => [],
+      'stats' => ['expected' => 7, 'skipped' => 1, 'unexpected' => 0, 'flaky' => 0],
+    ]);
+    $result = $this->verdict(0, $json, TRUE);
+
+    $this->assertSame(GateStatus::Passed, $result->status);
+    $this->assertSame('playwright passed — 7 passed, 1 skipped', $result->summary);
+  }
+
+  /**
    * A reporter that prints no epilogue keeps the plain summary.
    */
   public function testNoEpilogueKeepsThePlainSummary(): void {

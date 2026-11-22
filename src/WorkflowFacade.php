@@ -1285,6 +1285,27 @@ final class WorkflowFacade {
       'question_id' => self::questionId($state, $state->awaiting ?? []),
       'answer' => $answer,
     ];
+    // A NO KEEPS THE RUN WHERE IT IS (F-444). The hold's own options include
+    // its ways of declining, and every one of them advanced: a person's "Not
+    // yet — something still needs work" at complete finished the run. The
+    // exchange is recorded, the phase stays active, and the next run asks
+    // again once the work it asked for is done. It is returned as a held
+    // phase, which is what it is, with the person's word as what holds it.
+    $asked = PendingQuestion::fromArray($state->awaiting ?? []);
+    $heldAt = $answered->currentPhase;
+    if ($asked !== NULL && $heldAt !== NULL && $asked->answerDeclines($answer)) {
+      $store->save($answered);
+      $this->event($store, $answered, 'question.answered', $answeredEvent);
+
+      return new RunOutcome(Outcome::Blocked, $answered, NULL, NULL, [
+        [
+          'check' => 'answer_declined',
+          'fault' => 'operator',
+          'why' => sprintf('the answer to the %s hold was "%s", which is not a yes', $heldAt->value, trim($answer)),
+          'remedy' => 'do what it asks, then droost workflow:run: the hold is asked again',
+        ],
+      ]);
+    }
     // A "stop here" to the stuck question FAILED the phase in the engine. That
     // is a human's decision about the run and it is returned as one, before
     // the held-check path below can mistake its own `stopped_by_operator` row

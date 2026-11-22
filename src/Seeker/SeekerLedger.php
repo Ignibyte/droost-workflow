@@ -268,7 +268,7 @@ final class SeekerLedger {
     return array_values(array_filter(
       $this->findings,
       static fn (array $f): bool =>
-        strtolower($f['status']) === 'open' && $f['severity'] !== 'LOW',
+        $f['status'] === 'open' && $f['severity'] !== 'LOW',
     ));
   }
 
@@ -324,7 +324,7 @@ final class SeekerLedger {
       // carried ones too; `open` is how many still stand. "clean" beside
       // "medium: 1" read as a contradiction when the one MEDIUM was resolved
       // (a live run's record, twice: F-327).
-      'open' => count(array_filter($this->findings, static fn (array $f): bool => strtolower($f['status']) === 'open')),
+      'open' => count(array_filter($this->findings, static fn (array $f): bool => $f['status'] === 'open')),
       'critical' => $counts['CRITICAL'],
       'high' => $counts['HIGH'],
       'medium' => $counts['MEDIUM'],
@@ -393,6 +393,25 @@ final class SeekerLedger {
         $id,
       ));
     }
+    // THE STATUS IS ITS FIRST WORD, WHATEVER IT IS DRESSED IN (F-445). Only
+    // the bare word "open" blocked: a CRITICAL marked `**open**`, `open:
+    // regression` or `reopened` read as clean and released the hold, while
+    // the report, which looks for the word anywhere, counted it as open. And
+    // a word that is none of the three is refused: read as "not open" it
+    // would be a finding nobody settled, waved through.
+    $word = strtolower((string) preg_replace('/^[^a-z]+/i', '', $status));
+    $word = (string) preg_replace('/[^a-z-].*$/s', '', $word);
+    $rest = trim((string) preg_replace('/^[^a-z]*[a-z-]+[*_`]*/i', '', $status));
+    $status = match (TRUE) {
+      in_array($word, ['open', 'reopen', 'reopened', 're-open', 're-opened'], TRUE) => 'open',
+      $word === 'resolved' => 'resolved' . ($rest === '' ? '' : ' ' . $rest),
+      $word === 'carried' => 'carried' . ($rest === '' ? '' : (str_starts_with($rest, ':') ? '' : ':') . ' ' . ltrim($rest, ': ')),
+      default => throw SeekerError::malformed(sprintf(
+        'row "%s" has status "%s" — it is open, resolved, or carried: <reason>',
+        $id,
+        $status,
+      )),
+    };
     return [
       'id' => $id,
       'severity' => $severity,

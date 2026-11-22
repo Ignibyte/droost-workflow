@@ -341,6 +341,25 @@ final class DroostCliTest extends TestCase {
   }
 
   /**
+   * A CLAUDE.md linked to AGENTS.md keeps the block after init (F-500).
+   *
+   * The engine's pointer writer put its import into the same file, over the
+   * block just written, until droost/engine 1.0.1, which this package now
+   * requires. Run through the command, so the requirement is what is tested.
+   */
+  public function testInitLeavesAgentsBlockWhenClaudeFileIsLinkedToIt(): void {
+    $this->put($this->root, 'AGENTS.md', "My own notes.\n");
+    symlink('AGENTS.md', $this->root . '/CLAUDE.md');
+
+    $this->assertSame(0, $this->droost(['init']));
+
+    $agents = (string) file_get_contents($this->root . '/AGENTS.md');
+    $this->assertStringContainsString('## Use droost first', $agents);
+    $this->assertStringNotContainsString('@AGENTS.md', $agents, 'the block is not an import of itself');
+    $this->assertTrue(is_link($this->root . '/CLAUDE.md'));
+  }
+
+  /**
    * Init retires the module's documenting-changes skill unless edited (F-311).
    */
   public function testInitRetiresTheModulesSkillUnlessEdited(): void {
@@ -450,6 +469,29 @@ final class DroostCliTest extends TestCase {
     mkdir($this->root . '/droost/droost-workflow', 0755, TRUE);
     $this->assertSame(realpath($this->root), ProjectLocator::locate($this->root . '/web/modules/custom/camps'));
     $this->assertSame(realpath($this->root . '/web'), ProjectLocator::locate($this->root, $this->root . '/web'));
+  }
+
+  /**
+   * A stray state directory does not move the project (F-506).
+   *
+   * With the site in `site/web` and the lever file at the top, the droost
+   * module wrote its ledger to `site/droost/droost-workflow/`, and that
+   * directory, nearer than the lever file, was the knowledge commands'
+   * project while `droost workflow:*` stayed at the top: one command line,
+   * two projects. The knowledge commands now take the workflow's rule, a
+   * run's record first and then the nearest lever file, and fall back to a
+   * state directory only where that rule finds nothing.
+   */
+  public function testStrayStateDirectoryDoesNotMoveTheProject(): void {
+    if (!is_dir($this->root . '/droost')) {
+      mkdir($this->root . '/droost', 0755, TRUE);
+    }
+    file_put_contents($this->root . '/droost/droost.yml', "preset: low\n");
+    mkdir($this->root . '/site/droost/droost-workflow', 0755, TRUE);
+    mkdir($this->root . '/site/web', 0755, TRUE);
+
+    $this->assertSame(realpath($this->root), ProjectLocator::locate($this->root . '/site/web'));
+    $this->assertSame(realpath($this->root), ProjectLocator::locate($this->root . '/site'));
   }
 
   /**

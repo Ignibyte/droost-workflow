@@ -38,6 +38,43 @@ final class RetiredGatesTest extends WorkflowTestCase {
   }
 
   /**
+   * The command advised in place of config_clean fails on drift (F-455).
+   *
+   * The advice was `drush config:status`, which exits 0 whether or not
+   * config has drifted (drush 13.8 returns the rows and no error), and a
+   * `cmd` gate passes on exit 0. Each place that gives the advice is run
+   * here as the gate would run it, over a drush that prints what the real
+   * one prints: a row per differing name, or its "No differences" notice
+   * on stderr.
+   */
+  public function testAdvisedConfigCleanCommandFailsOnDrift(): void {
+    $bin = $this->makeRoot();
+    file_put_contents($bin . '/drush', implode("\n", [
+      '#!/bin/sh',
+      'if [ "$DRIFT" = 1 ]; then echo " system.site  Different"; exit 0; fi',
+      'echo " [notice] No differences between DB and sync directory." >&2',
+      '',
+    ]));
+    chmod($bin . '/drush', 0755);
+    $package = dirname(__DIR__, 2);
+    $advice = [
+      'the retired-gate notice' => GateSettings::RETIRED_GATES['config_clean'],
+      'pack/droost.yml' => (string) file_get_contents($package . '/pack/droost.yml'),
+      'docs/project-rules.md' => (string) file_get_contents($package . '/docs/project-rules.md'),
+    ];
+    foreach ($advice as $where => $text) {
+      $this->assertSame(1, preg_match('/config_clean: \{[^}\n]*cmd: "([^"\n]+)"/', $text, $m), $where . ' advises a command');
+      $run = static function (string $drift) use ($bin, $m): int {
+        $command = sprintf('PATH=%s:$PATH DRIFT=%s /bin/sh -c %s 2>/dev/null', escapeshellarg($bin), $drift, escapeshellarg($m[1]));
+        exec($command, $output, $exit);
+        return $exit;
+      };
+      $this->assertSame(0, $run('0'), $where . ': a clean site passes');
+      $this->assertNotSame(0, $run('1'), $where . ': a drifted site fails');
+    }
+  }
+
+  /**
    * No retired name is a gate any more.
    */
   public function testNoRetiredNameIsKnown(): void {

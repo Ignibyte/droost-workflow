@@ -105,6 +105,44 @@ final class GuardEvidenceLedgerTest extends WorkflowTestCase {
   }
 
   /**
+   * Naming the store is not reaching it (F-481).
+   *
+   * The rule refused any command with the file's name in it, so a search
+   * for the word in the docs, a commit message that explains the file and
+   * an echo were each "a shell command that reaches the evidence store".
+   * The name is only a word where it is a search pattern, a message or
+   * printed text; as a path it is refused as before.
+   */
+  public function testNamingTheStoreIsNotReachingIt(): void {
+    $root = $this->rootWithEvidence(TRUE);
+    file_put_contents($root . '/droost/droost-workflow/evidence.sqlite', 'x');
+    mkdir($root . '/docs');
+    foreach ([
+      'grep -rn evidence.sqlite docs/',
+      'grep -rn "evidence\.sqlite" docs/ README.md',
+      'rg -n evidence.sqlite docs',
+      'git grep -n evidence.sqlite',
+      "git commit -m 'docs: explain evidence.sqlite'",
+      'git commit --message="what evidence.sqlite holds"',
+      'echo "the store is evidence.sqlite" >> docs/notes.md',
+    ] as $command) {
+      [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
+      $this->assertSame(0, $exit, $command . ': ' . $stderr);
+    }
+    foreach ([
+      'grep -c x droost/droost-workflow/evidence.sqlite',
+      'grep -rn evidence.sqlite droost/droost-workflow/evidence.sqlite',
+      'echo x > droost/droost-workflow/evidence.sqlite',
+      'echo evidence.sqlite | xargs rm',
+      'git commit -m "x" && sqlite3 droost/droost-workflow/evidence.sqlite "delete from check_result"',
+      "php -r 'unlink(\"droost/droost-workflow/evidence.sqlite\");'",
+    ] as $command) {
+      [$exit] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
+      $this->assertSame(2, $exit, $command);
+    }
+  }
+
+  /**
    * A loop over the archive is refused in words that say how to read it.
    *
    * P6 run 9's agent ran `for f in droost/droost-workflow/history/*.spec.md;

@@ -530,9 +530,13 @@ final class GateResult {
    *   tells the reader to go and read this, and a caller building such a
    *   result here had no way to write one — so the one gate that does,
    *   `evidence_record`, sent the reader to an empty string.
+   * @param bool $whole
+   *   TRUE to keep every finding. For a gate whose rows the runner reads to
+   *   reach the verdict (`wiki_fresh`): a verdict worked out from a list
+   *   already cut is a verdict on the first fifty.
    *
    * @return self
-   *   The result, with findings capped.
+   *   The result, with findings capped unless whole.
    */
   public static function ran(
     string $gate,
@@ -543,6 +547,7 @@ final class GateResult {
     array $findings,
     string $invocation,
     ?string $remedy = NULL,
+    bool $whole = FALSE,
   ): self {
     return new self(
       $gate,
@@ -550,8 +555,8 @@ final class GateResult {
       $exitCode,
       $durationMs,
       $summary,
-      array_slice($findings, 0, self::FINDINGS_CAP),
-      count($findings) > self::FINDINGS_CAP,
+      $whole ? $findings : array_slice($findings, 0, self::FINDINGS_CAP),
+      !$whole && count($findings) > self::FINDINGS_CAP,
       NULL,
       $invocation,
       remedy: $remedy,

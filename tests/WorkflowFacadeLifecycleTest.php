@@ -306,6 +306,35 @@ final class WorkflowFacadeLifecycleTest extends WorkflowTestCase {
   }
 
   /**
+   * A "no" to a hold keeps the run where it is (F-444).
+   *
+   * Every hold offers a way to say no beside its yes ("Change the spec
+   * first", "Keep working in code", "Not yet — something still needs
+   * work"), and nothing read which was picked: the answer was recorded and
+   * the run advanced, so a human's "Not yet" at the last hold finished it.
+   */
+  public function testDecliningHoldDoesNotAdvance(): void {
+    $root = $this->makeRootWithConfig("preset: custom\nmode: pair\n");
+    $executor = $this->allGatesPass();
+    $this->assertSame(Outcome::Paused, $this->facade($executor)->run($root)->outcome);
+
+    foreach (['Change the spec first', 'not yet', 'No — the scope is wrong'] as $no) {
+      $outcome = $this->facade($executor)->answer($root, $no);
+      $this->assertSame(Outcome::Blocked, $outcome->outcome, $no);
+      $this->assertSame(Phase::Plan, $outcome->state->currentPhase, 'still at plan');
+      $this->assertSame('answer_declined', $outcome->blocked[0]['check'] ?? NULL);
+      // The exchange is in the record, and the question is asked again.
+      $this->assertSame(Outcome::Paused, $this->facade($executor)->run($root)->outcome);
+    }
+
+    // The yes still moves it, in the option's words or the person's own.
+    $outcome = $this->facade($executor)->answer($root, 'Looks right — start building');
+    $this->assertSame(Outcome::Advanced, $outcome->outcome);
+    $this->assertCount(4, $outcome->state->qaHistory, 'each no is in the record beside the yes');
+    $this->assertSame(Phase::Code, $outcome->state->currentPhase);
+  }
+
+  /**
    * An answer does not advance a phase whose checks are still blocked.
    *
    * `answer` re-audited Code and Test and fell straight through to

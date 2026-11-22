@@ -133,6 +133,38 @@ final class PendingQuestion {
   }
 
   /**
+   * Whether an answer to a phase hold is a no.
+   *
+   * A hold offers its yes first and its ways of saying no after it ("Change
+   * the spec first", "Keep working in code", "Not yet — something still
+   * needs work"). Nothing read which was picked: every answer was consent,
+   * so a person's "Not yet" at the last hold finished the run (F-444). An
+   * answer is a no when it is one of the options after the first, or opens
+   * with a plain refusal. Anything else is the person's own words for yes,
+   * as it always was; a no read as a yes ends a run, and a yes read as a no
+   * costs one more answer, so the doubt goes to no.
+   *
+   * @param string $answer
+   *   What the human said.
+   *
+   * @return bool
+   *   TRUE when the run should stay where it is.
+   */
+  public function answerDeclines(string $answer): bool {
+    if ($this->kind !== self::KIND_CONVERSATION) {
+      return FALSE;
+    }
+    $plain = static fn (string $text): string => trim((string) preg_replace('/[^a-z0-9\' ]+/', ' ', strtolower($text)));
+    $said = $plain($answer);
+    foreach (array_slice($this->options, 1) as $option) {
+      if (is_string($option) && $plain($option) !== '' && $said === $plain($option)) {
+        return TRUE;
+      }
+    }
+    return preg_match('/^(no|nope|not yet|not now|wait|hold on|hold off|stop|abandon|keep working|change the spec|show me|add a test|don\'t|do not)\b/', $said) === 1;
+  }
+
+  /**
    * Rebuilds a question from run state.
    *
    * @param array<array-key, mixed> $raw

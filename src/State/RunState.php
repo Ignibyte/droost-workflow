@@ -1487,6 +1487,24 @@ final class RunState {
     }
 
     $phases = self::readPhases($node, $label);
+    if ($current === NULL) {
+      // No current phase is how a finished run reads. With a phase still
+      // active the record lost the field, and taking it for finished would
+      // stand every phase rule down on a run that is not over (F-457).
+      foreach ($phases as $name => $status) {
+        if ($status === PhaseStatus::Active) {
+          throw StateError::corrupt($label, sprintf('current_phase is missing while %s is active', $name));
+        }
+      }
+    }
+    // Absent is Off, as a document from before the field has none. A word
+    // that is there and is not one of the three was read as Off too, which
+    // is the guard standing down on a word nobody chose (F-457).
+    $enforcementName = $node->optionalString('enforcement', Enforcement::Off->value) ?? Enforcement::Off->value;
+    $enforcement = Enforcement::tryFrom($enforcementName);
+    if ($enforcement === NULL) {
+      throw StateError::corrupt($label, sprintf('unknown enforcement "%s"', $enforcementName));
+    }
 
     return new self(
       $node->string('run_id'),
@@ -1504,10 +1522,7 @@ final class RunState {
       self::readQaHistory($node, $label),
       self::readFeedbackAttempts($node),
       self::readPhaseGates($node, $label, $phases),
-      Enforcement::tryFrom(
-        $node->optionalString('enforcement', Enforcement::Off->value)
-          ?? Enforcement::Off->value,
-      ) ?? Enforcement::Off,
+      $enforcement,
       $node->optionalBool('seekers', FALSE),
       self::readSeeker($node, $label),
       self::readBrowser($node, $label),

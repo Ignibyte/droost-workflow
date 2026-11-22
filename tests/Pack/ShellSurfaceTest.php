@@ -255,6 +255,254 @@ final class ShellSurfaceTest extends WorkflowTestCase {
   }
 
   /**
+   * The verb has to be legible; an argument does not (F-466, F-481).
+   *
+   * The rule refused a substitution anywhere after `drush`, so `drush uli
+   * --uid=$(…)` was "a droost command built from a substitution", and it did
+   * not name the `droost` binary at all, so `droost workflow:$(echo
+   * baseline)` ran. It is the command name that hides an operator verb: a
+   * substitution there, or in a word before it (unquoted, it can expand to
+   * the verb), is refused; one after the verb is an argument.
+   */
+  public function testSubstitutionIsRefusedOnlyWhereTheVerbGoes(): void {
+    $root = $this->lab();
+    foreach ([
+      'droost workflow:$(echo baseline) --status',
+      'v=baseline; droost workflow:$v --status',
+      "droost workflow:\$'baseline' --status",
+      'tools/droost/vendor/bin/droost $(echo workflow:bypass) "x"',
+      'ddev exec vendor/bin/droost `echo workflow:effort` max',
+      'drush --uri=$(echo "x droost:workflow:bypass r") status',
+      'drush ${VERB}',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' hides its verb');
+      $this->assertStringContainsString('command name', $stderr, $command);
+    }
+
+    foreach ([
+      'drush uli --uid=$(drush sqlq "select 1")',
+      'drush status --format=${FMT}',
+      'vendor/bin/droost-workflow status --run=$(cat id)',
+      'droost workflow:status --run=$(cat id)',
+      'droost code:symbol "$(cat name.txt)"',
+      // The directory at every project's root is not the program.
+      'git add droost $(git ls-files -m)',
+      'ls droost $(echo x)',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' names its verb: ' . $stderr);
+    }
+  }
+
+  /**
+   * What echo and printf are handed is text, quoted or not (F-481).
+   *
+   * `echo "droost workflow:bypass x"` was prose and `echo droost
+   * workflow:bypass x` was the operator's command, though the shell runs
+   * neither. Only on a line that hands nothing on: piped to a shell,
+   * substituted or evaluated, printed words become a command.
+   */
+  public function testPrintedVerbIsTextUnlessItIsHandedOn(): void {
+    $root = $this->lab();
+    foreach ([
+      'echo droost workflow:bypass hotfix',
+      "printf '%s\\n' droost workflow:gate-waive phpcs",
+      'echo droost workflow:bypass hotfix >> notes.md',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' prints words: ' . $stderr);
+    }
+    foreach ([
+      'echo droost workflow:bypass hotfix | sh',
+      'echo droost workflow:bypass hotfix | bash -s',
+      'sh -c "$(echo droost workflow:bypass x)"',
+      'bash <(echo droost workflow:bypass x)',
+      'eval echo droost workflow:bypass hotfix',
+      'echo droost workflow:bypass hotfix > a.sh; sh a.sh',
+      'echo ok; droost workflow:bypass hotfix',
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' runs what it prints');
+    }
+  }
+
+  /**
+   * A long command is answered before a hook times out (F-478).
+   *
+   * Each word a runner is handed may be a script it runs, and the check for
+   * "does this command write that script first" tokenised the whole command
+   * for every word. `ddev exec` with 1,000 words took 56 seconds; it takes
+   * under half a second. The bound here is loose on purpose: it tells
+   * quadratic from linear on a slow machine, not one build from another.
+   */
+  public function testLongCommandIsAnsweredInTime(): void {
+    $root = $this->lab();
+    $command = 'ddev exec ' . implode(' ', array_fill(0, 1000, 'a'));
+
+    $started = microtime(TRUE);
+    [$exit, , $stderr] = $this->shell($root, $command);
+    $took = microtime(TRUE) - $started;
+
+    $this->assertSame(0, $exit, $stderr);
+    $this->assertLessThan(10.0, $took, sprintf('1,000 words took %.1fs', $took));
+  }
+
+  /**
+   * The guard is not the agent's to call (F-464).
+   *
+   * `droost guard answers` is the mode the harness calls with the human's
+   * answers to a dialog, and it writes the approvals an operator verb is let
+   * through on. Called from a shell it takes what it is handed: `echo
+   * '{…}' | vendor/bin/droost guard answers` wrote an approval nobody gave,
+   * and `workflow:bypass` then ran. Only the installed hook file was named;
+   * the verb and the package's own entry were not.
+   */
+  public function testGuardIsNotCalledByHand(): void {
+    $root = $this->lab();
+    foreach ([
+      "echo '{}' | vendor/bin/droost guard answers",
+      'tools/droost/vendor/bin/droost guard answers < a.json',
+      'ddev exec vendor/bin/droost guard record < a.json',
+      'php vendor/droost/workflow/bin/droost-guard answers --harness=claude < a.json',
+      'vendor/droost/workflow/bin/droost-guard answers < a.json',
+      'php vendor/droost/workflow/pack/hooks/droost-workflow-guard.php answers < a.json',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' calls the guard');
+      $this->assertStringContainsString('runs the guard itself', $stderr, $command);
+    }
+    foreach ([
+      'php -l vendor/droost/workflow/pack/hooks/droost-workflow-guard.php',
+      'grep -n guard vendor/droost/workflow/bin/droost',
+      'vendor/bin/droost code:symbol guard',
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' only names it: ' . $stderr);
+    }
+  }
+
+  /**
+   * A line continuation does not hide a verb (F-465).
+   *
+   * The shell deletes a backslash and the newline after it, and the verb
+   * arrived here as a word beginning with a newline, which matched nothing.
+   */
+  public function testLineContinuationDoesNotHideVerb(): void {
+    $root = $this->lab();
+    foreach ([
+      "droost \\\nworkflow:baseline --refresh",
+      "vendor/bin/droost workflow:by\\\npass 'x'",
+      "drush \\\n  droost:workflow:gate-waive phpcs 'x'",
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, json_encode($command) . ' is one line to the shell');
+    }
+    // A heredoc's lines are a file's text, continuation or not.
+    [$exit, , $stderr] = $this->shell($root, "cat > notes.md <<'EOF'\nask for droost \\\nworkflow:bypass\nEOF");
+    $this->assertSame(0, $exit, $stderr);
+  }
+
+  /**
+   * A verb handed to something that runs it later is still the verb (F-467).
+   *
+   * The one pattern every tier asks did not hold the spelling the pack
+   * teaches, `droost workflow:<verb>`, so code, scripts, a git alias and a
+   * trap carried it through.
+   */
+  public function testVerbRunLaterIsStillTheVerb(): void {
+    $root = $this->lab();
+    foreach ([
+      "php -r 'system(\"vendor/bin/droost workflow:baseline --refresh\");'",
+      "python3 -c 'import os; os.system(\"droost workflow:bypass x\")'",
+      "git -c alias.z='!vendor/bin/droost workflow:baseline --refresh' z",
+      "trap 'vendor/bin/droost workflow:bypass x' EXIT",
+    ] as $command) {
+      [$exit] = $this->shell($root, $command);
+      $this->assertSame(2, $exit, $command . ' runs the verb');
+    }
+    foreach ([
+      "git -c alias.st='!git status -sb' st",
+      "trap 'rm -f /tmp/x.lock' EXIT",
+    ] as $command) {
+      [$exit, , $stderr] = $this->shell($root, $command);
+      $this->assertSame(0, $exit, $command . ' is ordinary: ' . $stderr);
+    }
+  }
+
+  /**
+   * A heredoc fed to a shell behind `sudo -u me` is still code (F-509).
+   *
+   * The wrapper list knew an option and not an option's value, so `sudo -u
+   * me bash <<EOF` classified its body as a file's text and dropped it,
+   * verb and all. Found on 2026-11-21 while probing F-477; the comment
+   * above the list named this very spelling as handled.
+   */
+  public function testHeredocBehindWrapperWithValuedOptionIsCode(): void {
+    $root = $this->lab();
+    $verb = "\ndroost workflow:bypass x\nEOF";
+    foreach (['sudo -u me bash <<EOF', 'sudo -u www-data -E sh <<EOF', 'env -u HOME bash <<EOF'] as $line) {
+      [$exit] = $this->shell($root, $line . $verb);
+      $this->assertSame(2, $exit, $line . ' feeds a shell');
+    }
+    // A data heredoc behind the same wrapper is still text.
+    [$exit, , $stderr] = $this->shell($root, "sudo -u me tee notes.md <<EOF" . $verb);
+    $this->assertSame(0, $exit, $stderr);
+  }
+
+  /**
+   * A tool call the guard cannot read is not one it lets through (F-477).
+   *
+   * An unpaired surrogate escape is valid to a harness's encoder and not to
+   * PHP's decoder. The payload read as empty, the guard had nothing to
+   * judge, and `echo \ud800; droost workflow:bypass x` ran. Nothing on stdin
+   * is still nothing to judge: that is a hand invocation.
+   */
+  public function testUnreadablePayloadIsRefused(): void {
+    $root = $this->lab();
+    $raw = '{"tool_name":"Bash","tool_input":{"command":"echo \\ud800; droost workflow:bypass x"}}';
+    foreach (['operator-commands', 'pre-tool-use'] as $mode) {
+      [$exit, $stderr] = $this->rawGuard($root, $mode, $raw);
+      $this->assertSame(2, $exit, $mode);
+      $this->assertStringContainsString('could not read this tool call', $stderr, $mode);
+      [$exit] = $this->rawGuard($root, $mode, '');
+      $this->assertSame(0, $exit, $mode . ' with nothing on stdin');
+    }
+  }
+
+  /**
+   * Runs the guard with these exact bytes on stdin.
+   *
+   * @param string $root
+   *   The project root.
+   * @param string $mode
+   *   The guard mode.
+   * @param string $stdin
+   *   The bytes.
+   *
+   * @return array{0: int, 1: string}
+   *   The exit code and stderr.
+   */
+  private function rawGuard(string $root, string $mode, string $stdin): array {
+    $env = getenv();
+    $env['CLAUDE_PROJECT_DIR'] = $root;
+    $process = proc_open(
+      [PHP_BINARY, dirname(__DIR__, 2) . '/pack/hooks/droost-workflow-guard.php', $mode],
+      [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+      $pipes,
+      $root,
+      $env,
+    );
+    $this->assertIsResource($process);
+    fwrite($pipes[0], $stdin);
+    fclose($pipes[0]);
+    stream_get_contents($pipes[1]);
+    $stderr = (string) stream_get_contents($pipes[2]);
+
+    return [proc_close($process), $stderr];
+  }
+
+  /**
    * A command whose PROGRAM NAME is a variable is refused, not read past.
    *
    * The master key of round five, and it needed no pre-step. `$runs` asked

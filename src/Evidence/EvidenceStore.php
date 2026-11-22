@@ -403,6 +403,34 @@ final class EvidenceStore {
   }
 
   /**
+   * Adds a column, taking "it is already there" as done and nothing else.
+   *
+   * SQLite has no ADD COLUMN IF NOT EXISTS, so an additive migration that
+   * another build already ran answers "duplicate column name", and that is
+   * the one failure a migration may pass over. Every PDOException used to
+   * be passed over (F-494): a lock timeout or a full disk left the column
+   * missing, the rung was stamped as run, and the store was short a column
+   * for good. Anything else is thrown, so the rung is not stamped and the
+   * next open tries it again. One call per statement, so the first column
+   * being there does not skip the second.
+   *
+   * @param \PDO $pdo
+   *   The connection.
+   * @param string $statement
+   *   One `ALTER TABLE … ADD COLUMN …`.
+   */
+  private static function addColumn(\PDO $pdo, string $statement): void {
+    try {
+      $pdo->exec($statement);
+    }
+    catch (\PDOException $e) {
+      if (stripos($e->getMessage(), 'duplicate column name') === FALSE) {
+        throw $e;
+      }
+    }
+  }
+
+  /**
    * V2 — the two joining dimensions the first cut lacked.
    *
    * @param \PDO $pdo
@@ -425,14 +453,7 @@ final class EvidenceStore {
       'ALTER TABLE run ADD COLUMN work_type TEXT',
       'ALTER TABLE run ADD COLUMN work_type_declared_at TEXT',
     ] as $statement) {
-      try {
-        $pdo->exec($statement);
-      }
-      catch (\PDOException $e) {
-        // A column this build added to a store some other build already
-        // migrated. Additive migrations are idempotent by intent, and
-        // SQLite has no ADD COLUMN IF NOT EXISTS.
-      }
+      self::addColumn($pdo, $statement);
     }
     $pdo->exec('CREATE INDEX IF NOT EXISTS check_by_provider ON check_result (run_id, provider)');
   }
@@ -458,13 +479,7 @@ final class EvidenceStore {
    *   The connection.
    */
   private function migrateToV3(\PDO $pdo): void {
-    try {
-      $pdo->exec('ALTER TABLE check_result ADD COLUMN measured INTEGER');
-    }
-    catch (\PDOException $e) {
-      // A column another build already added. Additive migrations are
-      // idempotent by intent and SQLite has no ADD COLUMN IF NOT EXISTS.
-    }
+    self::addColumn($pdo, 'ALTER TABLE check_result ADD COLUMN measured INTEGER');
   }
 
   /**
@@ -1139,8 +1154,10 @@ final class EvidenceStore {
    */
   public function stillGreen(string $runId, string $phase, string $name, string $subjectHash): bool {
     $statement = $this->connection()->prepare(
+      // The gate's rows only: a recorded run shares the gate's name, counts
+      // its attempts on its own, and is fingerprinted another way (F-458).
       'SELECT state, subject_hash FROM check_result
-        WHERE run_id = ? AND phase = ? AND name = ?
+        WHERE run_id = ? AND phase = ? AND name = ? AND kind = \'gate\'
         ORDER BY attempt DESC LIMIT 1'
     );
     $statement->execute([$runId, $phase, $name]);
@@ -2677,13 +2694,8 @@ final class EvidenceStore {
    *   The connection.
    */
   private function migrateToV4(\PDO $pdo): void {
-    try {
-      $pdo->exec('ALTER TABLE check_result ADD COLUMN row_digest TEXT');
-      $pdo->exec('ALTER TABLE run ADD COLUMN chain_head TEXT');
-    }
-    catch (\PDOException $e) {
-      // A column another build already added.
-    }
+    self::addColumn($pdo, 'ALTER TABLE check_result ADD COLUMN row_digest TEXT');
+    self::addColumn($pdo, 'ALTER TABLE run ADD COLUMN chain_head TEXT');
   }
 
   /**
@@ -2709,12 +2721,7 @@ final class EvidenceStore {
    *   The connection.
    */
   private function migrateToV5(\PDO $pdo): void {
-    try {
-      $pdo->exec('ALTER TABLE run ADD COLUMN chained_from INTEGER');
-    }
-    catch (\PDOException $e) {
-      // A column another build already added.
-    }
+    self::addColumn($pdo, 'ALTER TABLE run ADD COLUMN chained_from INTEGER');
     $tail = $pdo->query('SELECT COALESCE(MAX(id), 0) FROM check_result');
     $mark = $tail === FALSE ? 0 : (int) ($tail->fetchColumn() ?: 0);
     // Only the runs that already exist. A sentinel row was the first idea and
@@ -2782,15 +2789,7 @@ final class EvidenceStore {
    * `off` and must not be rendered as it.
    */
   private function migrateToV7(\PDO $pdo): void {
-    try {
-      $pdo->exec("ALTER TABLE run ADD COLUMN seekers TEXT NOT NULL DEFAULT ''");
-    }
-    catch (\PDOException) {
-      // Already there: a store another build migrated, or a rung replayed
-      // after a version stamp was wound back. Additive migrations are
-      // idempotent by intent and SQLite has no ADD COLUMN IF NOT EXISTS —
-      // same reason, same shape, as V2's three columns above.
-    }
+    self::addColumn($pdo, "ALTER TABLE run ADD COLUMN seekers TEXT NOT NULL DEFAULT ''");
   }
 
   /**
@@ -2813,12 +2812,7 @@ final class EvidenceStore {
    *   The connection.
    */
   private function migrateToV8(\PDO $pdo): void {
-    try {
-      $pdo->exec('ALTER TABLE guard_call ADD COLUMN tool TEXT');
-    }
-    catch (\PDOException) {
-      // Already there — additive and idempotent, as V7 above.
-    }
+    self::addColumn($pdo, 'ALTER TABLE guard_call ADD COLUMN tool TEXT');
     $pdo->exec('CREATE INDEX IF NOT EXISTS guard_call_by_tool ON guard_call (run_id, phase, tool)');
   }
 
@@ -2923,12 +2917,7 @@ SQL);
    */
   private function migrateToV9(\PDO $pdo): void {
     foreach (['inherited', 'new_findings'] as $column) {
-      try {
-        $pdo->exec('ALTER TABLE check_result ADD COLUMN ' . $column . ' INTEGER');
-      }
-      catch (\PDOException) {
-        // Already there — additive and idempotent, as V7 and V8 above.
-      }
+      self::addColumn($pdo, 'ALTER TABLE check_result ADD COLUMN ' . $column . ' INTEGER');
     }
     // WHICH debt, not only how much. `RunState` has frozen the baseline's
     // hash at begin since 0.6 precisely so a baseline edited mid-run is a
@@ -2938,12 +2927,7 @@ SQL);
     // premise is that the record must not be the subject's account of itself.
     // A subsidised verdict in §4 is unreadable without it — N inherited from
     // WHAT — so the two land together.
-    try {
-      $pdo->exec('ALTER TABLE run ADD COLUMN baseline_hash TEXT');
-    }
-    catch (\PDOException) {
-      // As above.
-    }
+    self::addColumn($pdo, 'ALTER TABLE run ADD COLUMN baseline_hash TEXT');
   }
 
   /**
@@ -2958,12 +2942,7 @@ SQL);
    */
   private function migrateToV11(\PDO $pdo): void {
     foreach (['superseded_at TEXT', 'revision INTEGER'] as $column) {
-      try {
-        $pdo->exec('ALTER TABLE declaration ADD COLUMN ' . $column);
-      }
-      catch (\PDOException) {
-        // Already there.
-      }
+      self::addColumn($pdo, 'ALTER TABLE declaration ADD COLUMN ' . $column);
     }
   }
 
@@ -2983,12 +2962,7 @@ SQL);
    *   The connection.
    */
   private function migrateToV12(\PDO $pdo): void {
-    try {
-      $pdo->exec('ALTER TABLE check_result ADD COLUMN steered_by TEXT');
-    }
-    catch (\PDOException) {
-      // Already there — V1's DDL carries it for a new store.
-    }
+    self::addColumn($pdo, 'ALTER TABLE check_result ADD COLUMN steered_by TEXT');
   }
 
   /**
@@ -3006,12 +2980,7 @@ SQL);
    */
   private function migrateToV13(\PDO $pdo): void {
     foreach (['kind', 'owner', 'exception'] as $column) {
-      try {
-        $pdo->exec('ALTER TABLE spec_route ADD COLUMN ' . $column . ' TEXT');
-      }
-      catch (\PDOException) {
-        // Already there — V1's DDL carries it for a new store.
-      }
+      self::addColumn($pdo, 'ALTER TABLE spec_route ADD COLUMN ' . $column . ' TEXT');
     }
   }
 
@@ -3028,12 +2997,7 @@ SQL);
    *   The connection.
    */
   private function migrateToV14(\PDO $pdo): void {
-    try {
-      $pdo->exec('ALTER TABLE seeker_finding ADD COLUMN inspector TEXT');
-    }
-    catch (\PDOException) {
-      // Already there — V1's DDL carries it for a new store.
-    }
+    self::addColumn($pdo, 'ALTER TABLE seeker_finding ADD COLUMN inspector TEXT');
   }
 
   /**
@@ -3047,12 +3011,7 @@ SQL);
    *   The connection.
    */
   private function migrateToV15(\PDO $pdo): void {
-    try {
-      $pdo->exec('ALTER TABLE guard_call ADD COLUMN subagent TEXT');
-    }
-    catch (\PDOException) {
-      // Already there — V1's DDL carries it for a new store.
-    }
+    self::addColumn($pdo, 'ALTER TABLE guard_call ADD COLUMN subagent TEXT');
   }
 
   /**
@@ -3066,12 +3025,7 @@ SQL);
    *   The connection.
    */
   private function migrateToV16(\PDO $pdo): void {
-    try {
-      $pdo->exec('ALTER TABLE spec_criterion ADD COLUMN outcome TEXT');
-    }
-    catch (\PDOException) {
-      // Already there — V1's DDL carries it for a new store.
-    }
+    self::addColumn($pdo, 'ALTER TABLE spec_criterion ADD COLUMN outcome TEXT');
   }
 
   /**

@@ -85,6 +85,7 @@ final class HouseRulesCheck {
     $findings = [];
     $blocking = FALSE;
     $read = [];
+    $blind = [];
     $total = 0;
     $live = 0;
     $exitCode = 0;
@@ -103,6 +104,11 @@ final class HouseRulesCheck {
         [$count, $calls] = $runId === NULL ? [0, []] : SiteCalls::raw($projectRoot, $runId);
         $total += $count;
         $read[] = sprintf('%s read %d guard record(s) of this run', $id, $count);
+        if ($count === 0) {
+          // No row at all is the guard not wired to this session, not a
+          // run that made no raw call: the rule judged nothing (F-456).
+          $blind[] = $id;
+        }
         foreach ($calls as $n => $verb) {
           $findings[] = [
             'file' => '',
@@ -176,6 +182,25 @@ final class HouseRulesCheck {
       return GateResult::off(self::GATE, sprintf('every gate-judged house rule (%s) is mode: off', $ids));
     }
     $scope = $added === NULL ? ' (added and changed could not be told apart, so every changed file was read)' : '';
+    $unjudged = $blind === [] ? '' : sprintf(
+      '%s judged nothing: no guard record of this run exists, so the site calls it made are unknown (the guard\'s hooks are not installed for this session; `droost init` writes them)',
+      implode(', ', $blind),
+    );
+    if ($findings === [] && $blind !== []) {
+      // Labelled, never blocking: a host with no guard is still a host the
+      // run may work on, and the record says what was not looked at.
+      $sighted = array_values(array_filter(
+        array_map(static fn (array $r): string => self::text($r['id'] ?? NULL, '?'), $rules),
+        static fn (string $id): bool => !in_array($id, $blind, TRUE),
+      ));
+      return GateResult::labelledPass(self::GATE, 0, $elapsed, sprintf(
+        'house_rules passed — %s%s (%s)%s',
+        $sighted === [] || $total === 0 ? '' : implode(', ', $sighted) . ' held; ',
+        $unjudged,
+        implode('; ', $read),
+        $scope,
+      ), 'house rules: ' . $ids);
+    }
     if ($findings === [] && $total === 0) {
       // A pass that read nothing is said as one (S4-1): no rule had a file to
       // judge, which is not the same claim as every rule holding.

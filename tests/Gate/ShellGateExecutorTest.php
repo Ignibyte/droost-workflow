@@ -1043,6 +1043,119 @@ class ShellGateExecutorTest extends WorkflowTestCase {
   }
 
   /**
+   * A configured path that is not on disk is named as missing (F-453).
+   *
+   * `web/modules/custm` read "the configured paths contain nothing to
+   * analyse", the words for an empty directory, so a typo meant phpcs never
+   * ran again and nothing said why. It stays a labelled pass: a new site has
+   * no `web/themes/custom` yet, and failing on that would stop every first
+   * run. The label says which paths do not exist.
+   */
+  public function testMissingConfiguredPathIsNamedAsMissing(): void {
+    $root = $this->rootWithBinaries(['phpcs']);
+    mkdir($root . '/web/modules/custom', 0755, TRUE);
+    $executor = new ShellGateExecutor(
+      static fn (): array => [0, '', ''],
+      static fn (): int => 0,
+    );
+
+    $typo = $executor->execute(new GateSettings('phpcs', TRUE, ['paths' => 'web/modules/custm,web/modules/custom']), $root);
+    $this->assertSame(GateStatus::Passed, $typo->status);
+    $this->assertStringContainsString('web/modules/custm does not exist', $typo->summary);
+    $this->assertStringNotContainsString('web/modules/custom does not exist', $typo->summary);
+
+    $empty = $executor->execute(new GateSettings('phpcs', TRUE, ['paths' => 'web/modules/custom']), $root);
+    $this->assertStringContainsString('contain nothing to analyse', $empty->summary);
+    $this->assertStringNotContainsString('does not exist', $empty->summary);
+  }
+
+  /**
+   * A project that HAS a browser suite and no binary is tool-missing (F-452).
+   *
+   * The report above is for a project that never installed playwright. One
+   * with a committed `playwright.config.*` has a suite; with the binary gone
+   * (a clone before `npm ci`, a deleted `node_modules`) "not installed" let
+   * every phase advance with that suite unrun. It blocks as any other gate
+   * whose tool is missing does, and the remedy is one command.
+   */
+  public function testPlaywrightConfiguredButMissingBlocks(): void {
+    $root = $this->makeRoot();
+    file_put_contents($root . '/playwright.config.ts', "export default {};\n");
+    $executor = new ShellGateExecutor(
+      static fn (): array => [0, '', ''],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('playwright', TRUE, ['required' => TRUE]), $root);
+
+    $this->assertSame(GateStatus::ErrorToolMissing, $result->status);
+    $this->assertStringContainsString('npm ci', (string) $result->remedy);
+  }
+
+  /**
+   * A suite that ran nothing is not a suite that passed (F-449).
+   *
+   * Both tails are PHPUnit 12.5's own, captured from a class whose tests are
+   * all skipped or incomplete and from one whose tests assert nothing. Each
+   * exits 0. With `required` neither is a pass: the preset asks for tests
+   * that exist, and a test that was skipped verified what a missing one did.
+   *
+   * @param string $tail
+   *   The runner's output.
+   */
+  #[\PHPUnit\Framework\Attributes\DataProvider('tailsThatVerifiedNothing')]
+  public function testPhpunitThatVerifiedNothingFailsWhenRequired(string $tail): void {
+    $root = $this->rootWithBinaries(['phpunit']);
+    $executor = new ShellGateExecutor(
+      static fn (): array => [0, $tail, ''],
+      static fn (): int => 0,
+    );
+
+    $required = $executor->execute(new GateSettings('phpunit', TRUE, ['required' => TRUE]), $root);
+    $this->assertSame(GateStatus::Failed, $required->status);
+    $this->assertStringContainsString('required', $required->summary);
+
+    // Without the lever it is the labelled pass an empty suite already is.
+    $optional = $executor->execute(new GateSettings('phpunit', TRUE), $root);
+    $this->assertSame(GateStatus::Passed, $optional->status);
+    $this->assertStringContainsString('unverified', $optional->summary);
+  }
+
+  /**
+   * The tails of runs in which no test verified anything.
+   *
+   * @return array<string, array{string}>
+   *   Label => [stdout].
+   */
+  public static function tailsThatVerifiedNothing(): array {
+    return [
+      'every test skipped or incomplete' => [
+        "OK, but there were issues!\nTests: 2, Assertions: 0, Skipped: 1, Incomplete: 1.\n",
+      ],
+      'every test asserted nothing' => [
+        "OK, but there were issues!\nTests: 2, Assertions: 0, Risky: 2.\n",
+      ],
+    ];
+  }
+
+  /**
+   * A suite with some tests skipped still passes on the ones that ran.
+   */
+  public function testPhpunitWithSomeSkippedStillPasses(): void {
+    $root = $this->rootWithBinaries(['phpunit']);
+    $executor = new ShellGateExecutor(
+      static fn (): array => [0, "OK, but there were issues!\nTests: 9, Assertions: 14, Skipped: 3.\n", ''],
+      static fn (): int => 0,
+    );
+
+    $result = $executor->execute(new GateSettings('phpunit', TRUE, ['required' => TRUE]), $root);
+
+    $this->assertSame(GateStatus::Passed, $result->status);
+    $this->assertStringContainsString('9 test(s), 14 assertion(s)', $result->summary);
+    $this->assertStringContainsString('3 skipped or incomplete', $result->summary);
+  }
+
+  /**
    * A project root with stub binaries in place.
    *
    * @param list<string> $tools

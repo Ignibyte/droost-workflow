@@ -399,11 +399,27 @@ $stdin = (string) stream_get_contents(STDIN);
 // honour `stop_hook_active` fires a hundred lines earlier: an unparsable
 // run.json. It did not honour it, and that made the refusal terminal — Claude
 // was made to continue once, tried to stop again, and got the same exit 2, for
-// ever. A hook that can never be satisfied is not enforcement, it is a hang,
-// and the remedy it prints (`reset --force`) is an OPERATOR command the stuck
-// agent is not allowed to run. One enforced continuation per stop attempt is
-// the contract, and it is the contract for every branch.
+// ever. A hook that can never be satisfied is not enforcement, it is a hang.
+// (This comment used to add that the remedy it prints, `reset --force`, is
+// an operator command the stuck agent may not run. It is not one: the guard
+// lets `droost workflow:reset --force` through, and the require-run message
+// below says so. F-482.) One enforced continuation per stop attempt is the
+// contract, and it is the contract for every branch.
 $payload = json_decode($stdin, TRUE);
+// A CALL THIS CANNOT READ IS NOT ONE IT LETS THROUGH (F-477). An unpaired
+// surrogate escape is valid to a harness's encoder and not to this decoder,
+// so `echo \ud800; droost workflow:bypass x` arrived as a payload that read
+// as empty: nothing to judge, exit 0. Refused in the two modes that stand
+// before a tool call. Nothing on stdin is a hand invocation, and the other
+// modes report after the fact and hold nothing.
+if (!is_array($payload) && trim($stdin) !== '' && in_array($mode, ['pre-tool-use', 'operator-commands'], TRUE)) {
+  guard_refuse('payload:unreadable', sprintf(
+    'droost workflow: the guard could not read this tool call (%s), so it is refused: a call nobody read has not been allowed. '
+    . 'If the command or file holds an unusual character or escape, write it another way. '
+    . 'If every call is refused like this, the harness is not sending the hook JSON; tell the OPERATOR.',
+    json_last_error_msg(),
+  ));
+}
 $payload = is_array($payload) ? $payload : [];
 // TRUTHY, not identical-to-TRUE. Claude Code sends a boolean; this file also
 // documents Codex and a hand-invoked hook as supported callers, and `"true"`,
@@ -1091,8 +1107,13 @@ function operator_commands_scan_text(string $command): string {
   // `sudo -u me bash <<EOF` all classified their bodies as DATA — so the
   // heredoc was dropped and the verb inside it was never seen, while the bare
   // `bash <<EOF` was refused.
+  // AN OPTION MAY TAKE A VALUE (F-509). `sudo -u me bash <<EOF` is the third
+  // spelling named above, and it still read as data: the list knew `-u` and
+  // not the `me` after it, so the body was dropped with a verb in it. One
+  // word after an option is allowed to be its value; when it is the
+  // interpreter instead, the match backs off and takes it as that.
   $interpreter = '/(?:^|[|;&(`]|\$\()\s*'
-    . '(?:(?:' . operator_commands_wrapper_words() . ')\s+(?:-\S+\s+|\S+=\S*\s+|\d+(?:\.\d+)?[smhd]?\s+)*)*'
+    . '(?:(?:' . operator_commands_wrapper_words() . ')\s+(?:-\S+\s+(?:[A-Za-z][\w.-]*\s+)?|\S+=\S*\s+|\d+(?:\.\d+)?[smhd]?\s+)*)*'
     . '(?:' . operator_commands_interpreter_words() . '|tmux|ssh|docker'
     . '|ddev\s+(?:exec|ssh)|lando\s+(?:ssh|exec)|fin\s+(?:exec|ssh)|drush\s+(?:php:?\S*|ev|scr))(?:\s|$)/';
   $lines = preg_split('/\R/', $command) ?: [];
@@ -1100,6 +1121,15 @@ function operator_commands_scan_text(string $command): string {
   $count = count($lines);
   for ($i = 0; $i < $count; $i++) {
     $line = $lines[$i];
+    // A LINE CONTINUATION IS NOT A LINE BREAK (F-465). The shell deletes a
+    // backslash and the newline after it; kept, `droost \<newline>
+    // workflow:baseline` reached the tokeniser as a verb beginning with a
+    // newline, which no rule matched. Joined here, on the lines that are
+    // commands: a data heredoc's body is skipped below and never comes
+    // through this, so its terminator cannot be joined away.
+    while ($i + 1 < $count && preg_match('/(?<!\\\\)(?:\\\\\\\\)*\\\\$/', $line) === 1) {
+      $line = substr($line, 0, -1) . $lines[++$i];
+    }
     // A QUOTED HEREDOC ASSIGNED THROUGH `$(cat <<'TAG')` IS A LITERAL (F-174).
     // Its body is the variable's value, and nothing expands inside it. It
     // was dropped as data and the variable bound to nothing, so
@@ -1130,8 +1160,12 @@ function operator_commands_scan_text(string $command): string {
     // `ddev exec 'ls | head'; cat > p.js <<'EOF'` kept p.js's body as code,
     // because `ddev exec` opened the line, and a JavaScript template string
     // in it read as a backtick substitution around drush.
+    // `!== 0`, NOT `=== 1` (F-477). preg_match() answers FALSE when it
+    // gives up (a backtrack limit, a line too long for it), and FALSE read
+    // as "feeds no interpreter", which drops the body as a file's text. A
+    // question the pattern could not answer keeps the body in the scan.
     if (preg_match('/<<-?\s*([\'"]?)([A-Za-z_][A-Za-z0-9_]*)\1/', $line, $m) !== 1
-      || (preg_match($interpreter, operator_commands_heredoc_pipeline($line)) === 1 && !operator_commands_feeds_code($line))) {
+      || (preg_match($interpreter, operator_commands_heredoc_pipeline($line)) !== 0 && !operator_commands_feeds_code($line))) {
       continue;
     }
     // A data heredoc, or one fed to php, python, perl, node or ruby: skip to
@@ -1559,7 +1593,16 @@ function operator_commands_writes_script_inner(string $command, string $path): s
   // and a copy the files they read, and an in-place edit leaves the file as
   // it is plus whatever its expression puts in, which is judged whole.
   // Anything else (a download, a program's output) is not known here.
-  foreach (operator_commands_invocations(operator_commands_scan_text($command)) as $tokens) {
+  // TOKENISED ONCE PER COMMAND (F-478). This is asked once for every word a
+  // runner might be running as a script, and it tokenised the whole command
+  // each time: `ddev exec` with 1,000 words took the guard 56 seconds, long
+  // past any hook's timeout. The answer depends on the path; the tokens do
+  // not. Every call here runs under operator_commands_writes_script()'s
+  // re-entry flag, so the tokens are the same ones each time.
+  static $tokenised = [];
+  $key = hash('xxh128', $command);
+  $tokenised[$key] ??= operator_commands_invocations(operator_commands_scan_text($command));
+  foreach ($tokenised[$key] as $tokens) {
     [$bare] = operator_commands_strip_wrappers($tokens);
     $words = array_values(array_filter($bare, static fn (string $t): bool => !str_starts_with($t, "\x01")));
     $head = strtolower(basename($words[0] ?? ''));
@@ -1725,17 +1768,36 @@ function operator_commands_guard(string $stdin, string $root, string $stateDir):
   // `droost/droost-workflow/`, and P8 run 17's `ls
   // droost/droost-workflow/history/$(ls … | tail -1)` was refused as a droost
   // command built from a substitution (F-246).
-  if (preg_match(
-    '/(?:^|[;&|(]|\s)(?:\S*\/)?(?:drush|droost-workflow)(?![\w\/-])[^;&|\n]*(?:\$\(|`|\$\{)/',
-    operator_commands_unquoted($command),
-  ) === 1) {
+  //
+  // WHERE THE VERB GOES, AND NOWHERE ELSE (F-466, F-481). The rule read "a
+  // substitution anywhere after drush", so `drush uli --uid=$(…)` was refused
+  // as a droost command built from one, and it never named the `droost`
+  // binary, so `droost workflow:$(echo baseline)` ran. What hides a verb is
+  // the command-name word itself carrying a `$` or a backtick, or a word
+  // before it doing so: unquoted, `--uri=$(…)` can expand to the verb. After
+  // the options that carry neither, the next word is that word. A
+  // substitution after it is an argument, and arguments are ordinary work.
+  //
+  // `droost` is also the directory at every project's root, so the bare word
+  // is the program only where a command starts or a runner hands it on; a
+  // path ending bin/droost is the program anywhere.
+  $verbWord = '(?>(?:[ \t]+-[^\s$`;&|]*(?=\s|$))*)[ \t]+[^\s;&|]*[$`]';
+  $unquoted = operator_commands_unquoted($command);
+  $hidden = preg_match(
+    '/(?:^|[;&|(]|\s)(?:(?:\S*\/)?(?:drush|droost-workflow)(?:\.\w+)?(?![\w\/-])|\S*\/bin\/droost(?![\w\/.-]))' . $verbWord . '/m',
+    $unquoted,
+  ) === 1 || preg_match(
+    '/(?:^|[;&|(]|\b(?:ddev|lando|fin)(?:[ \t]+exec)?[ \t]|\b(?:sudo|env|time|command|exec|nohup)[ \t])[ \t]*droost(?![\w\/.-])' . $verbWord . '/m',
+    $unquoted,
+  ) === 1;
+  if ($hidden) {
     guard_refuse('operator-command:substitution',
-      'This command builds a droost command out of a substitution, so what it '
-      . 'actually runs cannot be read here — and the operator-only verbs '
-      . '(bypass, gate-waive, baseline, effort) are '
-      . 'exactly what that hides. Write the command out in full. If you '
-      . 'genuinely need a computed argument, compute it into a variable on its '
-      . 'own line first; it is the VERB that has to be legible.');
+      'This command puts a substitution where the command name of drush or '
+      . 'droost goes, or in a word before it, so which command runs cannot '
+      . 'be read here — and the operator-only verbs (bypass, gate-waive, '
+      . 'baseline, effort) are exactly what that hides. Write the command '
+      . 'name out in full. A computed ARGUMENT after it is fine; it is the '
+      . 'VERB that has to be legible.');
   }
   // Per INVOCATION, from TOKENS. Asking the raw line three different questions
   // let each answer come from a different command: `bypass "hotfix"; echo
@@ -1760,6 +1822,59 @@ function operator_commands_guard(string $stdin, string $root, string $stateDir):
       $tokens,
       static fn (string $token): bool => preg_match('/\s/', $token) !== 1,
     ));
+    // WHAT echo AND printf ARE HANDED IS TEXT, QUOTED OR NOT (F-481). `echo
+    // "droost workflow:bypass x"` was prose by the rule above and `echo
+    // droost workflow:bypass x` was the operator's command, though the shell
+    // runs neither. ONLY ON A LINE THAT HANDS NOTHING ON: with a pipe, a
+    // substitution or an eval anywhere in the command, printed words can
+    // become a command (`echo droost workflow:bypass x | sh` ran it, measured
+    // while writing this), and unquoted they are not re-read the way a
+    // quoted script is. Such a line is judged as it was before.
+    $spoken = array_values(array_map(static fn (string $token): string => ltrim($token, "\x01"), operator_commands_unwrapped($tokens)));
+    $head = strtolower(basename($spoken[0] ?? ''));
+    if (($head === 'echo' || $head === 'printf') && preg_match('/[|`]|\$\(|<\(|\beval\b/', $command) !== 1) {
+      $line = $head;
+    }
+    // THE GUARD, CALLED BY HAND (F-464). `droost guard answers` is what the
+    // harness calls with a human's answers to a dialog, and it writes the
+    // approvals an operator verb is let through on. From a shell it takes
+    // what it is handed: `echo '{…}' | vendor/bin/droost guard answers`
+    // wrote an approval nobody gave. The installed hook file was already
+    // refused by name (F-168); the verb and the package's entries were not.
+    if (guard_called_by_hand(array_values(array_filter($spoken, static fn (string $w): bool => $w !== '')))) {
+      guard_refuse('operator-command:guard-by-hand',
+        'This runs the guard itself. The harness calls it, with its own record '
+        . 'of the session; from a shell it takes whatever it is handed as that '
+        . 'record, which is how an approval nobody gave, or a tool call that '
+        . 'never happened, gets written. Nothing a run needs is done by calling '
+        . 'it. To probe it, copy it into a throwaway project and point '
+        . 'CLAUDE_PROJECT_DIR there; `php -l` checks its syntax.');
+    }
+    // A VERB HANDED TO SOMETHING THAT RUNS IT LATER (F-467). A trap's action
+    // and a git alias beginning `!` are shell the tokeniser keeps as one
+    // quoted word, which the rule above reads as prose.
+    $later = [];
+    if ($head === 'trap') {
+      $later = array_slice(array_values(array_filter(array_slice($spoken, 1), static fn (string $w): bool => !str_starts_with($w, '-'))), 0, 1);
+    }
+    elseif ($head === 'git') {
+      foreach ($spoken as $word) {
+        if (preg_match('/^(?:alias\.[^=\s]+=)?\s*!(.+)$/s', $word, $shell) === 1) {
+          $later[] = $shell[1];
+        }
+      }
+    }
+    foreach ($later as $action) {
+      if (preg_match(operator_verb_pattern(), $action) === 1) {
+        guard_refuse('operator-command:run-later', sprintf(
+          'This hands %s an action carrying one of the operator-only verbs, to '
+          . 'run when the shell gets to it. Putting the command where it runs '
+          . 'later does not make it the agent\'s to run: show the OPERATOR the '
+          . 'command and the reason.',
+          $head === 'trap' ? 'a trap' : 'a git alias',
+        ));
+      }
+    }
     // THE droost COMMAND SPELLS EVERY VERB `droost workflow:<verb>` (droost
     // off Drupal, 2026-10-19), from wherever it is installed
     // (`tools/droost/vendor/bin/droost workflow:bypass`). The verbs below are
@@ -1891,10 +2006,14 @@ function operator_commands_guard(string $stdin, string $root, string $stateDir):
     // operator who followed it was refused as the agent is.
     // APPROVED IN THE SESSION (owner, 2026-10-30): a human said yes to this
     // exact command in the dialog. droost's CLI spends the approval for the
-    // verbs it gates; a baseline write it does not gate, so the guard spends
-    // that one as it lets it through.
+    // verbs it gates, and since F-460 a baseline write is one of them: the
+    // guard used to spend that one as it let it through, which would now
+    // leave the CLI nothing to take.
     $approval = guard_approval_command($tokens);
-    if ($approval !== NULL && guard_approval_open($root, $stateDir, $approval, $which === 'baseline')) {
+    if ($approval !== NULL && guard_approval_open($root, $stateDir, $approval, FALSE)) {
+      // Said in the diary (F-482): an operator's verb the agent ran, by a
+      // yes in the dialog, read `allow, rule: null`, as `ls` does.
+      $GLOBALS['workflow_guard_rule'] = 'operator-approved';
       continue;
     }
     $words = array_map(static fn (string $w): string => preg_quote($w, '/'), explode(' ', $which));
@@ -3751,6 +3870,7 @@ function shell_phase_guard(
   // tracks it — `getcwd()` is the HOOK's directory, which is not the
   // command's, and a bare filename means something different in each.
   $cwd = rtrim($root, '/');
+  $levers = NULL;
   foreach (operator_commands_invocations($command) as $tokens) {
     $unwrapped = operator_commands_unwrapped($tokens);
     $verb = strtolower(ltrim($unwrapped[0] ?? '', "\x01({"));
@@ -3784,6 +3904,34 @@ function shell_phase_guard(
         . '(/droost:workflow:continue) before building. A shell redirect is '
         . 'the same act as an edit; the wall does not stop at the tool you '
         . 'chose.',
+        $target,
+        $stateDir,
+      ));
+    }
+    // THE VERBS THAT WRITE, WHERE THEY WRITE CUSTOM CODE (F-469). A redirect
+    // was the only write this wall read, so `cp`, `tee`, `sed -i`, `mv`,
+    // `rm` and `git rm` built and unbuilt custom code during plan. The
+    // operands are the ones the no-run wall reads, and the territory is
+    // that wall's too: custom code, inside the project. A redirect is held
+    // everywhere above because it creates a file; these verbs are also how
+    // a scratch file is moved or a cache cleared, and plan may do that.
+    $program = strtolower(basename($verb));
+    foreach (require_run_shell_targets($tokens, $unwrapped, $program) as $target) {
+      if ($target === '' || str_starts_with($target, '/dev/')) {
+        continue;
+      }
+      $absolute = str_starts_with($target, '/') ? $target : $cwd . '/' . $target;
+      if (!guard_inside_project($absolute, $root)
+        || !require_run_covers($root, rtrim($absolute, '/') . '/', $levers ??= require_run_level($root)[1])
+        || plan_exempts($absolute, $root, $stateDir, $document)) {
+        continue;
+      }
+      guard_refuse('plan-wall:shell', sprintf(
+        'droost:workflow:continue: the active run is still in PLAN, and this '
+        . 'command writes, moves or deletes %s, which is custom code. Write '
+        . 'the spec under %s/ and advance the run (/droost:workflow:continue) '
+        . 'before building. A shell command that changes a file is the same '
+        . 'act as an edit; the wall does not stop at the tool you chose.',
         $target,
         $stateDir,
       ));
@@ -3839,7 +3987,7 @@ function require_run_shell_guard(string $command, string $root, string $stateDir
       }
       $absolute = str_starts_with($target, '/') ? $target : $cwd . '/' . $target;
       // Outside the project is no project's custom code.
-      if (!str_starts_with(normalised_path($absolute) . '/', normalised_path(rtrim($root, '/')) . '/')) {
+      if (!guard_inside_project($absolute, $root)) {
         continue;
       }
       // A directory operand (`git rm -r …/tests`, `rm -rf …/custom/acme`)
@@ -3850,6 +3998,32 @@ function require_run_shell_guard(string $command, string $root, string $stateDir
       }
     }
   }
+}
+
+/**
+ * Whether a path a shell command names lies inside the project.
+ *
+ * By the root as it was given and as it resolves: a `cd` is followed with
+ * realpath(), so after one the path is spelled through any link in the
+ * root (`/var` for `/private/var`) and read as outside a root spelled the
+ * other way, which no wall then judged.
+ *
+ * @param string $absolute
+ *   The path, absolute.
+ * @param string $root
+ *   The project root.
+ *
+ * @return bool
+ *   TRUE when it is under the root.
+ */
+function guard_inside_project(string $absolute, string $root): bool {
+  $path = normalised_path($absolute) . '/';
+  foreach (array_unique([rtrim($root, '/'), realpath($root) ?: rtrim($root, '/')]) as $spelling) {
+    if (str_starts_with($path, normalised_path($spelling) . '/')) {
+      return TRUE;
+    }
+  }
+  return FALSE;
 }
 
 /**
@@ -3983,19 +4157,90 @@ function site_tool_write_ids(): array {
  *   The tool id, or NULL.
  */
 function site_tool_named(array $tokens): ?string {
+  $said = site_drush_command($tokens);
+  if (!in_array($said[0] ?? '', ['droost:tool', 'dtool', 'tool:run'], TRUE)) {
+    return NULL;
+  }
+  $rest = array_values(array_filter(array_slice($said, 1), static fn (string $w): bool => !str_starts_with($w, '-')));
+  $id = $rest[0] ?? '';
+  return preg_match('/^[a-z0-9_:]+$/', $id) === 1 ? $id : NULL;
+}
+
+/**
+ * What one invocation tells drush to run: the command name and what follows.
+ *
+ * The command is not always the first word after drush. A site alias
+ * (`@self`), an option, and an option's value given as its own word (`-l
+ * https://x`, `--uri https://x`) all stand before it, and reading the first
+ * word meant `drush @self droost:tool droost_entity_create` built in plan
+ * and `drush @self php:eval` left no mark (F-470). `drush.php` and
+ * `drush.phar` are drush too.
+ *
+ * @param list<string> $tokens
+ *   One invocation's tokens.
+ *
+ * @return list<string>
+ *   The command name and every word after it, or [] when drush is not run.
+ */
+function site_drush_command(array $tokens): array {
   $words = array_values(array_map(static fn (string $token): string => ltrim($token, "\x01"), operator_commands_unwrapped($tokens)));
   foreach ($words as $i => $word) {
-    if (basename($word) !== 'drush') {
+    if (!in_array(basename($word), ['drush', 'drush.php', 'drush.phar'], TRUE)) {
       continue;
     }
-    $rest = array_values(array_filter(array_slice($words, $i + 1), static fn (string $w): bool => !str_starts_with($w, '-')));
-    if (!in_array($rest[0] ?? '', ['droost:tool', 'dtool', 'tool:run'], TRUE)) {
-      return NULL;
+    $after = array_slice($words, $i + 1);
+    $at = 0;
+    while ($at < count($after)) {
+      $valued = ['-l', '--uri', '-r', '--root', '-c', '--config', '-D', '--define', '-i', '--include', '--alias-path'];
+      if (in_array($after[$at], $valued, TRUE)) {
+        $at += 2;
+        continue;
+      }
+      if (!str_starts_with($after[$at], '-') && !str_starts_with($after[$at], '@')) {
+        break;
+      }
+      $at++;
     }
-    $id = $rest[1] ?? '';
-    return preg_match('/^[a-z0-9_:]+$/', $id) === 1 ? $id : NULL;
+    return array_values(array_slice($after, $at));
   }
-  return NULL;
+  return [];
+}
+
+/**
+ * Whether one drush invocation only asks what a tool does.
+ *
+ * `drush droost:tool <id> help` prints the tool's description and arguments
+ * and calls nothing (the module's ToolCommands), and `--help` or `-h` on any
+ * drush command prints drush's own help in place of running it. The module's
+ * skill says to read a tool's help before its first call, and plan is when
+ * that happens, so a write tool's id is not a write here (F-480).
+ *
+ * The word counts only where the arguments go, and alone: `help` after the
+ * arguments, or inside them, is not asking.
+ *
+ * @param list<string> $tokens
+ *   One invocation's tokens.
+ *
+ * @return bool
+ *   TRUE when nothing is called.
+ */
+function site_tool_asks_help(array $tokens): bool {
+  $words = array_values(array_map(static fn (string $token): string => ltrim($token, "\x01"), operator_commands_unwrapped($tokens)));
+  foreach ($words as $i => $word) {
+    if (!in_array(basename($word), ['drush', 'drush.php', 'drush.phar'], TRUE)) {
+      continue;
+    }
+    $after = array_slice($words, $i + 1);
+    if (in_array('--help', $after, TRUE) || in_array('-h', $after, TRUE)) {
+      return TRUE;
+    }
+    $said = site_drush_command($tokens);
+    $rest = array_values(array_filter($said, static fn (string $w): bool => !str_starts_with($w, '-')));
+    return in_array($rest[0] ?? '', ['droost:tool', 'dtool'], TRUE)
+      && count($rest) === 3
+      && strtolower($rest[2]) === 'help';
+  }
+  return FALSE;
 }
 
 /**
@@ -4044,15 +4289,7 @@ function site_raw_verb(array $tokens): ?string {
   foreach ($aliases as $verb => $spellings) {
     $canonical += array_fill_keys($spellings, $verb);
   }
-  $words = array_values(array_map(static fn (string $token): string => ltrim($token, "\x01"), operator_commands_unwrapped($tokens)));
-  foreach ($words as $i => $word) {
-    if (basename($word) !== 'drush') {
-      continue;
-    }
-    $rest = array_values(array_filter(array_slice($words, $i + 1), static fn (string $w): bool => !str_starts_with($w, '-')));
-    return $canonical[$rest[0] ?? ''] ?? NULL;
-  }
-  return NULL;
+  return $canonical[site_drush_command($tokens)[0] ?? ''] ?? NULL;
 }
 
 /**
@@ -4075,7 +4312,7 @@ function site_raw_verb(array $tokens): ?string {
 function site_tool_guard(string $command, string $root, string $stateDir, array $document): void {
   foreach (operator_commands_invocations($command) as $tokens) {
     $said = implode(' ', array_map(static fn (string $token): string => ltrim($token, "\x01"), $tokens));
-    site_tool_judge(site_tool_named($tokens), site_raw_verb($tokens), $said, $root, $stateDir, $document);
+    site_tool_judge(site_tool_named($tokens), site_raw_verb($tokens), $said, $root, $stateDir, $document, site_tool_asks_help($tokens));
   }
 }
 
@@ -4098,8 +4335,10 @@ function site_tool_guard(string $command, string $root, string $stateDir, array 
  *   The state directory, project-relative.
  * @param array<string, mixed> $document
  *   The run record, or [] when there is none.
+ * @param bool $help
+ *   TRUE when the call only asks what the tool does (site_tool_asks_help()).
  */
-function site_tool_judge(?string $tool, ?string $raw, string $said, string $root, string $stateDir, array $document): void {
+function site_tool_judge(?string $tool, ?string $raw, string $said, string $root, string $stateDir, array $document, bool $help = FALSE): void {
   if ($tool === NULL && $raw === NULL) {
     return;
   }
@@ -4131,14 +4370,17 @@ function site_tool_judge(?string $tool, ?string $raw, string $said, string $root
       }
     }
   }
-  if ($tool === NULL || !in_array($tool, site_tool_write_ids(), TRUE)) {
+  if ($tool === NULL || $help || !in_array($tool, site_tool_write_ids(), TRUE)) {
     return;
   }
   $phase = is_string($document['current_phase'] ?? NULL) ? $document['current_phase'] : NULL;
   $phases = is_array($document['phases'] ?? NULL) ? $document['phases'] : [];
   $status = $phase !== NULL && is_string($phases[$phase] ?? NULL) ? $phases[$phase] : '';
   $live = $phase !== NULL && $status !== 'failed' && $status !== 'passed';
-  if ($live && $phase === 'plan') {
+  // At the level the shell's plan wall stands at (shell_phase_guard()):
+  // hard. Soft holds nothing, and off is the operator saying stay out of
+  // the way; this wall refused at all three (F-480).
+  if ($live && $phase === 'plan' && ($document['enforcement'] ?? 'off') === 'hard') {
     guard_refuse('site-tool:plan', sprintf(
       'droost:workflow:continue: the active run is still in PLAN, and %s '
       . 'changes the site. Write the spec under %s/ and advance the run '
@@ -4177,6 +4419,81 @@ function site_tool_judge(?string $tool, ?string $raw, string $said, string $root
     . 'yourself.',
     $tool,
   ));
+}
+
+/**
+ * Whether every mention of the evidence store in a command is only a word.
+ *
+ * The store's rule is the name, not the verb, and it has to be blunt (see
+ * below). But three places in a command take text and open nothing: the
+ * pattern of a search, the message of a commit, and what echo or printf
+ * print. `grep -rn evidence.sqlite docs/` and `git commit -m "explain
+ * evidence.sqlite"` were refused as reaching the store (F-481).
+ *
+ * Counted, so it fails closed: the name's occurrences in those places must
+ * be all of its occurrences in the command. A path operand, a redirect, a
+ * second command, or anything the tokeniser did not hand back leaves one
+ * over, and the blunt rule answers as before. A line that hands text on
+ * (a pipe, a substitution, eval) is never excused.
+ *
+ * @param string $command
+ *   The command, scanned.
+ *
+ * @return bool
+ *   TRUE when the store is named and not reached.
+ */
+function evidence_store_only_named(string $command): bool {
+  if (preg_match('/[|`]|\$\(|<\(|\beval\b/', $command) === 1) {
+    return FALSE;
+  }
+  $named = 0;
+  foreach (operator_commands_invocations($command) as $tokens) {
+    $words = array_values(operator_commands_unwrapped($tokens));
+    $head = strtolower(basename(ltrim($words[0] ?? '', "\x01")));
+    $rest = array_slice($words, 1);
+    if ($head === 'git') {
+      $head = 'git ' . strtolower($rest[0] ?? '');
+      $rest = array_slice($rest, 1);
+    }
+    $text = [];
+    if (in_array($head, ['grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'git grep'], TRUE)) {
+      // The pattern: each `-e` value, or else the first operand. A pattern
+      // file (`-f`) is a path, so nothing is excused beside one.
+      $operands = [];
+      $patterns = [];
+      $file = FALSE;
+      foreach ($rest as $i => $word) {
+        if ($word === '-e' || $word === '--regexp') {
+          $patterns[] = $rest[$i + 1] ?? '';
+        }
+        elseif ($word === '-f' || str_starts_with($word, '--file')) {
+          $file = TRUE;
+        }
+        elseif (!str_starts_with($word, '-') && !str_starts_with($word, "\x01") && ($rest[$i - 1] ?? '') !== '-e' && ($rest[$i - 1] ?? '') !== '--regexp') {
+          $operands[] = $word;
+        }
+      }
+      $text = $file ? [] : ($patterns !== [] ? $patterns : array_slice($operands, 0, 1));
+    }
+    elseif (in_array($head, ['git commit', 'git tag', 'git notes'], TRUE)) {
+      foreach ($rest as $i => $word) {
+        if ($word === '-m' || $word === '--message') {
+          $text[] = $rest[$i + 1] ?? '';
+        }
+        elseif (str_starts_with($word, '--message=')) {
+          $text[] = substr($word, strlen('--message='));
+        }
+      }
+    }
+    elseif ($head === 'echo' || $head === 'printf') {
+      $text = array_filter($rest, static fn (string $word): bool => !str_starts_with($word, "\x01"));
+    }
+    foreach ($text as $word) {
+      $named += substr_count($word, 'evidence.sqlite');
+    }
+  }
+
+  return $named > 0 && $named === substr_count($command, 'evidence.sqlite');
 }
 
 /**
@@ -4975,7 +5292,7 @@ function protected_path_shell_guard(string $stdin, string $root, string $stateDi
     }
   }
 
-  if (preg_match('#evidence\.sqlite#', $command) === 1) {
+  if (preg_match('#evidence\.sqlite#', $command) === 1 && !evidence_store_only_named($command)) {
     guard_refuse('protected-path:evidence-store:shell', sprintf(
       'A shell command in this run reaches the evidence store. That store is the '
       . 'run\'s own record of what droost measured — gate verdicts, which '
@@ -6148,6 +6465,59 @@ function guard_parity_held_by_intake(string $root, string $stateDir): string {
 }
 
 /**
+ * Whether one invocation runs the guard itself.
+ *
+ * Three entries reach it: `droost guard <verb>`, the package's
+ * `bin/droost-guard`, and the script (`droost-workflow-guard.php`, in the
+ * package or copied into a harness's hooks). Run through `php` or directly.
+ * A syntax check (`php -l`) runs nothing, and a file merely named as an
+ * operand of something else is not a call.
+ *
+ * @param list<string> $words
+ *   The invocation's words, wrappers and redirect marks removed.
+ *
+ * @return bool
+ *   TRUE when the guard would run.
+ */
+function guard_called_by_hand(array $words): bool {
+  // Past what hands the command on: `ddev exec`, `lando ssh -c`, `sudo`,
+  // an environment assignment. The program is the first word that is none
+  // of those.
+  $at = 0;
+  $runners = [
+    'ddev', 'lando', 'fin', 'docker', 'docker-compose', 'compose', 'exec', 'ssh', 'run',
+    'sudo', 'env', 'time', 'nohup', 'command',
+  ];
+  while ($at < count($words) && (in_array($words[$at], $runners, TRUE) || str_starts_with($words[$at], '-') || preg_match('/^\w+=/', $words[$at]) === 1)) {
+    $at++;
+  }
+  if (preg_match('/^php[\d.]*$/', strtolower(basename($words[$at] ?? ''))) === 1) {
+    for ($at++; $at < count($words); $at++) {
+      if (in_array($words[$at], ['-l', '--syntax-check', '-r', '-i', '-m', '-v', '--version'], TRUE)) {
+        return FALSE;
+      }
+      if (in_array($words[$at], ['-d', '-c', '-z'], TRUE)) {
+        $at++;
+        continue;
+      }
+      if (!str_starts_with($words[$at], '-')) {
+        break;
+      }
+    }
+  }
+  $program = basename($words[$at] ?? '');
+  if ($program === 'droost-guard' || $program === 'droost-workflow-guard.php') {
+    return TRUE;
+  }
+  if ($program !== 'droost') {
+    return FALSE;
+  }
+  $after = array_values(array_filter(array_slice($words, $at + 1), static fn (string $w): bool => !str_starts_with($w, '-')));
+
+  return ($after[0] ?? '') === 'guard';
+}
+
+/**
  * The operator-only verbs, as one pattern.
  *
  * Asked by the tokeniser (is this quoted payload a command line worth
@@ -6159,9 +6529,13 @@ function guard_parity_held_by_intake(string $root, string $stateDir): string {
  *   A PCRE pattern.
  */
 function operator_verb_pattern(): string {
-  return '/droost:workflow:(gate-waive|baseline|bypass|effort)\b'
+  // `droost workflow:<verb>` is the spelling every pack file teaches, and
+  // it was not here: the main tier rewrites it to the colon spelling before
+  // asking, and code, scripts and re-scanned payloads asked this as written
+  // (F-467).
+  return '/droost(?::|\s+)workflow:(gate-waive|baseline|bypass|effort)\b'
     . '|droost-workflow\s+(baseline|gate-waive|bypass|effort)\b'
-    . '|(?:droost-workflow\s+|droost:workflow:)ticket\s+move\b/';
+    . '|(?:droost-workflow\s+|droost(?::|\s+)workflow:)ticket\s+move\b/';
 }
 
 /**
@@ -8522,7 +8896,25 @@ function guard_walls(string $root, array $event, string $harness): void {
     }
   }
   foreach ($rules['walls'] as $id => $wall) {
-    if ($event['tool'] === '' || @preg_match('#' . str_replace('#', '\#', $wall['tools']) . '#', $event['tool']) !== 1) {
+    $named = $event['tool'] === '' ? 0 : @preg_match('#' . str_replace('#', '\#', $wall['tools']) . '#', $event['tool']);
+    if ($named === FALSE) {
+      // A pattern that is not one matches nothing, so this wall was skipped
+      // for every call and the project believed it had one (F-477). As for
+      // a lever file that will not parse: refused, except the write that
+      // repairs it.
+      $target = is_string($event['input']['file_path'] ?? NULL) ? $event['input']['file_path'] : '';
+      if (preg_match('#(^|/)droost/droost\.yml$#', $target) === 1) {
+        continue;
+      }
+      guard_refuse('wall:unreadable', sprintf(
+        'The project\'s wall "%s" names its tools with `%s`, which is not a regular expression, so the wall was never asked and this %s call is refused: a wall that was never asked has not said yes. Fix walls.%s.tools in droost/droost.yml, or tell the OPERATOR.',
+        $id,
+        $wall['tools'],
+        $event['tool'],
+        $id,
+      ));
+    }
+    if ($named !== 1) {
       continue;
     }
     [$exit, $reason] = guard_run_wall($root, $wall['run'], [
@@ -8806,6 +9198,7 @@ function guard_operator_only(string $command, string $root, string $stateDir): v
         $at = array_search($word, $plain, TRUE);
         $approval = guard_approval_normalise($relative . ' ' . implode(' ', array_slice($plain, $at === FALSE ? count($plain) : $at + 1)));
         if (guard_approval_open($root, $stateDir, $approval, FALSE)) {
+          $GLOBALS['workflow_guard_rule'] = 'operator-approved';
           continue 2;
         }
         guard_refuse('operator-only', sprintf(

@@ -44,6 +44,98 @@ final class OperatorApprovalTest extends WorkflowTestCase {
   }
 
   /**
+   * Three more verbs carry a human's decision (F-459, F-460, F-461).
+   *
+   * Taking the guard out, rewriting the baseline of inherited debt, and
+   * moving a run to agentic each loosen what holds the agent, and each ran
+   * from a shell with no terminal and no yes: the usage and docs/guard.md
+   * said every operator command refuses there. They take the same two
+   * proofs bypass takes, a terminal or the dialog's approval, so the person
+   * can say yes without leaving the session. What only reads, or tightens,
+   * asks for nothing.
+   */
+  public function testVerbsThatLoosenNeedTheSameProof(): void {
+    $root = $this->wiredRoot();
+    foreach ([['uninstall'], ['baseline', '--refresh'], ['baseline'], ['swap', 'agentic']] as $argv) {
+      $command = OperatorApproval::command($argv);
+      [$code, $out] = $this->cli($argv, $root);
+      $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code, $command . ': no terminal, no approval');
+      $this->assertStringContainsString(OperatorApproval::question($command), $out, $command);
+    }
+    $this->assertFileExists($root . '/.claude/settings.json', 'the refused uninstall removed nothing');
+
+    foreach ([['baseline', '--status'], ['baseline', '--measure'], ['swap', 'interactive']] as $argv) {
+      [, $out] = $this->cli($argv, $root);
+      $this->assertStringNotContainsString("operator's command", $out, implode(' ', $argv) . ' asks for nothing');
+    }
+
+    foreach ([['swap', 'agentic'], ['baseline', '--refresh'], ['uninstall']] as $argv) {
+      $command = OperatorApproval::command($argv);
+      $this->approve($root, $command);
+      [, $out] = $this->cli($argv, $root);
+      $this->assertStringNotContainsString("operator's command", $out, $command . ': approved, it is let past the check');
+    }
+  }
+
+  /**
+   * An option a verb does not take stops it; it is not ignored (F-488).
+   *
+   * `baseline --staus` wrote a baseline, and `uninstall --dry-run`, `reset
+   * --force --dry-run` and `effort low --dry-run` each did for real what the
+   * person asked to rehearse. On a verb that changes state an unknown
+   * option is a misuse, named, and nothing is done.
+   */
+  public function testUnknownOptionOnVerbThatChangesStateIsRefused(): void {
+    $root = $this->wiredRoot();
+    $cases = [
+      [['baseline', '--staus'], '--staus'],
+      [['uninstall', '--dry-run'], '--dry-run'],
+      [['reset', '--force', '--dry-run'], '--dry-run'],
+      [['effort', 'low', '--dry-run'], '--dry-run'],
+      [['bypass', 'a reason', '--dry-run'], '--dry-run'],
+    ];
+    foreach ($cases as [$argv, $option]) {
+      [$code, $out] = $this->cli($argv, $root);
+      $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code, implode(' ', $argv));
+      $this->assertStringContainsString('does not take ' . $option, $out, implode(' ', $argv));
+      $this->assertStringContainsString('nothing was done', $out, implode(' ', $argv));
+    }
+    $this->assertFileExists($root . '/.claude/settings.json');
+    $this->assertDirectoryDoesNotExist($root . '/droost/baseline');
+
+    // The options each does take are still taken.
+    foreach ([['baseline', '--status'], ['effort', 'low', '--preview'], ['bypass', '--off']] as $argv) {
+      [, $out] = $this->cli($argv, $root);
+      $this->assertStringNotContainsString('does not take', $out, implode(' ', $argv));
+    }
+  }
+
+  /**
+   * A ticket directory that cannot be read stops the ticket verbs only (F-487).
+   *
+   * Every command built the project's ticket source before doing anything,
+   * so a `docs/` that is a symlink (a ticket directory is never reached
+   * through one) made `status`, `effort` and `reset` exit 2 over tickets
+   * none of them reads. The verbs that use tickets still say what is wrong.
+   */
+  public function testUnreadableTicketsStopOnlyTheTicketVerbs(): void {
+    $root = $this->wiredRoot("preset: custom\nwork_item:\n  provider: markdown\n  markdown: { dir: docs/tickets }\n");
+    $elsewhere = $this->makeRoot();
+    mkdir($elsewhere . '/tickets');
+    symlink($elsewhere, $root . '/docs');
+
+    foreach ([['status'], ['effort'], ['baseline', '--status']] as $argv) {
+      [$code, $out] = $this->cli($argv, $root);
+      $this->assertSame(ArgvDispatcher::EXIT_OK, $code, implode(' ', $argv) . ': ' . $out);
+    }
+    foreach ([['ticket', 'list'], ['run', '--ticket=T-1']] as $argv) {
+      [$code, $out] = $this->cli($argv, $root);
+      $this->assertNotSame(ArgvDispatcher::EXIT_OK, $code, implode(' ', $argv));
+      $this->assertStringContainsString('symlink', $out, implode(' ', $argv));
+    }
+  }
+
+  /**
    * Another command, a decline, a stale approval or unwired hooks take nothing.
    */
   public function testOnlyThatCommandFreshAndApproved(): void {
@@ -96,14 +188,25 @@ final class OperatorApprovalTest extends WorkflowTestCase {
     $this->approve($root, 'droost workflow:bypass TICKET-2: the READMEs');
     [$exit] = $this->guard($root, 'operator-commands', $bash($run));
     $this->assertSame(0, $exit, 'approved: the guard lets it through, and the CLI spends it');
+    // The diary says WHY it was let through: an operator's verb the agent
+    // ran read `allow, rule: null`, as `ls` does (F-482).
+    $this->assertSame('operator-approved', $this->lastGuardRule($root));
 
-    // A baseline write is not gated by the CLI, so the guard spends it.
+    // A baseline write is gated by the CLI as bypass is (F-460), so the CLI
+    // spends the approval and the guard only reads it. The guard used to
+    // spend it, when nothing behind it asked.
     $baseline = 'ddev droost workflow:baseline --refresh --grow --reason="phpstan 2.3"';
+    $argv = ['baseline', '--refresh', '--grow', '--reason=phpstan 2.3'];
+    $this->assertSame('droost workflow:baseline --refresh --grow --reason=phpstan 2.3', OperatorApproval::command($argv));
     $this->approve($root, 'droost workflow:baseline --refresh --grow --reason=phpstan 2.3');
     [$exit] = $this->guard($root, 'operator-commands', $bash($baseline));
     $this->assertSame(0, $exit, 'approved baseline write');
+    [, $out] = $this->cli($argv, $root);
+    $this->assertStringNotContainsString("operator's command", $out, 'the CLI takes the approval the guard left');
+    [$code] = $this->cli($argv, $root);
+    $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code, 'and spent it: a second write needs a second yes');
     [$exit] = $this->guard($root, 'operator-commands', $bash($baseline));
-    $this->assertSame(2, $exit, 'the guard spent it: a second write needs a second yes');
+    $this->assertSame(2, $exit, 'which the guard sees too');
   }
 
   /**
@@ -147,6 +250,7 @@ final class OperatorApprovalTest extends WorkflowTestCase {
     $this->approve($root, 'droost/bin/arm on');
     [$exit] = $this->guard($root, 'operator-commands', $bash);
     $this->assertSame(0, $exit, 'approved: the script runs');
+    $this->assertSame('operator-approved', $this->lastGuardRule($root));
     [$code] = $this->cli(['approval', '--consume', '--', 'droost/bin/arm', 'on'], $root);
     $this->assertSame(ArgvDispatcher::EXIT_OK, $code, 'and the script spends it');
     [$code] = $this->cli(['approval', '--consume', '--', 'droost/bin/arm', 'on'], $root);
@@ -184,6 +288,22 @@ final class OperatorApprovalTest extends WorkflowTestCase {
     $guard = (string) file_get_contents(dirname(__DIR__, 2) . '/pack/hooks/droost-workflow-guard.php');
     $this->assertStringContainsString("return '" . OperatorApproval::QUESTION . "';", $guard);
     $this->assertStringContainsString('$row[\'at\'] >= $now - ' . OperatorApproval::TTL, $guard);
+  }
+
+  /**
+   * The rule on the guard's latest diary row.
+   *
+   * @param string $root
+   *   The project root.
+   *
+   * @return string|null
+   *   The rule, or NULL when the row names none or there is no row.
+   */
+  private function lastGuardRule(string $root): ?string {
+    $rows = @file($this->stateDir($root) . '/guard-calls.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    $last = json_decode((string) end($rows), TRUE);
+
+    return is_array($last) && is_string($last['rule'] ?? NULL) ? $last['rule'] : NULL;
   }
 
   /**

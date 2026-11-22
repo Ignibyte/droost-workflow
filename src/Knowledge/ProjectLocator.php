@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Knowledge;
 
+use Droost\Workflow\Cli\ArgvDispatcher;
+
 /**
  * Finds the project a `droost` command is run in.
  *
@@ -44,6 +46,17 @@ final class ProjectLocator {
     }
     $start = realpath($cwd);
     $start = $start === FALSE ? rtrim($cwd, '/') : $start;
+    // THE WORKFLOW'S RULE FIRST (F-506): a run's record wins outright, then
+    // the nearest lever file, and a repository's top is as far as it goes.
+    // This walk took the nearest state DIRECTORY instead, so a stray one
+    // (the droost module made one beside a site nested in a larger project)
+    // was the project for `droost code:*` while `droost workflow:*` stayed
+    // where the lever file is. The walk below is the fallback, for a
+    // project with a state directory and no lever file or repository.
+    $ruled = ArgvDispatcher::projectAbove($start);
+    if ($ruled !== $start) {
+      return $ruled;
+    }
     $dir = $start;
     for ($depth = 0; $depth < 32; $depth++) {
       foreach (self::MARKERS as $marker) {

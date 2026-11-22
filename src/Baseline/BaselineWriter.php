@@ -136,6 +136,11 @@ final class BaselineWriter {
           if ($percent === NULL) {
             $skipped[$gate] = 'infection printed no MSI — fix the mutation run before baselining it';
           }
+          elseif (FindingParsers::mutantCount($run['stdout']) === 0) {
+            // "MSI: 0%" over nothing is not a score. Recorded it is a floor
+            // of 0, which every later run meets whatever it kills (F-454).
+            $skipped[$gate] = 'infection generated no mutants, so there is no score to record — check what infection.json5 names as source before baselining it';
+          }
           else {
             $metrics['msi'] = $percent;
           }
@@ -208,8 +213,16 @@ final class BaselineWriter {
       $current = $measured->findings[$gate];
       $record = $current;
       if ($previous !== NULL) {
-        $old = $previous->has($gate) ? $previous->findingKeys($gate) : [];
-        $kept = array_values(array_filter($current, static fn (array $f): bool => isset($old[$f['key']])));
+        // Counted, as the gate counts them: a second copy of a recorded
+        // finding is growth, not the recorded one again (F-454).
+        $old = $previous->has($gate) ? $previous->keyCounts($gate) : [];
+        $kept = [];
+        foreach ($current as $finding) {
+          if (($old[$finding['key']] ?? 0) > 0) {
+            $old[$finding['key']]--;
+            $kept[] = $finding;
+          }
+        }
         $new = count($current) - count($kept);
         if ($new > 0) {
           $added[$gate] = $new;

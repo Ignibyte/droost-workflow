@@ -396,6 +396,35 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
   }
 
   /**
+   * Whether a changed file is somebody else's code: core, contrib, a vendor.
+   *
+   * It went by the name of any directory on the path, so `packages/core/`
+   * and a module's own `src/contrib/` were left out with Drupal's (F-448),
+   * and a run that changed only such a file was told it had changed none.
+   * `vendor/` and `node_modules/` are third-party wherever they are. Contrib
+   * is `modules|themes|profiles/contrib`. Core is a `core/` directory that
+   * holds Drupal: one with `lib/Drupal.php` in it.
+   *
+   * @param string $project
+   *   The project root.
+   * @param string $file
+   *   The file, relative to it.
+   *
+   * @return bool
+   *   TRUE when an analyser should not be handed it.
+   */
+  private static function isThirdParty(string $project, string $file): bool {
+    if (preg_match('#(^|/)(vendor|node_modules)/#', $file) === 1
+      || preg_match('#(^|/)(modules|themes|profiles)/contrib/#', $file) === 1) {
+      return TRUE;
+    }
+    if (preg_match('#^((?:.*/)?core)/#U', $file, $match) === 1) {
+      return is_file($project . '/' . $match[1] . '/lib/Drupal.php');
+    }
+    return FALSE;
+  }
+
+  /**
    * A gate narrowed to what this run changed, or the verdict that ends it.
    *
    * `scope: ticket` (0.11), with the files the runner read from the
@@ -443,7 +472,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     $files = [];
     foreach (explode("\n", $listed) as $file) {
       $file = trim($file);
-      if ($file === '' || !is_file($project . '/' . $file) || preg_match('#(^|/)(vendor|node_modules|core|contrib)/#', $file) === 1) {
+      if ($file === '' || !is_file($project . '/' . $file) || self::isThirdParty($project, $file)) {
         continue;
       }
       $files[] = $file;
@@ -991,6 +1020,16 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       // installed the gate becomes a real wall with `required: true` behind
       // it. A project that never installs it gets an honest line in every
       // record rather than a silent pass or a dead run.
+      if ($gate->name === 'playwright' && self::hasBrowserSuite($root)) {
+        // The exception is for a project that never installed playwright.
+        // One with a committed config has a suite, and it did not run: that
+        // is the environment being broken, as for every other gate (F-452).
+        return GateResult::toolMissing(
+          $gate->name,
+          $invocation,
+          'This project has a Playwright config and no node_modules/.bin/playwright, so its browser suite could not run. Install what the project declares (`npm ci`, then `npx playwright install chromium`), then the phase again.',
+        );
+      }
       if ($gate->name === 'playwright') {
         return GateResult::ran(
           $gate->name,
@@ -1074,12 +1113,28 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       // empty. A pass that SAYS it analysed nothing is the honest verdict —
       // and it is labeled, so it can never be mistaken for a clean scan.
       $lever = $gate->option('paths');
+      // A path that is not on disk is said to be missing, by name (F-453):
+      // "nothing to analyse" over a misspelt directory reads as an empty
+      // one, and the tool then never runs again. Still a labelled pass. A
+      // new site has no web/themes/custom, and that must not stop a run.
+      $absent = [];
+      foreach (is_string($lever) ? explode(',', $lever) : [] as $path) {
+        if (trim($path) !== '' && !file_exists($root . '/' . trim($path))) {
+          $absent[] = trim($path) . ' does not exist';
+        }
+      }
+      $missing = $absent === [] ? '' : sprintf(
+        ': %s. If that is a misspelling, %s will not run until gates.%s.paths is corrected',
+        implode(', ', $absent),
+        $gate->name,
+        $gate->name,
+      );
       return GateResult::labelledPass(
         $gate->name,
         0,
         0,
         is_string($lever) && $lever !== ''
-          ? sprintf('%s passed — the configured paths (%s) contain nothing to analyse', $gate->name, $lever)
+          ? sprintf('%s passed — the configured paths (%s) contain nothing to analyse%s', $gate->name, $lever, $missing)
           : sprintf('%s passed — the project\'s own code holds no file %s reads, so nothing was analysed', $gate->name, $gate->name),
         $invocation,
       );
@@ -1354,6 +1409,38 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       // use, and in the summary so a reader who never opens the findings
       // still sees the size of what passed.
       $counts = $this->phpunitTotals($stdout);
+      $unrun = $counts === NULL ? 0 : $this->phpunitUnrun($stdout);
+      if ($counts !== NULL && $exit === 0 && ($counts['assertions'] === 0 || $unrun >= $counts['tests'])) {
+        // PHPUnit exits 0 when every test was skipped, marked incomplete or
+        // asserted nothing (measured 2026-11-21 against 12.5: "Tests: 2,
+        // Assertions: 0, Skipped: 1, Incomplete: 1." and "… Risky: 2.").
+        // The suite exists and verified nothing, which is what NO TESTS RAN
+        // above means, so it gets the same two verdicts.
+        $what = sprintf(
+          '%d test(s), %d assertion(s), %d skipped or incomplete',
+          $counts['tests'],
+          $counts['assertions'],
+          $unrun,
+        );
+        if ($gate->option('required') === TRUE) {
+          return GateResult::ran(
+            $gate->name,
+            GateStatus::Failed,
+            $exit,
+            $elapsed,
+            'phpunit FAILED — NOTHING WAS VERIFIED (' . $what . '), and this preset requires tests that run (required: true). Make the tests run and assert; a skipped test verifies what a missing one does.',
+            [['key' => 'totals', 'detail' => $counts]],
+            $invocation,
+          );
+        }
+        return GateResult::labelledPass(
+          $gate->name,
+          0,
+          $elapsed,
+          'phpunit passed — NOTHING WAS VERIFIED (' . $what . '). Every test was skipped, incomplete or asserted nothing, so read this as unverified rather than as a pass.',
+          $invocation,
+        );
+      }
       if ($counts !== NULL) {
         return GateResult::ran(
           $gate->name,
@@ -1361,10 +1448,11 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
           $exit,
           $elapsed,
           sprintf(
-            'phpunit %s — %d test(s), %d assertion(s)',
+            'phpunit %s — %d test(s), %d assertion(s)%s',
             $exit === 0 ? 'passed' : 'FAILED',
             $counts['tests'],
             $counts['assertions'],
+            $unrun > 0 ? sprintf(', %d skipped or incomplete', $unrun) : '',
           ),
           [['key' => 'totals', 'detail' => $counts]],
           $invocation,
@@ -1640,14 +1728,34 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
    *   The counts, every key present, or NULL when no epilogue line was found.
    */
   private static function playwrightTotals(string $stdout): ?array {
-    if (preg_match_all('/^\s+(\d+) (passed|failed|flaky|skipped|interrupted|did not run)\b/m', $stdout, $m, PREG_SET_ORDER) === 0) {
-      return NULL;
-    }
     $counts = ['passed' => 0, 'failed' => 0, 'flaky' => 0, 'skipped' => 0, 'interrupted' => 0, 'did not run' => 0];
-    foreach ($m as $line) {
-      $counts[$line[2]] = (int) $line[1];
+    if (preg_match_all('/^\s+(\d+) (passed|failed|flaky|skipped|interrupted|did not run)\b/m', $stdout, $m, PREG_SET_ORDER) > 0) {
+      foreach ($m as $line) {
+        $counts[$line[2]] = (int) $line[1];
+      }
+      return $counts;
     }
-    return $counts;
+    // The json and junit reporters print a document and no epilogue: the
+    // only two built-in ones that do (measured 2026-11-21 against 1.63).
+    // Their totals are read where they keep them, so a project reporting to
+    // either is held to the same all-skipped guard (F-452).
+    $number = static fn (string $in, string $key): ?int => preg_match('/"?\b' . $key . '"?\s*[:=]\s*"?(\d+)/', $in, $n) === 1 ? (int) $n[1] : NULL;
+    $expected = preg_match('/"stats"\s*:\s*\{[^{}]*\}/', $stdout, $stats) === 1 ? $number($stats[0], 'expected') : NULL;
+    if ($expected !== NULL) {
+      $counts['passed'] = $expected;
+      $counts['failed'] = $number($stats[0], 'unexpected') ?? 0;
+      $counts['flaky'] = $number($stats[0], 'flaky') ?? 0;
+      $counts['skipped'] = $number($stats[0], 'skipped') ?? 0;
+      return $counts;
+    }
+    $tests = preg_match('/<testsuites\b[^>]*>/', $stdout, $suites) === 1 ? $number($suites[0], 'tests') : NULL;
+    if ($tests !== NULL) {
+      $counts['failed'] = ($number($suites[0], 'failures') ?? 0) + ($number($suites[0], 'errors') ?? 0);
+      $counts['skipped'] = $number($suites[0], 'skipped') ?? 0;
+      $counts['passed'] = max(0, $tests - $counts['failed'] - $counts['skipped']);
+      return $counts;
+    }
+    return NULL;
   }
 
   /**
@@ -1744,6 +1852,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         sprintf('wiki_fresh FAILED — %d stale, %d orphaned, %d invalid of %d page(s)%s', $count('stale'), $count('orphaned'), $count('invalid'), $pages, $gap),
         $findings,
         $invocation,
+        whole: TRUE,
       );
     }
     if ($pages === 0) {
@@ -1765,6 +1874,7 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
       sprintf('wiki_fresh passed — %d of %d page(s) fresh%s', $count('fresh'), $pages, $gap),
       $findings,
       $invocation,
+      whole: TRUE,
     );
   }
 
@@ -1824,19 +1934,33 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
         'eslint' => FindingParsers::eslint($stdout, $root),
         default => FindingParsers::stylelint($report, $root),
       };
-      if ($findings === [] && $exit !== 0 && $this->phpcsTotals($stdout) === NULL && trim($report) !== '' && !str_starts_with(trim($report), '[') && !str_starts_with(trim($report), '{')) {
-        // Non-zero with no machine output: the tool did not run to a report.
-        return NULL;
+      // A TOOL THAT DID NOT REACH A REPORT HAS NOTHING TO PARTITION (F-447).
+      // This asked for SOME output that was not JSON before it gave up, so a
+      // tool that printed nothing at all (out of memory, a fatal on stderr),
+      // or half a report, had no findings and was recorded "passed — 0 new,
+      // 0 inherited". Non-zero with a report that does not decode is the
+      // exit code's verdict, whatever was or was not printed.
+      if ($findings === [] && $exit !== 0) {
+        $decoded = $name === 'phpcs'
+          ? $this->phpcsTotals($stdout) !== NULL
+          : is_array(json_decode(trim($name === 'stylelint' ? $report : $stdout), TRUE));
+        if (!$decoded) {
+          return NULL;
+        }
       }
       $new = [];
       $inherited = 0;
       $warnings = 0;
+      // Spent down, not asked as a set: a second copy of a recorded finding
+      // has the first one's key, and is debt this run added (F-454).
+      $recorded = $baseline->keyCounts($name);
       foreach ($findings as $finding) {
         if (!$finding['error']) {
           $warnings++;
           continue;
         }
-        if ($baseline->inherits($name, $finding['key'])) {
+        if (($recorded[$finding['key']] ?? 0) > 0) {
+          $recorded[$finding['key']]--;
           $inherited++;
           continue;
         }
@@ -1968,6 +2092,51 @@ final class ShellGateExecutor implements BaselineAwareExecutorInterface {
     }
 
     return NULL;
+  }
+
+  /**
+   * Whether the project has committed to a browser suite.
+   *
+   * @param string $root
+   *   The project root.
+   *
+   * @return bool
+   *   TRUE when a Playwright config file is there.
+   */
+  private static function hasBrowserSuite(string $root): bool {
+    foreach (['ts', 'js', 'mts', 'mjs', 'cts', 'cjs'] as $extension) {
+      if (is_file($root . '/playwright.config.' . $extension)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * How many tests the phpunit tail says did not run to a verdict.
+   *
+   * Skipped and incomplete tests are counted; a risky test ran, and is caught
+   * by its assertion count instead.
+   *
+   * @param string $stdout
+   *   Standard output.
+   *
+   * @return int
+   *   Skipped plus incomplete, 0 when the tail names neither.
+   */
+  private function phpunitUnrun(string $stdout): int {
+    if (preg_match('/^Tests: \d+, Assertions: \d+.*$/m', $stdout, $line) !== 1) {
+      return 0;
+    }
+    $unrun = 0;
+    foreach (['Skipped', 'Incomplete'] as $word) {
+      if (preg_match('/\b' . $word . ': (\d+)/', $line[0], $m) === 1) {
+        $unrun += (int) $m[1];
+      }
+    }
+
+    return $unrun;
   }
 
   /**

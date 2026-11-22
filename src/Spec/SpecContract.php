@@ -720,7 +720,7 @@ final class SpecContract {
    * @return bool
    *   TRUE when the cell says nothing.
    */
-  private static function isPlaceholder(string $value): bool {
+  public static function isPlaceholder(string $value): bool {
     return $value === '' || in_array(strtolower($value), self::PLACEHOLDERS, TRUE);
   }
 

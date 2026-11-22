@@ -71,6 +71,46 @@ class SeekerLedgerTest extends TestCase {
   }
 
   /**
+   * An open finding blocks however its status is dressed (F-445).
+   *
+   * Only the bare word "open" blocked. A CRITICAL marked `**open**`, `open:
+   * regression` or `reopened` read as clean and released the hold, while
+   * the report counted the same row as open.
+   */
+  public function testOpenFindingBlocksHoweverItIsWritten(): void {
+    foreach (['**open**', 'Open — unfixed', 'open: regression', 'reopened', '`open`'] as $status) {
+      $ledger = SeekerLedger::parse(<<<MD
+      ## Seeker Inspection
+
+      Inspector: independent
+
+      | ID | Severity | Location | Finding | Status |
+      |----|----------|----------|---------|--------|
+      | F1 | CRITICAL | src/A.php:1 | It deletes the wrong row | {$status} |
+      MD);
+      $this->assertFalse($ledger->isClean(), $status);
+      $this->assertCount(1, $ledger->blocking(), $status);
+      $this->assertSame('open', $ledger->blocking()[0]['status'], 'stored as the word the store asks for');
+    }
+  }
+
+  /**
+   * A status that is none of the three is refused, not read as settled.
+   */
+  public function testUnknownStatusIsRefused(): void {
+    $this->expectException(SeekerError::class);
+    SeekerLedger::parse(<<<'MD'
+    ## Seeker Inspection
+
+    Inspector: independent
+
+    | ID | Severity | Location | Finding | Status |
+    |----|----------|----------|---------|--------|
+    | F1 | CRITICAL | src/A.php:1 | It deletes the wrong row | wontfix |
+    MD);
+  }
+
+  /**
    * Observations are counted and never block.
    */
   public function testObservationsAreAdvisory(): void {

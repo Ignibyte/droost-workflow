@@ -200,6 +200,52 @@ final class GuardVerdictLedgerTest extends WorkflowTestCase {
   }
 
   /**
+   * In plan, a verb that writes custom code is held as a redirect is (F-469).
+   *
+   * The shell's plan wall judged redirects only, so `cp`, `tee`, `sed -i`,
+   * `mv`, `rm` and `git rm` built or unbuilt custom code in the phase whose
+   * job is the spec. The verbs are the ones the no-run wall already reads,
+   * held to the same territory: custom code. Anything else a command moves
+   * or deletes in plan stays its own business.
+   */
+  public function testPlanWallHoldsVerbsThatWriteCustomCode(): void {
+    $root = $this->rootWithRun('plan', 'hard');
+    mkdir($root . '/web/modules/custom/acme/src', 0755, TRUE);
+    file_put_contents($root . '/web/modules/custom/acme/src/A.php', "<?php\n");
+
+    foreach ([
+      'cp /tmp/A.php web/modules/custom/acme/src/B.php',
+      'echo x | tee web/modules/custom/acme/src/B.php',
+      "sed -i '' 's/a/b/' web/modules/custom/acme/src/A.php",
+      'mv web/modules/custom/acme/src/A.php web/modules/custom/acme/src/C.php',
+      'rm web/modules/custom/acme/src/A.php',
+      'git rm web/modules/custom/acme/src/A.php',
+      'cd web/modules/custom/acme && touch src/New.php',
+    ] as $command) {
+      [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
+      $this->assertSame(2, $exit, $command);
+      $this->assertStringContainsString('still in PLAN', $stderr, $command);
+      $this->assertSame('plan-wall:shell', $this->lastRow($root)['rule'], $command);
+    }
+    foreach ([
+      'cp .env.example .env',
+      'rm -rf node_modules/.cache',
+      'touch /tmp/scratch',
+      'cp web/modules/custom/acme/src/A.php /tmp/A.php',
+      "sed -n '1,5p' web/modules/custom/acme/src/A.php",
+      'grep -rn foo web/modules/custom',
+    ] as $command) {
+      [$exit, , $stderr] = $this->guard($root, 'operator-commands', ['tool_input' => ['command' => $command]]);
+      $this->assertSame(0, $exit, $command . ': ' . $stderr);
+    }
+
+    // At soft the shell's plan wall holds nothing, as before.
+    $soft = $this->rootWithRun('plan', 'soft');
+    [$exit] = $this->guard($soft, 'operator-commands', ['tool_input' => ['command' => 'rm web/modules/custom/acme/src/A.php']]);
+    $this->assertSame(0, $exit);
+  }
+
+  /**
    * A stop held mid-phase is a refusal, whichever lever held it.
    */
   public function testHeldStopsAreRefusalsNamingTheLever(): void {

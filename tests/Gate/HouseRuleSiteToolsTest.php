@@ -65,6 +65,38 @@ final class HouseRuleSiteToolsTest extends WorkflowTestCase {
   }
 
   /**
+   * With no guard record of the run, the rule judged nothing (F-456).
+   *
+   * No row means the guard was not wired to this session, so what the run
+   * called is unknown. Beside a rule that did read files the summary said
+   * "HR-FILES, HR-SITE held". It is a labelled pass that says which rule
+   * read nothing and why; it does not block a host with no guard.
+   */
+  public function testNoGuardRecordIsNotHeld(): void {
+    $root = $this->rootWithCalls([]);
+    file_put_contents($root . '/a.php', "<?php\n");
+    $files = [
+      'id' => 'HR-FILES',
+      'rule' => 'Markup lives in components.',
+      'judge' => 'gate',
+      'check' => 'sdc_markup',
+      'mode' => 'block',
+    ];
+
+    $result = HouseRulesCheck::run([$files, self::RULE], ['a.php'], ['a.php'], $root);
+
+    $this->assertSame(GateStatus::Passed, $result->status);
+    $this->assertStringNotContainsString('HR-SITE held', $result->summary);
+    $this->assertStringContainsString('HR-FILES held', $result->summary);
+    $this->assertStringContainsString('HR-SITE judged nothing', $result->summary);
+    $this->assertStringContainsString('no guard record', $result->summary);
+
+    $alone = HouseRulesCheck::run([self::RULE], [], [], $root);
+    $this->assertStringContainsString('HR-SITE judged nothing', $alone->summary);
+    $this->assertStringNotContainsString('held', $alone->summary);
+  }
+
+  /**
    * The guard marks a raw drush php or SQL call on its row.
    */
   public function testTheGuardMarksRawCalls(): void {
