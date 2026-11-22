@@ -12,6 +12,7 @@ use Droost\Workflow\Knowledge\DroostCli;
 use Droost\Workflow\Knowledge\HarnessSetup;
 use Droost\Workflow\Knowledge\KnowledgeSettings;
 use Droost\Workflow\Knowledge\ProjectLocator;
+use Droost\Workflow\Knowledge\Site;
 use Droost\Workflow\Knowledge\ToolCallLog;
 use PHPUnit\Framework\TestCase;
 
@@ -357,6 +358,34 @@ final class DroostCliTest extends TestCase {
     $this->assertStringContainsString('## Use droost first', $agents);
     $this->assertStringNotContainsString('@AGENTS.md', $agents, 'the block is not an import of itself');
     $this->assertTrue(is_link($this->root . '/CLAUDE.md'));
+  }
+
+  /**
+   * A site's scope comes from the site's composer, not droost's (F-501).
+   *
+   * The command is installed in a vendor directory of its own, and the
+   * engine was asked for the composer record of the code that was running:
+   * the tool's. A module the site installed outside a `contrib` folder then
+   * read as custom, and the project's own bar was held to it.
+   */
+  public function testScopeIsReadFromTheSitesComposerRecord(): void {
+    $docroot = Site::fromProjectRoot($this->root)->docroot;
+    $relative = ltrim(substr($docroot, strlen($this->root)), '/');
+    $this->put($docroot, 'modules/webform/webform.info.yml', "name: Webform\ntype: module\ndescription: Forms.\n");
+    $this->put($docroot, 'modules/webform/README.md', "# Webform\n");
+    $this->put($this->root, 'vendor/composer/installed.json', (string) json_encode([
+      'packages' => [
+        [
+          'name' => 'drupal/webform',
+          'type' => 'drupal-module',
+          'install-path' => '../../' . ($relative === '' ? '' : $relative . '/') . 'modules/webform',
+        ],
+      ],
+    ]));
+
+    $scopes = array_column(Site::fromProjectRoot($this->root)->docs->index(), 'scope', 'module');
+
+    $this->assertSame('contrib', $scopes['webform'] ?? NULL);
   }
 
   /**

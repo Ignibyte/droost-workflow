@@ -93,7 +93,11 @@ final class Site {
       StoragePaths::index($root),
       $settings->wikiDir(),
       $version === '' ? '' : CoreVersion::major($version),
-      new ModuleDocReader($docroot, new FilesystemModuleLocator($docroot), ScopeClassifier::forAppRoot($docroot)),
+      // The SITE's composer record (F-501). forAppRoot() asks the composer
+      // that loaded this code, and droost lives in a vendor directory of
+      // its own: every module the site installed outside a `contrib`
+      // folder read as custom.
+      new ModuleDocReader($docroot, new FilesystemModuleLocator($docroot), ScopeClassifier::forSite($docroot, $root)),
       $settings,
       $version,
     );
