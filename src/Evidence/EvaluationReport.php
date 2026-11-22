@@ -1914,7 +1914,9 @@ final class EvaluationReport {
       $lines[] = sprintf(
         '| %s | %s | %s | %d |',
         self::code($call['mode']),
-        $call['verdict'],
+        // Through cell(), as every other cell is: written raw, a `|` in
+        // it (a wall's id reaches the rule beside it) broke the table.
+        self::cell($call['verdict']),
         $call['rule'] === NULL ? '—' : self::code($call['rule']),
         $call['calls'],
       );

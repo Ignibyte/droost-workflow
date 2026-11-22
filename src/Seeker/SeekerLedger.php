@@ -361,7 +361,11 @@ final class SeekerLedger {
     );
     if (count($cells) !== 5) {
       // A row that was clearly MEANT as a finding must refuse, not vanish.
-      if (preg_match('/^F\d+$/i', $cells[0] ?? '') === 1) {
+      // By its id, or by carrying a severity where a finding carries one:
+      // an id of another shape (`SEC-1`, `A1`) was dropped without a word,
+      // and a CRITICAL went with it (F-495).
+      if (preg_match('/^F\d+$/i', $cells[0] ?? '') === 1
+        || in_array(strtoupper(trim($cells[1] ?? '', " *`")), self::SEVERITIES, TRUE)) {
         throw SeekerError::malformed(sprintf(
           'row "%s" splits into %d cells, not 5 — a literal pipe inside a '
           . 'cell must be escaped as \|',
