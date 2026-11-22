@@ -100,7 +100,7 @@ final class RunReport {
         $released > 0 ? sprintf(' · %d released unanswered (a later step went on before anyone answered)', $released) : '',
       );
     }
-    array_push($lines, ...self::siteLines($site['tools'] ?? [], $site['raw'] ?? []));
+    array_push($lines, ...self::siteLines($site['tools'] ?? [], $site['raw'] ?? [], $site['mcp'] ?? []));
     if (($bypass['active'] ?? FALSE) === TRUE) {
       $lines[] = '  • require_run bypass: ACTIVE — ' . self::str($bypass['reason'] ?? NULL, '');
     }
@@ -118,11 +118,13 @@ final class RunReport {
    *   Tool id => its calls.
    * @param array<int, string> $raw
    *   Each raw call's drush verb.
+   * @param array<string, int> $mcp
+   *   Tool id => its calls over MCP, as the guard let them through.
    *
    * @return list<string>
-   *   No line, one or two.
+   *   No line, or up to three.
    */
-  private static function siteLines(array $tools, array $raw): array {
+  private static function siteLines(array $tools, array $raw, array $mcp = []): array {
     $lines = [];
     if ($tools !== []) {
       $total = array_sum(array_column($tools, 'calls'));
@@ -135,6 +137,19 @@ final class RunReport {
         '  site tools: %d call(s)%s — %s',
         $total,
         $failed > 0 ? sprintf(', %d failed or refused', $failed) : '',
+        implode(', ', $each),
+      );
+    }
+    if ($mcp !== []) {
+      // A line of its own, never added to the one above: a stdio MCP server
+      // runs the tool on the command line, so its calls are in both (F-507).
+      $each = [];
+      foreach ($mcp as $tool => $calls) {
+        $each[] = sprintf('%s %d', $tool, $calls);
+      }
+      $lines[] = sprintf(
+        '  site tools over MCP: %d call(s) the guard let through — %s (a web MCP server\'s calls are not in the ledger; a stdio server\'s are counted above too)',
+        array_sum($mcp),
         implode(', ', $each),
       );
     }

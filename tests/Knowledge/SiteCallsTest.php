@@ -47,4 +47,30 @@ final class SiteCallsTest extends WorkflowTestCase {
     $this->assertSame([0, []], SiteCalls::raw($root, 'run-none'));
   }
 
+  /**
+   * A site tool called over MCP is counted from the guard's rows (F-507).
+   *
+   * The module records a call in the ledger only when it ran from the
+   * command line. Over a web MCP server the call is a web request, so it
+   * went to the module's own audit table and the run's record showed a site
+   * built by nothing. The guard sees every MCP call before it runs.
+   */
+  public function testCallsOverMcpAreCountedFromTheGuardsRows(): void {
+    $root = $this->makeRoot();
+    mkdir($root . '/droost/droost-workflow', 0755, TRUE);
+    $rows = [
+      ['run' => 'run-a', 'tool' => 'mcp__drupal__tool_api__droost_entity_create', 'verdict' => 'allow'],
+      ['run' => 'run-a', 'tool' => 'mcp__drupal__tool_api__droost_entity_create', 'verdict' => 'allow'],
+      ['run' => 'run-a', 'tool' => 'mcp__drupal__tool_api__droost_config_set', 'verdict' => 'refuse'],
+      ['run' => 'run-a', 'tool' => 'mcp__drupal__tool_api__droost_entities', 'verdict' => 'allow'],
+      ['run' => 'run-a', 'tool' => 'mcp__tracker__create_issue', 'verdict' => 'allow'],
+      ['run' => 'run-a', 'tool' => 'Bash', 'verdict' => 'allow'],
+      ['run' => 'run-old', 'tool' => 'mcp__drupal__tool_api__droost_entity_create', 'verdict' => 'allow'],
+    ];
+    file_put_contents($root . '/droost/droost-workflow/guard-calls.jsonl', implode("\n", array_map(static fn (array $row): string => (string) json_encode($row), $rows)) . "\n");
+
+    $this->assertSame(['droost_entities' => 1, 'droost_entity_create' => 2], SiteCalls::overMcp($root, 'run-a'), 'what ran, by tool; a refused call did not run');
+    $this->assertSame([], SiteCalls::overMcp($root, 'run-none'));
+  }
+
 }

@@ -620,6 +620,7 @@ final class ArgvDispatcher {
     $site = $runId === NULL ? [] : [
       'tools' => SiteCalls::tools($projectRoot, $runId),
       'raw' => SiteCalls::raw($projectRoot, $runId)[1],
+      'mcp' => SiteCalls::overMcp($projectRoot, $runId),
     ];
     foreach (RunReport::lines($status, $facade->bypassState($projectRoot), $site) as $line) {
       $this->say($line);

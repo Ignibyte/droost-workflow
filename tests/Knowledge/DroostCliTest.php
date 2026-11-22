@@ -533,6 +533,38 @@ final class DroostCliTest extends TestCase {
   }
 
   /**
+   * The doctor says when a module's skill here is not the module's now (F-507).
+   *
+   * A skill the droost module ships is copied into the project by init. A
+   * module update changes the tools' arguments and the copy keeps teaching
+   * the old ones, with nothing to say so until init is run again.
+   */
+  public function testDoctorNamesStaleModuleSkills(): void {
+    $docroot = Site::fromProjectRoot($this->root)->docroot;
+    $this->put($docroot, 'modules/contrib/droost/droost.info.yml', "name: Droost\ntype: module\n");
+    $this->put($docroot, 'modules/contrib/droost/skills/droost-tools/SKILL.md', "---\nname: droost-tools\n---\nThe arguments, as of now.\n");
+    $this->droost(['code:index']);
+
+    $this->droost(['doctor']);
+    $this->assertSame('warn', array_column($this->arr('data.rows'), 'status', 'check')['module skills'], 'not installed here yet');
+    $detail = array_column($this->arr('data.rows'), 'detail', 'check')['module skills'] ?? NULL;
+    $this->assertIsString($detail);
+    $this->assertStringContainsString('droost init', $detail);
+
+    $this->put($this->root, '.claude/skills/droost-tools/SKILL.md', "---\nname: droost-tools\n---\nThe arguments, as of now.\n");
+    $this->put($this->root, '.agents/skills/droost-tools/SKILL.md', "---\nname: droost-tools\n---\nThe arguments, as of now.\n");
+    $this->droost(['doctor']);
+    $this->assertSame('ok', array_column($this->arr('data.rows'), 'status', 'check')['module skills']);
+
+    $this->put($this->root, '.claude/skills/droost-tools/SKILL.md', "---\nname: droost-tools\n---\nThe arguments of a release ago.\n");
+    $this->droost(['doctor']);
+    $this->assertSame('warn', array_column($this->arr('data.rows'), 'status', 'check')['module skills']);
+    $detail = array_column($this->arr('data.rows'), 'detail', 'check')['module skills'] ?? NULL;
+    $this->assertIsString($detail);
+    $this->assertStringContainsString('.claude/skills/droost-tools/SKILL.md', $detail);
+  }
+
+  /**
    * Each gate turned on and each file plugged in answers for itself.
    *
    * A built-in gate is ready when its tool is installed; a gate, hook or wall
