@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Knowledge\Tool;
 
+use Droost\Engine\Search\Graph\SqliteCodeGraphStorage;
 use Droost\Workflow\Knowledge\CitationResolver;
 use Droost\Workflow\Knowledge\Rows;
 use Droost\Workflow\Knowledge\Site;
@@ -44,12 +45,12 @@ final class TreeTool extends ToolBase {
   /**
    * The symbol tables.
    */
-  private const string SYMBOLS = 'droost_search_symbol';
+  private const string SYMBOLS = SqliteCodeGraphStorage::SYMBOLS;
 
   /**
    * The edge table.
    */
-  private const string EDGES = 'droost_search_edge';
+  private const string EDGES = SqliteCodeGraphStorage::EDGES;
 
   /**
    * The kinds a file's outline lists.

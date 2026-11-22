@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Knowledge;
 
+use Droost\Engine\Skills\SkillMdWriter;
 use Droost\Engine\Wiki\FileHasher;
 use Droost\Workflow\Knowledge\Tool\ArchSearchTool;
 use Droost\Workflow\Knowledge\Tool\BriefTool;
@@ -647,7 +648,11 @@ final class DroostCli {
       if ($sentinel === '' || !is_string($skill)) {
         continue;
       }
-      if (preg_match('/^sha256: ([0-9a-f]{64})$/m', $sentinel, $m) === 1 && hash_equals($m[1], hash('sha256', $skill))) {
+      // The sentinel's format is the engine's, read with the engine's
+      // reader: a copy of its pattern here was a second place to be wrong
+      // (F-505).
+      $recorded = SkillMdWriter::recordedHash($sentinel);
+      if ($recorded !== NULL && hash_equals($recorded, hash('sha256', $skill))) {
         @unlink($dir . '/SKILL.md');
         @unlink($dir . '/.droost-skill');
         if (@rmdir($dir)) {

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Knowledge;
 
+use Droost\Engine\Search\Graph\SqliteCodeGraphStorage;
+use Droost\Engine\Search\Storage\SqliteFileManifest;
 use Droost\Workflow\Config\StoragePaths;
 
 /**
@@ -33,12 +35,12 @@ final class CodeIndex {
   /**
    * The symbols table.
    */
-  private const SYMBOLS = 'droost_search_symbol';
+  private const SYMBOLS = SqliteCodeGraphStorage::SYMBOLS;
 
   /**
    * The file manifest table.
    */
-  private const FILES = 'droost_search_file';
+  private const FILES = SqliteFileManifest::TABLE;
 
   /**
    * Constructs a CodeIndex.

@@ -280,6 +280,12 @@ final class WikiStatus {
       if ($summary['ready'] !== TRUE) {
         continue;
       }
+      // The engine caps the summary and says when it did. Read cut, a
+      // contrib module past the cap was out of scope and never asked for a
+      // page, so a cut summary is asked again, whole (F-505).
+      if ($summary['truncated'] === TRUE) {
+        $summary = $this->graph->fanSummary($module, PHP_INT_MAX);
+      }
       foreach ($summary['outbound'] as $edge) {
         $name = $edge['module'];
         if ($name !== '' && $name !== $module && isset($contrib[$name])) {
