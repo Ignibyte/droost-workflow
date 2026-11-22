@@ -88,6 +88,27 @@ final class ArgvDispatcher {
   private ?string $approvedBy = NULL;
 
   /**
+   * The verbs that read or set a lever, report, or free a stuck run.
+   *
+   * None works a ticket, so none stops for a ticket directory that cannot
+   * be read (workItemSourceFor(), F-487).
+   */
+  private const array WITHOUT_TICKETS = [
+    'init', 'status', 'report', 'approval', 'lead', 'swap', 'criteria', 'reset', 'baseline', 'uninstall',
+    'bypass', 'gate-waive', 'effort', 'evidence', 'events', 'rules', 'gate', 'panel', 'say',
+  ];
+
+  /**
+   * The verb being run.
+   */
+  private string $verb = '';
+
+  /**
+   * Whether the arguments name a ticket.
+   */
+  private bool $namesTicket = FALSE;
+
+  /**
    * Constructs an ArgvDispatcher.
    *
    * @param callable(string): void $out
@@ -147,6 +168,8 @@ final class ArgvDispatcher {
     }));
 
     $verb = $argv[0] ?? '';
+    $this->verb = $verb;
+    $this->namesTicket = array_filter($argv, static fn (mixed $word): bool => is_string($word) && str_starts_with($word, '--ticket')) !== [];
     if ($verb === '' || $verb === 'help' || $verb === '--help') {
       $this->usage();
       return $verb === '' ? self::EXIT_USAGE : self::EXIT_OK;
@@ -2670,9 +2693,42 @@ final class ArgvDispatcher {
       NULL,
       // The library's own checks (plan_grounded) are the checks there are.
       CheckAdjudicators::withLibraryChecks(),
-      $this->workItemSource($projectRoot),
+      $this->workItemSourceFor($projectRoot),
       $this->relayFor($projectRoot),
     );
+  }
+
+  /**
+   * The ticket source for the facade, where the verb can do without one.
+   *
+   * Every verb builds a facade, and the facade was handed the project's
+   * tickets, so a ticket directory that cannot be read (reached through a
+   * symlink, a prefix refused) made `status`, `effort` and `reset` exit 2
+   * over tickets none of them reads (F-487). For a verb that reads or sets a
+   * lever, or is the way out of a stuck run, the fault is said in a line
+   * and the command goes on with no tickets. A verb that works a ticket
+   * still stops, with the fault as its answer.
+   *
+   * @param string $projectRoot
+   *   The repository.
+   *
+   * @return \Droost\Workflow\WorkItem\WorkItemSourceInterface|null
+   *   The source, or NULL when there is none or it was done without.
+   *
+   * @throws \Droost\Workflow\WorkItem\WorkItemError
+   *   When the tickets cannot be read and the verb needs them.
+   */
+  private function workItemSourceFor(string $projectRoot): ?WorkItemSourceInterface {
+    try {
+      return $this->workItemSource($projectRoot);
+    }
+    catch (WorkItemError $e) {
+      if (!in_array($this->verb, self::WITHOUT_TICKETS, TRUE) || $this->namesTicket) {
+        throw $e;
+      }
+      $this->fail(sprintf('note: this project\'s tickets could not be read (%s); %s does not need them and goes on.', rtrim($e->getMessage(), '.'), $this->verb));
+      return NULL;
+    }
   }
 
   /**

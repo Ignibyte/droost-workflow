@@ -111,6 +111,31 @@ final class OperatorApprovalTest extends WorkflowTestCase {
   }
 
   /**
+   * A ticket directory that cannot be read stops the ticket verbs only (F-487).
+   *
+   * Every command built the project's ticket source before doing anything,
+   * so a `docs/` that is a symlink (a ticket directory is never reached
+   * through one) made `status`, `effort` and `reset` exit 2 over tickets
+   * none of them reads. The verbs that use tickets still say what is wrong.
+   */
+  public function testUnreadableTicketsStopOnlyTheTicketVerbs(): void {
+    $root = $this->wiredRoot("preset: custom\nwork_item:\n  provider: markdown\n  markdown: { dir: docs/tickets }\n");
+    $elsewhere = $this->makeRoot();
+    mkdir($elsewhere . '/tickets');
+    symlink($elsewhere, $root . '/docs');
+
+    foreach ([['status'], ['effort'], ['baseline', '--status']] as $argv) {
+      [$code, $out] = $this->cli($argv, $root);
+      $this->assertSame(ArgvDispatcher::EXIT_OK, $code, implode(' ', $argv) . ': ' . $out);
+    }
+    foreach ([['ticket', 'list'], ['run', '--ticket=T-1']] as $argv) {
+      [$code, $out] = $this->cli($argv, $root);
+      $this->assertNotSame(ArgvDispatcher::EXIT_OK, $code, implode(' ', $argv));
+      $this->assertStringContainsString('symlink', $out, implode(' ', $argv));
+    }
+  }
+
+  /**
    * Another command, a decline, a stale approval or unwired hooks take nothing.
    */
   public function testOnlyThatCommandFreshAndApproved(): void {
