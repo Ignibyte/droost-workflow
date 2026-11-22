@@ -240,7 +240,10 @@ final class MarkdownWorkItemSource implements WorkItemSourceInterface {
     $content = (string) file_get_contents($file);
     // Only the status line, and only inside the frontmatter: a body that
     // quotes a `status:` line keeps it.
-    if (preg_match('/\A---\R.*?^---[ \t]*$/ms', $content, $front) !== 1
+    // `\r?` before each line's end (F-490): a ticket saved with CRLF line
+    // endings listed and bound, and its status never moved, because `$`
+    // does not match before a carriage return.
+    if (preg_match('/\A---\R.*?^---[ \t]*(?=\r?$)/ms', $content, $front) !== 1
       || preg_match('/^status:[^\r\n]*/m', $front[0]) !== 1) {
       throw WorkItemError::unreadable($item->path, 'no status line in its frontmatter');
     }

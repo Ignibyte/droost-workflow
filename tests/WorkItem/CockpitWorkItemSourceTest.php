@@ -52,6 +52,44 @@ final class CockpitWorkItemSourceTest extends CockpitStubCase {
   }
 
   /**
+   * A cockpit that refuses the token is not a cockpit that is down (F-490).
+   *
+   * The cache stands in when the cockpit cannot be reached. A 401 or a 403
+   * is the cockpit answering, and saying no: read as "down", a token that
+   * had been revoked still bound the ticket from the cache.
+   */
+  public function testRefusedTokenDoesNotBindFromTheCache(): void {
+    [$base] = $this->stub(['items' => ['TICKET-12' => self::item('TICKET-12')]]);
+    $stateDir = $this->makeRoot();
+    (new CockpitWorkItemSource(new CockpitHttp(), $base, self::TOKEN, $stateDir))->get('TICKET-12');
+    $this->assertFileExists($stateDir . '/work-item-TICKET-12.json');
+
+    $revoked = new CockpitWorkItemSource(new CockpitHttp(), $base, 'a-token-nobody-issued', $stateDir);
+    try {
+      $revoked->get('TICKET-12');
+      $this->fail('a refused token bound the ticket from the cache');
+    }
+    catch (WorkItemError $e) {
+      $this->assertStringContainsString('401', $e->getMessage());
+      $this->assertStringNotContainsString('a-token-nobody-issued', $e->getMessage());
+    }
+  }
+
+  /**
+   * An answer is read up to a bound, and no further (F-490).
+   */
+  public function testAnAnswerPastTheBoundIsNotRead(): void {
+    $big = self::item('TICKET-12');
+    $big['description'] = str_repeat('x', CockpitHttp::MAX_BODY + 1024);
+    [$base] = $this->stub(['items' => ['TICKET-12' => $big]]);
+
+    $response = (new CockpitHttp())->request('GET', $base . '/items/TICKET-12', NULL, self::TOKEN);
+
+    $this->assertNull($response['body']);
+    $this->assertStringContainsString('more than', (string) $response['error']);
+  }
+
+  /**
    * List, list by state, and file a ticket, through the API.
    */
   public function testListAndCreate(): void {
