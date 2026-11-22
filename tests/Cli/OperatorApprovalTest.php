@@ -136,6 +136,40 @@ final class OperatorApprovalTest extends WorkflowTestCase {
   }
 
   /**
+   * Four small untruths, each said as it is (F-491).
+   */
+  public function testSmallUntruthsAreCorrected(): void {
+    $root = $this->wiredRoot();
+
+    // `bypass --off` said "the wall was already armed" when the grant was
+    // there and could not be removed: the wall still down, called up.
+    $grant = $this->stateDir($root) . '/bypass.json';
+    file_put_contents($grant, (string) json_encode(['reason' => 'x', 'granted_at' => '2026-10-30T00:00:00+00:00']));
+    chmod($this->stateDir($root), 0555);
+    try {
+      [$code, $out] = $this->cli(['bypass', '--off'], $root);
+    }
+    finally {
+      chmod($this->stateDir($root), 0755);
+    }
+    $this->assertNotSame(ArgvDispatcher::EXIT_OK, $code);
+    $this->assertStringNotContainsString('already armed', $out);
+    $this->assertStringContainsString('still stands', $out);
+
+    // `intake answer` took its first two words and dropped the rest, so an
+    // unquoted answer was recorded as one word of it.
+    [$code, $out] = $this->cli(['intake', 'answer', 'which', 'colour', 'blue'], $root);
+    $this->assertSame(ArgvDispatcher::EXIT_USAGE, $code);
+    $this->assertStringContainsString('split into words', $out);
+
+    // What ships says what is so.
+    $pack = dirname(__DIR__, 2) . '/pack';
+    $this->assertStringContainsString('ddev exec --raw --', (string) file_get_contents($pack . '/skills/intake/SKILL.md'), 'a quoted sentence survives the launcher');
+    $this->assertStringContainsString('`drush droost:tool` lists it', (string) file_get_contents($pack . '/agents/droost-debugger.md'), 'the door a site_tools rule does not count');
+    $this->assertStringNotContainsString('retired Drupal module', (string) file_get_contents($pack . '/templates/evaluation.md'), 'the module is optional, not retired');
+  }
+
+  /**
    * Another command, a decline, a stale approval or unwired hooks take nothing.
    */
   public function testOnlyThatCommandFreshAndApproved(): void {

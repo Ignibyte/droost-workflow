@@ -46,7 +46,10 @@ the error log named in `php -i`, and the failing command run in isolation.
   likelihood — a stale container after a services.yml edit (`drush cr`
   first, always), or a real constructor mismatch that the container's
   exception handling masks; unmask by instantiating the service directly in
-  `drush php:eval`.
+  `drush php:eval`. Where the site's house rules list `site_tools`
+  (`droost workflow:rules`), use the droost module's own tool for running
+  PHP instead (`drush droost:tool` lists it): a raw `php:eval` is counted
+  against the run, and the tool is the same door on the record.
 - **A test that passes alone and fails in the suite:** state leaking between
   tests — look for statics, container mutations, or files left on disk, not
   at the failing test.

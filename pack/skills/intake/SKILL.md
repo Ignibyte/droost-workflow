@@ -32,7 +32,9 @@ decision is good (that is the human's, at approval):
   builds.
 
 The commands are `droost workflow:intake <verb>`. Under DDEV, run them in the
-container (`ddev exec tools/droost/vendor/bin/droost …`).
+container, with `--raw` so a quoted sentence arrives as one argument
+(`ddev exec --raw -- php tools/droost/vendor/bin/droost …`). Plain
+`ddev exec` re-splits it into words.
 
 ## 1. Open the intake
 
