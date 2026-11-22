@@ -20,7 +20,7 @@
         "ext-mbstring": "*",
         "ext-pdo_sqlite": "*",
         "droost/engine": "^1.1",
-        "symfony/yaml": "^6.4 || ^7.0 || ^8.0"
+        "symfony/yaml": "^6.4.50 || ^7.4.23 || ^8.1.11"
     },
     "require-dev": {
         "drupal/coder": "^8.3.31",
