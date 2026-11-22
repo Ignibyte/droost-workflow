@@ -60,6 +60,10 @@ trait KnowledgeFixture {
     $pdo->exec("CREATE TABLE droost_search_symbol (id INTEGER PRIMARY KEY AUTOINCREMENT, fqcn TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL DEFAULT '', file TEXT NOT NULL DEFAULT '', line INTEGER NOT NULL DEFAULT 0, module TEXT NOT NULL DEFAULT '')");
     $pdo->exec("CREATE TABLE droost_search_edge (id INTEGER PRIMARY KEY AUTOINCREMENT, src TEXT NOT NULL DEFAULT '', dst TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL DEFAULT '', file TEXT NOT NULL DEFAULT '')");
     $pdo->exec("CREATE TABLE droost_search_file (file TEXT NOT NULL PRIMARY KEY, hash TEXT NOT NULL DEFAULT '', scope TEXT NOT NULL DEFAULT '', type TEXT NOT NULL DEFAULT '', indexed_at INTEGER NOT NULL DEFAULT 0)");
+    // The stamp a finished build leaves: without it there is no index to
+    // ask (F-497, F-493).
+    $pdo->exec("CREATE TABLE droost_index_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')");
+    $pdo->exec("INSERT INTO droost_index_meta (key, value) VALUES ('indexed_at', '2026-11-21T00:00:00+00:00')");
     $symbol = $pdo->prepare("INSERT INTO droost_search_symbol (fqcn, kind, file, line, module) VALUES (?, 'class', ?, 1, ?)");
     foreach ($symbols as [$fqcn, $file, $module]) {
       $symbol->execute([$fqcn, $file, $module]);

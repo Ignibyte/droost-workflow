@@ -99,6 +99,34 @@ final class CitationResolverTest extends WorkflowTestCase {
   }
 
   /**
+   * An index that cannot answer proves nothing absent (F-493).
+   *
+   * `none: X` is the row that says a duplicate is not about to be built,
+   * and it is proven by asking the index and getting nothing. An index
+   * whose build never finished holds nothing yet, and one whose query
+   * fails was read as "0 matches": both proved any name absent.
+   */
+  public function testNoneIsNotProvenByAnIndexThatCannotAnswer(): void {
+    $root = $this->makeRoot();
+    $this->drupalTree($root);
+    $docroot = CitationResolver::docroot($root);
+    $prefix = CitationResolver::docrootPrefix($root, $docroot);
+    $this->codeIndex($root, [], []);
+    $path = $root . '/droost/droost-workflow/code-index.sqlite';
+    $pdo = new \PDO('sqlite:' . $path);
+
+    // Its build never finished: the tables are there and the stamp is not.
+    $pdo->exec('DELETE FROM droost_index_meta');
+    $this->assertNull((new CitationResolver())->resolveStore('none: QzxvMadeUp', $root, $docroot, $prefix), 'an unfinished index');
+
+    // Finished, and its symbol table is not one that can be asked.
+    $pdo->exec("INSERT INTO droost_index_meta (key, value) VALUES ('indexed_at', '2026-11-21T00:00:00+00:00')");
+    $pdo->exec('ALTER TABLE droost_search_symbol RENAME COLUMN module TO extension');
+    unset($pdo);
+    $this->assertNull((new CitationResolver())->resolveStore('none: QzxvMadeUp', $root, $docroot, $prefix), 'a query that fails');
+  }
+
+  /**
    * A `none:` claim is not a positive citation.
    */
   public function testPositiveCitationsLeaveOutNegatives(): void {
