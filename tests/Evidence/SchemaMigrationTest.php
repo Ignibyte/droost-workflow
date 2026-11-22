@@ -119,6 +119,34 @@ final class SchemaMigrationTest extends TestCase {
   }
 
   /**
+   * A rung half run is finished, not passed over (F-494).
+   *
+   * V4 adds two columns under one `try`, and any failure was taken for "the
+   * column is already there". So where the first one was (a rung another
+   * build got half way through), the second was never added, the rung was
+   * stamped as run, and the store was short a column for good.
+   */
+  public function testHalfRunRungIsFinished(): void {
+    (new EvidenceStore($this->root))->upsertRun('r1', ['preset' => 'medium']);
+    $pdo = $this->raw();
+    $pdo->exec('PRAGMA user_version = 3');
+    $pdo->exec('ALTER TABLE run DROP COLUMN chain_head');
+    unset($pdo);
+
+    (new EvidenceStore($this->root))->upsertRun('r1', ['preset' => 'medium']);
+
+    $columns = [];
+    $info = $this->raw()->query('PRAGMA table_info(run)');
+    $this->assertNotFalse($info);
+    foreach ($info->fetchAll(\PDO::FETCH_ASSOC) as $column) {
+      $this->assertIsArray($column);
+      $columns[] = $column['name'] ?? NULL;
+    }
+    $this->assertContains('chain_head', $columns, 'the second column of the rung was added');
+    $this->assertSame(EvidenceStore::SCHEMA_VERSION, $this->version());
+  }
+
+  /**
    * An existing store gains the guard ledger's tool column.
    *
    * The v7-and-earlier rows keep a NULL tool, which is what makes them
