@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Droost\Workflow\Tests\Knowledge;
 
+use Droost\Engine\Search\Graph\SqliteCodeGraphStorage;
 use Droost\Workflow\Config\StoragePaths;
 use Droost\Workflow\Config\WorkflowConfig;
 use Droost\Workflow\Evidence\EvidenceStore;
@@ -386,6 +387,47 @@ final class DroostCliTest extends TestCase {
     $scopes = array_column(Site::fromProjectRoot($this->root)->docs->index(), 'scope', 'module');
 
     $this->assertSame('contrib', $scopes['webform'] ?? NULL);
+  }
+
+  /**
+   * An index whose build never finished is not an index (F-497).
+   *
+   * "Built" meant "the table exists", and the tables are made before the
+   * first file is read: while `code:index` ran, or after it was killed,
+   * every lookup answered from an empty or partial index as if it were
+   * whole. The build stamps the index when it finishes, and that is asked.
+   */
+  public function testHalfBuiltIndexIsNotAnswered(): void {
+    $path = StoragePaths::index($this->root);
+    if (!is_dir(dirname($path))) {
+      mkdir(dirname($path), 0755, TRUE);
+    }
+    (new SqliteCodeGraphStorage(new \PDO('sqlite:' . $path)))->ensureSchema();
+
+    $this->droost(['code:symbol', 'Greeter']);
+
+    $said = implode("\n", $this->out);
+    $this->assertStringContainsString('droost code:index', $said);
+    $this->assertStringNotContainsString('0 symbol', $said);
+  }
+
+  /**
+   * An index that cannot be read says so, and what to run (F-497).
+   */
+  public function testUnreadableIndexSaysWhatToRun(): void {
+    $path = StoragePaths::index($this->root);
+    if (!is_dir(dirname($path))) {
+      mkdir(dirname($path), 0755, TRUE);
+    }
+    file_put_contents($path, str_repeat('not a database ', 400));
+
+    foreach ([['code:symbol', 'Greeter'], ['search:code', 'greeter'], ['code:tree']] as $argv) {
+      $this->out = [];
+      $this->droost($argv);
+      $said = implode("\n", $this->out);
+      $this->assertStringNotContainsString('SQLSTATE', $said, implode(' ', $argv));
+      $this->assertStringContainsString('droost code:index', $said, implode(' ', $argv));
+    }
   }
 
   /**

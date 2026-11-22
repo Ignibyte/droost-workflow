@@ -286,6 +286,21 @@ final class DroostCli {
     try {
       $answer = $tool->answer($arguments, Site::fromProjectRoot($root));
     }
+    catch (\PDOException $e) {
+      // The index is the only database a knowledge command reads. One that
+      // will not open or answer (a build killed mid-write, a file that is
+      // not a database) was reported as a raw driver error, which says
+      // nothing about what to do (F-497).
+      $answer = [
+        'success' => FALSE,
+        'message' => sprintf(
+          '%s could not read the code index (%s). Run `droost code:index` to rebuild it, with `--full` if it still will not read.',
+          $command,
+          trim((string) preg_replace('/^SQLSTATE\[[^\]]*\]:?\s*/', '', $e->getMessage())),
+        ),
+        'data' => NULL,
+      ];
+    }
     catch (\Throwable $e) {
       $answer = [
         'success' => FALSE,
